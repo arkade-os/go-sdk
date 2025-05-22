@@ -1,0 +1,46 @@
+name: ci_unit
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test-sdk:
+    name: Sdk unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '>=1.23.1'
+
+      - name: Check for changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "Changes detected after running go work sync and go mod tidy"
+            git diff
+            exit 1
+          fi
+
+      - name: Install deps
+        run: go mod download
+
+      - name: Check linting
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.61
+          args: --timeout 5m --skip-files=.*_test.go
+
+      - name: Check code integrity
+        uses: securego/gosec@master
+        with:
+          args: '-severity high -quiet -exclude=G115 ./...'
+
+      - name: Check unit tests
+        run: make test
