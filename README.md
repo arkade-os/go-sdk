@@ -1,10 +1,10 @@
-## Ark Go SDK
+## Arkade Go SDK
 
 The complete API documentation for the Go SDK is automatically generated and published on **pkg.go.dev** with each GitHub release. To view the documentation, visit: [https://pkg.go.dev/github.com/ark-network/sdk](https://pkg.go.dev/github.com/ark-network/sdk)
 
 ## Installation
 
-To install the Ark Go SDK, use the following command:
+To install the Arkade Go SDK, use the following command:
 
 ```bash
 go get github.com/ark-network/sdk
@@ -12,7 +12,7 @@ go get github.com/ark-network/sdk
 
 ## Usage
 
-Here's a comprehensive guide on how to use the Ark Go SDK:
+Here's a comprehensive guide on how to use the Arkade Go SDK:
 
 ### 1. Setting up the Ark Client
 
@@ -227,7 +227,7 @@ log.Infof("Redeemed with tx: %s", txid)
 
 ## Full Example
 
-For a complete end-to-end example demonstrating the usage of the Ark Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/ark-network/go-sdk/blob/master/example/alice_to_bob.go).
+For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/ark-network/go-sdk/blob/master/example/alice_to_bob.go).
 
 ## Support
 

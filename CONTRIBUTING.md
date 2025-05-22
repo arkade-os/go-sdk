@@ -1,6 +1,6 @@
-# Contributing to Ark Go SDK
+# Contributing to Arkade Go SDK
 
-Thank you for your interest in contributing to the Ark Go SDK! We welcome contributions of all kinds—whether it’s reporting bugs, suggesting enhancements, improving documentation, or submitting pull requests.
+Thank you for your interest in contributing to the Arkade Go SDK! We welcome contributions of all kinds—whether it’s reporting bugs, suggesting enhancements, improving documentation, or submitting pull requests.
 
 ## Getting Started
 
@@ -99,4 +99,4 @@ Thank you for your interest in contributing to the Ark Go SDK! We welcome contri
 
 ---
 
-Thanks again for helping improve **Ark Go SDK**! We appreciate your time and effort.
+Thanks again for helping improve **Arkade Go SDK**! We appreciate your time and effort.
