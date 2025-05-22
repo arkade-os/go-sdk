@@ -1,0 +1,9 @@
+version: v1
+plugins:
+  # Golang
+  - plugin: go
+    out: api-spec/protobuf/gen
+    opt: paths=source_relative
+  #OpenApi
+  - plugin: openapiv2
+    out: api-spec/openapi/swagger

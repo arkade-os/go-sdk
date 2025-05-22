@@ -3,15 +3,37 @@
 ark_client_dir = $(or $(REST_DIR),$(PWD)/client/rest/service)
 indexer_client_dir = $(or $(REST_DIR),$(PWD)/indexer/rest/service)
 
+GOLANGCI_LINT ?= $(shell \
+	if command -v golangci-lint >/dev/null 2>&1; then \
+	  echo golangci-lint; \
+	else \
+	  echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:latest golangci-lint"; \
+	fi \
+)
+
+SWAGGER ?= $(shell \
+  if command -v swagger >/dev/null 2>&1; then \
+    echo swagger; \
+  else \
+    echo "docker run --rm \
+      -v $$(PWD):/work -w /work \
+      quay.io/goswagger/swagger:latest"; \
+  fi \
+)
+
+proto:
+	@echo "Compiling stubs..."
+	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate buf.build/arkade-os/arkd
+
 ## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
 genrest:
 	@echo "Cleaning existing files..."
 	@rm -rf $(ark_client_dir) $(indexer_client_dir)
 	@echo "Generating rest client from stub..."
 	@mkdir -p $(ark_client_dir) $(indexer_client_dir)
-	@swagger generate client -f ../../api-spec/openapi/swagger/ark/v1/service.swagger.json -t $(ark_client_dir) --client-package=arkservice
-	@swagger generate client -f ../../api-spec/openapi/swagger/ark/v1/explorer.swagger.json -t $(ark_client_dir) --client-package=explorerservice
-	@swagger generate client -f ../../api-spec/openapi/swagger/ark/v1/indexer.swagger.json -t $(indexer_client_dir) --client-package=indexerservice
+	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/service.swagger.json -t $(ark_client_dir) --client-package=arkservice
+	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/explorer.swagger.json -t $(ark_client_dir) --client-package=explorerservice
+	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/indexer.swagger.json -t $(indexer_client_dir) --client-package=indexerservice
 
 ## test: runs unit tests
 test:
@@ -26,7 +48,7 @@ vet:
 ## lint: lint codebase
 lint:
 	@echo "Linting code..."
-	@golangci-lint run --fix
+	@$(GOLANGCI_LINT) run --fix
 
 ## migrate: creates sqlite migration file(eg. make FILE=init migrate)
 migrate:

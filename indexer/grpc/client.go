@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	arkv1 "github.com/ark-network/ark/api-spec/protobuf/gen/ark/v1"
 	"github.com/ark-network/ark/common/tree"
+	arkv1 "github.com/ark-network/sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/ark-network/sdk/indexer"
 	"github.com/ark-network/sdk/internal/utils"
 	"google.golang.org/grpc"
