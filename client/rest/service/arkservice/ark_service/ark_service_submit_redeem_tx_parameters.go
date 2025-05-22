@@ -15,7 +15,7 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/ark-network/sdk/client/rest/service/models"
+	"github.com/arkade-os/sdk/client/rest/service/models"
 )
 
 // NewArkServiceSubmitRedeemTxParams creates a new ArkServiceSubmitRedeemTxParams object,

@@ -2,7 +2,7 @@ package explorer
 
 import (
 	"github.com/ark-network/ark/common"
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/types"
 )
 
 type spentStatus struct {

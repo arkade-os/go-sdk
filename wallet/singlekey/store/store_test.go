@@ -3,10 +3,10 @@ package store_test
 import (
 	"testing"
 
-	"github.com/ark-network/sdk/types"
-	walletstore "github.com/ark-network/sdk/wallet/singlekey/store"
-	filestore "github.com/ark-network/sdk/wallet/singlekey/store/file"
-	inmemorystore "github.com/ark-network/sdk/wallet/singlekey/store/inmemory"
+	"github.com/arkade-os/sdk/types"
+	walletstore "github.com/arkade-os/sdk/wallet/singlekey/store"
+	filestore "github.com/arkade-os/sdk/wallet/singlekey/store/file"
+	inmemorystore "github.com/arkade-os/sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )

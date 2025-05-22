@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/ark-network/ark/common/tree"
-	arkv1 "github.com/ark-network/sdk/api-spec/protobuf/gen/ark/v1"
-	"github.com/ark-network/sdk/client"
+	arkv1 "github.com/arkade-os/sdk/api-spec/protobuf/gen/ark/v1"
+	"github.com/arkade-os/sdk/client"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 

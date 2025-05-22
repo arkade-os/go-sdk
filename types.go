@@ -3,11 +3,11 @@ package arksdk
 import (
 	"fmt"
 
-	"github.com/ark-network/sdk/client"
-	grpcclient "github.com/ark-network/sdk/client/grpc"
-	restclient "github.com/ark-network/sdk/client/rest"
-	"github.com/ark-network/sdk/internal/utils"
-	"github.com/ark-network/sdk/wallet"
+	"github.com/arkade-os/sdk/client"
+	grpcclient "github.com/arkade-os/sdk/client/grpc"
+	restclient "github.com/arkade-os/sdk/client/rest"
+	"github.com/arkade-os/sdk/internal/utils"
+	"github.com/arkade-os/sdk/wallet"
 )
 
 var (

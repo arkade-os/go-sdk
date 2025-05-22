@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/ark-network/ark/common/tree"
-	arkv1 "github.com/ark-network/sdk/api-spec/protobuf/gen/ark/v1"
-	"github.com/ark-network/sdk/client"
-	"github.com/ark-network/sdk/internal/utils"
+	arkv1 "github.com/arkade-os/sdk/api-spec/protobuf/gen/ark/v1"
+	"github.com/arkade-os/sdk/client"
+	"github.com/arkade-os/sdk/internal/utils"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

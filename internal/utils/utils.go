@@ -10,8 +10,8 @@ import (
 	"sync"
 
 	"github.com/ark-network/ark/common"
-	"github.com/ark-network/sdk/client"
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/client"
+	"github.com/arkade-os/sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"

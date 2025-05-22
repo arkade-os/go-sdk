@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/ark-network/ark/common/tree"
-	"github.com/ark-network/sdk/client"
-	"github.com/ark-network/sdk/explorer"
+	"github.com/arkade-os/sdk/client"
+	"github.com/arkade-os/sdk/explorer"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 )
 

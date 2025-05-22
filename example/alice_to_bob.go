@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	arksdk "github.com/ark-network/sdk"
-	"github.com/ark-network/sdk/store"
-	"github.com/ark-network/sdk/types"
+	arksdk "github.com/arkade-os/sdk"
+	"github.com/arkade-os/sdk/store"
+	"github.com/arkade-os/sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 

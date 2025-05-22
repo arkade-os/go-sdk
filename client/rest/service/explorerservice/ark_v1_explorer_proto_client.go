@@ -10,7 +10,7 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/ark-network/sdk/client/rest/service/explorerservice/explorer_service"
+	"github.com/arkade-os/sdk/client/rest/service/explorerservice/explorer_service"
 )
 
 // Default ark v1 explorer proto HTTP client.

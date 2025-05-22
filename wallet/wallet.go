@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/ark-network/ark/common/tree"
-	"github.com/ark-network/sdk/explorer"
+	"github.com/arkade-os/sdk/explorer"
 )
 
 const (

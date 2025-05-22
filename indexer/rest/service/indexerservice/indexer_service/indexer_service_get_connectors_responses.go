@@ -13,7 +13,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/ark-network/sdk/indexer/rest/service/models"
+	"github.com/arkade-os/sdk/indexer/rest/service/models"
 )
 
 // IndexerServiceGetConnectorsReader is a Reader for the IndexerServiceGetConnectors structure.

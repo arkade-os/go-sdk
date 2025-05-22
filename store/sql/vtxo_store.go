@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ark-network/sdk/store/sql/sqlc/queries"
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/store/sql/sqlc/queries"
+	"github.com/arkade-os/sdk/types"
 )
 
 type vtxoRepository struct {

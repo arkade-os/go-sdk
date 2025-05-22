@@ -1,4 +1,4 @@
-module github.com/ark-network/sdk
+module github.com/arkade-os/sdk
 
 go 1.23.1
 

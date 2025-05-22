@@ -3,8 +3,8 @@ package arksdk
 import (
 	"context"
 
-	"github.com/ark-network/sdk/client"
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/client"
+	"github.com/arkade-os/sdk/types"
 )
 
 type Option func(options interface{}) error

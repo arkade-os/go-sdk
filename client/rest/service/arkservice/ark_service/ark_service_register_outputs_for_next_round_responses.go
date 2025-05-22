@@ -13,7 +13,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/ark-network/sdk/client/rest/service/models"
+	"github.com/arkade-os/sdk/client/rest/service/models"
 )
 
 // ArkServiceRegisterOutputsForNextRoundReader is a Reader for the ArkServiceRegisterOutputsForNextRound structure.

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	walletstore "github.com/ark-network/sdk/wallet/singlekey/store"
+	walletstore "github.com/arkade-os/sdk/wallet/singlekey/store"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ark-network/sdk/client"
+	"github.com/arkade-os/sdk/client"
 )
 
 type SupportedType[V any] map[string]V

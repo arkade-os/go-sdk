@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/types"
 )
 
 type store struct {

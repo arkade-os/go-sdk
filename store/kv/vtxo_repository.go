@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/timshannon/badgerhold/v4"

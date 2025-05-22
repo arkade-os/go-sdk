@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/ark-network/sdk/types"
+	"github.com/arkade-os/sdk/types"
 )
 
 const (

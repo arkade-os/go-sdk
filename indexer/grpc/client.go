@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/ark-network/ark/common/tree"
-	arkv1 "github.com/ark-network/sdk/api-spec/protobuf/gen/ark/v1"
-	"github.com/ark-network/sdk/indexer"
-	"github.com/ark-network/sdk/internal/utils"
+	arkv1 "github.com/arkade-os/sdk/api-spec/protobuf/gen/ark/v1"
+	"github.com/arkade-os/sdk/indexer"
+	"github.com/arkade-os/sdk/internal/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"

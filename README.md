@@ -1,13 +1,13 @@
 ## Arkade Go SDK
 
-The complete API documentation for the Go SDK is automatically generated and published on **pkg.go.dev** with each GitHub release. To view the documentation, visit: [https://pkg.go.dev/github.com/ark-network/sdk](https://pkg.go.dev/github.com/ark-network/sdk)
+The complete API documentation for the Go SDK is automatically generated and published on **pkg.go.dev** with each GitHub release. To view the documentation, visit: [https://pkg.go.dev/github.com/arkade-os/sdk](https://pkg.go.dev/github.com/arkade-os/sdk)
 
 ## Installation
 
 To install the Arkade Go SDK, use the following command:
 
 ```bash
-go get github.com/ark-network/sdk
+go get github.com/arkade-os/sdk
 ```
 
 ## Usage
@@ -24,8 +24,8 @@ The code snippet below demonstrates how to set up an Ark client with in-memory s
 
 ```go
 import (
-    arksdk "github.com/ark-network/sdk"
-    inmemorystore "github.com/ark-network/sdk/store/inmemory"
+    arksdk "github.com/arkade-os/sdk"
+    inmemorystore "github.com/arkade-os/sdk/store/inmemory"
 )
 
 func setupInMemoryArkClient() (arksdk.ArkClient, error) {
@@ -60,8 +60,8 @@ For production use, it's recommended to use persistent storage. Here's how you c
 
 ```go
 import (
-    arksdk "github.com/ark-network/sdk"
-    filestore "github.com/ark-network/sdk/store/file"
+    arksdk "github.com/arkade-os/sdk"
+    filestore "github.com/arkade-os/sdk/store/file"
 )
 
 func setupFileBasedArkClient() (arksdk.ArkClient, error) {
