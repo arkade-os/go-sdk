@@ -18,9 +18,6 @@ import (
 // swagger:model v1GetInfoResponse
 type V1GetInfoResponse struct {
 
-	// boarding descriptor template
-	BoardingDescriptorTemplate string `json:"boardingDescriptorTemplate,omitempty"`
-
 	// boarding exit delay
 	BoardingExitDelay string `json:"boardingExitDelay,omitempty"`
 
@@ -36,11 +33,11 @@ type V1GetInfoResponse struct {
 	// network
 	Network string `json:"network,omitempty"`
 
-	// pubkey
-	Pubkey string `json:"pubkey,omitempty"`
-
 	// round interval
 	RoundInterval string `json:"roundInterval,omitempty"`
+
+	// signer pubkey
+	SignerPubkey string `json:"signerPubkey,omitempty"`
 
 	// unilateral exit delay
 	UnilateralExitDelay string `json:"unilateralExitDelay,omitempty"`
@@ -48,19 +45,16 @@ type V1GetInfoResponse struct {
 	// -1 means no limit (default), 0 means boarding not allowed
 	UtxoMaxAmount string `json:"utxoMaxAmount,omitempty"`
 
-	// -1 means native dust limit (default)
+	// utxo min amount
 	UtxoMinAmount string `json:"utxoMinAmount,omitempty"`
 
 	// version
 	Version string `json:"version,omitempty"`
 
-	// vtxo descriptor templates
-	VtxoDescriptorTemplates []string `json:"vtxoDescriptorTemplates"`
-
 	// -1 means no limit (default)
 	VtxoMaxAmount string `json:"vtxoMaxAmount,omitempty"`
 
-	// -1 means native dust limit (default)
+	// vtxo min amount
 	VtxoMinAmount string `json:"vtxoMinAmount,omitempty"`
 
 	// vtxo tree expiry

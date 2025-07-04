@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"time"
 
 	"github.com/ark-network/ark/common"
+	"github.com/ark-network/ark/common/script"
 	"github.com/arkade-os/sdk/client"
 	"github.com/arkade-os/sdk/explorer"
 	"github.com/arkade-os/sdk/indexer"
@@ -20,7 +20,6 @@ import (
 	filestore "github.com/arkade-os/sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/sdk/wallet/singlekey/store/inmemory"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -63,6 +62,10 @@ type arkClient struct {
 	txStreamCtxCancel context.CancelFunc
 }
 
+func (a *arkClient) GetVersion() string {
+	return Version
+}
+
 func (a *arkClient) GetConfigData(
 	_ context.Context,
 ) (*types.Config, error) {
@@ -101,21 +104,21 @@ func (a *arkClient) Dump(ctx context.Context) (string, error) {
 	return a.wallet.Dump(ctx)
 }
 
-func (a *arkClient) Receive(ctx context.Context) (string, string, error) {
+func (a *arkClient) Receive(ctx context.Context) (string, string, string, error) {
 	if a.wallet == nil {
-		return "", "", fmt.Errorf("wallet not initialized")
+		return "", "", "", fmt.Errorf("wallet not initialized")
 	}
 
-	offchainAddr, boardingAddr, err := a.wallet.NewAddress(ctx, false)
+	onchainAddr, offchainAddr, boardingAddr, err := a.wallet.NewAddress(ctx, false)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	if a.UtxoMaxAmount == 0 {
 		boardingAddr.Address = ""
 	}
 
-	return offchainAddr.Address, boardingAddr.Address, nil
+	return onchainAddr, offchainAddr.Address, boardingAddr.Address, nil
 }
 
 func (a *arkClient) GetTransactionEventChannel(_ context.Context) chan types.TransactionEvent {
@@ -156,22 +159,42 @@ func (a *arkClient) Stop() {
 	a.store.Close()
 }
 
-func (a *arkClient) ListVtxos(
-	ctx context.Context,
-) (spendableVtxos, spentVtxos []client.Vtxo, err error) {
-	offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+func (a *arkClient) ListVtxos(ctx context.Context) (
+	spendableVtxos, spentVtxos []types.Vtxo, err error,
+) {
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return
 	}
 
+	scripts := make([]string, 0, len(offchainAddrs))
 	for _, addr := range offchainAddrs {
-		spendable, spent, err := a.client.ListVtxos(ctx, addr.Address)
+		decoded, err := common.DecodeAddressV0(addr.Address)
 		if err != nil {
 			return nil, nil, err
 		}
+		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		scripts = append(scripts, hex.EncodeToString(vtxoScript))
+	}
+	opt := indexer.GetVtxosRequestOption{}
+	if err = opt.WithScripts(scripts); err != nil {
+		return
+	}
 
-		spendableVtxos = append(spendableVtxos, spendable...)
-		spentVtxos = append(spentVtxos, spent...)
+	resp, err := a.indexer.GetVtxos(ctx, opt)
+	if err != nil {
+		return
+	}
+
+	for _, vtxo := range resp.Vtxos {
+		if vtxo.Spent || vtxo.Swept || vtxo.Unrolled {
+			spentVtxos = append(spentVtxos, vtxo)
+			continue
+		}
+		spendableVtxos = append(spendableVtxos, vtxo)
 	}
 
 	return
@@ -184,24 +207,37 @@ func (a *arkClient) NotifyIncomingFunds(
 		return nil, fmt.Errorf("wallet not initialized")
 	}
 
-	eventCh, closeFn, err := a.client.SubscribeForAddress(ctx, addr)
+	decoded, err := common.DecodeAddressV0(addr)
 	if err != nil {
 		return nil, err
 	}
-	defer closeFn()
+	vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
+	if err != nil {
+		return nil, err
+	}
+
+	scripts := []string{hex.EncodeToString(vtxoScript)}
+	subId, err := a.indexer.SubscribeForScripts(ctx, "", scripts)
+	if err != nil {
+		return nil, err
+	}
+
+	eventCh, closeFn, err := a.indexer.GetSubscription(ctx, subId)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		// nolint
+		a.indexer.UnsubscribeForScripts(ctx, subId, scripts)
+		closeFn()
+	}()
 
 	event := <-eventCh
 
 	if event.Err != nil {
-		err = event.Err
-		return nil, err
+		return nil, event.Err
 	}
-
-	incomingVtxos := make([]types.Vtxo, 0)
-	for _, vtxo := range event.NewVtxos {
-		incomingVtxos = append(incomingVtxos, toTypesVtxo(vtxo))
-	}
-	return incomingVtxos, nil
+	return event.NewVtxos, nil
 }
 
 func (a *arkClient) initWithWallet(
@@ -235,11 +271,11 @@ func (a *arkClient) initWithWallet(
 
 	network := utils.NetworkFromString(info.Network)
 
-	buf, err := hex.DecodeString(info.PubKey)
+	buf, err := hex.DecodeString(info.SignerPubKey)
 	if err != nil {
-		return fmt.Errorf("failed to parse server pubkey: %s", err)
+		return fmt.Errorf("failed to parse signer pubkey: %s", err)
 	}
-	serverPubkey, err := secp256k1.ParsePubKey(buf)
+	signerPubkey, err := secp256k1.ParsePubKey(buf)
 	if err != nil {
 		return fmt.Errorf("failed to parse server pubkey: %s", err)
 	}
@@ -260,28 +296,33 @@ func (a *arkClient) initWithWallet(
 	}
 
 	storeData := types.Config{
-		ServerUrl:                  args.ServerUrl,
-		ServerPubKey:               serverPubkey,
-		WalletType:                 args.Wallet.GetType(),
-		ClientType:                 args.ClientType,
-		Network:                    network,
-		VtxoTreeExpiry:             common.RelativeLocktime{Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry)},
-		RoundInterval:              info.RoundInterval,
-		UnilateralExitDelay:        common.RelativeLocktime{Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay)},
-		Dust:                       info.Dust,
-		BoardingExitDelay:          common.RelativeLocktime{Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay)},
-		BoardingDescriptorTemplate: info.BoardingDescriptorTemplate,
-		ForfeitAddress:             info.ForfeitAddress,
-		WithTransactionFeed:        args.WithTransactionFeed,
-		MarketHourStartTime:        info.MarketHourStartTime,
-		MarketHourEndTime:          info.MarketHourEndTime,
-		MarketHourPeriod:           info.MarketHourPeriod,
-		MarketHourRoundInterval:    info.MarketHourRoundInterval,
-		ExplorerURL:                explorerSvc.BaseUrl(),
-		UtxoMinAmount:              info.UtxoMinAmount,
-		UtxoMaxAmount:              info.UtxoMaxAmount,
-		VtxoMinAmount:              info.VtxoMinAmount,
-		VtxoMaxAmount:              info.VtxoMaxAmount,
+		ServerUrl:    args.ServerUrl,
+		SignerPubKey: signerPubkey,
+		WalletType:   args.Wallet.GetType(),
+		ClientType:   args.ClientType,
+		Network:      network,
+		VtxoTreeExpiry: common.RelativeLocktime{
+			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
+		},
+		RoundInterval: info.RoundInterval,
+		UnilateralExitDelay: common.RelativeLocktime{
+			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
+		},
+		Dust: info.Dust,
+		BoardingExitDelay: common.RelativeLocktime{
+			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
+		},
+		ForfeitAddress:          info.ForfeitAddress,
+		WithTransactionFeed:     args.WithTransactionFeed,
+		MarketHourStartTime:     info.MarketHourStartTime,
+		MarketHourEndTime:       info.MarketHourEndTime,
+		MarketHourPeriod:        info.MarketHourPeriod,
+		MarketHourRoundInterval: info.MarketHourRoundInterval,
+		ExplorerURL:             explorerSvc.BaseUrl(),
+		UtxoMinAmount:           info.UtxoMinAmount,
+		UtxoMaxAmount:           info.UtxoMaxAmount,
+		VtxoMinAmount:           info.VtxoMinAmount,
+		VtxoMaxAmount:           info.VtxoMaxAmount,
 	}
 	if err := a.store.ConfigStore().AddData(ctx, storeData); err != nil {
 		return err
@@ -333,11 +374,11 @@ func (a *arkClient) init(
 
 	network := utils.NetworkFromString(info.Network)
 
-	buf, err := hex.DecodeString(info.PubKey)
+	buf, err := hex.DecodeString(info.SignerPubKey)
 	if err != nil {
-		return fmt.Errorf("failed to parse server pubkey: %s", err)
+		return fmt.Errorf("failed to parse signer pubkey: %s", err)
 	}
-	serverPubkey, err := secp256k1.ParsePubKey(buf)
+	signerPubkey, err := secp256k1.ParsePubKey(buf)
 	if err != nil {
 		return fmt.Errorf("failed to parse server pubkey: %s", err)
 	}
@@ -358,28 +399,33 @@ func (a *arkClient) init(
 	}
 
 	cfgData := types.Config{
-		ServerUrl:                  args.ServerUrl,
-		ServerPubKey:               serverPubkey,
-		WalletType:                 args.WalletType,
-		ClientType:                 args.ClientType,
-		Network:                    network,
-		VtxoTreeExpiry:             common.RelativeLocktime{Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry)},
-		RoundInterval:              info.RoundInterval,
-		UnilateralExitDelay:        common.RelativeLocktime{Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay)},
-		Dust:                       info.Dust,
-		BoardingExitDelay:          common.RelativeLocktime{Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay)},
-		BoardingDescriptorTemplate: info.BoardingDescriptorTemplate,
-		ExplorerURL:                explorerSvc.BaseUrl(),
-		ForfeitAddress:             info.ForfeitAddress,
-		WithTransactionFeed:        args.WithTransactionFeed,
-		MarketHourStartTime:        info.MarketHourStartTime,
-		MarketHourEndTime:          info.MarketHourEndTime,
-		MarketHourPeriod:           info.MarketHourPeriod,
-		MarketHourRoundInterval:    info.MarketHourRoundInterval,
-		UtxoMinAmount:              info.UtxoMinAmount,
-		UtxoMaxAmount:              info.UtxoMaxAmount,
-		VtxoMinAmount:              info.VtxoMinAmount,
-		VtxoMaxAmount:              info.VtxoMaxAmount,
+		ServerUrl:    args.ServerUrl,
+		SignerPubKey: signerPubkey,
+		WalletType:   args.WalletType,
+		ClientType:   args.ClientType,
+		Network:      network,
+		VtxoTreeExpiry: common.RelativeLocktime{
+			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
+		},
+		RoundInterval: info.RoundInterval,
+		UnilateralExitDelay: common.RelativeLocktime{
+			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
+		},
+		Dust: info.Dust,
+		BoardingExitDelay: common.RelativeLocktime{
+			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
+		},
+		ExplorerURL:             explorerSvc.BaseUrl(),
+		ForfeitAddress:          info.ForfeitAddress,
+		WithTransactionFeed:     args.WithTransactionFeed,
+		MarketHourStartTime:     info.MarketHourStartTime,
+		MarketHourEndTime:       info.MarketHourEndTime,
+		MarketHourPeriod:        info.MarketHourPeriod,
+		MarketHourRoundInterval: info.MarketHourRoundInterval,
+		UtxoMinAmount:           info.UtxoMinAmount,
+		UtxoMaxAmount:           info.UtxoMaxAmount,
+		VtxoMinAmount:           info.VtxoMinAmount,
+		VtxoMaxAmount:           info.VtxoMaxAmount,
 	}
 	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
 	if err != nil {
@@ -403,25 +449,6 @@ func (a *arkClient) init(
 	a.indexer = indexerSvc
 
 	return nil
-}
-
-func (a *arkClient) ping(
-	ctx context.Context, requestID string,
-) func() {
-	ticker := time.NewTicker(5 * time.Second)
-
-	go func(t *time.Ticker) {
-		if err := a.client.Ping(ctx, requestID); err != nil {
-			logrus.Warnf("failed to ping server: %s", err)
-		}
-		for range t.C {
-			if err := a.client.Ping(ctx, requestID); err != nil {
-				logrus.Warnf("failed to ping server: %s", err)
-			}
-		}
-	}(ticker)
-
-	return ticker.Stop
 }
 
 func (a *arkClient) safeCheck() error {
@@ -462,7 +489,8 @@ func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
 }
 
 func getWallet(
-	configStore types.ConfigStore, data *types.Config, supportedWallets utils.SupportedType[struct{}],
+	configStore types.ConfigStore, data *types.Config,
+	supportedWallets utils.SupportedType[struct{}],
 ) (wallet.WalletService, error) {
 	switch data.WalletType {
 	case wallet.SingleKeyWallet:
@@ -495,11 +523,11 @@ func getWalletStore(storeType, datadir string) (walletstore.WalletStore, error) 
 	}
 }
 
-func filterByOutpoints(vtxos []client.Vtxo, outpoints []client.Outpoint) []client.Vtxo {
-	filtered := make([]client.Vtxo, 0, len(vtxos))
+func filterByOutpoints(vtxos []types.Vtxo, outpoints []types.Outpoint) []types.Vtxo {
+	filtered := make([]types.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		for _, outpoint := range outpoints {
-			if vtxo.Equals(outpoint) {
+			if vtxo.Outpoint == outpoint {
 				filtered = append(filtered, vtxo)
 			}
 		}

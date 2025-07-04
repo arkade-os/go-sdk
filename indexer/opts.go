@@ -19,33 +19,34 @@ func (o *RequestOption) GetPage() *PageRequest {
 
 type GetVtxosRequestOption struct {
 	RequestOption
-	addresses     []string
-	outpoints     []Outpoint
-	spentOnly     bool
-	spendableOnly bool
+	scripts         []string
+	outpoints       []Outpoint
+	spentOnly       bool
+	spendableOnly   bool
+	recoverableOnly bool
 }
 
-func (o *GetVtxosRequestOption) WithAddresses(addresses []string) error {
-	if o.addresses != nil {
-		return fmt.Errorf("addresses already set")
+func (o *GetVtxosRequestOption) WithScripts(scripts []string) error {
+	if o.scripts != nil {
+		return fmt.Errorf("scripts already set")
 	}
 	if o.outpoints != nil {
 		return fmt.Errorf("outpoints already set")
 	}
-	o.addresses = addresses
+	o.scripts = scripts
 	return nil
 }
 
-func (o *GetVtxosRequestOption) GetAddresses() []string {
-	return o.addresses
+func (o *GetVtxosRequestOption) GetScripts() []string {
+	return o.scripts
 }
 
 func (o *GetVtxosRequestOption) WithOutpoints(outpoints []Outpoint) error {
 	if o.outpoints != nil {
 		return fmt.Errorf("outpoints already set")
 	}
-	if o.addresses != nil {
-		return fmt.Errorf("addresses already set")
+	if o.scripts != nil {
+		return fmt.Errorf("scripts already set")
 	}
 	o.outpoints = outpoints
 	return nil
@@ -59,20 +60,28 @@ func (o *GetVtxosRequestOption) GetOutpoints() []string {
 	return outs
 }
 
-func (o *GetVtxosRequestOption) WithSpentOnly(spentOnly bool) {
-	o.spentOnly = spentOnly
+func (o *GetVtxosRequestOption) WithSpentOnly() {
+	o.spentOnly = true
 }
 
 func (o *GetVtxosRequestOption) GetSpentOnly() bool {
 	return o.spentOnly
 }
 
-func (o *GetVtxosRequestOption) WithSpendableOnly(spendableOnly bool) {
-	o.spendableOnly = spendableOnly
+func (o *GetVtxosRequestOption) WithSpendableOnly() {
+	o.spendableOnly = true
 }
 
 func (o *GetVtxosRequestOption) GetSpendableOnly() bool {
 	return o.spendableOnly
+}
+
+func (o *GetVtxosRequestOption) WithRecoverableOnly() {
+	o.recoverableOnly = true
+}
+
+func (o *GetVtxosRequestOption) GetRecoverableOnly() bool {
+	return o.recoverableOnly
 }
 
 type GetTxHistoryRequestOption struct {

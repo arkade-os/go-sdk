@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -41,10 +40,6 @@ func main() {
 		}
 	}()
 
-	if err := setupArkd(); err != nil {
-		log.Fatal(err)
-	}
-
 	log.Info("alice is setting up her ark wallet...")
 
 	aliceArkClient, err = setupArkClient()
@@ -61,12 +56,12 @@ func main() {
 	defer aliceArkClient.Lock(ctx)
 
 	log.Info("alice is acquiring onchain funds...")
-	_, boardingAddress, err := aliceArkClient.Receive(ctx)
+	_, _, boardingAddress, err := aliceArkClient.Receive(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := faucet(boardingAddress); err != nil {
+	if _, err := runCommand("nigiri", "faucet", boardingAddress); err != nil {
 		log.Fatal(err)
 	}
 
@@ -89,7 +84,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Infof("alice settled the onboard funds in round %s", txid)
+	log.Infof("alice settled the onboard funds in commitment tx %s", txid)
 
 	fmt.Println("")
 	log.Info("bob is setting up his ark wallet...")
@@ -106,7 +101,7 @@ func main() {
 	//nolint:all
 	defer bobArkClient.Lock(ctx)
 
-	bobOffchainAddr, _, err := bobArkClient.Receive(ctx)
+	_, bobOffchainAddr, _, err := bobArkClient.Receive(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -120,18 +115,16 @@ func main() {
 	log.Infof("bob offchain balance: %d", bobBalance.OffchainBalance.Total)
 
 	amount := uint64(1000)
-	receivers := []arksdk.Receiver{
-		arksdk.NewBitcoinReceiver(bobOffchainAddr, amount),
-	}
+	receivers := []types.Receiver{{To: bobOffchainAddr, Amount: amount}}
 
 	fmt.Println("")
 	log.Infof("alice is sending %d sats to bob offchain...", amount)
 
-	if _, err = aliceArkClient.SendOffChain(ctx, false, receivers, true); err != nil {
+	if _, err = aliceArkClient.SendOffChain(ctx, false, receivers); err != nil {
 		log.Fatal(err)
 	}
 
-	log.Info("transaction completed out of round")
+	log.Info("transaction completed")
 
 	if err := generateBlock(); err != nil {
 		log.Fatal(err)
@@ -158,54 +151,14 @@ func main() {
 
 	fmt.Println("")
 	log.Info("bob is settling the received funds...")
-	roundTxid, err := bobArkClient.Settle(ctx)
+	commitmentTxid, err := bobArkClient.Settle(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Infof("bob settled the received funds in round %s", roundTxid)
+	log.Infof("bob settled the received funds in commitment tx %s", commitmentTxid)
 
 	time.Sleep(500 * time.Second)
-}
-
-func setupArkd() error {
-	isInitialized, isUnlocked, err := arkdStatus()
-	if err != nil {
-		return err
-	}
-	if isInitialized {
-		if isUnlocked {
-			return nil
-		}
-		return arkdUnlock(password)
-	}
-
-	if err := arkdCreate(password); err != nil {
-		return err
-	}
-	return arkdUnlock(password)
-}
-
-func arkdStatus() (bool, bool, error) {
-	status, err := runArkdCommand("status")
-	if err != nil {
-		return false, false, err
-	}
-	v := map[string]interface{}{}
-	if err := json.NewDecoder(strings.NewReader(status)).Decode(&v); err != nil {
-		return false, false, err
-	}
-	return v["initialized"].(bool), v["unlocked"].(bool), nil
-}
-
-func arkdCreate(password string) error {
-	_, err := runArkdCommand("create", "--password", password)
-	return err
-}
-
-func arkdUnlock(password string) error {
-	_, err := runArkdCommand("unlock", "--password", password)
-	return err
 }
 
 func setupArkClient() (arksdk.ArkClient, error) {
@@ -233,11 +186,6 @@ func setupArkClient() (arksdk.ArkClient, error) {
 	}
 
 	return client, nil
-}
-
-func runArkdCommand(command string, arg ...string) (string, error) {
-	args := append([]string{"exec", "-it", "arkd", command}, arg...)
-	return runCommand("docker", args...)
 }
 
 func runCommand(name string, arg ...string) (string, error) {
@@ -303,17 +251,12 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 }
 
 func generateBlock() error {
-	if _, err := runCommand("nigiri", "rpc", "--generate", "1"); err != nil {
+	if _, err := runCommand("nigiri", "rpc", "generatetoaddress", "1", "bcrt1qgqsguk6wax7ynvav4zys5x290xftk49h5agg0l"); err != nil {
 		return err
 	}
 
 	time.Sleep(6 * time.Second)
 	return nil
-}
-
-func faucet(addr string) error {
-	_, err := runCommand("nigiri", "faucet", addr)
-	return err
 }
 
 func logTxEvents(wallet string, client arksdk.ArkClient) {

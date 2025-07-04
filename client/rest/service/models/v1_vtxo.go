@@ -21,35 +21,41 @@ type V1Vtxo struct {
 	// amount
 	Amount string `json:"amount,omitempty"`
 
+	// ark txid
+	ArkTxid string `json:"arkTxid,omitempty"`
+
+	// commitment txids
+	CommitmentTxids []string `json:"commitmentTxids"`
+
 	// created at
 	CreatedAt string `json:"createdAt,omitempty"`
 
-	// expire at
-	ExpireAt string `json:"expireAt,omitempty"`
+	// expires at
+	ExpiresAt string `json:"expiresAt,omitempty"`
 
-	// is pending
-	IsPending bool `json:"isPending,omitempty"`
+	// is preconfirmed
+	IsPreconfirmed bool `json:"isPreconfirmed,omitempty"`
+
+	// is spent
+	IsSpent bool `json:"isSpent,omitempty"`
+
+	// is swept
+	IsSwept bool `json:"isSwept,omitempty"`
+
+	// is unrolled
+	IsUnrolled bool `json:"isUnrolled,omitempty"`
 
 	// outpoint
 	Outpoint *V1Outpoint `json:"outpoint,omitempty"`
 
-	// pubkey
-	Pubkey string `json:"pubkey,omitempty"`
+	// script
+	Script string `json:"script,omitempty"`
 
-	// redeem tx
-	RedeemTx string `json:"redeemTx,omitempty"`
-
-	// round txid
-	RoundTxid string `json:"roundTxid,omitempty"`
-
-	// spent
-	Spent bool `json:"spent,omitempty"`
+	// settled by
+	SettledBy string `json:"settledBy,omitempty"`
 
 	// spent by
 	SpentBy string `json:"spentBy,omitempty"`
-
-	// swept
-	Swept bool `json:"swept,omitempty"`
 }
 
 // Validate validates this v1 vtxo

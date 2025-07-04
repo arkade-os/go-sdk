@@ -21,8 +21,11 @@ type V1IndexerVtxo struct {
 	// amount
 	Amount string `json:"amount,omitempty"`
 
-	// commitment txid
-	CommitmentTxid string `json:"commitmentTxid,omitempty"`
+	// ark txid
+	ArkTxid string `json:"arkTxid,omitempty"`
+
+	// commitment txids
+	CommitmentTxids []string `json:"commitmentTxids"`
 
 	// created at
 	CreatedAt string `json:"createdAt,omitempty"`
@@ -30,8 +33,8 @@ type V1IndexerVtxo struct {
 	// expires at
 	ExpiresAt string `json:"expiresAt,omitempty"`
 
-	// is leaf
-	IsLeaf bool `json:"isLeaf,omitempty"`
+	// is preconfirmed
+	IsPreconfirmed bool `json:"isPreconfirmed,omitempty"`
 
 	// is spent
 	IsSpent bool `json:"isSpent,omitempty"`
@@ -39,11 +42,17 @@ type V1IndexerVtxo struct {
 	// is swept
 	IsSwept bool `json:"isSwept,omitempty"`
 
+	// is unrolled
+	IsUnrolled bool `json:"isUnrolled,omitempty"`
+
 	// outpoint
 	Outpoint *V1IndexerOutpoint `json:"outpoint,omitempty"`
 
 	// script
 	Script string `json:"script,omitempty"`
+
+	// settled by
+	SettledBy string `json:"settledBy,omitempty"`
 
 	// spent by
 	SpentBy string `json:"spentBy,omitempty"`

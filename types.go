@@ -3,10 +3,10 @@ package arksdk
 import (
 	"fmt"
 
-	"github.com/arkade-os/sdk/client"
 	grpcclient "github.com/arkade-os/sdk/client/grpc"
 	restclient "github.com/arkade-os/sdk/client/rest"
 	"github.com/arkade-os/sdk/internal/utils"
+	"github.com/arkade-os/sdk/types"
 	"github.com/arkade-os/sdk/wallet"
 )
 
@@ -129,7 +129,7 @@ type CoinSelectOptions struct {
 	// If true, coin selector will select coins closest to expiry first.
 	WithExpirySorting bool
 	// If specified, coin selector will select only coins in the list.
-	OutpointsFilter []client.Outpoint
+	OutpointsFilter []types.Outpoint
 	// If true, coin selector will select recoverable (swept but unspent) vtxos first.
 	SelectRecoverableVtxos bool
 }

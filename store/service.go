@@ -18,7 +18,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-//go:embed sql/migration/*
+// /go:embed sql/migration/*
 var migrations embed.FS
 
 const (

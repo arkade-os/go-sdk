@@ -54,6 +54,8 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	IndexerServiceGetBatchSweepTransactions(params *IndexerServiceGetBatchSweepTransactionsParams, opts ...ClientOption) (*IndexerServiceGetBatchSweepTransactionsOK, error)
+
 	IndexerServiceGetCommitmentTx(params *IndexerServiceGetCommitmentTxParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxOK, error)
 
 	IndexerServiceGetCommitmentTxLeaves(params *IndexerServiceGetCommitmentTxLeavesParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxLeavesOK, error)
@@ -62,7 +64,7 @@ type ClientService interface {
 
 	IndexerServiceGetForfeitTxs(params *IndexerServiceGetForfeitTxsParams, opts ...ClientOption) (*IndexerServiceGetForfeitTxsOK, error)
 
-	IndexerServiceGetSweptCommitmentTx(params *IndexerServiceGetSweptCommitmentTxParams, opts ...ClientOption) (*IndexerServiceGetSweptCommitmentTxOK, error)
+	IndexerServiceGetSubscription(params *IndexerServiceGetSubscriptionParams, opts ...ClientOption) (*IndexerServiceGetSubscriptionOK, error)
 
 	IndexerServiceGetTransactionHistory(params *IndexerServiceGetTransactionHistoryParams, opts ...ClientOption) (*IndexerServiceGetTransactionHistoryOK, error)
 
@@ -76,13 +78,52 @@ type ClientService interface {
 
 	IndexerServiceGetVtxos(params *IndexerServiceGetVtxosParams, opts ...ClientOption) (*IndexerServiceGetVtxosOK, error)
 
-	IndexerServiceGetVtxosByOutpoint(params *IndexerServiceGetVtxosByOutpointParams, opts ...ClientOption) (*IndexerServiceGetVtxosByOutpointOK, error)
+	IndexerServiceSubscribeForScripts(params *IndexerServiceSubscribeForScriptsParams, opts ...ClientOption) (*IndexerServiceSubscribeForScriptsOK, error)
+
+	IndexerServiceUnsubscribeForScripts(params *IndexerServiceUnsubscribeForScriptsParams, opts ...ClientOption) (*IndexerServiceUnsubscribeForScriptsOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-IndexerServiceGetCommitmentTx indexer service get commitment tx API
+IndexerServiceGetBatchSweepTransactions gets batch sweep transactions returns the list of transaction txid that swept a given batch output in most cases the list contains only one txid meaning that all the amount locked for a vtxo tree has been claimed back if any of the leaves of the tree have been unrolled onchain before the expiration the list will contain many txids instead in a binary tree with 4 or more leaves 1 unroll causes the server to broadcast 3 txs to sweep the whole rest of tree for example if a whole vtxo tree has been unrolled onchain the list of txids for that batch output is empty
+*/
+func (a *Client) IndexerServiceGetBatchSweepTransactions(params *IndexerServiceGetBatchSweepTransactionsParams, opts ...ClientOption) (*IndexerServiceGetBatchSweepTransactionsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewIndexerServiceGetBatchSweepTransactionsParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "IndexerService_GetBatchSweepTransactions",
+		Method:             "GET",
+		PathPattern:        "/v1/batch/{batchOutpoint.txid}/{batchOutpoint.vout}/sweepTxs",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &IndexerServiceGetBatchSweepTransactionsReader{formats: a.formats},
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*IndexerServiceGetBatchSweepTransactionsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	unexpectedSuccess := result.(*IndexerServiceGetBatchSweepTransactionsDefault)
+	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
+}
+
+/*
+IndexerServiceGetCommitmentTx gets commitment tx returns information about a specific commitment transaction identified by the provided txid
 */
 func (a *Client) IndexerServiceGetCommitmentTx(params *IndexerServiceGetCommitmentTxParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxOK, error) {
 	// TODO: Validate the params before sending
@@ -119,7 +160,7 @@ func (a *Client) IndexerServiceGetCommitmentTx(params *IndexerServiceGetCommitme
 }
 
 /*
-IndexerServiceGetCommitmentTxLeaves indexer service get commitment tx leaves API
+IndexerServiceGetCommitmentTxLeaves gets commitment tx leaves returns the list of leaves vtxo outpoints of all batch outputs trees included in the provided commitment transaction the response may include pagination information if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetCommitmentTxLeaves(params *IndexerServiceGetCommitmentTxLeavesParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxLeavesOK, error) {
 	// TODO: Validate the params before sending
@@ -156,7 +197,7 @@ func (a *Client) IndexerServiceGetCommitmentTxLeaves(params *IndexerServiceGetCo
 }
 
 /*
-IndexerServiceGetConnectors indexer service get connectors API
+IndexerServiceGetConnectors gets connectors returns the tree of connectors for the provided commitment transaction the response includes a list of connector txs with details on the tree posistion and may include pagination information if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetConnectors(params *IndexerServiceGetConnectorsParams, opts ...ClientOption) (*IndexerServiceGetConnectorsOK, error) {
 	// TODO: Validate the params before sending
@@ -193,7 +234,7 @@ func (a *Client) IndexerServiceGetConnectors(params *IndexerServiceGetConnectors
 }
 
 /*
-IndexerServiceGetForfeitTxs indexer service get forfeit txs API
+IndexerServiceGetForfeitTxs gets forfeit txs returns the list of forfeit transactions that were submitted for the provided commitment transaction the response may include pagination information if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetForfeitTxs(params *IndexerServiceGetForfeitTxsParams, opts ...ClientOption) (*IndexerServiceGetForfeitTxsOK, error) {
 	// TODO: Validate the params before sending
@@ -230,22 +271,22 @@ func (a *Client) IndexerServiceGetForfeitTxs(params *IndexerServiceGetForfeitTxs
 }
 
 /*
-IndexerServiceGetSweptCommitmentTx indexer service get swept commitment tx API
+IndexerServiceGetSubscription gets subscription is a server side streaming RPC which allows clients to receive real time notifications on transactions related to the subscribed vtxo scripts the subscription can be created or updated by using the subscribe for scripts and unsubscribe for scripts r p cs
 */
-func (a *Client) IndexerServiceGetSweptCommitmentTx(params *IndexerServiceGetSweptCommitmentTxParams, opts ...ClientOption) (*IndexerServiceGetSweptCommitmentTxOK, error) {
+func (a *Client) IndexerServiceGetSubscription(params *IndexerServiceGetSubscriptionParams, opts ...ClientOption) (*IndexerServiceGetSubscriptionOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewIndexerServiceGetSweptCommitmentTxParams()
+		params = NewIndexerServiceGetSubscriptionParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "IndexerService_GetSweptCommitmentTx",
+		ID:                 "IndexerService_GetSubscription",
 		Method:             "GET",
-		PathPattern:        "/v1/commitmentTx/{txid}/swept",
+		PathPattern:        "/v1/script/subscription/{subscriptionId}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http"},
 		Params:             params,
-		Reader:             &IndexerServiceGetSweptCommitmentTxReader{formats: a.formats},
+		Reader:             &IndexerServiceGetSubscriptionReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	}
@@ -257,17 +298,17 @@ func (a *Client) IndexerServiceGetSweptCommitmentTx(params *IndexerServiceGetSwe
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*IndexerServiceGetSweptCommitmentTxOK)
+	success, ok := result.(*IndexerServiceGetSubscriptionOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
-	unexpectedSuccess := result.(*IndexerServiceGetSweptCommitmentTxDefault)
+	unexpectedSuccess := result.(*IndexerServiceGetSubscriptionDefault)
 	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
 }
 
 /*
-IndexerServiceGetTransactionHistory indexer service get transaction history API
+IndexerServiceGetTransactionHistory gets transaction history returns the list of transactions for the provided address the tx history can be filtered by defining a start and or end time the response may be paginated if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetTransactionHistory(params *IndexerServiceGetTransactionHistoryParams, opts ...ClientOption) (*IndexerServiceGetTransactionHistoryOK, error) {
 	// TODO: Validate the params before sending
@@ -304,7 +345,7 @@ func (a *Client) IndexerServiceGetTransactionHistory(params *IndexerServiceGetTr
 }
 
 /*
-IndexerServiceGetVirtualTxs indexer service get virtual txs API
+IndexerServiceGetVirtualTxs gets virtual txs returns the virtual transactions in hex format for the specified txids the response may be paginated if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetVirtualTxs(params *IndexerServiceGetVirtualTxsParams, opts ...ClientOption) (*IndexerServiceGetVirtualTxsOK, error) {
 	// TODO: Validate the params before sending
@@ -341,7 +382,7 @@ func (a *Client) IndexerServiceGetVirtualTxs(params *IndexerServiceGetVirtualTxs
 }
 
 /*
-IndexerServiceGetVtxoChain indexer service get vtxo chain API
+IndexerServiceGetVtxoChain gets vtxo chain returns the the chain of ark txs that starts from spending any vtxo leaf and ends with the creation of the provided vtxo outpoint the response may be paginated if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetVtxoChain(params *IndexerServiceGetVtxoChainParams, opts ...ClientOption) (*IndexerServiceGetVtxoChainOK, error) {
 	// TODO: Validate the params before sending
@@ -378,7 +419,7 @@ func (a *Client) IndexerServiceGetVtxoChain(params *IndexerServiceGetVtxoChainPa
 }
 
 /*
-IndexerServiceGetVtxoTree indexer service get vtxo tree API
+IndexerServiceGetVtxoTree gets vtxo tree returns the vtxo tree for the provided batch outpoint the response includes a list of txs with details on the tree posistion and may include pagination information if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetVtxoTree(params *IndexerServiceGetVtxoTreeParams, opts ...ClientOption) (*IndexerServiceGetVtxoTreeOK, error) {
 	// TODO: Validate the params before sending
@@ -415,7 +456,7 @@ func (a *Client) IndexerServiceGetVtxoTree(params *IndexerServiceGetVtxoTreePara
 }
 
 /*
-IndexerServiceGetVtxoTreeLeaves indexer service get vtxo tree leaves API
+IndexerServiceGetVtxoTreeLeaves gets vtxo tree leaves returns the list of leaves vtxo outpoints of the tree s for the provided batch outpoint the response may be paginated if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetVtxoTreeLeaves(params *IndexerServiceGetVtxoTreeLeavesParams, opts ...ClientOption) (*IndexerServiceGetVtxoTreeLeavesOK, error) {
 	// TODO: Validate the params before sending
@@ -452,7 +493,7 @@ func (a *Client) IndexerServiceGetVtxoTreeLeaves(params *IndexerServiceGetVtxoTr
 }
 
 /*
-IndexerServiceGetVtxos indexer service get vtxos API
+IndexerServiceGetVtxos gets vtxos returns the list of vtxos based on the provided filter vtxos can be retrieved either by addresses or by outpoints and optionally filtered by spendable or spent only the response may be paginated if the results span multiple pages
 */
 func (a *Client) IndexerServiceGetVtxos(params *IndexerServiceGetVtxosParams, opts ...ClientOption) (*IndexerServiceGetVtxosOK, error) {
 	// TODO: Validate the params before sending
@@ -462,7 +503,7 @@ func (a *Client) IndexerServiceGetVtxos(params *IndexerServiceGetVtxosParams, op
 	op := &runtime.ClientOperation{
 		ID:                 "IndexerService_GetVtxos",
 		Method:             "GET",
-		PathPattern:        "/v1/getVtxos/{addresses}",
+		PathPattern:        "/v1/vtxos",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http"},
@@ -489,22 +530,22 @@ func (a *Client) IndexerServiceGetVtxos(params *IndexerServiceGetVtxosParams, op
 }
 
 /*
-IndexerServiceGetVtxosByOutpoint indexer service get vtxos by outpoint API
+IndexerServiceSubscribeForScripts subscribes for scripts allows to subscribe for tx notifications related to the provided vtxo scripts it can also be used to update an existing subscribtion by adding new scripts to it
 */
-func (a *Client) IndexerServiceGetVtxosByOutpoint(params *IndexerServiceGetVtxosByOutpointParams, opts ...ClientOption) (*IndexerServiceGetVtxosByOutpointOK, error) {
+func (a *Client) IndexerServiceSubscribeForScripts(params *IndexerServiceSubscribeForScriptsParams, opts ...ClientOption) (*IndexerServiceSubscribeForScriptsOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewIndexerServiceGetVtxosByOutpointParams()
+		params = NewIndexerServiceSubscribeForScriptsParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "IndexerService_GetVtxosByOutpoint",
-		Method:             "GET",
-		PathPattern:        "/v1/getVtxosByOutpoint/{outpoints}",
+		ID:                 "IndexerService_SubscribeForScripts",
+		Method:             "POST",
+		PathPattern:        "/v1/script/subscribe",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http"},
 		Params:             params,
-		Reader:             &IndexerServiceGetVtxosByOutpointReader{formats: a.formats},
+		Reader:             &IndexerServiceSubscribeForScriptsReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	}
@@ -516,12 +557,49 @@ func (a *Client) IndexerServiceGetVtxosByOutpoint(params *IndexerServiceGetVtxos
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*IndexerServiceGetVtxosByOutpointOK)
+	success, ok := result.(*IndexerServiceSubscribeForScriptsOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
-	unexpectedSuccess := result.(*IndexerServiceGetVtxosByOutpointDefault)
+	unexpectedSuccess := result.(*IndexerServiceSubscribeForScriptsDefault)
+	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
+}
+
+/*
+IndexerServiceUnsubscribeForScripts unsubscribes for scripts allows to remove scripts from an existing subscription
+*/
+func (a *Client) IndexerServiceUnsubscribeForScripts(params *IndexerServiceUnsubscribeForScriptsParams, opts ...ClientOption) (*IndexerServiceUnsubscribeForScriptsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewIndexerServiceUnsubscribeForScriptsParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "IndexerService_UnsubscribeForScripts",
+		Method:             "POST",
+		PathPattern:        "/v1/script/unsubscribe",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &IndexerServiceUnsubscribeForScriptsReader{formats: a.formats},
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*IndexerServiceUnsubscribeForScriptsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	unexpectedSuccess := result.(*IndexerServiceUnsubscribeForScriptsDefault)
 	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
 }
 
