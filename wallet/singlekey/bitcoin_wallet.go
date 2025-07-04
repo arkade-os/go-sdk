@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ark-network/ark/common"
-	"github.com/ark-network/ark/common/script"
-	"github.com/ark-network/ark/common/tree"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -453,7 +453,7 @@ func (w *bitcoinWallet) SignMessage(
 }
 
 type addressWithTapscripts struct {
-	Address    common.Address
+	Address    arklib.Address
 	Tapscripts []string
 }
 
@@ -513,7 +513,7 @@ func (w *bitcoinWallet) getArkAddresses(
 		return nil, nil, err
 	}
 
-	offchainAddress := &common.Address{
+	offchainAddress := &arklib.Address{
 		HRP:        data.Network.Addr,
 		Signer:     data.SignerPubKey,
 		VtxoTapKey: vtxoTapKey,

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ark-network/ark/common/tree"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice"

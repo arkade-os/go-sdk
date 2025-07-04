@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ark-network/ark/common"
-	"github.com/ark-network/ark/common/bip322"
-	"github.com/ark-network/ark/common/note"
-	"github.com/ark-network/ark/common/offchain"
-	"github.com/ark-network/ark/common/script"
-	"github.com/ark-network/ark/common/tree"
-	"github.com/ark-network/ark/common/txutils"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/bip322"
+	"github.com/arkade-os/arkd/pkg/ark-lib/note"
+	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
+	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -99,7 +99,7 @@ func buildOffchainTx(
 			return "", nil, fmt.Errorf("receiver %d is onchain", i)
 		}
 
-		addr, err := common.DecodeAddressV0(receiver.To)
+		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, err
 		}
@@ -186,7 +186,7 @@ func inputsToDerivationPath(inputs []types.Outpoint, notesInputs []string) strin
 	return path
 }
 
-func extractExitPath(tapscripts []string) ([]byte, *common.TaprootMerkleProof, uint32, error) {
+func extractExitPath(tapscripts []string) ([]byte, *arklib.TaprootMerkleProof, uint32, error) {
 	vtxoScript, err := script.ParseVtxoScript(tapscripts)
 	if err != nil {
 		return nil, nil, 0, err
@@ -215,7 +215,7 @@ func extractExitPath(tapscripts []string) ([]byte, *common.TaprootMerkleProof, u
 		return nil, nil, 0, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 	}
 
-	sequence, err := common.BIP68Sequence(exitClosure.Locktime)
+	sequence, err := arklib.BIP68Sequence(exitClosure.Locktime)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -231,9 +231,9 @@ func extractExitPath(tapscripts []string) ([]byte, *common.TaprootMerkleProof, u
 // convert inputs to BIP322 inputs and return all the data needed to sign and proof PSBT
 func toBIP322Inputs(
 	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo, notes []string,
-) ([]bip322.Input, []*common.TaprootMerkleProof, map[string][]string, map[int][]byte, error) {
+) ([]bip322.Input, []*arklib.TaprootMerkleProof, map[string][]string, map[int][]byte, error) {
 	inputs := make([]bip322.Input, 0, len(boardingUtxos)+len(vtxos))
-	exitLeaves := make([]*common.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
+	exitLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
 	tapscripts := make(map[string][]string)
 	notesWitnesses := make(map[int][]byte)
 

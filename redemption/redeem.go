@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ark-network/ark/common/script"
-	"github.com/ark-network/ark/common/txutils"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/types"

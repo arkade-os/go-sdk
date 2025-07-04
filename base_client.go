@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/ark-network/ark/common"
-	"github.com/ark-network/ark/common/script"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/indexer"
@@ -42,12 +42,12 @@ var (
 
 var (
 	defaultNetworks = utils.SupportedType[string]{
-		common.Bitcoin.Name:        "https://mempool.space/api",
-		common.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
-		//common.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
-		common.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
-		common.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
-		common.BitcoinRegTest.Name:   "http://localhost:3000",
+		arklib.Bitcoin.Name:        "https://mempool.space/api",
+		arklib.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
+		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
+		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
+		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
+		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
 	}
 )
 
@@ -169,7 +169,7 @@ func (a *arkClient) ListVtxos(ctx context.Context) (
 
 	scripts := make([]string, 0, len(offchainAddrs))
 	for _, addr := range offchainAddrs {
-		decoded, err := common.DecodeAddressV0(addr.Address)
+		decoded, err := arklib.DecodeAddressV0(addr.Address)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -207,7 +207,7 @@ func (a *arkClient) NotifyIncomingFunds(
 		return nil, fmt.Errorf("wallet not initialized")
 	}
 
-	decoded, err := common.DecodeAddressV0(addr)
+	decoded, err := arklib.DecodeAddressV0(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -280,19 +280,19 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to parse server pubkey: %s", err)
 	}
 
-	vtxoTreeExpiryType := common.LocktimeTypeBlock
+	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
 	if info.VtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = common.LocktimeTypeSecond
+		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
 	}
 
-	unilateralExitDelayType := common.LocktimeTypeBlock
+	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if info.UnilateralExitDelay >= 512 {
-		unilateralExitDelayType = common.LocktimeTypeSecond
+		unilateralExitDelayType = arklib.LocktimeTypeSecond
 	}
 
-	boardingExitDelayType := common.LocktimeTypeBlock
+	boardingExitDelayType := arklib.LocktimeTypeBlock
 	if info.BoardingExitDelay >= 512 {
-		boardingExitDelayType = common.LocktimeTypeSecond
+		boardingExitDelayType = arklib.LocktimeTypeSecond
 	}
 
 	storeData := types.Config{
@@ -301,15 +301,15 @@ func (a *arkClient) initWithWallet(
 		WalletType:   args.Wallet.GetType(),
 		ClientType:   args.ClientType,
 		Network:      network,
-		VtxoTreeExpiry: common.RelativeLocktime{
+		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
 		},
 		RoundInterval: info.RoundInterval,
-		UnilateralExitDelay: common.RelativeLocktime{
+		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
 		},
 		Dust: info.Dust,
-		BoardingExitDelay: common.RelativeLocktime{
+		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
 		ForfeitAddress:          info.ForfeitAddress,
@@ -383,19 +383,19 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to parse server pubkey: %s", err)
 	}
 
-	vtxoTreeExpiryType := common.LocktimeTypeBlock
+	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
 	if info.VtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = common.LocktimeTypeSecond
+		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
 	}
 
-	unilateralExitDelayType := common.LocktimeTypeBlock
+	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if info.UnilateralExitDelay >= 512 {
-		unilateralExitDelayType = common.LocktimeTypeSecond
+		unilateralExitDelayType = arklib.LocktimeTypeSecond
 	}
 
-	boardingExitDelayType := common.LocktimeTypeBlock
+	boardingExitDelayType := arklib.LocktimeTypeBlock
 	if info.BoardingExitDelay >= 512 {
-		boardingExitDelayType = common.LocktimeTypeSecond
+		boardingExitDelayType = arklib.LocktimeTypeSecond
 	}
 
 	cfgData := types.Config{
@@ -404,15 +404,15 @@ func (a *arkClient) init(
 		WalletType:   args.WalletType,
 		ClientType:   args.ClientType,
 		Network:      network,
-		VtxoTreeExpiry: common.RelativeLocktime{
+		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
 		},
 		RoundInterval: info.RoundInterval,
-		UnilateralExitDelay: common.RelativeLocktime{
+		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
 		},
 		Dust: info.Dust,
-		BoardingExitDelay: common.RelativeLocktime{
+		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
 		ExplorerURL:             explorerSvc.BaseUrl(),

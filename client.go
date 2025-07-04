@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ark-network/ark/common"
-	"github.com/ark-network/ark/common/bip322"
-	"github.com/ark-network/ark/common/note"
-	"github.com/ark-network/ark/common/script"
-	"github.com/ark-network/ark/common/tree"
-	"github.com/ark-network/ark/common/txutils"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/bip322"
+	"github.com/arkade-os/arkd/pkg/ark-lib/note"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
+	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/indexer"
@@ -508,7 +508,7 @@ func (a *covenantlessArkClient) SendOffChain(
 			return "", fmt.Errorf("all receiver addresses must be offchain addresses")
 		}
 
-		addr, err := common.DecodeAddressV0(receiver.To)
+		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", fmt.Errorf("invalid receiver address: %s", err)
 		}
@@ -1067,7 +1067,7 @@ func (a *covenantlessArkClient) listenForArkTxs(ctx context.Context) {
 			myScripts := make(map[string]struct{})
 			for _, addr := range offchainAddrs {
 				// nolint
-				decoded, _ := common.DecodeAddressV0(addr.Address)
+				decoded, _ := arklib.DecodeAddressV0(addr.Address)
 				// nolint
 				vtxoScript, _ := script.P2TRScript(decoded.VtxoTapKey)
 				myScripts[hex.EncodeToString(vtxoScript)] = struct{}{}
@@ -1621,7 +1621,7 @@ func (a *covenantlessArkClient) sendOffchain(
 
 	// validate receivers and create outputs
 	for _, receiver := range receivers {
-		rcvAddr, err := common.DecodeAddressV0(receiver.To)
+		rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", fmt.Errorf("invalid receiver address: %s", err)
 		}
@@ -1689,7 +1689,7 @@ func (a *covenantlessArkClient) sendOffchain(
 }
 
 func (a *covenantlessArkClient) makeRegisterIntentBIP322Signature(
-	inputs []bip322.Input, leafProofs []*common.TaprootMerkleProof, tapscripts map[string][]string,
+	inputs []bip322.Input, leafProofs []*arklib.TaprootMerkleProof, tapscripts map[string][]string,
 	outputs []types.Receiver, cosignersPublicKeys []string, notesWitnesses map[int][]byte,
 ) (string, string, error) {
 	message, outputsTxOut, err := registerIntentMessage(
@@ -1703,7 +1703,7 @@ func (a *covenantlessArkClient) makeRegisterIntentBIP322Signature(
 }
 
 func (a *covenantlessArkClient) makeDeleteIntentBIP322Signature(
-	inputs []bip322.Input, leafProofs []*common.TaprootMerkleProof, notesWitnesses map[int][]byte,
+	inputs []bip322.Input, leafProofs []*arklib.TaprootMerkleProof, notesWitnesses map[int][]byte,
 ) (string, string, error) {
 	message, err := bip322.DeleteIntentMessage{
 		BaseIntentMessage: bip322.BaseIntentMessage{
@@ -1720,7 +1720,7 @@ func (a *covenantlessArkClient) makeDeleteIntentBIP322Signature(
 
 func (a *covenantlessArkClient) makeBIP322Signature(
 	message string, inputs []bip322.Input, outputsTxOut []*wire.TxOut,
-	leafProofs []*common.TaprootMerkleProof, notesWitnesses map[int][]byte,
+	leafProofs []*arklib.TaprootMerkleProof, notesWitnesses map[int][]byte,
 ) (string, string, error) {
 	proof, err := bip322.New(message, inputs, outputsTxOut)
 	if err != nil {
@@ -1730,7 +1730,7 @@ func (a *covenantlessArkClient) makeBIP322Signature(
 	for i, input := range proof.Inputs {
 		// BIP322 proof has an additional input using the first vtxo script
 		// so we need to use the previous leaf proof for the current input except for the first input
-		var leafProof *common.TaprootMerkleProof
+		var leafProof *arklib.TaprootMerkleProof
 		if i == 0 {
 			leafProof = leafProofs[0]
 		} else {
@@ -1983,7 +1983,7 @@ func (a *covenantlessArkClient) handleBatchEvents(
 	step := start
 	hasOffchainOutput := false
 	for _, receiver := range receivers {
-		if _, err := common.DecodeAddressV0(receiver.To); err == nil {
+		if _, err := arklib.DecodeAddressV0(receiver.To); err == nil {
 			hasOffchainOutput = true
 			break
 		}
@@ -2520,7 +2520,7 @@ func (a *covenantlessArkClient) validateOffchainReceiver(
 ) error {
 	found := false
 
-	rcvAddr, err := common.DecodeAddressV0(receiver.To)
+	rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
 	if err != nil {
 		return err
 	}
@@ -2643,7 +2643,7 @@ func (a *covenantlessArkClient) createAndSignForfeits(
 			LeafVersion:  txscript.BaseLeafVersion,
 		}
 
-		vtxoLocktime := common.AbsoluteLocktime(0)
+		vtxoLocktime := arklib.AbsoluteLocktime(0)
 		if cltv, ok := forfeitClosure.(*script.CLTVMultisigClosure); ok {
 			vtxoLocktime = cltv.Locktime
 		}

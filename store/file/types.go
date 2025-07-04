@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	"github.com/ark-network/ark/common"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -63,19 +63,19 @@ func (d storeData) decode() types.Config {
 	vtxoMinAmount, _ := strconv.Atoi(d.VtxoMinAmount)
 	vtxoMaxAmount, _ := strconv.Atoi(d.VtxoMaxAmount)
 
-	vtxoTreeExpiryType := common.LocktimeTypeBlock
+	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
 	if vtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = common.LocktimeTypeSecond
+		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
 	}
 
-	unilateralExitDelayType := common.LocktimeTypeBlock
+	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if unilateralExitDelay >= 512 {
-		unilateralExitDelayType = common.LocktimeTypeSecond
+		unilateralExitDelayType = arklib.LocktimeTypeSecond
 	}
 
-	boardingExitDelayType := common.LocktimeTypeBlock
+	boardingExitDelayType := arklib.LocktimeTypeBlock
 	if boardingExitDelay >= 512 {
-		boardingExitDelayType = common.LocktimeTypeSecond
+		boardingExitDelayType = arklib.LocktimeTypeSecond
 	}
 
 	return types.Config{
@@ -84,17 +84,17 @@ func (d storeData) decode() types.Config {
 		WalletType:   d.WalletType,
 		ClientType:   d.ClientType,
 		Network:      network,
-		VtxoTreeExpiry: common.RelativeLocktime{
+		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type:  vtxoTreeExpiryType,
 			Value: uint32(vtxoTreeExpiry),
 		},
-		UnilateralExitDelay: common.RelativeLocktime{
+		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type:  unilateralExitDelayType,
 			Value: uint32(unilateralExitDelay),
 		},
 		RoundInterval: int64(roundInterval),
 		Dust:          uint64(dust),
-		BoardingExitDelay: common.RelativeLocktime{
+		BoardingExitDelay: arklib.RelativeLocktime{
 			Type:  boardingExitDelayType,
 			Value: uint32(boardingExitDelay),
 		},

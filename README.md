@@ -29,9 +29,7 @@ import (
 )
 
 func setupInMemoryArkClient() (arksdk.ArkClient, error) {
-    storeSvc, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.InMemoryStore,
-	})
+    storeSvc, err := store.NewStore(store.Config{ConfigStoreType:  types.InMemoryStore})
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup store: %s", err)
 	}
@@ -44,7 +42,7 @@ func setupInMemoryArkClient() (arksdk.ArkClient, error) {
 	if err := client.Init(context.Background(), arksdk.InitArgs{
 		WalletType: arksdk.SingleKeyWallet,
 		ClientType: arksdk.GrpcClient,
-		ServerUrl:     "localhost:7070",
+		ServerUrl:  "localhost:7070",
 		Password:   "your_password",
 	}); err != nil {
 		return nil, fmt.Errorf("failed to initialize wallet: %s", err)
@@ -81,7 +79,7 @@ func setupFileBasedArkClient() (arksdk.ArkClient, error) {
 	if err := client.Init(context.Background(), arksdk.InitArgs{
 		WalletType: arksdk.SingleKeyWallet,
 		ClientType: arksdk.GrpcClient,
-		ServerUrl:     "localhost:7070",
+		ServerUrl:  "localhost:7070",
 		Password:   "your_password",
 	}); err != nil {
 		return nil, fmt.Errorf("failed to initialize wallet: %s", err)
@@ -181,19 +179,40 @@ log.Infof("Transaction completed in round tx: %s", txid)
 transportClient, err := grpcclient.NewClient("localhost:7070")
 require.NoError(t, err)
 
-// use common/bitcointree utility function to build redeem transactions
-redeemPartialTx, err := bitcointree.BuildRedeemTx(
-	[]common.VtxoInput{
+// Use ark-lib/tree util function to build ark and checkpoint transactions.
+arkTx, checkpointTxs, err := offchain.BuildTxs(
+	[]offchain.VtxoInput{
 		// ... your inputs here
 	},
 	[]*wire.TxOut{
 		// ... your outputs here
 	},
+	batchOutputSweepClosure,
 )
 
-// once signed, submit the transaction to the Ark
-// if accepted, the Ark server will counter sign and returns the fully signed transaction
-fullySignedRedeemTx, err := transportClient.SubmitRedeemTx(ctx, redeemPartialTx)
+signedArkTx, err := arkClient.SignTransaction(ctx, arkTx)
+if err != nil {
+	return "", err
+}
+
+arkTxid, _, signedCheckpointTxs, err := grpcclient.SubmitTx(ctx, signedArkTx, checkpointTxs)
+if err != nil {
+	return "", err
+}
+
+// Counter-sign and checkpoint txs and send them back to the server to complete the process.
+finalCheckpointTxs := make([]string, 0, len(signedCheckpointTxs))
+for _, checkpointTx := range signedCheckpointTxs {
+	finalCheckpointTx, err := a.SignTransaction(ctx, checkpointTx)
+	if err != nil {
+		return "", nil
+	}
+	finalCheckpointTxs = append(finalCheckpointTxs, finalCheckpointTx)
+}
+
+if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpointTxs); err != nil {
+	return "", err
+}
 ```
 
 
@@ -216,9 +235,7 @@ txid, err = arkClient.SendOffchain(ctx, false, receivers)
 To move funds from offchain to onchain:
 
 ```go
-txid, err := arkClient.CollaborativeRedeem(
-    ctx, onchainAddress, redeemAmount, false,
-)
+txid, err := arkClient.CollaborativeRedeem(ctx, onchainAddress, redeemAmount, false)
 if err != nil {
     log.Fatal(err)
 }
@@ -227,10 +244,10 @@ log.Infof("Redeemed with tx: %s", txid)
 
 ## Full Example
 
-For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/ark-network/go-sdk/blob/master/example/alice_to_bob.go).
+For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/arkade-os/go-sdk/blob/master/example/alice_to_bob.go).
 
 ## Support
 
-If you encounter any issues or have questions, please file an issue on our [GitHub repository](https://github.com/ark-network/go-sdk/issues).
+If you encounter any issues or have questions, please file an issue on our [GitHub repository](https://github.com/arkade-os/go-sdk/issues).
 
 Happy coding with Ark and Go! 🚀

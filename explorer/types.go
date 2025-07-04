@@ -1,7 +1,7 @@
 package explorer
 
 import (
-	"github.com/ark-network/ark/common"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/types"
 )
 
@@ -47,6 +47,6 @@ type Utxo struct {
 	} `json:"status"`
 }
 
-func (e Utxo) ToUtxo(delay common.RelativeLocktime, tapscripts []string) types.Utxo {
+func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	return newUtxo(e, delay, tapscripts)
 }

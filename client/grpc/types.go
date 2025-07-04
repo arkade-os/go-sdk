@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ark-network/ark/common/tree"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"

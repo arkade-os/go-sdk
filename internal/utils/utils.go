@@ -9,7 +9,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ark-network/ark/common"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -106,38 +106,38 @@ func IsOnchainOnly(receivers []types.Receiver) bool {
 	return true
 }
 
-func NetworkFromString(net string) common.Network {
+func NetworkFromString(net string) arklib.Network {
 	switch net {
-	case common.BitcoinTestNet.Name:
-		return common.BitcoinTestNet
-	case common.BitcoinTestNet4.Name:
-		return common.BitcoinTestNet4
-	case common.BitcoinSigNet.Name:
-		return common.BitcoinSigNet
-	case common.BitcoinMutinyNet.Name:
-		return common.BitcoinMutinyNet
-	case common.BitcoinRegTest.Name:
-		return common.BitcoinRegTest
-	case common.Bitcoin.Name:
+	case arklib.BitcoinTestNet.Name:
+		return arklib.BitcoinTestNet
+	case arklib.BitcoinTestNet4.Name:
+		return arklib.BitcoinTestNet4
+	case arklib.BitcoinSigNet.Name:
+		return arklib.BitcoinSigNet
+	case arklib.BitcoinMutinyNet.Name:
+		return arklib.BitcoinMutinyNet
+	case arklib.BitcoinRegTest.Name:
+		return arklib.BitcoinRegTest
+	case arklib.Bitcoin.Name:
 		fallthrough
 	default:
-		return common.Bitcoin
+		return arklib.Bitcoin
 	}
 }
 
-func ToBitcoinNetwork(net common.Network) chaincfg.Params {
+func ToBitcoinNetwork(net arklib.Network) chaincfg.Params {
 	switch net.Name {
-	case common.Bitcoin.Name:
+	case arklib.Bitcoin.Name:
 		return chaincfg.MainNetParams
-	case common.BitcoinTestNet.Name:
+	case arklib.BitcoinTestNet.Name:
 		return chaincfg.TestNet3Params
-	//case common.BitcoinTestNet4.Name: //TODO uncomment once supported
+	//case arklib.BitcoinTestNet4.Name: //TODO uncomment once supported
 	//	return chaincfg.TestNet4Params
-	case common.BitcoinSigNet.Name:
+	case arklib.BitcoinSigNet.Name:
 		return chaincfg.SigNetParams
-	case common.BitcoinMutinyNet.Name:
-		return common.MutinyNetSigNetParams
-	case common.BitcoinRegTest.Name:
+	case arklib.BitcoinMutinyNet.Name:
+		return arklib.MutinyNetSigNetParams
+	case arklib.BitcoinRegTest.Name:
 		return chaincfg.RegressionNetParams
 	default:
 		return chaincfg.MainNetParams

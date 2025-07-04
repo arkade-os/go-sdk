@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ark-network/ark/common"
-	"github.com/ark-network/ark/common/script"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -27,12 +27,12 @@ type Config struct {
 	SignerPubKey            *secp256k1.PublicKey
 	WalletType              string
 	ClientType              string
-	Network                 common.Network
-	VtxoTreeExpiry          common.RelativeLocktime
+	Network                 arklib.Network
+	VtxoTreeExpiry          arklib.RelativeLocktime
 	RoundInterval           int64
-	UnilateralExitDelay     common.RelativeLocktime
+	UnilateralExitDelay     arklib.RelativeLocktime
 	Dust                    uint64
-	BoardingExitDelay       common.RelativeLocktime
+	BoardingExitDelay       arklib.RelativeLocktime
 	ExplorerURL             string
 	ForfeitAddress          string
 	WithTransactionFeed     bool
@@ -81,7 +81,7 @@ func (v Vtxo) IsRecoverable() bool {
 	return v.Swept && !v.Spent
 }
 
-func (v Vtxo) Address(server *secp256k1.PublicKey, net common.Network) (string, error) {
+func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, error) {
 	buf, err := hex.DecodeString(v.Script)
 	if err != nil {
 		return "", err
@@ -93,7 +93,7 @@ func (v Vtxo) Address(server *secp256k1.PublicKey, net common.Network) (string, 
 		return "", err
 	}
 
-	a := &common.Address{
+	a := &arklib.Address{
 		HRP:        net.Addr,
 		Signer:     server,
 		VtxoTapKey: pubkey,
@@ -183,7 +183,7 @@ type Utxo struct {
 	Txid        string
 	VOut        uint32
 	Amount      uint64
-	Delay       common.RelativeLocktime
+	Delay       arklib.RelativeLocktime
 	SpendableAt time.Time
 	CreatedAt   time.Time
 	Tapscripts  []string
@@ -192,7 +192,7 @@ type Utxo struct {
 }
 
 func (u *Utxo) Sequence() (uint32, error) {
-	return common.BIP68Sequence(u.Delay)
+	return arklib.BIP68Sequence(u.Delay)
 }
 
 type Receiver struct {
@@ -209,7 +209,7 @@ func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
 	var pkScript []byte
 	isOnchain := false
 
-	arkAddress, err := common.DecodeAddressV0(o.To)
+	arkAddress, err := arklib.DecodeAddressV0(o.To)
 	if err != nil {
 		// decode onchain address
 		btcAddress, err := btcutil.DecodeAddress(o.To, nil)

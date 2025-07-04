@@ -3,7 +3,7 @@ package wallet
 import (
 	"context"
 
-	"github.com/ark-network/ark/common/tree"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/explorer"
 )
 

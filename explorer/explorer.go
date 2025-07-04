@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ark-network/ark/common"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -31,7 +31,7 @@ type Explorer interface {
 	GetUtxos(addr string) ([]Utxo, error)
 	GetBalance(addr string) (uint64, error)
 	GetRedeemedVtxosBalance(
-		addr string, unilateralExitDelay common.RelativeLocktime,
+		addr string, unilateralExitDelay arklib.RelativeLocktime,
 	) (uint64, map[int64]uint64, error)
 	GetTxBlockTime(
 		txid string,
@@ -43,10 +43,10 @@ type Explorer interface {
 type explorerSvc struct {
 	cache   *utils.Cache[string]
 	baseUrl string
-	net     common.Network
+	net     arklib.Network
 }
 
-func NewExplorer(baseUrl string, net common.Network) Explorer {
+func NewExplorer(baseUrl string, net arklib.Network) Explorer {
 	return &explorerSvc{
 		cache:   utils.NewCache[string](),
 		baseUrl: baseUrl,
@@ -58,7 +58,7 @@ func (e *explorerSvc) BaseUrl() string {
 	return e.baseUrl
 }
 
-func (e *explorerSvc) GetNetwork() common.Network {
+func (e *explorerSvc) GetNetwork() arklib.Network {
 	return e.net
 }
 
@@ -282,7 +282,7 @@ func (e *explorerSvc) GetBalance(addr string) (uint64, error) {
 }
 
 func (e *explorerSvc) GetRedeemedVtxosBalance(
-	addr string, unilateralExitDelay common.RelativeLocktime,
+	addr string, unilateralExitDelay arklib.RelativeLocktime,
 ) (spendableBalance uint64, lockedBalance map[int64]uint64, err error) {
 	utxos, err := e.GetUtxos(addr)
 	if err != nil {
@@ -486,7 +486,7 @@ func parseBitcoinTx(txStr string) (string, string, error) {
 	return txhex, txid, nil
 }
 
-func newUtxo(explorerUtxo Utxo, delay common.RelativeLocktime, tapscripts []string) types.Utxo {
+func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	utxoTime := explorerUtxo.Status.Blocktime
 	createdAt := time.Unix(utxoTime, 0)
 	if utxoTime == 0 {

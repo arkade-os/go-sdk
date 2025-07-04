@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ark-network/ark/common"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -22,12 +22,12 @@ var (
 		SignerPubKey:        key.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,
 		ClientType:          client.GrpcClient,
-		Network:             common.BitcoinRegTest,
-		VtxoTreeExpiry:      common.RelativeLocktime{Type: common.LocktimeTypeSecond, Value: 512},
+		Network:             arklib.BitcoinRegTest,
+		VtxoTreeExpiry:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		RoundInterval:       10,
-		UnilateralExitDelay: common.RelativeLocktime{Type: common.LocktimeTypeSecond, Value: 512},
+		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		Dust:                1000,
-		BoardingExitDelay:   common.RelativeLocktime{Type: common.LocktimeTypeSecond, Value: 512},
+		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		ForfeitAddress:      "bcrt1qzvqj",
 	}
 
