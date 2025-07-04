@@ -29,7 +29,7 @@ func NewRedeemBranch(
 	indexerSvc indexer.Indexer,
 	vtxo types.Vtxo,
 ) (*CovenantlessRedeemBranch, error) {
-	chain, err := indexerSvc.GetVtxoChain(ctx, indexer.Outpoint{
+	chain, err := indexerSvc.GetVtxoChain(ctx, types.Outpoint{
 		Txid: vtxo.Txid,
 		VOut: vtxo.VOut,
 	})

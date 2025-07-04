@@ -22,6 +22,7 @@ import (
 	"github.com/ark-network/ark/common/txutils"
 	"github.com/arkade-os/sdk/client"
 	"github.com/arkade-os/sdk/explorer"
+	"github.com/arkade-os/sdk/indexer"
 	"github.com/arkade-os/sdk/internal/utils"
 	"github.com/arkade-os/sdk/redemption"
 	"github.com/arkade-os/sdk/types"
@@ -977,7 +978,7 @@ func (a *covenantlessArkClient) GetTransactionHistory(
 		return history, nil
 	}
 
-	return a.fetchTxHistory(ctx)
+	return a.getTxHistory(ctx)
 }
 
 func (a *covenantlessArkClient) RegisterIntent(
@@ -1093,7 +1094,7 @@ func (a *covenantlessArkClient) listenForArkTxs(ctx context.Context) {
 
 func (a *covenantlessArkClient) refreshDb(ctx context.Context) error {
 	// fetch new data
-	history, err := a.fetchTxHistory(ctx)
+	history, err := a.getTxHistory(ctx)
 	if err != nil {
 		return err
 	}
@@ -3005,8 +3006,7 @@ func (a *covenantlessArkClient) getBoardingTxs(
 }
 
 func (a *covenantlessArkClient) handleCommitmentTx(
-	ctx context.Context,
-	myPubkeys map[string]struct{}, commitmentTx *client.TxNotification,
+	ctx context.Context, myPubkeys map[string]struct{}, commitmentTx *client.TxNotification,
 ) error {
 	vtxosToAdd := make([]types.Vtxo, 0)
 	vtxosToSpend := make(map[types.Outpoint]string, 0)
@@ -3309,41 +3309,142 @@ func (a *covenantlessArkClient) handleOptions(
 	return sessions, signerPubKeys, nil
 }
 
-func (a *covenantlessArkClient) fetchTxHistory(ctx context.Context) ([]types.Transaction, error) {
-	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+func (a *covenantlessArkClient) getTxHistory(ctx context.Context) ([]types.Transaction, error) {
+	spendable, spent, err := a.ListVtxos(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	indexedHistory := make(map[string]types.Transaction)
-	for _, addr := range offchainAddrs {
-		resp, err := a.indexer.GetTransactionHistory(ctx, addr.Address)
-		if err != nil {
-			return nil, err
-		}
-		for _, tx := range resp.History {
-			indexedHistory[tx.String()] = tx
-		}
-	}
-
-	boardingTxs, commitmentTxsToIgnore, err := a.getBoardingTxs(ctx)
+	onchainHistory, batchesToIgnore, err := a.getBoardingTxs(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	for txid := range commitmentTxsToIgnore {
-		delete(indexedHistory, txid)
+	offchainHistory, err := a.vtxosToTxs(ctx, spendable, spent, batchesToIgnore)
+	if err != nil {
+		return nil, err
 	}
 
-	allHistory := append([]types.Transaction{}, boardingTxs...)
-	for _, tx := range indexedHistory {
-		allHistory = append(allHistory, tx)
-	}
-
-	sort.SliceStable(allHistory, func(i, j int) bool {
-		return allHistory[i].CreatedAt.IsZero() ||
-			allHistory[i].CreatedAt.After(allHistory[j].CreatedAt)
+	history := append(onchainHistory, offchainHistory...)
+	sort.SliceStable(history, func(i, j int) bool {
+		return history[i].CreatedAt.After(history[j].CreatedAt)
 	})
 
-	return allHistory, nil
+	return history, nil
+}
+
+func (i *covenantlessArkClient) vtxosToTxs(
+	ctx context.Context, spendable, spent []types.Vtxo, batchesToIgnore map[string]struct{},
+) ([]types.Transaction, error) {
+	txs := make([]types.Transaction, 0)
+
+	// Receivals
+
+	// All vtxos are receivals unless:
+	// - they resulted from a settlement (either boarding or refresh)
+	// - they are the change of a spend tx
+	vtxosLeftToCheck := append([]types.Vtxo{}, spent...)
+	for _, vtxo := range append(spendable, spent...) {
+		if _, ok := batchesToIgnore[vtxo.CommitmentTxids[0]]; !vtxo.Preconfirmed && ok {
+			continue
+		}
+
+		settleVtxos := findVtxosSpentInSettlement(vtxosLeftToCheck, vtxo)
+		settleAmount := reduceVtxosAmount(settleVtxos)
+		if vtxo.Amount <= settleAmount {
+			continue // settlement, ignore
+		}
+
+		spentVtxos := findVtxosSpentInPayment(vtxosLeftToCheck, vtxo)
+		spentAmount := reduceVtxosAmount(spentVtxos)
+		if vtxo.Amount <= spentAmount {
+			continue // change, ignore
+		}
+
+		commitmentTxid := vtxo.CommitmentTxids[0]
+		arkTxid := ""
+		settled := !vtxo.Preconfirmed
+		settledBy := ""
+		if vtxo.Preconfirmed {
+			arkTxid = vtxo.Txid
+			commitmentTxid = ""
+			settled = vtxo.Spent
+			settledBy = vtxo.SettledBy
+		}
+
+		txs = append(txs, types.Transaction{
+			TransactionKey: types.TransactionKey{
+				CommitmentTxid: commitmentTxid,
+				ArkTxid:        arkTxid,
+			},
+			Amount:    vtxo.Amount - settleAmount - spentAmount,
+			Type:      types.TxReceived,
+			CreatedAt: vtxo.CreatedAt,
+			Settled:   settled,
+			SettledBy: settledBy,
+		})
+	}
+
+	// Sendings
+
+	// All "spentBy" vtxos are payments unless:
+	// - they are settlements
+
+	// aggregate spent by spentId
+	vtxosBySpentBy := make(map[string][]types.Vtxo)
+	for _, v := range spent {
+		if len(v.SpentBy) <= 0 {
+			continue
+		}
+		if v.SettledBy != "" {
+			continue
+		}
+
+		if _, ok := vtxosBySpentBy[v.ArkTxid]; !ok {
+			vtxosBySpentBy[v.ArkTxid] = make([]types.Vtxo, 0)
+		}
+		vtxosBySpentBy[v.ArkTxid] = append(vtxosBySpentBy[v.ArkTxid], v)
+	}
+
+	for sb := range vtxosBySpentBy {
+		resultedVtxos := findVtxosResultedFromSpentBy(append(spendable, spent...), sb)
+		resultedAmount := reduceVtxosAmount(resultedVtxos)
+		spentAmount := reduceVtxosAmount(vtxosBySpentBy[sb])
+		if spentAmount <= resultedAmount {
+			continue // settlement, ignore
+		}
+		vtxo := getVtxo(resultedVtxos, vtxosBySpentBy[sb])
+		if resultedAmount == 0 {
+			// send all: fetch the created vtxo to source creation and expiration timestamps
+			opts := &indexer.GetVtxosRequestOption{}
+			// nolint
+			opts.WithOutpoints([]types.Outpoint{{Txid: sb, VOut: 0}})
+			resp, err := i.indexer.GetVtxos(ctx, *opts)
+			if err != nil {
+				return nil, err
+			}
+			vtxo = resp.Vtxos[0]
+		}
+
+		commitmentTxid := vtxo.CommitmentTxids[0]
+		arkTxid := ""
+		if vtxo.Preconfirmed {
+			arkTxid = vtxo.Txid
+			commitmentTxid = ""
+		}
+
+		txs = append(txs, types.Transaction{
+			TransactionKey: types.TransactionKey{
+				CommitmentTxid: commitmentTxid,
+				ArkTxid:        arkTxid,
+			},
+			Amount:    spentAmount - resultedAmount,
+			Type:      types.TxSent,
+			CreatedAt: vtxo.CreatedAt,
+			Settled:   true,
+		})
+
+	}
+
+	return txs, nil
 }

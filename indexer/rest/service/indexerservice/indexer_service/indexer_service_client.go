@@ -66,8 +66,6 @@ type ClientService interface {
 
 	IndexerServiceGetSubscription(params *IndexerServiceGetSubscriptionParams, opts ...ClientOption) (*IndexerServiceGetSubscriptionOK, error)
 
-	IndexerServiceGetTransactionHistory(params *IndexerServiceGetTransactionHistoryParams, opts ...ClientOption) (*IndexerServiceGetTransactionHistoryOK, error)
-
 	IndexerServiceGetVirtualTxs(params *IndexerServiceGetVirtualTxsParams, opts ...ClientOption) (*IndexerServiceGetVirtualTxsOK, error)
 
 	IndexerServiceGetVtxoChain(params *IndexerServiceGetVtxoChainParams, opts ...ClientOption) (*IndexerServiceGetVtxoChainOK, error)
@@ -304,43 +302,6 @@ func (a *Client) IndexerServiceGetSubscription(params *IndexerServiceGetSubscrip
 	}
 	// unexpected success response
 	unexpectedSuccess := result.(*IndexerServiceGetSubscriptionDefault)
-	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
-}
-
-/*
-IndexerServiceGetTransactionHistory gets transaction history returns the list of transactions for the provided address the tx history can be filtered by defining a start and or end time the response may be paginated if the results span multiple pages
-*/
-func (a *Client) IndexerServiceGetTransactionHistory(params *IndexerServiceGetTransactionHistoryParams, opts ...ClientOption) (*IndexerServiceGetTransactionHistoryOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewIndexerServiceGetTransactionHistoryParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "IndexerService_GetTransactionHistory",
-		Method:             "GET",
-		PathPattern:        "/v1/history/{address}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http"},
-		Params:             params,
-		Reader:             &IndexerServiceGetTransactionHistoryReader{formats: a.formats},
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*IndexerServiceGetTransactionHistoryOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	unexpectedSuccess := result.(*IndexerServiceGetTransactionHistoryDefault)
 	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
 }
 

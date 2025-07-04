@@ -3,6 +3,8 @@ package indexer
 import (
 	"fmt"
 	"time"
+
+	"github.com/arkade-os/sdk/types"
 )
 
 type RequestOption struct {
@@ -20,7 +22,7 @@ func (o *RequestOption) GetPage() *PageRequest {
 type GetVtxosRequestOption struct {
 	RequestOption
 	scripts         []string
-	outpoints       []Outpoint
+	outpoints       []types.Outpoint
 	spentOnly       bool
 	spendableOnly   bool
 	recoverableOnly bool
@@ -41,7 +43,7 @@ func (o *GetVtxosRequestOption) GetScripts() []string {
 	return o.scripts
 }
 
-func (o *GetVtxosRequestOption) WithOutpoints(outpoints []Outpoint) error {
+func (o *GetVtxosRequestOption) WithOutpoints(outpoints []types.Outpoint) error {
 	if o.outpoints != nil {
 		return fmt.Errorf("outpoints already set")
 	}

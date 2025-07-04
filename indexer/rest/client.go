@@ -21,8 +21,6 @@ import (
 	"github.com/arkade-os/sdk/types"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type restClient struct {
@@ -128,9 +126,9 @@ func (a *restClient) GetCommitmentTxLeaves(
 		return nil, err
 	}
 
-	leaves := make([]indexer.Outpoint, 0, len(resp.Payload.Leaves))
+	leaves := make([]types.Outpoint, 0, len(resp.Payload.Leaves))
 	for _, leaf := range resp.Payload.Leaves {
-		leaves = append(leaves, indexer.Outpoint{
+		leaves = append(leaves, types.Outpoint{
 			Txid: leaf.Txid,
 			VOut: uint32(leaf.Vout),
 		})
@@ -143,7 +141,7 @@ func (a *restClient) GetCommitmentTxLeaves(
 }
 
 func (a *restClient) GetVtxoTree(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeResponse, error) {
 	params := indexer_service.NewIndexerServiceGetVtxoTreeParams().
 		WithBatchOutpointTxid(batchOutpoint.Txid).
@@ -182,7 +180,7 @@ func (a *restClient) GetVtxoTree(
 }
 
 func (a *restClient) GetFullVtxoTree(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) ([]tree.TxTreeNode, error) {
 	resp, err := a.GetVtxoTree(ctx, batchOutpoint, opts...)
 	if err != nil {
@@ -215,7 +213,7 @@ func (a *restClient) GetFullVtxoTree(
 }
 
 func (a *restClient) GetVtxoTreeLeaves(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeLeavesResponse, error) {
 	params := indexer_service.NewIndexerServiceGetVtxoTreeLeavesParams().
 		WithBatchOutpointTxid(batchOutpoint.Txid).
@@ -231,9 +229,9 @@ func (a *restClient) GetVtxoTreeLeaves(
 		return nil, err
 	}
 
-	leaves := make([]indexer.Outpoint, 0, len(resp.Payload.Leaves))
+	leaves := make([]types.Outpoint, 0, len(resp.Payload.Leaves))
 	for _, leaf := range resp.Payload.Leaves {
-		leaves = append(leaves, indexer.Outpoint{
+		leaves = append(leaves, types.Outpoint{
 			Txid: leaf.Txid,
 			VOut: uint32(leaf.Vout),
 		})
@@ -342,81 +340,8 @@ func (a *restClient) GetVtxos(
 	}, nil
 }
 
-func (a *restClient) GetTransactionHistory(
-	ctx context.Context, address string, opts ...indexer.GetTxHistoryRequestOption,
-) (*indexer.TxHistoryResponse, error) {
-	params := indexer_service.NewIndexerServiceGetTransactionHistoryParams().
-		WithAddress(address)
-
-	if len(opts) > 0 {
-		if page := opts[0].GetPage(); page != nil {
-			params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
-		}
-		startTime := opts[0].GetStartTime()
-		endTime := opts[0].GetEndTime()
-		if !startTime.IsZero() && !endTime.IsZero() && startTime.After(endTime) {
-			return nil, status.Errorf(codes.InvalidArgument, "start_time must be before end_time")
-		}
-
-		if !startTime.IsZero() {
-			startTimeStr := strconv.FormatInt(startTime.Unix(), 10)
-			params.WithStartTime(&startTimeStr)
-		}
-		if !endTime.IsZero() {
-			endTimeStr := strconv.FormatInt(endTime.Unix(), 10)
-			params.WithEndTime(&endTimeStr)
-		}
-	}
-
-	resp, err := a.svc.IndexerServiceGetTransactionHistory(params)
-	if err != nil {
-		return nil, err
-	}
-
-	history := make([]types.Transaction, 0, len(resp.Payload.History))
-	for _, record := range resp.Payload.History {
-		amount, err := strconv.ParseUint(record.Amount, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		createdAt, err := strconv.ParseInt(record.CreatedAt, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		// Use a zero value for TxType if Type is nil, otherwise use a numeric conversion
-		var txType types.TxType
-		if record.Type != nil {
-			// Convert the string enum to a numeric value
-			typeStr := string(*record.Type)
-			switch typeStr {
-			case "INDEXER_TX_TYPE_RECEIVED":
-				txType = types.TxReceived
-			case "INDEXER_TX_TYPE_SENT":
-				txType = types.TxSent
-			}
-		}
-
-		history = append(history, types.Transaction{
-			TransactionKey: types.TransactionKey{
-				CommitmentTxid: record.CommitmentTxid,
-				ArkTxid:        record.VirtualTxid,
-			},
-			Type:      txType,
-			Amount:    amount,
-			CreatedAt: time.Unix(createdAt, 0),
-			Settled:   record.IsSettled,
-		})
-	}
-
-	return &indexer.TxHistoryResponse{
-		History: history,
-		Page:    parsePage(resp.Payload.Page),
-	}, nil
-}
-
 func (a *restClient) GetVtxoChain(
-	ctx context.Context, outpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, outpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoChainResponse, error) {
 	params := indexer_service.NewIndexerServiceGetVtxoChainParams().
 		WithOutpointTxid(outpoint.Txid).
@@ -490,7 +415,7 @@ func (a *restClient) GetVirtualTxs(
 
 func (a *restClient) GetBatchSweepTxs(
 	ctx context.Context,
-	batchOutpoint indexer.Outpoint,
+	batchOutpoint types.Outpoint,
 ) ([]string, error) {
 	params := indexer_service.NewIndexerServiceGetBatchSweepTransactionsParams().
 		WithBatchOutpointTxid(batchOutpoint.Txid).WithBatchOutpointVout(int64(batchOutpoint.VOut))

@@ -527,3 +527,71 @@ func registerIntentMessage(
 
 	return message, outputsTxOut, nil
 }
+
+func findVtxosSpentInSettlement(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {
+	if vtxo.Preconfirmed {
+		return nil
+	}
+	return findVtxosSettled(vtxos, vtxo.CommitmentTxids[0])
+}
+
+func findVtxosSettled(vtxos []types.Vtxo, id string) []types.Vtxo {
+	var result []types.Vtxo
+	leftVtxos := make([]types.Vtxo, 0)
+	for _, v := range vtxos {
+		if v.SettledBy == id {
+			result = append(result, v)
+		} else {
+			leftVtxos = append(leftVtxos, v)
+		}
+	}
+	// Update the given list with only the left vtxos.
+	copy(vtxos, leftVtxos)
+	return result
+}
+
+func findVtxosSpent(vtxos []types.Vtxo, id string) []types.Vtxo {
+	var result []types.Vtxo
+	leftVtxos := make([]types.Vtxo, 0)
+	for _, v := range vtxos {
+		if v.ArkTxid == id {
+			result = append(result, v)
+		} else {
+			leftVtxos = append(leftVtxos, v)
+		}
+	}
+	// Update the given list with only the left vtxos.
+	copy(vtxos, leftVtxos)
+	return result
+}
+
+func reduceVtxosAmount(vtxos []types.Vtxo) uint64 {
+	var total uint64
+	for _, v := range vtxos {
+		total += v.Amount
+	}
+	return total
+}
+
+func findVtxosSpentInPayment(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {
+	return findVtxosSpent(vtxos, vtxo.Txid)
+}
+
+func findVtxosResultedFromSpentBy(vtxos []types.Vtxo, spentByTxid string) []types.Vtxo {
+	var result []types.Vtxo
+	for _, v := range vtxos {
+		if v.Txid == spentByTxid {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
+	if len(usedVtxos) > 0 {
+		return usedVtxos[0]
+	} else if len(spentByVtxos) > 0 {
+		return spentByVtxos[0]
+	}
+	return types.Vtxo{}
+}

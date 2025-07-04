@@ -104,9 +104,9 @@ func (a *grpcClient) GetCommitmentTxLeaves(
 		return nil, err
 	}
 
-	leaves := make([]indexer.Outpoint, 0, len(resp.GetLeaves()))
+	leaves := make([]types.Outpoint, 0, len(resp.GetLeaves()))
 	for _, leaf := range resp.GetLeaves() {
-		leaves = append(leaves, indexer.Outpoint{
+		leaves = append(leaves, types.Outpoint{
 			Txid: leaf.GetTxid(),
 			VOut: leaf.GetVout(),
 		})
@@ -119,7 +119,7 @@ func (a *grpcClient) GetCommitmentTxLeaves(
 }
 
 func (a *grpcClient) GetVtxoTree(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeResponse, error) {
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
@@ -158,7 +158,7 @@ func (a *grpcClient) GetVtxoTree(
 }
 
 func (a *grpcClient) GetFullVtxoTree(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) ([]tree.TxTreeNode, error) {
 	resp, err := a.GetVtxoTree(ctx, batchOutpoint, opts...)
 	if err != nil {
@@ -191,7 +191,7 @@ func (a *grpcClient) GetFullVtxoTree(
 }
 
 func (a *grpcClient) GetVtxoTreeLeaves(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeLeavesResponse, error) {
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
@@ -215,9 +215,9 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 		return nil, err
 	}
 
-	leaves := make([]indexer.Outpoint, 0, len(resp.GetLeaves()))
+	leaves := make([]types.Outpoint, 0, len(resp.GetLeaves()))
 	for _, leaf := range resp.GetLeaves() {
-		leaves = append(leaves, indexer.Outpoint{
+		leaves = append(leaves, types.Outpoint{
 			Txid: leaf.GetTxid(),
 			VOut: leaf.GetVout(),
 		})
@@ -334,77 +334,8 @@ func (a *grpcClient) GetVtxos(
 	}, nil
 }
 
-func (a *grpcClient) GetTransactionHistory(
-	ctx context.Context, address string, opts ...indexer.GetTxHistoryRequestOption,
-) (*indexer.TxHistoryResponse, error) {
-	var page *arkv1.IndexerPageRequest
-	var startTime, endTime time.Time
-	if len(opts) > 0 {
-		opt := opts[0]
-		if opt.GetPage() != nil {
-			page = &arkv1.IndexerPageRequest{
-				Size:  opt.GetPage().Size,
-				Index: opt.GetPage().Index,
-			}
-		}
-		if !opt.GetStartTime().IsZero() {
-			startTime = opt.GetStartTime()
-		}
-		if !opt.GetEndTime().IsZero() {
-			endTime = opt.GetEndTime()
-		}
-	}
-
-	if !startTime.IsZero() && !endTime.IsZero() && startTime.After(endTime) {
-		return nil, status.Errorf(codes.InvalidArgument, "start_time must be before end_time")
-	}
-
-	var startTimeUnix, endTimeUnix int64
-	if !startTime.IsZero() {
-		startTimeUnix = startTime.Unix()
-	}
-	if !endTime.IsZero() {
-		endTimeUnix = endTime.Unix()
-	}
-
-	req := &arkv1.GetTransactionHistoryRequest{
-		Address:   address,
-		StartTime: startTimeUnix,
-		EndTime:   endTimeUnix,
-		Page:      page,
-	}
-
-	resp, err := a.svc.GetTransactionHistory(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	history := make([]types.Transaction, 0, len(resp.GetHistory()))
-	for _, record := range resp.GetHistory() {
-		txType := types.TxSent
-		if record.GetType() == arkv1.IndexerTxType_INDEXER_TX_TYPE_RECEIVED {
-			txType = types.TxReceived
-		}
-		history = append(history, types.Transaction{
-			TransactionKey: types.TransactionKey{
-				CommitmentTxid: record.GetCommitmentTxid(),
-				ArkTxid:        record.GetVirtualTxid(),
-			},
-			Type:      txType,
-			Amount:    record.GetAmount(),
-			CreatedAt: time.Unix(record.GetCreatedAt(), 0),
-			Settled:   record.GetIsSettled(),
-		})
-	}
-
-	return &indexer.TxHistoryResponse{
-		History: history,
-		Page:    parsePage(resp.GetPage()),
-	}, nil
-}
-
 func (a *grpcClient) GetVtxoChain(
-	ctx context.Context, outpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, outpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoChainResponse, error) {
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
@@ -488,7 +419,7 @@ func (a *grpcClient) GetVirtualTxs(
 
 func (a *grpcClient) GetBatchSweepTxs(
 	ctx context.Context,
-	batchOutpoint indexer.Outpoint,
+	batchOutpoint types.Outpoint,
 ) ([]string, error) {
 	req := &arkv1.GetBatchSweepTransactionsRequest{
 		BatchOutpoint: &arkv1.IndexerOutpoint{

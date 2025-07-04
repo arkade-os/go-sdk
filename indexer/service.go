@@ -16,17 +16,17 @@ type Indexer interface {
 	) (*CommitmentTxLeavesResponse, error)
 	GetVtxoTree(
 		ctx context.Context,
-		batchOutpoint Outpoint,
+		batchOutpoint types.Outpoint,
 		opts ...RequestOption,
 	) (*VtxoTreeResponse, error)
 	GetFullVtxoTree(
 		ctx context.Context,
-		batchOutpoint Outpoint,
+		batchOutpoint types.Outpoint,
 		opts ...RequestOption,
 	) ([]tree.TxTreeNode, error)
 	GetVtxoTreeLeaves(
 		ctx context.Context,
-		batchOutpoint Outpoint,
+		batchOutpoint types.Outpoint,
 		opts ...RequestOption,
 	) (*VtxoTreeLeavesResponse, error)
 	GetForfeitTxs(
@@ -40,14 +40,9 @@ type Indexer interface {
 		opts ...RequestOption,
 	) (*ConnectorsResponse, error)
 	GetVtxos(ctx context.Context, opts ...GetVtxosRequestOption) (*VtxosResponse, error)
-	GetTransactionHistory(
-		ctx context.Context,
-		address string,
-		opts ...GetTxHistoryRequestOption,
-	) (*TxHistoryResponse, error)
 	GetVtxoChain(
 		ctx context.Context,
-		outpoint Outpoint,
+		outpoint types.Outpoint,
 		opts ...RequestOption,
 	) (*VtxoChainResponse, error)
 	GetVirtualTxs(
@@ -55,7 +50,7 @@ type Indexer interface {
 		txids []string,
 		opts ...RequestOption,
 	) (*VirtualTxsResponse, error)
-	GetBatchSweepTxs(ctx context.Context, batchOutpoint Outpoint) ([]string, error)
+	GetBatchSweepTxs(ctx context.Context, batchOutpoint types.Outpoint) ([]string, error)
 	SubscribeForScripts(
 		ctx context.Context,
 		subscriptionId string,
@@ -68,7 +63,7 @@ type Indexer interface {
 }
 
 type CommitmentTxLeavesResponse struct {
-	Leaves []Outpoint
+	Leaves []types.Outpoint
 	Page   *PageResponse
 }
 
@@ -78,7 +73,7 @@ type VtxoTreeResponse struct {
 }
 
 type VtxoTreeLeavesResponse struct {
-	Leaves []Outpoint
+	Leaves []types.Outpoint
 	Page   *PageResponse
 }
 
@@ -180,11 +175,6 @@ type CommitmentTx struct {
 	TotalOutputAmount uint64
 	TotalOutputVtxos  int32
 	Batches           map[uint32]*Batch
-}
-
-type Outpoint struct {
-	Txid string
-	VOut uint32
 }
 
 type IndexerChainedTxType string
