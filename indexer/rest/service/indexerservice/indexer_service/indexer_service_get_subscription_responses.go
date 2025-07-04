@@ -16,7 +16,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/arkade-os/sdk/indexer/rest/service/models"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/models"
 )
 
 // IndexerServiceGetSubscriptionReader is a Reader for the IndexerServiceGetSubscription structure.

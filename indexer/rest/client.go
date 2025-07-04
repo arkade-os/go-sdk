@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/ark-network/ark/common/tree"
-	"github.com/arkade-os/sdk/client"
-	"github.com/arkade-os/sdk/indexer"
-	"github.com/arkade-os/sdk/indexer/rest/service/indexerservice"
-	"github.com/arkade-os/sdk/indexer/rest/service/indexerservice/indexer_service"
-	"github.com/arkade-os/sdk/indexer/rest/service/models"
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/indexer"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice/indexer_service"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/models"
+	"github.com/arkade-os/go-sdk/types"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )

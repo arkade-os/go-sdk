@@ -10,9 +10,9 @@ import (
 
 	"github.com/ark-network/ark/common/script"
 	"github.com/ark-network/ark/common/txutils"
-	"github.com/arkade-os/sdk/explorer"
-	"github.com/arkade-os/sdk/indexer"
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/explorer"
+	"github.com/arkade-os/go-sdk/indexer"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 )
 

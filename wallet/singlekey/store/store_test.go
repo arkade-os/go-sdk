@@ -3,10 +3,10 @@ package store_test
 import (
 	"testing"
 
-	"github.com/arkade-os/sdk/types"
-	walletstore "github.com/arkade-os/sdk/wallet/singlekey/store"
-	filestore "github.com/arkade-os/sdk/wallet/singlekey/store/file"
-	inmemorystore "github.com/arkade-os/sdk/wallet/singlekey/store/inmemory"
+	"github.com/arkade-os/go-sdk/types"
+	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
+	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
+	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )

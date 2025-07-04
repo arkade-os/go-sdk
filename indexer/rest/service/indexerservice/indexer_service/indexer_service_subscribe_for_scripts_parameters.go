@@ -15,7 +15,7 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/arkade-os/sdk/indexer/rest/service/models"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/models"
 )
 
 // NewIndexerServiceSubscribeForScriptsParams creates a new IndexerServiceSubscribeForScriptsParams object,

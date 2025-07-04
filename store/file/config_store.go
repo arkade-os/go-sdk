@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 const (

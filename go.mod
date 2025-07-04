@@ -1,4 +1,4 @@
-module github.com/arkade-os/sdk
+module github.com/arkade-os/go-sdk
 
 go 1.23.1
 

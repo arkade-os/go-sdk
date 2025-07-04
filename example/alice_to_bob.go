@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	arksdk "github.com/arkade-os/sdk"
-	"github.com/arkade-os/sdk/store"
-	"github.com/arkade-os/sdk/types"
+	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/store"
+	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 

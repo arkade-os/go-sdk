@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/arkade-os/sdk/client"
+	"github.com/arkade-os/go-sdk/client"
 )
 
 type SupportedType[V any] map[string]V

@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/ark-network/ark/common"
-	"github.com/arkade-os/sdk/internal/utils"
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 

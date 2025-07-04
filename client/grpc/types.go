@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/ark-network/ark/common/tree"
-	arkv1 "github.com/arkade-os/sdk/api-spec/protobuf/gen/ark/v1"
-	"github.com/arkade-os/sdk/client"
-	"github.com/arkade-os/sdk/types"
+	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
+	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 // wrapper for GetEventStreamResponse and PingResponse

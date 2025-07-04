@@ -3,7 +3,7 @@ package arksdk
 import (
 	"context"
 
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 var Version string

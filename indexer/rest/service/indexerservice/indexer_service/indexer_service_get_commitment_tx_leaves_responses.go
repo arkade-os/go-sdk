@@ -13,7 +13,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/arkade-os/sdk/indexer/rest/service/models"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/models"
 )
 
 // IndexerServiceGetCommitmentTxLeavesReader is a Reader for the IndexerServiceGetCommitmentTxLeaves structure.

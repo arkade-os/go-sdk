@@ -3,11 +3,11 @@ package arksdk
 import (
 	"fmt"
 
-	grpcclient "github.com/arkade-os/sdk/client/grpc"
-	restclient "github.com/arkade-os/sdk/client/rest"
-	"github.com/arkade-os/sdk/internal/utils"
-	"github.com/arkade-os/sdk/types"
-	"github.com/arkade-os/sdk/wallet"
+	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
+	restclient "github.com/arkade-os/go-sdk/client/rest"
+	"github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet"
 )
 
 var (

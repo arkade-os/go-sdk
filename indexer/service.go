@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/ark-network/ark/common/tree"
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 type Indexer interface {

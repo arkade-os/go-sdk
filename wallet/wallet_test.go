@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/ark-network/ark/common"
-	"github.com/arkade-os/sdk/client"
-	inmemorystore "github.com/arkade-os/sdk/store/inmemory"
-	sdktypes "github.com/arkade-os/sdk/types"
-	"github.com/arkade-os/sdk/wallet"
-	singlekeywallet "github.com/arkade-os/sdk/wallet/singlekey"
-	inmemorywalletstore "github.com/arkade-os/sdk/wallet/singlekey/store/inmemory"
+	"github.com/arkade-os/go-sdk/client"
+	inmemorystore "github.com/arkade-os/go-sdk/store/inmemory"
+	sdktypes "github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet"
+	singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
+	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arkade-os/sdk/store/sql/sqlc/queries"
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 type txStore struct {

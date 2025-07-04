@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 type RequestOption struct {
