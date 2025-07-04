@@ -75,22 +75,6 @@ func (a *restClient) GetInfo(
 	if err != nil {
 		return nil, err
 	}
-	nextStartTime, err := strconv.Atoi(resp.Payload.MarketHour.NextStartTime)
-	if err != nil {
-		return nil, err
-	}
-	nextEndTime, err := strconv.Atoi(resp.Payload.MarketHour.NextEndTime)
-	if err != nil {
-		return nil, err
-	}
-	period, err := strconv.Atoi(resp.Payload.MarketHour.Period)
-	if err != nil {
-		return nil, err
-	}
-	mhRoundInterval, err := strconv.Atoi(resp.Payload.MarketHour.RoundInterval)
-	if err != nil {
-		return nil, err
-	}
 	utxoMinAmount, err := strconv.Atoi(resp.Payload.UtxoMinAmount)
 	if err != nil {
 		return nil, err
@@ -107,6 +91,29 @@ func (a *restClient) GetInfo(
 	if err != nil {
 		return nil, err
 	}
+	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
+	if mktHour := resp.Payload.MarketHour; mktHour != nil {
+		nextStartTime, err := strconv.Atoi(mktHour.NextStartTime)
+		if err != nil {
+			return nil, err
+		}
+		nextEndTime, err := strconv.Atoi(mktHour.NextEndTime)
+		if err != nil {
+			return nil, err
+		}
+		period, err := strconv.Atoi(mktHour.Period)
+		if err != nil {
+			return nil, err
+		}
+		roundInterval, err := strconv.Atoi(mktHour.RoundInterval)
+		if err != nil {
+			return nil, err
+		}
+		marketHourStartTime = int64(nextStartTime)
+		marketHourEndTime = int64(nextEndTime)
+		marketHourPeriod = int64(period)
+		marketHourRoundInterval = int64(roundInterval)
+	}
 
 	return &client.Info{
 		SignerPubKey:            resp.Payload.SignerPubkey,
@@ -118,10 +125,10 @@ func (a *restClient) GetInfo(
 		BoardingExitDelay:       int64(boardingExitDelay),
 		ForfeitAddress:          resp.Payload.ForfeitAddress,
 		Version:                 resp.Payload.Version,
-		MarketHourStartTime:     int64(nextStartTime),
-		MarketHourEndTime:       int64(nextEndTime),
-		MarketHourPeriod:        int64(period),
-		MarketHourRoundInterval: int64(mhRoundInterval),
+		MarketHourStartTime:     marketHourStartTime,
+		MarketHourEndTime:       marketHourEndTime,
+		MarketHourPeriod:        marketHourPeriod,
+		MarketHourRoundInterval: marketHourRoundInterval,
 		UtxoMinAmount:           int64(utxoMinAmount),
 		UtxoMaxAmount:           int64(utxoMaxAmount),
 		VtxoMinAmount:           int64(vtxoMinAmount),

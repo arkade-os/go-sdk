@@ -34,8 +34,8 @@ jobs:
       - name: Check linting
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.61
-          args: --timeout 5m --skip-files=.*_test.go
+          version: v2.1.6
+          args: --timeout 5m
 
       - name: Check code integrity
         uses: securego/gosec@master

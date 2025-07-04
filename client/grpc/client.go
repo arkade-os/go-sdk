@@ -60,6 +60,13 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	if err != nil {
 		return nil, err
 	}
+	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
+	if mktHour := resp.GetMarketHour(); mktHour != nil {
+		marketHourStartTime = mktHour.GetNextStartTime()
+		marketHourEndTime = mktHour.GetNextEndTime()
+		marketHourPeriod = mktHour.GetPeriod()
+		marketHourRoundInterval = mktHour.GetRoundInterval()
+	}
 	return &client.Info{
 		SignerPubKey:            resp.GetSignerPubkey(),
 		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
@@ -70,10 +77,10 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 		BoardingExitDelay:       resp.GetBoardingExitDelay(),
 		ForfeitAddress:          resp.GetForfeitAddress(),
 		Version:                 resp.GetVersion(),
-		MarketHourStartTime:     resp.GetMarketHour().GetNextStartTime(),
-		MarketHourEndTime:       resp.GetMarketHour().GetNextEndTime(),
-		MarketHourPeriod:        resp.GetMarketHour().GetPeriod(),
-		MarketHourRoundInterval: resp.GetMarketHour().GetRoundInterval(),
+		MarketHourStartTime:     marketHourStartTime,
+		MarketHourEndTime:       marketHourEndTime,
+		MarketHourPeriod:        marketHourPeriod,
+		MarketHourRoundInterval: marketHourRoundInterval,
 		UtxoMinAmount:           resp.GetUtxoMinAmount(),
 		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
 		VtxoMinAmount:           resp.GetVtxoMinAmount(),
