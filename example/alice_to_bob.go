@@ -163,7 +163,7 @@ func main() {
 
 func setupArkClient() (arksdk.ArkClient, error) {
 	appDataStore, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.FileStore,
+		ConfigStoreType:  types.InMemoryStore,
 		AppDataStoreType: types.KVStore,
 	})
 	if err != nil {
