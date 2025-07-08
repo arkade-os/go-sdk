@@ -8,8 +8,6 @@ import (
 
 var Version string
 
-type Option func(options interface{}) error
-
 type ArkClient interface {
 	GetVersion() string
 	GetConfigData(ctx context.Context) (*types.Config, error)
@@ -34,8 +32,8 @@ type ArkClient interface {
 	CollaborativeExit(
 		ctx context.Context, addr string, amount uint64, withExpiryCoinselect bool, opts ...Option,
 	) (string, error)
-	StartUnilateralExit(ctx context.Context) error
-	CompleteUnilateralExit(ctx context.Context, to string) (string, error)
+	Unroll(ctx context.Context) error
+	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
 	ListVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)

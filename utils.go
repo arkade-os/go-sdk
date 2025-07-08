@@ -438,7 +438,7 @@ func finalizeWithNotes(notesWitnesses map[int][]byte) func(ptx *psbt.Packet) err
 }
 
 func handleBatchTreeSignature(
-	event client.TreeSignatureEvent, graph *tree.TxTree,
+	event client.TreeSignatureEvent, txTree *tree.TxTree,
 ) error {
 	if event.BatchIndex != 0 {
 		return fmt.Errorf("batch index %d is not 0", event.BatchIndex)
@@ -454,7 +454,7 @@ func handleBatchTreeSignature(
 		return fmt.Errorf("failed to parse signature: %s", err)
 	}
 
-	return graph.Apply(func(g *tree.TxTree) (bool, error) {
+	return txTree.Apply(func(g *tree.TxTree) (bool, error) {
 		if g.Root.UnsignedTx.TxID() != event.Txid {
 			return true, nil
 		}

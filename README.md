@@ -167,12 +167,12 @@ txid, err = arkClient.SendOffchain(ctx, false, receivers)
 if err != nil {
     log.Fatal(err)
 }
-log.Infof("Transaction completed in round tx: %s", txid)
+log.Infof("Transaction completed: %s", txid)
 ```
 
-#### Submit Redeem Transaction
+#### Submit Transaction
 
-`SendOffchain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `TransportClient.SubmitRedeemTx` function.
+`SendOffchain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `TransportClient.SubmitTx` and `TransportClient.FinalizeTx` APIs.
 
 ```go
 // Create a new transport client
@@ -235,7 +235,7 @@ txid, err = arkClient.SendOffchain(ctx, false, receivers)
 To move funds from offchain to onchain:
 
 ```go
-txid, err := arkClient.CollaborativeRedeem(ctx, onchainAddress, redeemAmount, false)
+txid, err := arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount, false)
 if err != nil {
     log.Fatal(err)
 }
