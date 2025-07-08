@@ -163,7 +163,7 @@ amount := uint64(1000)
 receivers := []arksdk.Receiver{
     arksdk.NewBitcoinReceiver(recipientOffchainAddr, amount),
 }
-txid, err = arkClient.SendOffchain(ctx, false, receivers)
+txid, err = arkClient.SendOffChain(ctx, false, receivers)
 if err != nil {
     log.Fatal(err)
 }
@@ -172,7 +172,7 @@ log.Infof("Transaction completed: %s", txid)
 
 #### Submit Transaction
 
-`SendOffchain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `TransportClient.SubmitTx` and `TransportClient.FinalizeTx` APIs.
+`SendOffChain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `TransportClient.SubmitTx` and `TransportClient.FinalizeTx` APIs.
 
 ```go
 // Create a new transport client
@@ -227,7 +227,7 @@ receivers := []arksdk.Receiver{
     arksdk.NewBitcoinReceiver(recipient1OffchainAddr, amount1),
     arksdk.NewBitcoinReceiver(recipient2OffchainAddr, amount2),
 }
-txid, err = arkClient.SendOffchain(ctx, false, receivers)
+txid, err = arkClient.SendOffChain(ctx, false, receivers)
 ```
 
 #### Redeem Funds
@@ -241,6 +241,53 @@ if err != nil {
 }
 log.Infof("Redeemed with tx: %s", txid)
 ```
+
+### 5. Additional Client Functions
+
+The `ArkClient` interface exposes a number of utility methods beyond the
+basic workflow shown above. Here is a quick overview:
+
+- `GetVersion()` - return the SDK version.
+- `GetConfigData(ctx)` - retrieve Ark server configuration details.
+- `Init(ctx, args)` / `InitWithWallet(ctx, args)` - create or restore a wallet.
+- `IsLocked(ctx)` - check if the wallet is currently locked.
+- `Unlock(ctx, password)` / `Lock(ctx)` - unlock or lock the wallet.
+- `Balance(ctx, computeExpiryDetails)` - query onchain and offchain balances.
+- `Receive(ctx)` - generate onchain, offchain and boarding addresses.
+- `SendOffChain(ctx, withExpiryCoinselect, receivers)` - send funds offchain.
+- `Settle(ctx, opts ...) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction.
+
+- `RegisterIntent(...)` / `DeleteIntent(...)` - manage spend intents for collaborative transactions.
+- `CollaborativeExit(ctx, addr, amount, withExpiryCoinselect, opts ...) (string, error)` - redeem offchain funds onchain.
+- `Unroll(ctx) error` - broadcast unroll transactions when ready.
+- `CompleteUnroll(ctx, to string) (string, error)` - finalize an unroll and sweep to an onchain address.
+- `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
+- `WithdrawFromAllExpiredBoardings(ctx, to string) (string, error)` - withdraw expired boarding amounts onchain.
+- `ListVtxos(ctx) (spendable, spent []types.Vtxo, err error)` - list virtual UTXOs.
+- `Dump(ctx) (seed string, error)` - export the wallet seed.
+- `GetTransactionHistory(ctx)` - fetch past transactions.
+- `GetTransactionEventChannel(ctx)` and `GetVtxoEventChannel(ctx)` - subscribe to wallet events.
+- `RedeemNotes(ctx, notes, opts ...)` - redeem Ark notes back to your wallet.
+- `SignTransaction(ctx, tx)` - sign an arbitrary transaction.
+- `NotifyIncomingFunds(ctx, address)` - wait until a specific offchain address receives funds.
+- `Reset(ctx)` - clear local caches and state.
+- `Stop()` - stop any running listeners.
+
+### 6. Transport Client
+
+For lower-level control over transaction batching you can use the `TransportClient` interface directly:
+
+- `GetInfo(ctx)` - return server configuration and network data.
+- `RegisterIntent(ctx, signature, message)` and `DeleteIntent(ctx, signature, message)` - manage collaborative intents.
+- `ConfirmRegistration(ctx, intentID)` - confirm intent registration on chain.
+- `SubmitTreeNonces(ctx, batchId, cosignerPubkey, nonces)` and `SubmitTreeSignatures(ctx, batchId, cosignerPubkey, sigs)` - coordinate cosigner trees.
+- `SubmitSignedForfeitTxs(ctx, signedForfeitTxs, signedCommitmentTx)` - provide fully signed forfeit and commitment transactions.
+- `GetEventStream(ctx, topics)` - subscribe to batch events from the server.
+- `SubmitTx(ctx, signedArkTx, checkpointTxs)` and `FinalizeTx(ctx, arkTxid, finalCheckpointTxs)` - submit collaborative transactions.
+- `GetTransactionsStream(ctx)` - stream transaction notifications.
+- `Close()` - close the transport connection.
+
+See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sdk) for detailed API information.
 
 ## Full Example
 
