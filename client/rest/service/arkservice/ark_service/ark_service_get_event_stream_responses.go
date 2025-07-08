@@ -16,7 +16,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/arkade-os/sdk/client/rest/service/models"
+	"github.com/arkade-os/go-sdk/client/rest/service/models"
 )
 
 // ArkServiceGetEventStreamReader is a Reader for the ArkServiceGetEventStream structure.
@@ -91,12 +91,12 @@ func (o *ArkServiceGetEventStreamOK) Code() int {
 
 func (o *ArkServiceGetEventStreamOK) Error() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[GET /v1/events][%d] arkServiceGetEventStreamOK %s", 200, payload)
+	return fmt.Sprintf("[GET /v1/batch/events][%d] arkServiceGetEventStreamOK %s", 200, payload)
 }
 
 func (o *ArkServiceGetEventStreamOK) String() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[GET /v1/events][%d] arkServiceGetEventStreamOK %s", 200, payload)
+	return fmt.Sprintf("[GET /v1/batch/events][%d] arkServiceGetEventStreamOK %s", 200, payload)
 }
 
 func (o *ArkServiceGetEventStreamOK) GetPayload() *ArkServiceGetEventStreamOKBody {
@@ -165,12 +165,12 @@ func (o *ArkServiceGetEventStreamDefault) Code() int {
 
 func (o *ArkServiceGetEventStreamDefault) Error() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[GET /v1/events][%d] ArkService_GetEventStream default %s", o._statusCode, payload)
+	return fmt.Sprintf("[GET /v1/batch/events][%d] ArkService_GetEventStream default %s", o._statusCode, payload)
 }
 
 func (o *ArkServiceGetEventStreamDefault) String() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[GET /v1/events][%d] ArkService_GetEventStream default %s", o._statusCode, payload)
+	return fmt.Sprintf("[GET /v1/batch/events][%d] ArkService_GetEventStream default %s", o._statusCode, payload)
 }
 
 func (o *ArkServiceGetEventStreamDefault) GetPayload() *models.RPCStatus {

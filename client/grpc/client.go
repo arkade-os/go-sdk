@@ -1,18 +1,17 @@
 package grpcclient
 
 import (
-	"bytes"
 	"context"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
-	"github.com/ark-network/ark/common/tree"
-	arkv1 "github.com/arkade-os/sdk/api-spec/protobuf/gen/ark/v1"
-	"github.com/arkade-os/sdk/client"
-	"github.com/arkade-os/sdk/internal/utils"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
+	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
+	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -23,13 +22,11 @@ import (
 
 type service struct {
 	arkv1.ArkServiceClient
-	arkv1.ExplorerServiceClient
 }
 
 type grpcClient struct {
-	conn      *grpc.ClientConn
-	svc       service
-	treeCache *utils.Cache[tree.TxTree]
+	conn *grpc.ClientConn
+	svc  service
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -53,10 +50,8 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		return nil, err
 	}
 
-	svc := service{arkv1.NewArkServiceClient(conn), arkv1.NewExplorerServiceClient(conn)}
-	treeCache := utils.NewCache[tree.TxTree]()
-
-	return &grpcClient{conn, svc, treeCache}, nil
+	svc := service{arkv1.NewArkServiceClient(conn)}
+	return &grpcClient{conn, svc}, nil
 }
 
 func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
@@ -65,53 +60,32 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	if err != nil {
 		return nil, err
 	}
+	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
+	if mktHour := resp.GetMarketHour(); mktHour != nil {
+		marketHourStartTime = mktHour.GetNextStartTime()
+		marketHourEndTime = mktHour.GetNextEndTime()
+		marketHourPeriod = mktHour.GetPeriod()
+		marketHourRoundInterval = mktHour.GetRoundInterval()
+	}
 	return &client.Info{
-		PubKey:                     resp.GetPubkey(),
-		VtxoTreeExpiry:             resp.GetVtxoTreeExpiry(),
-		UnilateralExitDelay:        resp.GetUnilateralExitDelay(),
-		RoundInterval:              resp.GetRoundInterval(),
-		Network:                    resp.GetNetwork(),
-		Dust:                       uint64(resp.GetDust()),
-		BoardingDescriptorTemplate: resp.GetBoardingDescriptorTemplate(),
-		BoardingExitDelay:          resp.GetBoardingExitDelay(),
-		ForfeitAddress:             resp.GetForfeitAddress(),
-		Version:                    resp.GetVersion(),
-		MarketHourStartTime:        resp.GetMarketHour().GetNextStartTime(),
-		MarketHourEndTime:          resp.GetMarketHour().GetNextEndTime(),
-		MarketHourPeriod:           resp.GetMarketHour().GetPeriod(),
-		MarketHourRoundInterval:    resp.GetMarketHour().GetRoundInterval(),
-		UtxoMinAmount:              resp.GetUtxoMinAmount(),
-		UtxoMaxAmount:              resp.GetUtxoMaxAmount(),
-		VtxoMinAmount:              resp.GetVtxoMinAmount(),
-		VtxoMaxAmount:              resp.GetVtxoMaxAmount(),
+		SignerPubKey:            resp.GetSignerPubkey(),
+		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
+		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
+		RoundInterval:           resp.GetRoundInterval(),
+		Network:                 resp.GetNetwork(),
+		Dust:                    uint64(resp.GetDust()),
+		BoardingExitDelay:       resp.GetBoardingExitDelay(),
+		ForfeitAddress:          resp.GetForfeitAddress(),
+		Version:                 resp.GetVersion(),
+		MarketHourStartTime:     marketHourStartTime,
+		MarketHourEndTime:       marketHourEndTime,
+		MarketHourPeriod:        marketHourPeriod,
+		MarketHourRoundInterval: marketHourRoundInterval,
+		UtxoMinAmount:           resp.GetUtxoMinAmount(),
+		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
+		VtxoMinAmount:           resp.GetVtxoMinAmount(),
+		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
 	}, nil
-}
-
-func (a *grpcClient) GetBoardingAddress(
-	ctx context.Context, userPubkey string,
-) (string, error) {
-	req := &arkv1.GetBoardingAddressRequest{
-		Pubkey: userPubkey,
-	}
-	resp, err := a.svc.GetBoardingAddress(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return resp.GetAddress(), nil
-}
-
-func (a *grpcClient) RegisterInputsForNextRound(
-	ctx context.Context, inputs []client.Input,
-) (string, error) {
-	req := &arkv1.RegisterInputsForNextRoundRequest{
-		Inputs: ins(inputs).toProto(),
-	}
-
-	resp, err := a.svc.RegisterInputsForNextRound(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return resp.GetRequestId(), nil
 }
 
 func (a *grpcClient) RegisterIntent(
@@ -119,7 +93,7 @@ func (a *grpcClient) RegisterIntent(
 	signature, message string,
 ) (string, error) {
 	req := &arkv1.RegisterIntentRequest{
-		Bip322Signature: &arkv1.Bip322Signature{
+		Intent: &arkv1.Bip322Signature{
 			Message:   message,
 			Signature: signature,
 		},
@@ -129,54 +103,40 @@ func (a *grpcClient) RegisterIntent(
 	if err != nil {
 		return "", err
 	}
-	return resp.GetRequestId(), nil
+	return resp.GetIntentId(), nil
 }
 
-func (a *grpcClient) RegisterNotesForNextRound(
-	ctx context.Context, notes []string,
-) (string, error) {
-	req := &arkv1.RegisterIntentRequest{
-		Notes: notes,
+func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string) error {
+	req := &arkv1.DeleteIntentRequest{
+		Proof: &arkv1.Bip322Signature{
+			Message:   message,
+			Signature: signature,
+		},
 	}
-	resp, err := a.svc.RegisterIntent(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return resp.GetRequestId(), nil
+	_, err := a.svc.DeleteIntent(ctx, req)
+	return err
 }
 
-func (a *grpcClient) RegisterOutputsForNextRound(
-	ctx context.Context, requestID string, outputs []client.Output, musig2 *tree.Musig2,
-) error {
-	req := &arkv1.RegisterOutputsForNextRoundRequest{
-		RequestId: requestID,
-		Outputs:   outs(outputs).toProto(),
+func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) error {
+	req := &arkv1.ConfirmRegistrationRequest{
+		IntentId: intentID,
 	}
-	if musig2 != nil {
-		req.Musig2 = &arkv1.Musig2{
-			CosignersPublicKeys: musig2.CosignersPublicKeys,
-			SigningAll:          musig2.SigningType == tree.SignAll,
-		}
-	}
-	_, err := a.svc.RegisterOutputsForNextRound(ctx, req)
+	_, err := a.svc.ConfirmRegistration(ctx, req)
 	return err
 }
 
 func (a *grpcClient) SubmitTreeNonces(
-	ctx context.Context, roundID, cosignerPubkey string, nonces tree.TreeNonces,
+	ctx context.Context, batchId, cosignerPubkey string, nonces tree.TreeNonces,
 ) error {
-	var nonceBuffer bytes.Buffer
-
-	if err := nonces.Encode(&nonceBuffer); err != nil {
+	sigsJSON, err := json.Marshal(nonces)
+	if err != nil {
 		return err
 	}
 
-	serializedNonces := hex.EncodeToString(nonceBuffer.Bytes())
-
 	req := &arkv1.SubmitTreeNoncesRequest{
-		RoundId:    roundID,
+		BatchId:    batchId,
 		Pubkey:     cosignerPubkey,
-		TreeNonces: serializedNonces,
+		TreeNonces: string(sigsJSON),
 	}
 
 	if _, err := a.svc.SubmitTreeNonces(ctx, req); err != nil {
@@ -187,20 +147,17 @@ func (a *grpcClient) SubmitTreeNonces(
 }
 
 func (a *grpcClient) SubmitTreeSignatures(
-	ctx context.Context, roundID, cosignerPubkey string, signatures tree.TreePartialSigs,
+	ctx context.Context, batchId, cosignerPubkey string, signatures tree.TreePartialSigs,
 ) error {
-	var sigsBuffer bytes.Buffer
-
-	if err := signatures.Encode(&sigsBuffer); err != nil {
+	sigsJSON, err := json.Marshal(signatures)
+	if err != nil {
 		return err
 	}
 
-	serializedSigs := hex.EncodeToString(sigsBuffer.Bytes())
-
 	req := &arkv1.SubmitTreeSignaturesRequest{
-		RoundId:        roundID,
+		BatchId:        batchId,
 		Pubkey:         cosignerPubkey,
-		TreeSignatures: serializedSigs,
+		TreeSignatures: string(sigsJSON),
 	}
 
 	if _, err := a.svc.SubmitTreeSignatures(ctx, req); err != nil {
@@ -211,14 +168,11 @@ func (a *grpcClient) SubmitTreeSignatures(
 }
 
 func (a *grpcClient) SubmitSignedForfeitTxs(
-	ctx context.Context, signedForfeitTxs []string, signedRoundTx string,
+	ctx context.Context, signedForfeitTxs []string, signedCommitmentTx string,
 ) error {
 	req := &arkv1.SubmitSignedForfeitTxsRequest{
-		SignedForfeitTxs: signedForfeitTxs,
-	}
-
-	if len(signedRoundTx) > 0 {
-		req.SignedRoundTx = &signedRoundTx
+		SignedForfeitTxs:   signedForfeitTxs,
+		SignedCommitmentTx: signedCommitmentTx,
 	}
 
 	_, err := a.svc.SubmitSignedForfeitTxs(ctx, req)
@@ -226,17 +180,18 @@ func (a *grpcClient) SubmitSignedForfeitTxs(
 }
 
 func (a *grpcClient) GetEventStream(
-	ctx context.Context, requestID string,
-) (<-chan client.RoundEventChannel, func(), error) {
+	ctx context.Context,
+	topics []string,
+) (<-chan client.BatchEventChannel, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := a.svc.GetEventStream(ctx, &arkv1.GetEventStreamRequest{})
+	stream, err := a.svc.GetEventStream(ctx, &arkv1.GetEventStreamRequest{Topics: topics})
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
 
-	eventsCh := make(chan client.RoundEventChannel)
+	eventsCh := make(chan client.BatchEventChannel)
 
 	go func() {
 		defer close(eventsCh)
@@ -245,23 +200,23 @@ func (a *grpcClient) GetEventStream(
 			resp, err := stream.Recv()
 			if err != nil {
 				if err == io.EOF {
-					eventsCh <- client.RoundEventChannel{Err: client.ErrConnectionClosedByServer}
+					eventsCh <- client.BatchEventChannel{Err: client.ErrConnectionClosedByServer}
 					return
 				}
 				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
 					return
 				}
-				eventsCh <- client.RoundEventChannel{Err: err}
+				eventsCh <- client.BatchEventChannel{Err: err}
 				return
 			}
 
-			ev, err := event{resp}.toRoundEvent()
+			ev, err := event{resp}.toBatchEvent()
 			if err != nil {
-				eventsCh <- client.RoundEventChannel{Err: err}
+				eventsCh <- client.BatchEventChannel{Err: err}
 				return
 			}
 
-			eventsCh <- client.RoundEventChannel{Event: ev}
+			eventsCh <- client.BatchEventChannel{Event: ev}
 		}
 	}()
 
@@ -275,99 +230,32 @@ func (a *grpcClient) GetEventStream(
 	return eventsCh, closeFn, nil
 }
 
-func (a *grpcClient) Ping(
-	ctx context.Context, requestID string,
+func (a *grpcClient) SubmitTx(
+	ctx context.Context, signedArkTx string, checkpointTxs []string,
+) (string, string, []string, error) {
+	req := &arkv1.SubmitTxRequest{
+		SignedArkTx:   signedArkTx,
+		CheckpointTxs: checkpointTxs,
+	}
+
+	resp, err := a.svc.SubmitTx(ctx, req)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	return resp.GetArkTxid(), resp.GetFinalArkTx(), resp.GetSignedCheckpointTxs(), nil
+}
+
+func (a *grpcClient) FinalizeTx(
+	ctx context.Context, arkTxid string, finalCheckpointTxs []string,
 ) error {
-	req := &arkv1.PingRequest{
-		RequestId: requestID,
+	req := &arkv1.FinalizeTxRequest{
+		ArkTxid:            arkTxid,
+		FinalCheckpointTxs: finalCheckpointTxs,
 	}
-	_, err := a.svc.Ping(ctx, req)
+
+	_, err := a.svc.FinalizeTx(ctx, req)
 	return err
-}
-
-func (a *grpcClient) SubmitRedeemTx(
-	ctx context.Context, redeemTx string,
-) (string, string, error) {
-	req := &arkv1.SubmitRedeemTxRequest{
-		RedeemTx: redeemTx,
-	}
-
-	resp, err := a.svc.SubmitRedeemTx(ctx, req)
-	if err != nil {
-		return "", "", err
-	}
-
-	return resp.GetSignedRedeemTx(), resp.GetTxid(), nil
-}
-
-func (a *grpcClient) GetRound(
-	ctx context.Context, txID string,
-) (*client.Round, error) {
-	req := &arkv1.GetRoundRequest{Txid: txID}
-	resp, err := a.svc.GetRound(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	round := resp.GetRound()
-	startedAt := time.Unix(round.GetStart(), 0)
-	var endedAt *time.Time
-	if round.GetEnd() > 0 {
-		t := time.Unix(round.GetEnd(), 0)
-		endedAt = &t
-	}
-	return &client.Round{
-		ID:         round.GetId(),
-		StartedAt:  &startedAt,
-		EndedAt:    endedAt,
-		Tx:         round.GetRoundTx(),
-		Tree:       treeFromProto{round.GetVtxoTree()}.parse(),
-		ForfeitTxs: round.GetForfeitTxs(),
-		Connectors: treeFromProto{round.GetConnectors()}.parse(),
-		Stage:      client.RoundStage(int(round.GetStage())),
-	}, nil
-}
-
-func (a *grpcClient) GetRoundByID(
-	ctx context.Context, roundID string,
-) (*client.Round, error) {
-	req := &arkv1.GetRoundByIdRequest{Id: roundID}
-	resp, err := a.svc.GetRoundById(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	round := resp.GetRound()
-	startedAt := time.Unix(round.GetStart(), 0)
-	var endedAt *time.Time
-	if round.GetEnd() > 0 {
-		t := time.Unix(round.GetEnd(), 0)
-		endedAt = &t
-	}
-	tree := treeFromProto{round.GetVtxoTree()}.parse()
-	return &client.Round{
-		ID:         round.GetId(),
-		StartedAt:  &startedAt,
-		EndedAt:    endedAt,
-		Tx:         round.GetRoundTx(),
-		Tree:       tree,
-		ForfeitTxs: round.GetForfeitTxs(),
-		Connectors: treeFromProto{round.GetConnectors()}.parse(),
-		Stage:      client.RoundStage(int(round.GetStage())),
-	}, nil
-}
-
-func (a *grpcClient) ListVtxos(
-	ctx context.Context, addr string,
-) ([]client.Vtxo, []client.Vtxo, error) {
-	resp, err := a.svc.ListVtxos(ctx, &arkv1.ListVtxosRequest{Address: addr})
-	if err != nil {
-		return nil, nil, err
-	}
-	return vtxos(resp.GetSpendableVtxos()).toVtxos(), vtxos(resp.GetSpentVtxos()).toVtxos(), nil
-}
-
-func (c *grpcClient) Close() {
-	//nolint:all
-	c.conn.Close()
 }
 
 func (c *grpcClient) GetTransactionsStream(
@@ -401,23 +289,39 @@ func (c *grpcClient) GetTransactionsStream(
 			}
 
 			switch tx := resp.Tx.(type) {
-			case *arkv1.GetTransactionsStreamResponse_Round:
+			case *arkv1.GetTransactionsStreamResponse_CommitmentTx:
 				eventsCh <- client.TransactionEvent{
-					Round: &client.RoundTransaction{
-						Txid:                 tx.Round.Txid,
-						SpentVtxos:           vtxos(tx.Round.SpentVtxos).toVtxos(),
-						SpendableVtxos:       vtxos(tx.Round.SpendableVtxos).toVtxos(),
-						ClaimedBoardingUtxos: outpointsFromProto(tx.Round.ClaimedBoardingUtxos),
-						Hex:                  tx.Round.GetHex(),
+					CommitmentTx: &client.TxNotification{
+						TxData: client.TxData{
+							Txid: tx.CommitmentTx.GetTxid(),
+							Tx:   tx.CommitmentTx.GetTx(),
+						},
+						SpentVtxos:     vtxos(tx.CommitmentTx.SpentVtxos).toVtxos(),
+						SpendableVtxos: vtxos(tx.CommitmentTx.SpendableVtxos).toVtxos(),
 					},
 				}
-			case *arkv1.GetTransactionsStreamResponse_Redeem:
+			case *arkv1.GetTransactionsStreamResponse_ArkTx:
+				checkpointTxs := make(map[types.Outpoint]client.TxData)
+				for k, v := range tx.ArkTx.CheckpointTxs {
+					// nolint
+					out, _ := wire.NewOutPointFromString(k)
+					checkpointTxs[types.Outpoint{
+						Txid: out.Hash.String(),
+						VOut: out.Index,
+					}] = client.TxData{
+						Txid: v.GetTxid(),
+						Tx:   v.GetTx(),
+					}
+				}
 				eventsCh <- client.TransactionEvent{
-					Redeem: &client.RedeemTransaction{
-						Txid:           tx.Redeem.Txid,
-						SpentVtxos:     vtxos(tx.Redeem.SpentVtxos).toVtxos(),
-						SpendableVtxos: vtxos(tx.Redeem.SpendableVtxos).toVtxos(),
-						Hex:            tx.Redeem.GetHex(),
+					ArkTx: &client.TxNotification{
+						TxData: client.TxData{
+							Txid: tx.ArkTx.GetTxid(),
+							Tx:   tx.ArkTx.GetTx(),
+						},
+						SpentVtxos:     vtxos(tx.ArkTx.SpentVtxos).toVtxos(),
+						SpendableVtxos: vtxos(tx.ArkTx.SpendableVtxos).toVtxos(),
+						CheckpointTxs:  checkpointTxs,
 					},
 				}
 			}
@@ -434,62 +338,7 @@ func (c *grpcClient) GetTransactionsStream(
 	return eventsCh, closeFn, nil
 }
 
-func (c *grpcClient) SubscribeForAddress(
-	ctx context.Context, addr string,
-) (<-chan client.AddressEvent, func(), error) {
-	ctx, cancel := context.WithCancel(ctx)
-
-	stream, err := c.svc.SubscribeForAddress(ctx, &arkv1.SubscribeForAddressRequest{
-		Address: addr,
-	})
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-
-	eventsCh := make(chan client.AddressEvent)
-
-	go func() {
-		defer close(eventsCh)
-
-		for {
-			resp, err := stream.Recv()
-			if err != nil {
-				if err == io.EOF {
-					eventsCh <- client.AddressEvent{Err: client.ErrConnectionClosedByServer}
-					return
-				}
-				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
-					return
-				}
-				eventsCh <- client.AddressEvent{Err: err}
-				return
-			}
-
-			eventsCh <- client.AddressEvent{
-				NewVtxos:   vtxos(resp.NewVtxos).toVtxos(),
-				SpentVtxos: vtxos(resp.SpentVtxos).toVtxos(),
-			}
-		}
-	}()
-
-	closeFn := func() {
-		if err := stream.CloseSend(); err != nil {
-			logrus.Warnf("failed to close address stream: %v", err)
-		}
-		cancel()
-	}
-
-	return eventsCh, closeFn, nil
-}
-
-func outpointsFromProto(protoOutpoints []*arkv1.Outpoint) []client.Outpoint {
-	outpoints := make([]client.Outpoint, len(protoOutpoints))
-	for i, o := range protoOutpoints {
-		outpoints[i] = client.Outpoint{
-			Txid: o.Txid,
-			VOut: o.Vout,
-		}
-	}
-	return outpoints
+func (c *grpcClient) Close() {
+	//nolint:all
+	c.conn.Close()
 }

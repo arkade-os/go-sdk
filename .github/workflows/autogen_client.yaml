@@ -12,10 +12,10 @@ jobs:
   verify-client:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '>=1.23.1'
 
@@ -26,7 +26,7 @@ jobs:
         run: go install github.com/go-swagger/go-swagger/cmd/swagger@latest
 
       - name: Generate Client
-        run: make genrest
+        run: make genrest CI=true
 
       - name: Check for uncommitted changes
         run: |

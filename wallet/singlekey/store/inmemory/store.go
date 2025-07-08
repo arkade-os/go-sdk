@@ -3,7 +3,7 @@ package inmemorystore
 import (
 	"sync"
 
-	walletstore "github.com/arkade-os/sdk/wallet/singlekey/store"
+	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
 )
 
 type inmemoryStore struct {

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arkade-os/sdk/store/sql/sqlc/queries"
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 type txStore struct {
@@ -32,9 +32,9 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range txs {
 			tx := txs[i]
-			txidType := "round"
-			if tx.RedeemTxid != "" {
-				txidType = "redeem"
+			txidType := "commitment"
+			if tx.ArkTxid != "" {
+				txidType = "ark"
 			}
 			if tx.BoardingTxid != "" {
 				txidType = "boarding"
@@ -52,6 +52,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					Settled:   tx.Settled,
 					CreatedAt: createdAt,
 					Hex:       sql.NullString{String: tx.Hex, Valid: true},
+					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -75,7 +76,11 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 	return len(addedTxs), nil
 }
 
-func (v *txStore) SettleTransactions(ctx context.Context, txids []string) (int, error) {
+func (v *txStore) SettleTransactions(
+	ctx context.Context,
+	txids []string,
+	settledBy string,
+) (int, error) {
 	txs, err := v.GetTransactions(ctx, txids)
 	if err != nil {
 		return -1, err
@@ -87,9 +92,12 @@ func (v *txStore) SettleTransactions(ctx context.Context, txids []string) (int, 
 			if tx.Settled {
 				continue
 			}
+			tx.Settled = true
+			tx.SettledBy = settledBy
 			if err := querierWithTx.UpdateTx(ctx, queries.UpdateTxParams{
-				Txid:    tx.TransactionKey.String(),
-				Settled: sql.NullBool{Bool: true, Valid: true},
+				Txid:      tx.TransactionKey.String(),
+				Settled:   sql.NullBool{Bool: true, Valid: true},
+				SettledBy: sql.NullString{String: settledBy, Valid: true},
 			}); err != nil {
 				return err
 			}
@@ -108,7 +116,11 @@ func (v *txStore) SettleTransactions(ctx context.Context, txids []string) (int, 
 	return len(settledTxs), nil
 }
 
-func (v *txStore) ConfirmTransactions(ctx context.Context, txids []string, timestamp time.Time) (int, error) {
+func (v *txStore) ConfirmTransactions(
+	ctx context.Context,
+	txids []string,
+	timestamp time.Time,
+) (int, error) {
 	txs, err := v.GetTransactions(ctx, txids)
 	if err != nil {
 		return -1, err
@@ -140,7 +152,11 @@ func (v *txStore) ConfirmTransactions(ctx context.Context, txids []string, times
 
 	return len(confirmedTxs), nil
 }
-func (v *txStore) RbfTransactions(ctx context.Context, rbfTxs map[string]types.Transaction) (int, error) {
+
+func (v *txStore) RbfTransactions(
+	ctx context.Context,
+	rbfTxs map[string]types.Transaction,
+) (int, error) {
 	txids := make([]string, 0, len(rbfTxs))
 	for txid := range rbfTxs {
 		txids = append(txids, txid)
@@ -159,9 +175,9 @@ func (v *txStore) RbfTransactions(ctx context.Context, rbfTxs map[string]types.T
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			replacedBy := rbfTxs[tx.TransactionKey.String()]
-			txidType := "round"
-			if replacedBy.RedeemTxid != "" {
-				txidType = "redeem"
+			txidType := "commitment"
+			if replacedBy.ArkTxid != "" {
+				txidType = "ark"
 			}
 			if replacedBy.BoardingTxid != "" {
 				txidType = "boarding"
@@ -179,6 +195,7 @@ func (v *txStore) RbfTransactions(ctx context.Context, rbfTxs map[string]types.T
 				CreatedAt: createdAt,
 				Hex:       sql.NullString{String: replacedBy.Hex, Valid: true},
 				OldTxid:   tx.TransactionKey.String(),
+				SettledBy: sql.NullString{String: replacedBy.SettledBy, Valid: true},
 			}); err != nil {
 				return err
 			}
@@ -207,7 +224,10 @@ func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, 
 	return readTxRows(rows), nil
 }
 
-func (v *txStore) GetTransactions(ctx context.Context, txids []string) ([]types.Transaction, error) {
+func (v *txStore) GetTransactions(
+	ctx context.Context,
+	txids []string,
+) ([]types.Transaction, error) {
 	rows, err := v.querier.SelectTxs(ctx, txids)
 	if err != nil {
 		return nil, err
@@ -276,12 +296,12 @@ func (v *txStore) sendEvent(event types.TransactionEvent) {
 }
 
 func rowToTx(row queries.Tx) types.Transaction {
-	var roundTxid, redeemTxid, boardingTxid string
-	if row.TxidType == "round" {
-		roundTxid = row.Txid
+	var commitmentTxid, arkTxid, boardingTxid string
+	if row.TxidType == "commitment" {
+		commitmentTxid = row.Txid
 	}
-	if row.TxidType == "redeem" {
-		redeemTxid = row.Txid
+	if row.TxidType == "ark" {
+		arkTxid = row.Txid
 	}
 	if row.TxidType == "boarding" {
 		boardingTxid = row.Txid
@@ -292,13 +312,14 @@ func rowToTx(row queries.Tx) types.Transaction {
 	}
 	return types.Transaction{
 		TransactionKey: types.TransactionKey{
-			RoundTxid:    roundTxid,
-			RedeemTxid:   redeemTxid,
-			BoardingTxid: boardingTxid,
+			CommitmentTxid: commitmentTxid,
+			ArkTxid:        arkTxid,
+			BoardingTxid:   boardingTxid,
 		},
 		Amount:    uint64(row.Amount),
 		Type:      types.TxType(row.Type),
 		Settled:   row.Settled,
+		SettledBy: row.SettledBy.String,
 		CreatedAt: createdAt,
 		Hex:       row.Hex.String,
 	}

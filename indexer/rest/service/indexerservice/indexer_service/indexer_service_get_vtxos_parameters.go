@@ -62,8 +62,11 @@ IndexerServiceGetVtxosParams contains all the parameters to send to the API endp
 */
 type IndexerServiceGetVtxosParams struct {
 
-	// Addresses.
-	Addresses []string
+	/* Outpoints.
+
+	   Or specify a list of vtxo outpoints. The 2 filters are mutually exclusive.
+	*/
+	Outpoints []string
 
 	// PageIndex.
 	//
@@ -75,10 +78,29 @@ type IndexerServiceGetVtxosParams struct {
 	// Format: int32
 	PageSize *int32
 
-	// SpendableOnly.
+	/* RecoverableOnly.
+
+	     Retrieve only recoverable vtxos (notes, subdust or swept vtxos).
+	The 3 filters are mutually exclusive,
+	*/
+	RecoverableOnly *bool
+
+	/* Scripts.
+
+	   Either specify a list of vtxo scripts.
+	*/
+	Scripts []string
+
+	/* SpendableOnly.
+
+	   Retrieve only spendable vtxos
+	*/
 	SpendableOnly *bool
 
-	// SpentOnly.
+	/* SpentOnly.
+
+	   Retrieve only spent vtxos.
+	*/
 	SpentOnly *bool
 
 	timeout    time.Duration
@@ -134,15 +156,15 @@ func (o *IndexerServiceGetVtxosParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithAddresses adds the addresses to the indexer service get vtxos params
-func (o *IndexerServiceGetVtxosParams) WithAddresses(addresses []string) *IndexerServiceGetVtxosParams {
-	o.SetAddresses(addresses)
+// WithOutpoints adds the outpoints to the indexer service get vtxos params
+func (o *IndexerServiceGetVtxosParams) WithOutpoints(outpoints []string) *IndexerServiceGetVtxosParams {
+	o.SetOutpoints(outpoints)
 	return o
 }
 
-// SetAddresses adds the addresses to the indexer service get vtxos params
-func (o *IndexerServiceGetVtxosParams) SetAddresses(addresses []string) {
-	o.Addresses = addresses
+// SetOutpoints adds the outpoints to the indexer service get vtxos params
+func (o *IndexerServiceGetVtxosParams) SetOutpoints(outpoints []string) {
+	o.Outpoints = outpoints
 }
 
 // WithPageIndex adds the pageIndex to the indexer service get vtxos params
@@ -165,6 +187,28 @@ func (o *IndexerServiceGetVtxosParams) WithPageSize(pageSize *int32) *IndexerSer
 // SetPageSize adds the pageSize to the indexer service get vtxos params
 func (o *IndexerServiceGetVtxosParams) SetPageSize(pageSize *int32) {
 	o.PageSize = pageSize
+}
+
+// WithRecoverableOnly adds the recoverableOnly to the indexer service get vtxos params
+func (o *IndexerServiceGetVtxosParams) WithRecoverableOnly(recoverableOnly *bool) *IndexerServiceGetVtxosParams {
+	o.SetRecoverableOnly(recoverableOnly)
+	return o
+}
+
+// SetRecoverableOnly adds the recoverableOnly to the indexer service get vtxos params
+func (o *IndexerServiceGetVtxosParams) SetRecoverableOnly(recoverableOnly *bool) {
+	o.RecoverableOnly = recoverableOnly
+}
+
+// WithScripts adds the scripts to the indexer service get vtxos params
+func (o *IndexerServiceGetVtxosParams) WithScripts(scripts []string) *IndexerServiceGetVtxosParams {
+	o.SetScripts(scripts)
+	return o
+}
+
+// SetScripts adds the scripts to the indexer service get vtxos params
+func (o *IndexerServiceGetVtxosParams) SetScripts(scripts []string) {
+	o.Scripts = scripts
 }
 
 // WithSpendableOnly adds the spendableOnly to the indexer service get vtxos params
@@ -197,19 +241,14 @@ func (o *IndexerServiceGetVtxosParams) WriteToRequest(r runtime.ClientRequest, r
 	}
 	var res []error
 
-	if o.Addresses != nil {
+	if o.Outpoints != nil {
 
-		// binding items for addresses
-		joinedAddresses := o.bindParamAddresses(reg)
+		// binding items for outpoints
+		joinedOutpoints := o.bindParamOutpoints(reg)
 
-		// path array param addresses
-		// SetPathParam does not support variadic arguments, since we used JoinByFormat
-		// we can send the first item in the array as it's all the items of the previous
-		// array joined together
-		if len(joinedAddresses) > 0 {
-			if err := r.SetPathParam("addresses", joinedAddresses[0]); err != nil {
-				return err
-			}
+		// query array param outpoints
+		if err := r.SetQueryParam("outpoints", joinedOutpoints...); err != nil {
+			return err
 		}
 	}
 
@@ -244,6 +283,34 @@ func (o *IndexerServiceGetVtxosParams) WriteToRequest(r runtime.ClientRequest, r
 			if err := r.SetQueryParam("page.size", qPageSize); err != nil {
 				return err
 			}
+		}
+	}
+
+	if o.RecoverableOnly != nil {
+
+		// query param recoverableOnly
+		var qrRecoverableOnly bool
+
+		if o.RecoverableOnly != nil {
+			qrRecoverableOnly = *o.RecoverableOnly
+		}
+		qRecoverableOnly := swag.FormatBool(qrRecoverableOnly)
+		if qRecoverableOnly != "" {
+
+			if err := r.SetQueryParam("recoverableOnly", qRecoverableOnly); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.Scripts != nil {
+
+		// binding items for scripts
+		joinedScripts := o.bindParamScripts(reg)
+
+		// query array param scripts
+		if err := r.SetQueryParam("scripts", joinedScripts...); err != nil {
+			return err
 		}
 	}
 
@@ -287,19 +354,36 @@ func (o *IndexerServiceGetVtxosParams) WriteToRequest(r runtime.ClientRequest, r
 	return nil
 }
 
-// bindParamIndexerServiceGetVtxos binds the parameter addresses
-func (o *IndexerServiceGetVtxosParams) bindParamAddresses(formats strfmt.Registry) []string {
-	addressesIR := o.Addresses
+// bindParamIndexerServiceGetVtxos binds the parameter outpoints
+func (o *IndexerServiceGetVtxosParams) bindParamOutpoints(formats strfmt.Registry) []string {
+	outpointsIR := o.Outpoints
 
-	var addressesIC []string
-	for _, addressesIIR := range addressesIR { // explode []string
+	var outpointsIC []string
+	for _, outpointsIIR := range outpointsIR { // explode []string
 
-		addressesIIV := addressesIIR // string as string
-		addressesIC = append(addressesIC, addressesIIV)
+		outpointsIIV := outpointsIIR // string as string
+		outpointsIC = append(outpointsIC, outpointsIIV)
 	}
 
-	// items.CollectionFormat: "csv"
-	addressesIS := swag.JoinByFormat(addressesIC, "csv")
+	// items.CollectionFormat: "multi"
+	outpointsIS := swag.JoinByFormat(outpointsIC, "multi")
 
-	return addressesIS
+	return outpointsIS
+}
+
+// bindParamIndexerServiceGetVtxos binds the parameter scripts
+func (o *IndexerServiceGetVtxosParams) bindParamScripts(formats strfmt.Registry) []string {
+	scriptsIR := o.Scripts
+
+	var scriptsIC []string
+	for _, scriptsIIR := range scriptsIR { // explode []string
+
+		scriptsIIV := scriptsIIR // string as string
+		scriptsIC = append(scriptsIC, scriptsIIV)
+	}
+
+	// items.CollectionFormat: "multi"
+	scriptsIS := swag.JoinByFormat(scriptsIC, "multi")
+
+	return scriptsIS
 }

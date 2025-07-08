@@ -16,18 +16,22 @@ type Tx struct {
 	Settled   bool
 	CreatedAt int64
 	Hex       sql.NullString
+	SettledBy sql.NullString
 }
 
 type Vtxo struct {
-	Txid      string
-	Vout      int64
-	Pubkey    string
-	Amount    int64
-	RoundTxid string
-	RedeemTx  sql.NullString
-	SpentBy   sql.NullString
-	Spent     bool
-	ExpiresAt int64
-	CreatedAt int64
-	Pending   bool
+	Txid            string
+	Vout            int64
+	Script          string
+	Amount          int64
+	CommitmentTxids string
+	SpentBy         sql.NullString
+	Spent           bool
+	ExpiresAt       int64
+	CreatedAt       int64
+	Preconfirmed    bool
+	Swept           bool
+	SettledBy       sql.NullString
+	Unrolled        bool
+	ArkTxid         sql.NullString
 }

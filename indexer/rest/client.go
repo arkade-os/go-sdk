@@ -1,20 +1,26 @@
 package indexer
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
-	"github.com/arkade-os/sdk/indexer"
-	"github.com/arkade-os/sdk/indexer/rest/service/indexerservice"
-	"github.com/arkade-os/sdk/indexer/rest/service/indexerservice/indexer_service"
-	"github.com/arkade-os/sdk/indexer/rest/service/models"
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
+	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/indexer"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice/indexer_service"
+	"github.com/arkade-os/go-sdk/indexer/rest/service/models"
+	"github.com/arkade-os/go-sdk/types"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type restClient struct {
@@ -38,7 +44,10 @@ func NewClient(serverURL string) (indexer.Indexer, error) {
 	return &restClient{serverURL, svc, reqTimeout}, nil
 }
 
-func (a *restClient) GetCommitmentTx(ctx context.Context, txid string) (*indexer.CommitmentTx, error) {
+func (a *restClient) GetCommitmentTx(
+	ctx context.Context,
+	txid string,
+) (*indexer.CommitmentTx, error) {
 	params := indexer_service.NewIndexerServiceGetCommitmentTxParams().WithTxid(txid)
 	resp, err := a.svc.IndexerServiceGetCommitmentTx(params)
 	if err != nil {
@@ -101,38 +110,8 @@ func (a *restClient) GetCommitmentTx(ctx context.Context, txid string) (*indexer
 	}, nil
 }
 
-func (a *restClient) GetCommitmentTxLeaves(
-	ctx context.Context, txid string, opts ...indexer.RequestOption,
-) (*indexer.CommitmentTxLeavesResponse, error) {
-	params := indexer_service.NewIndexerServiceGetCommitmentTxLeavesParams().
-		WithTxid(txid)
-
-	if len(opts) > 0 {
-		page := opts[0].GetPage()
-		params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
-	}
-
-	resp, err := a.svc.IndexerServiceGetCommitmentTxLeaves(params)
-	if err != nil {
-		return nil, err
-	}
-
-	leaves := make([]indexer.Outpoint, 0, len(resp.Payload.Leaves))
-	for _, leaf := range resp.Payload.Leaves {
-		leaves = append(leaves, indexer.Outpoint{
-			Txid: leaf.Txid,
-			VOut: uint32(leaf.Vout),
-		})
-	}
-
-	return &indexer.CommitmentTxLeavesResponse{
-		Leaves: leaves,
-		Page:   parsePage(resp.Payload.Page),
-	}, nil
-}
-
 func (a *restClient) GetVtxoTree(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeResponse, error) {
 	params := indexer_service.NewIndexerServiceGetVtxoTreeParams().
 		WithBatchOutpointTxid(batchOutpoint.Txid).
@@ -150,11 +129,17 @@ func (a *restClient) GetVtxoTree(
 
 	nodes := make([]indexer.TxNode, 0, len(resp.Payload.VtxoTree))
 	for _, node := range resp.Payload.VtxoTree {
+		children := make(map[uint32]string)
+		for k, v := range node.Children {
+			vout, err := strconv.ParseUint(k, 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			children[uint32(vout)] = v
+		}
 		nodes = append(nodes, indexer.TxNode{
-			Txid:       node.Txid,
-			ParentTxid: node.ParentTxid,
-			Level:      node.Level,
-			LevelIndex: node.LevelIndex,
+			Txid:     node.Txid,
+			Children: children,
 		})
 	}
 
@@ -164,8 +149,41 @@ func (a *restClient) GetVtxoTree(
 	}, nil
 }
 
+func (a *restClient) GetFullVtxoTree(
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
+) ([]tree.TxTreeNode, error) {
+	resp, err := a.GetVtxoTree(ctx, batchOutpoint, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	var allTxs indexer.TxNodes = resp.Tree
+	for resp.Page != nil && resp.Page.Next != resp.Page.Total {
+		opt := indexer.RequestOption{}
+		opt.WithPage(&indexer.PageRequest{
+			Index: resp.Page.Next,
+		})
+		resp, err = a.GetVtxoTree(ctx, batchOutpoint, opts...)
+		if err != nil {
+			return nil, err
+		}
+		allTxs = append(allTxs, resp.Tree...)
+	}
+
+	txids := allTxs.Txids()
+	txResp, err := a.GetVirtualTxs(ctx, txids)
+	if err != nil {
+		return nil, err
+	}
+	txMap := make(map[string]string)
+	for i, tx := range txResp.Txs {
+		txMap[txids[i]] = tx
+	}
+	return allTxs.ToTree(txMap), nil
+}
+
 func (a *restClient) GetVtxoTreeLeaves(
-	ctx context.Context, batchOutpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeLeavesResponse, error) {
 	params := indexer_service.NewIndexerServiceGetVtxoTreeLeavesParams().
 		WithBatchOutpointTxid(batchOutpoint.Txid).
@@ -181,9 +199,9 @@ func (a *restClient) GetVtxoTreeLeaves(
 		return nil, err
 	}
 
-	leaves := make([]indexer.Outpoint, 0, len(resp.Payload.Leaves))
+	leaves := make([]types.Outpoint, 0, len(resp.Payload.Leaves))
 	for _, leaf := range resp.Payload.Leaves {
-		leaves = append(leaves, indexer.Outpoint{
+		leaves = append(leaves, types.Outpoint{
 			Txid: leaf.Txid,
 			VOut: uint32(leaf.Vout),
 		})
@@ -235,11 +253,18 @@ func (a *restClient) GetConnectors(
 
 	connectors := make([]indexer.TxNode, 0, len(resp.Payload.Connectors))
 	for _, connector := range resp.Payload.Connectors {
+		children := make(map[uint32]string)
+		for k, v := range connector.Children {
+			vout, err := strconv.ParseUint(k, 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			children[uint32(vout)] = v
+		}
+
 		connectors = append(connectors, indexer.TxNode{
-			Txid:       connector.Txid,
-			ParentTxid: connector.ParentTxid,
-			Level:      connector.Level,
-			LevelIndex: connector.LevelIndex,
+			Txid:     connector.Txid,
+			Children: children,
 		})
 	}
 
@@ -256,72 +281,17 @@ func (a *restClient) GetVtxos(
 		return nil, fmt.Errorf("missing opts")
 	}
 	opt := opts[0]
-
-	if len(opt.GetOutpoints()) > 0 {
-		params := indexer_service.NewIndexerServiceGetVtxosByOutpointParams().
-			WithOutpoints(opt.GetOutpoints())
-		if page := opt.GetPage(); page != nil {
-			params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
-		}
-		resp, err := a.svc.IndexerServiceGetVtxosByOutpoint(params)
-		if err != nil {
-			return nil, err
-		}
-
-		vtxos := make([]indexer.Vtxo, 0, len(resp.Payload.Vtxos))
-		for _, vtxo := range resp.Payload.Vtxos {
-			createdAt, err := strconv.ParseInt(vtxo.CreatedAt, 10, 64)
-			if err != nil {
-				return nil, err
-			}
-
-			expiresAt, err := strconv.ParseInt(vtxo.ExpiresAt, 10, 64)
-			if err != nil {
-				return nil, err
-			}
-
-			amount, err := strconv.ParseUint(vtxo.Amount, 10, 64)
-			if err != nil {
-				return nil, err
-			}
-
-			vtxos = append(vtxos, indexer.Vtxo{
-				Outpoint: indexer.Outpoint{
-					Txid: vtxo.Outpoint.Txid,
-					VOut: uint32(vtxo.Outpoint.Vout),
-				},
-				CreatedAt:      createdAt,
-				ExpiresAt:      expiresAt,
-				Amount:         amount,
-				Script:         vtxo.Script,
-				IsLeaf:         vtxo.IsLeaf,
-				IsSwept:        vtxo.IsSwept,
-				IsSpent:        vtxo.IsSpent,
-				SpentBy:        vtxo.SpentBy,
-				CommitmentTxid: vtxo.CommitmentTxid,
-			})
-		}
-		return &indexer.VtxosResponse{
-			Vtxos: vtxos,
-			Page:  parsePage(resp.Payload.Page),
-		}, nil
-	}
-
-	params := indexer_service.NewIndexerServiceGetVtxosParams().
-		WithAddresses(opt.GetAddresses())
-	if page := opt.GetPage(); page != nil {
-		params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
-	}
 	spentOnly := opt.GetSpentOnly()
 	spendableOnly := opt.GetSpendableOnly()
-	if spentOnly && spentOnly == spendableOnly {
-		return nil, status.Errorf(codes.InvalidArgument, "spendableOnly and spentOnly cannot be both true")
-	}
-	if spendableOnly {
-		params.WithSpendableOnly(&spentOnly)
-	}
-	if spentOnly {
-		params.WithSpentOnly(&spentOnly)
+	recoverableOnly := opt.GetRecoverableOnly()
+
+	params := indexer_service.NewIndexerServiceGetVtxosParams().
+		WithScripts(opt.GetScripts()).WithOutpoints(opt.GetOutpoints()).
+		WithSpentOnly(&spentOnly).WithSpendableOnly(&spendableOnly).
+		WithRecoverableOnly(&recoverableOnly)
+
+	if page := opt.GetPage(); page != nil {
+		params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
 	}
 
 	resp, err := a.svc.IndexerServiceGetVtxos(params)
@@ -329,38 +299,9 @@ func (a *restClient) GetVtxos(
 		return nil, err
 	}
 
-	vtxos := make([]indexer.Vtxo, 0, len(resp.Payload.Vtxos))
-	for _, vtxo := range resp.Payload.Vtxos {
-		createdAt, err := strconv.ParseInt(vtxo.CreatedAt, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		expiresAt, err := strconv.ParseInt(vtxo.ExpiresAt, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		amount, err := strconv.ParseUint(vtxo.Amount, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		vtxos = append(vtxos, indexer.Vtxo{
-			Outpoint: indexer.Outpoint{
-				Txid: vtxo.Outpoint.Txid,
-				VOut: uint32(vtxo.Outpoint.Vout),
-			},
-			CreatedAt:      createdAt,
-			ExpiresAt:      expiresAt,
-			Amount:         amount,
-			Script:         vtxo.Script,
-			IsLeaf:         vtxo.IsLeaf,
-			IsSwept:        vtxo.IsSwept,
-			IsSpent:        vtxo.IsSpent,
-			SpentBy:        vtxo.SpentBy,
-			CommitmentTxid: vtxo.CommitmentTxid,
-		})
+	vtxos, err := newIndexerVtxos(resp.Payload.Vtxos)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vtxos: %s", err)
 	}
 
 	return &indexer.VtxosResponse{
@@ -369,83 +310,8 @@ func (a *restClient) GetVtxos(
 	}, nil
 }
 
-func (a *restClient) GetTransactionHistory(
-	ctx context.Context, address string, opts ...indexer.GetTxHistoryRequestOption,
-) (*indexer.TxHistoryResponse, error) {
-	params := indexer_service.NewIndexerServiceGetTransactionHistoryParams().
-		WithAddress(address)
-
-	if len(opts) > 0 {
-		if page := opts[0].GetPage(); page != nil {
-			params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
-		}
-		startTime := opts[0].GetStartTime()
-		endTime := opts[0].GetEndTime()
-		if !startTime.IsZero() && !endTime.IsZero() && startTime.After(endTime) {
-			return nil, status.Errorf(codes.InvalidArgument, "start_time must be before end_time")
-		}
-
-		if !startTime.IsZero() {
-			startTimeStr := strconv.FormatInt(startTime.Unix(), 10)
-			params.WithStartTime(&startTimeStr)
-		}
-		if !endTime.IsZero() {
-			endTimeStr := strconv.FormatInt(endTime.Unix(), 10)
-			params.WithEndTime(&endTimeStr)
-		}
-	}
-
-	resp, err := a.svc.IndexerServiceGetTransactionHistory(params)
-	if err != nil {
-		return nil, err
-	}
-
-	history := make([]indexer.TxHistoryRecord, 0, len(resp.Payload.History))
-	for _, record := range resp.Payload.History {
-		amount, err := strconv.ParseUint(record.Amount, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		createdAt, err := strconv.ParseInt(record.CreatedAt, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		// Use a zero value for TxType if Type is nil, otherwise use a numeric conversion
-		var txType indexer.TxType
-		if record.Type != nil {
-			// Convert the string enum to a numeric value
-			typeStr := string(*record.Type)
-			switch typeStr {
-			case "INDEXER_TX_TYPE_RECEIVED":
-				txType = indexer.TxTypeReceived
-			case "INDEXER_TX_TYPE_SENT":
-				txType = indexer.TxTypeSent
-			default:
-				// Default to unspecified for unknown types
-				txType = indexer.TxTypeUnspecified
-			}
-		}
-
-		history = append(history, indexer.TxHistoryRecord{
-			CommitmentTxid: record.CommitmentTxid,
-			VirtualTxid:    record.VirtualTxid,
-			Type:           txType,
-			Amount:         amount,
-			CreatedAt:      createdAt,
-			IsSettled:      record.IsSettled,
-			SettledBy:      record.SettledBy,
-		})
-	}
-
-	return &indexer.TxHistoryResponse{
-		History: history,
-		Page:    parsePage(resp.Payload.Page),
-	}, nil
-}
-
 func (a *restClient) GetVtxoChain(
-	ctx context.Context, outpoint indexer.Outpoint, opts ...indexer.RequestOption,
+	ctx context.Context, outpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoChainResponse, error) {
 	params := indexer_service.NewIndexerServiceGetVtxoChainParams().
 		WithOutpointTxid(outpoint.Txid).
@@ -463,33 +329,35 @@ func (a *restClient) GetVtxoChain(
 
 	chain := make([]indexer.ChainWithExpiry, 0, len(resp.Payload.Chain))
 	for _, v := range resp.Payload.Chain {
-		spends := make([]indexer.ChainTx, 0, len(v.Spends))
-		for _, tx := range v.Spends {
-			txType := "virtual"
-			if *tx.Type == models.V1IndexerChainedTxTypeINDEXERCHAINEDTXTYPECOMMITMENT {
-				txType = "commitment"
-			}
-			spends = append(spends, indexer.ChainTx{
-				Txid: tx.Txid,
-				Type: txType,
-			})
-		}
 		expiresAt, err := strconv.ParseInt(v.ExpiresAt, 10, 64)
 		if err != nil {
 			return nil, err
 		}
+
+		var txType indexer.IndexerChainedTxType
+		switch *v.Type {
+		case models.V1IndexerChainedTxTypeINDEXERCHAINEDTXTYPECOMMITMENT:
+			txType = indexer.IndexerChainedTxTypeCommitment
+		case models.V1IndexerChainedTxTypeINDEXERCHAINEDTXTYPEARK:
+			txType = indexer.IndexerChainedTxTypeArk
+		case models.V1IndexerChainedTxTypeINDEXERCHAINEDTXTYPETREE:
+			txType = indexer.IndexerChainedTxTypeTree
+		case models.V1IndexerChainedTxTypeINDEXERCHAINEDTXTYPECHECKPOINT:
+			txType = indexer.IndexerChainedTxTypeCheckpoint
+		default:
+			txType = indexer.IndexerChainedTxTypeUnspecified
+		}
 		chain = append(chain, indexer.ChainWithExpiry{
 			Txid:      v.Txid,
-			Spends:    spends,
 			ExpiresAt: expiresAt,
+			Type:      txType,
+			Spends:    v.Spends,
 		})
 	}
 
 	return &indexer.VtxoChainResponse{
-		Chain:              chain,
-		Depth:              resp.Payload.Depth,
-		RootCommitmentTxid: resp.Payload.RootCommitmentTxid,
-		Page:               parsePage(resp.Payload.Page),
+		Chain: chain,
+		Page:  parsePage(resp.Payload.Page),
 	}, nil
 }
 
@@ -515,16 +383,155 @@ func (a *restClient) GetVirtualTxs(
 	}, nil
 }
 
-func (a *restClient) GetSweptCommitmentTx(ctx context.Context, txid string) ([]string, error) {
-	params := indexer_service.NewIndexerServiceGetSweptCommitmentTxParams().WithTxid(txid)
+func (a *restClient) GetBatchSweepTxs(
+	ctx context.Context,
+	batchOutpoint types.Outpoint,
+) ([]string, error) {
+	params := indexer_service.NewIndexerServiceGetBatchSweepTransactionsParams().
+		WithBatchOutpointTxid(batchOutpoint.Txid).WithBatchOutpointVout(int64(batchOutpoint.VOut))
 
-	resp, err := a.svc.IndexerServiceGetSweptCommitmentTx(params)
+	resp, err := a.svc.IndexerServiceGetBatchSweepTransactions(params)
 	if err != nil {
 		return nil, err
 	}
 
 	return resp.Payload.SweptBy, nil
 }
+
+func (a *restClient) GetSubscription(
+	ctx context.Context,
+	subscriptionId string,
+) (<-chan *indexer.ScriptEvent, func(), error) {
+	ctx, cancel := context.WithCancel(ctx)
+	eventsCh := make(chan *indexer.ScriptEvent)
+	chunkCh := make(chan chunk)
+	url := fmt.Sprintf("%s/v1/script/subscription/%s", a.serverURL, subscriptionId)
+
+	go listenToStream(url, chunkCh)
+
+	go func(eventsCh chan *indexer.ScriptEvent, chunkCh chan chunk) {
+		defer close(eventsCh)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case chunk := <-chunkCh:
+				if chunk.err == nil && len(chunk.msg) == 0 {
+					continue
+				}
+
+				if chunk.err != nil {
+					eventsCh <- &indexer.ScriptEvent{Err: chunk.err}
+					return
+				}
+
+				resp := indexer_service.IndexerServiceGetSubscriptionOKBody{}
+				if err := json.Unmarshal(chunk.msg, &resp); err != nil {
+					eventsCh <- &indexer.ScriptEvent{
+						Err: fmt.Errorf("failed to parse message from address stream: %s", err),
+					}
+					return
+				}
+
+				emptyResp := indexer_service.IndexerServiceGetSubscriptionOKBody{}
+				if resp == emptyResp {
+					continue
+				}
+
+				if resp.Error != nil {
+					eventsCh <- &indexer.ScriptEvent{
+						Err: fmt.Errorf("received error from address stream: %s", resp.Error.Message),
+					}
+					return
+				}
+
+				newVtxos, err := newIndexerVtxos(resp.Result.NewVtxos)
+				if err != nil {
+					eventsCh <- &indexer.ScriptEvent{
+						Err: fmt.Errorf("failed to parse new vtxos: %s", err),
+					}
+					return
+				}
+
+				spentVtxos, err := newIndexerVtxos(resp.Result.SpentVtxos)
+				if err != nil {
+					eventsCh <- &indexer.ScriptEvent{
+						Err: fmt.Errorf("failed to parse spent vtxos: %s", err),
+					}
+					return
+				}
+
+				var checkpointTxs map[string]indexer.TxData
+				if len(resp.Result.CheckpointTxs) > 0 {
+					checkpointTxs = make(map[string]indexer.TxData)
+					for k, v := range resp.Result.CheckpointTxs {
+						checkpointTxs[k] = indexer.TxData{
+							Txid: v.Txid,
+							Tx:   v.Tx,
+						}
+					}
+				}
+
+				eventsCh <- &indexer.ScriptEvent{
+					Txid:          resp.Result.Txid,
+					Scripts:       resp.Result.Scripts,
+					NewVtxos:      newVtxos,
+					SpentVtxos:    spentVtxos,
+					CheckpointTxs: checkpointTxs,
+				}
+			}
+		}
+	}(eventsCh, chunkCh)
+
+	return eventsCh, cancel, nil
+}
+
+func (a *restClient) SubscribeForScripts(
+	ctx context.Context,
+	subscriptionId string,
+	scripts []string,
+) (string, error) {
+	body := &models.V1SubscribeForScriptsRequest{
+		Scripts: scripts,
+	}
+
+	if len(subscriptionId) > 0 {
+		body.SubscriptionID = subscriptionId
+	}
+
+	params := indexer_service.NewIndexerServiceSubscribeForScriptsParams().
+		WithDefaults().
+		WithBody(body)
+	resp, err := a.svc.IndexerServiceSubscribeForScripts(params)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Payload.SubscriptionID, nil
+}
+
+func (a *restClient) UnsubscribeForScripts(
+	ctx context.Context,
+	subscriptionId string,
+	scripts []string,
+) error {
+	body := &models.V1UnsubscribeForScriptsRequest{
+		Scripts: scripts,
+	}
+
+	params := indexer_service.NewIndexerServiceUnsubscribeForScriptsParams().
+		WithDefaults().
+		WithBody(body)
+	_, err := a.svc.IndexerServiceUnsubscribeForScripts(params)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *restClient) Close() {}
 
 func newRestClient(
 	serviceURL string,
@@ -562,4 +569,91 @@ func parsePage(page *models.V1IndexerPageResponse) *indexer.PageResponse {
 		Next:    page.Next,
 		Total:   page.Total,
 	}
+}
+
+type chunk struct {
+	msg []byte
+	err error
+}
+
+func listenToStream(url string, chunkCh chan chunk) {
+	defer close(chunkCh)
+
+	httpClient := &http.Client{Timeout: time.Second * 0}
+
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		chunkCh <- chunk{err: err}
+		return
+	}
+	// nolint:all
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		chunkCh <- chunk{err: fmt.Errorf(
+			"got unexpected status %d code", resp.StatusCode,
+		)}
+		return
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		msg, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				err = client.ErrConnectionClosedByServer
+			}
+			chunkCh <- chunk{err: err}
+			return
+		}
+		msg = bytes.Trim(msg, "\n")
+		chunkCh <- chunk{msg: msg}
+	}
+}
+
+func newIndexerVtxos(restVtxos []*models.V1IndexerVtxo) ([]types.Vtxo, error) {
+	vtxos := make([]types.Vtxo, 0, len(restVtxos))
+	for _, vtxo := range restVtxos {
+		vtxo, err := newIndexerVtxo(vtxo)
+		if err != nil {
+			return nil, err
+		}
+		vtxos = append(vtxos, *vtxo)
+	}
+	return vtxos, nil
+}
+
+func newIndexerVtxo(vtxo *models.V1IndexerVtxo) (*types.Vtxo, error) {
+	createdAt, err := strconv.ParseInt(vtxo.CreatedAt, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt, err := strconv.ParseInt(vtxo.ExpiresAt, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	amount, err := strconv.ParseUint(vtxo.Amount, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &types.Vtxo{
+		Outpoint: types.Outpoint{
+			Txid: vtxo.Outpoint.Txid,
+			VOut: uint32(vtxo.Outpoint.Vout),
+		},
+		Script:          vtxo.Script,
+		CommitmentTxids: vtxo.CommitmentTxids,
+		Amount:          amount,
+		CreatedAt:       time.Unix(createdAt, 0),
+		ExpiresAt:       time.Unix(expiresAt, 0),
+		Preconfirmed:    vtxo.IsPreconfirmed,
+		Swept:           vtxo.IsSwept,
+		Unrolled:        vtxo.IsUnrolled,
+		Spent:           vtxo.IsSpent,
+		SpentBy:         vtxo.SpentBy,
+		SettledBy:       vtxo.SettledBy,
+		ArkTxid:         vtxo.ArkTxid,
+	}, nil
 }

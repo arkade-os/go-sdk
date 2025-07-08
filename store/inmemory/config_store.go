@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 type store struct {

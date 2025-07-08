@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ark-network/ark/common"
-	"github.com/arkade-os/sdk/internal/utils"
-	"github.com/arkade-os/sdk/types"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 )
@@ -24,14 +24,14 @@ const (
 
 type Explorer interface {
 	GetTxHex(txid string) (string, error)
-	Broadcast(txHex string) (string, error)
+	Broadcast(txs ...string) (string, error)
 	GetTxs(addr string) ([]tx, error)
 	IsRBFTx(txid, txHex string) (bool, string, int64, error)
 	GetTxOutspends(tx string) ([]spentStatus, error)
-	GetUtxos(addr string) ([]utxo, error)
+	GetUtxos(addr string) ([]Utxo, error)
 	GetBalance(addr string) (uint64, error)
 	GetRedeemedVtxosBalance(
-		addr string, unilateralExitDelay common.RelativeLocktime,
+		addr string, unilateralExitDelay arklib.RelativeLocktime,
 	) (uint64, map[int64]uint64, error)
 	GetTxBlockTime(
 		txid string,
@@ -43,10 +43,10 @@ type Explorer interface {
 type explorerSvc struct {
 	cache   *utils.Cache[string]
 	baseUrl string
-	net     common.Network
+	net     arklib.Network
 }
 
-func NewExplorer(baseUrl string, net common.Network) Explorer {
+func NewExplorer(baseUrl string, net arklib.Network) Explorer {
 	return &explorerSvc{
 		cache:   utils.NewCache[string](),
 		baseUrl: baseUrl,
@@ -58,7 +58,7 @@ func (e *explorerSvc) BaseUrl() string {
 	return e.baseUrl
 }
 
-func (e *explorerSvc) GetNetwork() common.Network {
+func (e *explorerSvc) GetNetwork() arklib.Network {
 	return e.net
 }
 
@@ -107,27 +107,65 @@ func (e *explorerSvc) GetTxHex(txid string) (string, error) {
 	return txHex, nil
 }
 
-func (e *explorerSvc) Broadcast(txStr string) (string, error) {
-	clone := strings.Clone(txStr)
-	txStr, txid, err := parseBitcoinTx(clone)
-	if err != nil {
-		return "", err
+func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
+	if len(txs) == 0 {
+		return "", fmt.Errorf("no txs to broadcast")
 	}
 
-	e.cache.Set(txid, txStr)
-
-	txid, err = e.broadcast(txStr)
-	if err != nil {
-		if strings.Contains(
-			strings.ToLower(err.Error()), "transaction already in block chain",
-		) {
-			return txid, nil
+	for _, tx := range txs {
+		txStr, txid, err := parseBitcoinTx(tx)
+		if err != nil {
+			return "", err
 		}
 
+		e.cache.Set(txid, txStr)
+	}
+
+	if len(txs) == 1 {
+		txid, err := e.broadcast(txs[0])
+		if err != nil {
+			if strings.Contains(
+				strings.ToLower(err.Error()), "transaction already in block chain",
+			) {
+				return txid, nil
+			}
+
+			return "", err
+		}
+
+		return txid, nil
+	}
+
+	// package
+	return e.broadcastPackage(txs...)
+}
+
+func (e *explorerSvc) broadcastPackage(txs ...string) (string, error) {
+	url := fmt.Sprintf("%s/txs/package", e.baseUrl)
+
+	// body is a json array of txs hex
+	body := bytes.NewBuffer(nil)
+	if err := json.NewEncoder(body).Encode(txs); err != nil {
 		return "", err
 	}
 
-	return txid, nil
+	resp, err := http.Post(url, "application/json", body)
+	if err != nil {
+		return "", err
+	}
+	// nolint
+	defer resp.Body.Close()
+
+	bodyResponse, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to broadcast package: %s", string(bodyResponse))
+	}
+
+	return string(bodyResponse), nil
 }
 
 func (e *explorerSvc) GetTxs(addr string) ([]tx, error) {
@@ -207,7 +245,7 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]spentStatus, error) {
 	return spentStatuses, nil
 }
 
-func (e *explorerSvc) GetUtxos(addr string) ([]utxo, error) {
+func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
 	resp, err := http.Get(fmt.Sprintf("%s/address/%s/utxo", e.baseUrl, addr))
 	if err != nil {
 		return nil, err
@@ -222,7 +260,7 @@ func (e *explorerSvc) GetUtxos(addr string) ([]utxo, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get utxos: %s", string(body))
 	}
-	payload := []utxo{}
+	payload := []Utxo{}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
@@ -244,7 +282,7 @@ func (e *explorerSvc) GetBalance(addr string) (uint64, error) {
 }
 
 func (e *explorerSvc) GetRedeemedVtxosBalance(
-	addr string, unilateralExitDelay common.RelativeLocktime,
+	addr string, unilateralExitDelay arklib.RelativeLocktime,
 ) (spendableBalance uint64, lockedBalance map[int64]uint64, err error) {
 	utxos, err := e.GetUtxos(addr)
 	if err != nil {
@@ -448,7 +486,7 @@ func parseBitcoinTx(txStr string) (string, string, error) {
 	return txhex, txid, nil
 }
 
-func newUtxo(explorerUtxo utxo, delay common.RelativeLocktime, tapscripts []string) types.Utxo {
+func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	utxoTime := explorerUtxo.Status.Blocktime
 	createdAt := time.Unix(utxoTime, 0)
 	if utxoTime == 0 {

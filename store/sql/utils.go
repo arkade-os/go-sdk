@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arkade-os/sdk/store/sql/sqlc/queries"
+	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	_ "modernc.org/sqlite"
 )
 

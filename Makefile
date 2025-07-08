@@ -23,16 +23,20 @@ SWAGGER ?= $(shell \
 
 proto:
 	@echo "Compiling stubs..."
-	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate buf.build/arkade-os/arkd
+	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate buf.build/arkade-os/arkd --exclude-path arkwallet/v1/bitcoin_wallet.proto
 
 ## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
 genrest:
+	@if [ "$(CI)" != "true" ]; then \
+		$(MAKE) proto; \
+	else \
+		echo "Skipping proto (CI=true passed)"; \
+	fi
 	@echo "Cleaning existing files..."
 	@rm -rf $(ark_client_dir) $(indexer_client_dir)
 	@echo "Generating rest client from stub..."
 	@mkdir -p $(ark_client_dir) $(indexer_client_dir)
 	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/service.swagger.json -t $(ark_client_dir) --client-package=arkservice
-	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/explorer.swagger.json -t $(ark_client_dir) --client-package=explorerservice
 	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/indexer.swagger.json -t $(indexer_client_dir) --client-package=indexerservice
 
 ## test: runs unit tests

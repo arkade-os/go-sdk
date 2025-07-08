@@ -1,12 +1,17 @@
 package types
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 
-	"github.com/ark-network/ark/common"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
@@ -18,50 +23,83 @@ const (
 )
 
 type Config struct {
-	ServerUrl                  string
-	ServerPubKey               *secp256k1.PublicKey
-	WalletType                 string
-	ClientType                 string
-	Network                    common.Network
-	VtxoTreeExpiry             common.RelativeLocktime
-	RoundInterval              int64
-	UnilateralExitDelay        common.RelativeLocktime
-	Dust                       uint64
-	BoardingExitDelay          common.RelativeLocktime
-	BoardingDescriptorTemplate string
-	ExplorerURL                string
-	ForfeitAddress             string
-	WithTransactionFeed        bool
-	MarketHourStartTime        int64
-	MarketHourEndTime          int64
-	MarketHourPeriod           int64
-	MarketHourRoundInterval    int64
-	UtxoMinAmount              int64
-	UtxoMaxAmount              int64
-	VtxoMinAmount              int64
-	VtxoMaxAmount              int64
+	ServerUrl               string
+	SignerPubKey            *secp256k1.PublicKey
+	WalletType              string
+	ClientType              string
+	Network                 arklib.Network
+	VtxoTreeExpiry          arklib.RelativeLocktime
+	RoundInterval           int64
+	UnilateralExitDelay     arklib.RelativeLocktime
+	Dust                    uint64
+	BoardingExitDelay       arklib.RelativeLocktime
+	ExplorerURL             string
+	ForfeitAddress          string
+	WithTransactionFeed     bool
+	MarketHourStartTime     int64
+	MarketHourEndTime       int64
+	MarketHourPeriod        int64
+	MarketHourRoundInterval int64
+	UtxoMinAmount           int64
+	UtxoMaxAmount           int64
+	VtxoMinAmount           int64
+	VtxoMaxAmount           int64
 }
 
-type VtxoKey struct {
+type Outpoint struct {
 	Txid string
 	VOut uint32
 }
 
-func (v VtxoKey) String() string {
-	return fmt.Sprintf("%s:%s", v.Txid, strconv.Itoa(int(v.VOut)))
+func (v Outpoint) String() string {
+	return fmt.Sprintf("%s:%d", v.Txid, v.VOut)
 }
 
 type Vtxo struct {
-	VtxoKey
-	PubKey    string
-	Amount    uint64
-	RoundTxid string
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	RedeemTx  string
-	Pending   bool
-	SpentBy   string
-	Spent     bool
+	Outpoint
+	Script          string
+	Amount          uint64
+	CommitmentTxids []string
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	Preconfirmed    bool
+	Swept           bool
+	Unrolled        bool
+	Spent           bool
+	SpentBy         string
+	SettledBy       string
+	ArkTxid         string
+}
+
+func (v Vtxo) String() string {
+	// nolint
+	b, _ := json.MarshalIndent(v, "", "  ")
+	return string(b)
+}
+
+func (v Vtxo) IsRecoverable() bool {
+	return v.Swept && !v.Spent
+}
+
+func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, error) {
+	buf, err := hex.DecodeString(v.Script)
+	if err != nil {
+		return "", err
+	}
+	pubkeyBytes := buf[2:]
+
+	pubkey, err := schnorr.ParsePubKey(pubkeyBytes)
+	if err != nil {
+		return "", err
+	}
+
+	a := &arklib.Address{
+		HRP:        net.Addr,
+		Signer:     server,
+		VtxoTapKey: pubkey,
+	}
+
+	return a.EncodeV0()
 }
 
 type VtxoEventType int
@@ -92,13 +130,13 @@ const (
 type TxType string
 
 type TransactionKey struct {
-	BoardingTxid string
-	RoundTxid    string
-	RedeemTxid   string
+	BoardingTxid   string
+	CommitmentTxid string
+	ArkTxid        string
 }
 
 func (t TransactionKey) String() string {
-	return fmt.Sprintf("%s%s%s", t.BoardingTxid, t.RoundTxid, t.RedeemTxid)
+	return fmt.Sprintf("%s%s%s", t.BoardingTxid, t.CommitmentTxid, t.ArkTxid)
 }
 
 type Transaction struct {
@@ -108,18 +146,7 @@ type Transaction struct {
 	Settled   bool
 	CreatedAt time.Time
 	Hex       string
-}
-
-func (t Transaction) IsRound() bool {
-	return t.RoundTxid != ""
-}
-
-func (t Transaction) IsBoarding() bool {
-	return t.BoardingTxid != ""
-}
-
-func (t Transaction) IsOOR() bool {
-	return t.RedeemTxid != ""
+	SettledBy string
 }
 
 func (t Transaction) String() string {
@@ -156,7 +183,7 @@ type Utxo struct {
 	Txid        string
 	VOut        uint32
 	Amount      uint64
-	Delay       common.RelativeLocktime
+	Delay       arklib.RelativeLocktime
 	SpendableAt time.Time
 	CreatedAt   time.Time
 	Tapscripts  []string
@@ -165,5 +192,50 @@ type Utxo struct {
 }
 
 func (u *Utxo) Sequence() (uint32, error) {
-	return common.BIP68Sequence(u.Delay)
+	return arklib.BIP68Sequence(u.Delay)
+}
+
+type Receiver struct {
+	To     string
+	Amount uint64
+}
+
+func (r Receiver) IsOnchain() bool {
+	_, err := btcutil.DecodeAddress(r.To, nil)
+	return err == nil
+}
+
+func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
+	var pkScript []byte
+	isOnchain := false
+
+	arkAddress, err := arklib.DecodeAddressV0(o.To)
+	if err != nil {
+		// decode onchain address
+		btcAddress, err := btcutil.DecodeAddress(o.To, nil)
+		if err != nil {
+			return nil, false, err
+		}
+
+		pkScript, err = txscript.PayToAddrScript(btcAddress)
+		if err != nil {
+			return nil, false, err
+		}
+
+		isOnchain = true
+	} else {
+		pkScript, err = script.P2TRScript(arkAddress.VtxoTapKey)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	if len(pkScript) == 0 {
+		return nil, false, fmt.Errorf("invalid address")
+	}
+
+	return &wire.TxOut{
+		Value:    int64(o.Amount),
+		PkScript: pkScript,
+	}, isOnchain, nil
 }

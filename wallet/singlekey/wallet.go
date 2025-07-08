@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/arkade-os/sdk/internal/utils"
-	"github.com/arkade-os/sdk/types"
-	"github.com/arkade-os/sdk/wallet"
-	walletstore "github.com/arkade-os/sdk/wallet/singlekey/store"
+	"github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet"
+	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 

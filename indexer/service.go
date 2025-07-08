@@ -1,24 +1,60 @@
 package indexer
 
-import "context"
+import (
+	"context"
+
+	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
+	"github.com/arkade-os/go-sdk/types"
+)
 
 type Indexer interface {
 	GetCommitmentTx(ctx context.Context, txid string) (*CommitmentTx, error)
-	GetCommitmentTxLeaves(ctx context.Context, txid string, opts ...RequestOption) (*CommitmentTxLeavesResponse, error)
-	GetVtxoTree(ctx context.Context, batchOutpoint Outpoint, opts ...RequestOption) (*VtxoTreeResponse, error)
-	GetVtxoTreeLeaves(ctx context.Context, batchOutpoint Outpoint, opts ...RequestOption) (*VtxoTreeLeavesResponse, error)
-	GetForfeitTxs(ctx context.Context, txid string, opts ...RequestOption) (*ForfeitTxsResponse, error)
-	GetConnectors(ctx context.Context, txid string, opts ...RequestOption) (*ConnectorsResponse, error)
+	GetVtxoTree(
+		ctx context.Context,
+		batchOutpoint types.Outpoint,
+		opts ...RequestOption,
+	) (*VtxoTreeResponse, error)
+	GetFullVtxoTree(
+		ctx context.Context,
+		batchOutpoint types.Outpoint,
+		opts ...RequestOption,
+	) ([]tree.TxTreeNode, error)
+	GetVtxoTreeLeaves(
+		ctx context.Context,
+		batchOutpoint types.Outpoint,
+		opts ...RequestOption,
+	) (*VtxoTreeLeavesResponse, error)
+	GetForfeitTxs(
+		ctx context.Context,
+		txid string,
+		opts ...RequestOption,
+	) (*ForfeitTxsResponse, error)
+	GetConnectors(
+		ctx context.Context,
+		txid string,
+		opts ...RequestOption,
+	) (*ConnectorsResponse, error)
 	GetVtxos(ctx context.Context, opts ...GetVtxosRequestOption) (*VtxosResponse, error)
-	GetTransactionHistory(ctx context.Context, address string, opts ...GetTxHistoryRequestOption) (*TxHistoryResponse, error)
-	GetVtxoChain(ctx context.Context, outpoint Outpoint, opts ...RequestOption) (*VtxoChainResponse, error)
-	GetVirtualTxs(ctx context.Context, txids []string, opts ...RequestOption) (*VirtualTxsResponse, error)
-	GetSweptCommitmentTx(ctx context.Context, txid string) ([]string, error)
-}
+	GetVtxoChain(
+		ctx context.Context,
+		outpoint types.Outpoint,
+		opts ...RequestOption,
+	) (*VtxoChainResponse, error)
+	GetVirtualTxs(
+		ctx context.Context,
+		txids []string,
+		opts ...RequestOption,
+	) (*VirtualTxsResponse, error)
+	GetBatchSweepTxs(ctx context.Context, batchOutpoint types.Outpoint) ([]string, error)
+	SubscribeForScripts(
+		ctx context.Context,
+		subscriptionId string,
+		scripts []string,
+	) (string, error)
+	UnsubscribeForScripts(ctx context.Context, subscriptionId string, scripts []string) error
+	GetSubscription(ctx context.Context, subscriptionId string) (<-chan *ScriptEvent, func(), error)
 
-type CommitmentTxLeavesResponse struct {
-	Leaves []Outpoint
-	Page   *PageResponse
+	Close()
 }
 
 type VtxoTreeResponse struct {
@@ -27,7 +63,7 @@ type VtxoTreeResponse struct {
 }
 
 type VtxoTreeLeavesResponse struct {
-	Leaves []Outpoint
+	Leaves []types.Outpoint
 	Page   *PageResponse
 }
 
@@ -42,25 +78,38 @@ type ConnectorsResponse struct {
 }
 
 type VtxosResponse struct {
-	Vtxos []Vtxo
+	Vtxos []types.Vtxo
 	Page  *PageResponse
 }
 
 type TxHistoryResponse struct {
-	History []TxHistoryRecord
+	History []types.Transaction
 	Page    *PageResponse
 }
 
 type VtxoChainResponse struct {
-	Chain              []ChainWithExpiry
-	Depth              int32
-	RootCommitmentTxid string
-	Page               *PageResponse
+	Chain []ChainWithExpiry
+	Page  *PageResponse
 }
 
 type VirtualTxsResponse struct {
 	Txs  []string
 	Page *PageResponse
+}
+
+type TxData struct {
+	Txid string
+	Tx   string
+}
+
+type ScriptEvent struct {
+	Txid          string
+	Tx            string
+	Scripts       []string
+	NewVtxos      []types.Vtxo
+	SpentVtxos    []types.Vtxo
+	CheckpointTxs map[string]TxData
+	Err           error
 }
 
 type PageRequest struct {
@@ -74,11 +123,31 @@ type PageResponse struct {
 	Total   int32
 }
 
+type TxNodes []TxNode
+
+func (t TxNodes) ToTree(txMap map[string]string) []tree.TxTreeNode {
+	vtxoTree := make([]tree.TxTreeNode, 0)
+	for _, node := range t {
+		vtxoTree = append(vtxoTree, tree.TxTreeNode{
+			Txid:     node.Txid,
+			Tx:       txMap[node.Txid],
+			Children: node.Children,
+		})
+	}
+	return vtxoTree
+}
+
+func (t TxNodes) Txids() []string {
+	txids := make([]string, 0, len(t))
+	for _, node := range t {
+		txids = append(txids, node.Txid)
+	}
+	return txids
+}
+
 type TxNode struct {
-	Txid       string
-	ParentTxid string
-	Level      int32
-	LevelIndex int32
+	Txid     string
+	Children map[uint32]string
 }
 
 type Batch struct {
@@ -98,49 +167,19 @@ type CommitmentTx struct {
 	Batches           map[uint32]*Batch
 }
 
-type Outpoint struct {
-	Txid string
-	VOut uint32
-}
-type Vtxo struct {
-	Outpoint       Outpoint
-	CreatedAt      int64
-	ExpiresAt      int64
-	Amount         uint64
-	Script         string
-	IsLeaf         bool
-	IsSwept        bool
-	IsSpent        bool
-	SpentBy        string
-	CommitmentTxid string
-}
-
-type TxType int
+type IndexerChainedTxType string
 
 const (
-	TxTypeUnspecified TxType = iota
-	TxTypeReceived
-	TxTypeSent
-	TxTypeSweep
+	IndexerChainedTxTypeUnspecified IndexerChainedTxType = "unspecified"
+	IndexerChainedTxTypeCommitment  IndexerChainedTxType = "commitment"
+	IndexerChainedTxTypeArk         IndexerChainedTxType = "ark"
+	IndexerChainedTxTypeTree        IndexerChainedTxType = "tree"
+	IndexerChainedTxTypeCheckpoint  IndexerChainedTxType = "checkpoint"
 )
-
-type TxHistoryRecord struct {
-	CommitmentTxid string
-	VirtualTxid    string
-	Type           TxType
-	Amount         uint64
-	CreatedAt      int64
-	IsSettled      bool
-	SettledBy      string
-}
 
 type ChainWithExpiry struct {
 	Txid      string
-	Spends    []ChainTx
 	ExpiresAt int64
-}
-
-type ChainTx struct {
-	Txid string
-	Type string
+	Type      IndexerChainedTxType
+	Spends    []string
 }

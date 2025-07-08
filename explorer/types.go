@@ -1,8 +1,8 @@
 package explorer
 
 import (
-	"github.com/ark-network/ark/common"
-	"github.com/arkade-os/sdk/types"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 type spentStatus struct {
@@ -36,7 +36,7 @@ type replacement struct {
 	Replaces  []replacement `json:"replaces"`
 }
 
-type utxo struct {
+type Utxo struct {
 	Txid   string `json:"txid"`
 	Vout   uint32 `json:"vout"`
 	Amount uint64 `json:"value"`
@@ -47,6 +47,6 @@ type utxo struct {
 	} `json:"status"`
 }
 
-func (e utxo) ToUtxo(delay common.RelativeLocktime, tapscripts []string) types.Utxo {
+func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	return newUtxo(e, delay, tapscripts)
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/arkade-os/sdk/client/rest/service/models"
+	"github.com/arkade-os/go-sdk/client/rest/service/models"
 )
 
 // ArkServiceSubmitTreeSignaturesReader is a Reader for the ArkServiceSubmitTreeSignatures structure.
@@ -88,12 +88,12 @@ func (o *ArkServiceSubmitTreeSignaturesOK) Code() int {
 
 func (o *ArkServiceSubmitTreeSignaturesOK) Error() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[POST /v1/round/tree/submitSignatures][%d] arkServiceSubmitTreeSignaturesOK %s", 200, payload)
+	return fmt.Sprintf("[POST /v1/batch/tree/submitSignatures][%d] arkServiceSubmitTreeSignaturesOK %s", 200, payload)
 }
 
 func (o *ArkServiceSubmitTreeSignaturesOK) String() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[POST /v1/round/tree/submitSignatures][%d] arkServiceSubmitTreeSignaturesOK %s", 200, payload)
+	return fmt.Sprintf("[POST /v1/batch/tree/submitSignatures][%d] arkServiceSubmitTreeSignaturesOK %s", 200, payload)
 }
 
 func (o *ArkServiceSubmitTreeSignaturesOK) GetPayload() models.V1SubmitTreeSignaturesResponse {
@@ -160,12 +160,12 @@ func (o *ArkServiceSubmitTreeSignaturesDefault) Code() int {
 
 func (o *ArkServiceSubmitTreeSignaturesDefault) Error() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[POST /v1/round/tree/submitSignatures][%d] ArkService_SubmitTreeSignatures default %s", o._statusCode, payload)
+	return fmt.Sprintf("[POST /v1/batch/tree/submitSignatures][%d] ArkService_SubmitTreeSignatures default %s", o._statusCode, payload)
 }
 
 func (o *ArkServiceSubmitTreeSignaturesDefault) String() string {
 	payload, _ := json.Marshal(o.Payload)
-	return fmt.Sprintf("[POST /v1/round/tree/submitSignatures][%d] ArkService_SubmitTreeSignatures default %s", o._statusCode, payload)
+	return fmt.Sprintf("[POST /v1/batch/tree/submitSignatures][%d] ArkService_SubmitTreeSignatures default %s", o._statusCode, payload)
 }
 
 func (o *ArkServiceSubmitTreeSignaturesDefault) GetPayload() *models.RPCStatus {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arkade-os/sdk/types"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/timshannon/badgerhold/v4"
@@ -33,7 +33,7 @@ func NewTransactionStore(
 	}
 	badgerDb, err := createDB(dir, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open round events store: %s", err)
+		return nil, fmt.Errorf("failed to open transaction store: %s", err)
 	}
 	return &txStore{
 		db:      badgerDb,
@@ -64,7 +64,7 @@ func (s *txStore) AddTransactions(
 }
 
 func (s *txStore) SettleTransactions(
-	ctx context.Context, txids []string,
+	ctx context.Context, txids []string, settledBy string,
 ) (int, error) {
 	txs, err := s.GetTransactions(ctx, txids)
 	if err != nil {
@@ -77,6 +77,7 @@ func (s *txStore) SettleTransactions(
 			continue
 		}
 		tx.Settled = true
+		tx.SettledBy = settledBy
 		if err := s.db.Upsert(tx.TransactionKey.String(), &tx); err != nil {
 			return -1, err
 		}

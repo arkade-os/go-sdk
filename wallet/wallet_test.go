@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ark-network/ark/common"
-	"github.com/arkade-os/sdk/client"
-	inmemorystore "github.com/arkade-os/sdk/store/inmemory"
-	sdktypes "github.com/arkade-os/sdk/types"
-	"github.com/arkade-os/sdk/wallet"
-	singlekeywallet "github.com/arkade-os/sdk/wallet/singlekey"
-	inmemorywalletstore "github.com/arkade-os/sdk/wallet/singlekey/store/inmemory"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/go-sdk/client"
+	inmemorystore "github.com/arkade-os/go-sdk/store/inmemory"
+	sdktypes "github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet"
+	singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
+	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -21,18 +21,17 @@ func TestWallet(t *testing.T) {
 	key, _ := btcec.NewPrivateKey()
 	password := "password"
 	testStoreData := sdktypes.Config{
-		ServerUrl:                  "localhost:7070",
-		ServerPubKey:               key.PubKey(),
-		WalletType:                 wallet.SingleKeyWallet,
-		ClientType:                 client.GrpcClient,
-		Network:                    common.BitcoinRegTest,
-		VtxoTreeExpiry:             common.RelativeLocktime{Type: common.LocktimeTypeSecond, Value: 512},
-		RoundInterval:              10,
-		UnilateralExitDelay:        common.RelativeLocktime{Type: common.LocktimeTypeSecond, Value: 512},
-		Dust:                       1000,
-		BoardingExitDelay:          common.RelativeLocktime{Type: common.LocktimeTypeSecond, Value: 512},
-		BoardingDescriptorTemplate: "tr(0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,{ and(pk(873079a0091c9b16abd1f8c508320b07f0d50144d09ccd792ce9c915dac60465), pk(USER)), and(older(604672), pk(USER)) })",
-		ForfeitAddress:             "bcrt1qzvqj",
+		ServerUrl:           "localhost:7070",
+		SignerPubKey:        key.PubKey(),
+		WalletType:          wallet.SingleKeyWallet,
+		ClientType:          client.GrpcClient,
+		Network:             arklib.BitcoinRegTest,
+		VtxoTreeExpiry:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		RoundInterval:       10,
+		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		Dust:                1000,
+		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		ForfeitAddress:      "bcrt1qzvqj",
 	}
 	tests := []struct {
 		name  string
@@ -42,7 +41,7 @@ func TestWallet(t *testing.T) {
 		{
 			name:  "bitcoin" + wallet.SingleKeyWallet,
 			chain: "bitcoin",
-			args:  []interface{}{common.BitcoinRegTest},
+			args:  []interface{}{arklib.BitcoinRegTest},
 		},
 	}
 
@@ -70,48 +69,64 @@ func TestWallet(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, key)
 
-			offchainAddr, onchainAddr, err := walletSvc.NewAddress(ctx, false)
+			onchainAddr, offchainAddr, boardingAddr, err := walletSvc.NewAddress(ctx, false)
 			require.NoError(t, err)
 			require.NotEmpty(t, offchainAddr)
 			require.NotEmpty(t, onchainAddr)
+			require.NotEmpty(t, boardingAddr)
 
-			offchainAddrs, onchainAddrs, redemptionAddrs, err := walletSvc.GetAddresses(ctx)
+			onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := walletSvc.GetAddresses(
+				ctx,
+			)
 			require.NoError(t, err)
 			require.Len(t, offchainAddrs, 1)
 			require.Len(t, onchainAddrs, 1)
 			require.Len(t, redemptionAddrs, 1)
+			require.Len(t, boardingAddrs, 1)
 
-			offchainAddr, onchainAddr, err = walletSvc.NewAddress(ctx, true)
+			onchainAddr, offchainAddr, boardingAddr, err = walletSvc.NewAddress(ctx, true)
 			require.NoError(t, err)
 			require.NotEmpty(t, offchainAddr)
 			require.NotEmpty(t, onchainAddr)
+			require.NotEmpty(t, boardingAddr)
 
 			expectedNumOfAddresses := 2
 			if strings.Contains(tt.name, wallet.SingleKeyWallet) {
 				expectedNumOfAddresses = 1
 			}
 
-			offchainAddrs, onchainAddrs, redemptionAddrs, err = walletSvc.GetAddresses(ctx)
+			onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err = walletSvc.GetAddresses(
+				ctx,
+			)
 			require.NoError(t, err)
 			require.Len(t, offchainAddrs, expectedNumOfAddresses)
 			require.Len(t, onchainAddrs, expectedNumOfAddresses)
 			require.Len(t, redemptionAddrs, expectedNumOfAddresses)
+			require.Len(t, boardingAddrs, expectedNumOfAddresses)
 
 			num := 3
-			offchainAddrs, onchainAddrs, err = walletSvc.NewAddresses(ctx, false, num)
+			onchainAddrs, offchainAddrs, boardingAddrs, err = walletSvc.NewAddresses(
+				ctx,
+				false,
+				num,
+			)
 			require.NoError(t, err)
 			require.Len(t, offchainAddrs, num)
+			require.Len(t, boardingAddrs, num)
 			require.Len(t, onchainAddrs, num)
 
 			expectedNumOfAddresses += num
 			if strings.Contains(tt.name, wallet.SingleKeyWallet) {
 				expectedNumOfAddresses = 1
 			}
-			offchainAddrs, onchainAddrs, redemptionAddrs, err = walletSvc.GetAddresses(ctx)
+			onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err = walletSvc.GetAddresses(
+				ctx,
+			)
 			require.NoError(t, err)
 			require.Len(t, offchainAddrs, expectedNumOfAddresses)
 			require.Len(t, onchainAddrs, expectedNumOfAddresses)
 			require.Len(t, redemptionAddrs, expectedNumOfAddresses)
+			require.Len(t, boardingAddrs, expectedNumOfAddresses)
 
 			// Check no password is required to unlock if wallet is already unlocked.
 			alreadyUnlocked, err := walletSvc.Unlock(ctx, password)
