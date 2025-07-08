@@ -13,23 +13,22 @@ jobs:
     name: Sdk unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '>=1.23.1'
+
+      - run: go mod tidy
 
       - name: Check for changes
         run: |
           if [[ -n $(git status --porcelain) ]]; then
-            echo "Changes detected after running go work sync and go mod tidy"
+            echo "Changes detected after running go mod tidy"
             git diff
             exit 1
           fi
-
-      - name: Install deps
-        run: go mod download
 
       - name: Check linting
         uses: golangci/golangci-lint-action@v8

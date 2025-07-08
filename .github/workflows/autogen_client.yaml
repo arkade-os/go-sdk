@@ -26,7 +26,7 @@ jobs:
         run: go install github.com/go-swagger/go-swagger/cmd/swagger@latest
 
       - name: Generate Client
-        run: make genrest
+        run: make genrest CI=true
 
       - name: Check for uncommitted changes
         run: |
