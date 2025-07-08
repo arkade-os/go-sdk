@@ -110,36 +110,6 @@ func (a *restClient) GetCommitmentTx(
 	}, nil
 }
 
-func (a *restClient) GetCommitmentTxLeaves(
-	ctx context.Context, txid string, opts ...indexer.RequestOption,
-) (*indexer.CommitmentTxLeavesResponse, error) {
-	params := indexer_service.NewIndexerServiceGetCommitmentTxLeavesParams().
-		WithTxid(txid)
-
-	if len(opts) > 0 {
-		page := opts[0].GetPage()
-		params.WithPageSize(&page.Size).WithPageIndex(&page.Index)
-	}
-
-	resp, err := a.svc.IndexerServiceGetCommitmentTxLeaves(params)
-	if err != nil {
-		return nil, err
-	}
-
-	leaves := make([]types.Outpoint, 0, len(resp.Payload.Leaves))
-	for _, leaf := range resp.Payload.Leaves {
-		leaves = append(leaves, types.Outpoint{
-			Txid: leaf.Txid,
-			VOut: uint32(leaf.Vout),
-		})
-	}
-
-	return &indexer.CommitmentTxLeavesResponse{
-		Leaves: leaves,
-		Page:   parsePage(resp.Payload.Page),
-	}, nil
-}
-
 func (a *restClient) GetVtxoTree(
 	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeResponse, error) {

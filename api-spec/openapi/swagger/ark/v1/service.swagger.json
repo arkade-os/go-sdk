@@ -409,7 +409,7 @@
         }
       }
     },
-    "v1BatchFailed": {
+    "v1BatchFailedEvent": {
       "type": "object",
       "properties": {
         "id": {
@@ -524,7 +524,7 @@
           "$ref": "#/definitions/v1BatchFinalizedEvent"
         },
         "batchFailed": {
-          "$ref": "#/definitions/v1BatchFailed"
+          "$ref": "#/definitions/v1BatchFailedEvent"
         },
         "treeSigningStarted": {
           "$ref": "#/definitions/v1TreeSigningStartedEvent"

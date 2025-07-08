@@ -58,8 +58,6 @@ type ClientService interface {
 
 	IndexerServiceGetCommitmentTx(params *IndexerServiceGetCommitmentTxParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxOK, error)
 
-	IndexerServiceGetCommitmentTxLeaves(params *IndexerServiceGetCommitmentTxLeavesParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxLeavesOK, error)
-
 	IndexerServiceGetConnectors(params *IndexerServiceGetConnectorsParams, opts ...ClientOption) (*IndexerServiceGetConnectorsOK, error)
 
 	IndexerServiceGetForfeitTxs(params *IndexerServiceGetForfeitTxsParams, opts ...ClientOption) (*IndexerServiceGetForfeitTxsOK, error)
@@ -154,43 +152,6 @@ func (a *Client) IndexerServiceGetCommitmentTx(params *IndexerServiceGetCommitme
 	}
 	// unexpected success response
 	unexpectedSuccess := result.(*IndexerServiceGetCommitmentTxDefault)
-	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
-}
-
-/*
-IndexerServiceGetCommitmentTxLeaves gets commitment tx leaves returns the list of leaves vtxo outpoints of all batch outputs trees included in the provided commitment transaction the response may include pagination information if the results span multiple pages
-*/
-func (a *Client) IndexerServiceGetCommitmentTxLeaves(params *IndexerServiceGetCommitmentTxLeavesParams, opts ...ClientOption) (*IndexerServiceGetCommitmentTxLeavesOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewIndexerServiceGetCommitmentTxLeavesParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "IndexerService_GetCommitmentTxLeaves",
-		Method:             "GET",
-		PathPattern:        "/v1/commitmentTx/{txid}/leaves",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http"},
-		Params:             params,
-		Reader:             &IndexerServiceGetCommitmentTxLeavesReader{formats: a.formats},
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*IndexerServiceGetCommitmentTxLeavesOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	unexpectedSuccess := result.(*IndexerServiceGetCommitmentTxLeavesDefault)
 	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
 }
 

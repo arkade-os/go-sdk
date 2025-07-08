@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	arkv1 "github.com/arkade-os/arkd/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/types"
 	"google.golang.org/grpc"
@@ -79,42 +79,6 @@ func (a *grpcClient) GetCommitmentTx(
 		TotalOutputAmount: resp.GetTotalOutputAmount(),
 		TotalOutputVtxos:  resp.GetTotalOutputVtxos(),
 		Batches:           batches,
-	}, nil
-}
-
-func (a *grpcClient) GetCommitmentTxLeaves(
-	ctx context.Context, txid string, opts ...indexer.RequestOption,
-) (*indexer.CommitmentTxLeavesResponse, error) {
-	var page *arkv1.IndexerPageRequest
-	if len(opts) > 0 {
-		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
-			Size:  opt.GetPage().Size,
-			Index: opt.GetPage().Index,
-		}
-	}
-
-	req := &arkv1.GetCommitmentTxLeavesRequest{
-		Txid: txid,
-		Page: page,
-	}
-
-	resp, err := a.svc.GetCommitmentTxLeaves(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	leaves := make([]types.Outpoint, 0, len(resp.GetLeaves()))
-	for _, leaf := range resp.GetLeaves() {
-		leaves = append(leaves, types.Outpoint{
-			Txid: leaf.GetTxid(),
-			VOut: leaf.GetVout(),
-		})
-	}
-
-	return &indexer.CommitmentTxLeavesResponse{
-		Leaves: leaves,
-		Page:   parsePage(resp.GetPage()),
 	}, nil
 }
 

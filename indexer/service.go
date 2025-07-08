@@ -9,11 +9,6 @@ import (
 
 type Indexer interface {
 	GetCommitmentTx(ctx context.Context, txid string) (*CommitmentTx, error)
-	GetCommitmentTxLeaves(
-		ctx context.Context,
-		txid string,
-		opts ...RequestOption,
-	) (*CommitmentTxLeavesResponse, error)
 	GetVtxoTree(
 		ctx context.Context,
 		batchOutpoint types.Outpoint,
@@ -60,11 +55,6 @@ type Indexer interface {
 	GetSubscription(ctx context.Context, subscriptionId string) (<-chan *ScriptEvent, func(), error)
 
 	Close()
-}
-
-type CommitmentTxLeavesResponse struct {
-	Leaves []types.Outpoint
-	Page   *PageResponse
 }
 
 type VtxoTreeResponse struct {

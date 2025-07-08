@@ -19,7 +19,7 @@ import (
 type V1GetEventStreamResponse struct {
 
 	// batch failed
-	BatchFailed *V1BatchFailed `json:"batchFailed,omitempty"`
+	BatchFailed *V1BatchFailedEvent `json:"batchFailed,omitempty"`
 
 	// batch finalization
 	BatchFinalization *V1BatchFinalizationEvent `json:"batchFinalization,omitempty"`

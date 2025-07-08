@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"time"
 
+	arkv1 "github.com/arkade-os/arkd/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 )
 
 // wrapper for GetEventStreamResponse and PingResponse
 type eventResponse interface {
-	GetBatchFailed() *arkv1.BatchFailed
+	GetBatchFailed() *arkv1.BatchFailedEvent
 	GetBatchStarted() *arkv1.BatchStartedEvent
 	GetBatchFinalization() *arkv1.BatchFinalizationEvent
 	GetBatchFinalized() *arkv1.BatchFinalizedEvent
