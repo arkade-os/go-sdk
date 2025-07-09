@@ -230,7 +230,7 @@ receivers := []arksdk.Receiver{
 txid, err = arkClient.SendOffChain(ctx, false, receivers)
 ```
 
-#### Redeem Funds
+#### Cooperative Exit
 
 To move funds from offchain to onchain:
 
