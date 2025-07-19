@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"sort"
+	"strings"
 	"sync"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -239,4 +241,38 @@ func deriveKey(password, salt []byte) ([]byte, []byte, error) {
 	keySize := 32
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
 	return key, salt, nil
+}
+
+func DeriveWsURl(baseUrl string, network arklib.Network) (string, error) {
+	var wsUrl string
+
+	parsedUrl, err := url.Parse(baseUrl)
+	if err != nil {
+		return "", fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	switch parsedUrl.Scheme {
+	case "http":
+		parsedUrl.Scheme = "ws"
+	case "https":
+		parsedUrl.Scheme = "wss"
+	default:
+		// default fallback
+		parsedUrl.Scheme = "ws"
+	}
+	wsUrl = parsedUrl.String()
+
+	if network.Name == arklib.BitcoinSigNet.Name {
+		wsUrl = strings.TrimRight(wsUrl, "/") + "/v1/ws"
+
+		return wsUrl, nil
+	}
+
+	if network.Name == arklib.BitcoinMutinyNet.Name {
+		wsUrl = strings.TrimRight(wsUrl, "/") + "/v1/ws"
+
+		return wsUrl, nil
+	}
+
+	return "", fmt.Errorf("unsupported network for WebSocket URL derivation: %s", network.Name)
 }
