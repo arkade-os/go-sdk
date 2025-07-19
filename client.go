@@ -107,6 +107,11 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 	}
 
 	if cfgData.WithTransactionFeed {
+		// subscribe to boarding address events
+		if err := explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(context.Background())); err != nil {
+			return nil, fmt.Errorf("failed to subscribe to address events: %s", err)
+		}
+
 		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 		client.txStreamCtxCancel = txStreamCtxCancel
 		if err := client.refreshDb(context.Background()); err != nil {
@@ -114,7 +119,7 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 		}
 		go client.listenForArkTxs(txStreamCtx)
 		if cfgData.UtxoMaxAmount != 0 {
-			go client.listenForBoardingTxs(txStreamCtx)
+			go client.listenWebsocketBoardingTxns(txStreamCtx)
 		}
 	}
 
@@ -167,6 +172,11 @@ func LoadArkClientWithWallet(
 	}
 
 	if cfgData.WithTransactionFeed {
+		// subscribe to boarding address events
+		if err := explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(context.Background())); err != nil {
+			return nil, fmt.Errorf("failed to subscribe to address events: %s", err)
+		}
+
 		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 		client.txStreamCtxCancel = txStreamCtxCancel
 		if err := client.refreshDb(context.Background()); err != nil {
@@ -174,7 +184,7 @@ func LoadArkClientWithWallet(
 		}
 		go client.listenForArkTxs(txStreamCtx)
 		if cfgData.UtxoMaxAmount != 0 {
-			go client.listenForBoardingTxs(txStreamCtx)
+			go client.listenWebsocketBoardingTxns(txStreamCtx)
 		}
 	}
 
@@ -193,9 +203,7 @@ func (a *arkClient) Init(ctx context.Context, args InitArgs) error {
 			return err
 		}
 		go a.listenForArkTxs(txStreamCtx)
-		if a.UtxoMaxAmount != 0 {
-			go a.listenForBoardingTxs(txStreamCtx)
-		}
+
 	}
 
 	return nil
@@ -213,9 +221,6 @@ func (a *arkClient) InitWithWallet(ctx context.Context, args InitWithWalletArgs)
 			return err
 		}
 		go a.listenForArkTxs(txStreamCtx)
-		if a.UtxoMaxAmount != 0 {
-			go a.listenForBoardingTxs(txStreamCtx)
-		}
 	}
 
 	return nil
@@ -1118,6 +1123,124 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 	return nil
 }
 
+func (a *arkClient) ProcessedStreamUtxoUpdate(ctx context.Context, update explorer.StreamUtxoUpdate,
+) error {
+
+	mempoolUtxos := update.MempoolUtxos
+	if len(mempoolUtxos) > 0 {
+		newPendingBoardingTxs := make([]types.Transaction, len(mempoolUtxos))
+		createdAt := time.Now()
+
+		for _, u := range mempoolUtxos {
+
+			isRbf, replacedTxIds, timestamp, err := a.explorer.GetRBFReplacedTxns(u.Txid)
+			if err != nil {
+				return err
+			}
+
+			if isRbf {
+				txHex, err := a.explorer.GetTxHex(u.Txid)
+				if err != nil {
+					log.WithError(err).Errorf("failed to get rbf transaction %s", u.Txid)
+					return err
+				}
+
+				rbfTransactions := make(map[string]types.Transaction, 0)
+				for _, rbfTxId := range replacedTxIds {
+					rbfTransactions[rbfTxId] = types.Transaction{
+						TransactionKey: types.TransactionKey{
+							BoardingTxid: u.Txid,
+						},
+						Hex:       txHex,
+						Amount:    u.Value,
+						Type:      types.TxReceived,
+						CreatedAt: time.Unix(timestamp, 0),
+					}
+				}
+
+				count, err := a.store.TransactionStore().RbfTransactions(ctx, rbfTransactions)
+				if err != nil {
+					log.WithError(err).Error("failed to update rbf boarding transactions")
+					return err
+				}
+				log.Debugf("replaced %d transaction(s)", count)
+
+				continue
+			}
+
+			newPendingBoardingTxs = append(newPendingBoardingTxs, types.Transaction{
+				TransactionKey: types.TransactionKey{
+					BoardingTxid: u.Txid,
+				},
+				Amount:    u.Value,
+				Type:      types.TxReceived,
+				CreatedAt: createdAt,
+			})
+		}
+
+		count, err := a.store.TransactionStore().
+			AddTransactions(ctx, newPendingBoardingTxs)
+
+		if err != nil {
+			log.WithError(err).Error("failed to add new boarding transactions")
+			return err
+		}
+		log.Debugf("added %d boarding transaction(s)", count)
+	}
+
+	confirmedUtxos := update.ConfirmedUtxos
+	if len(confirmedUtxos) > 0 {
+		ids := make([]string, 0, len(confirmedUtxos))
+		for _, u := range confirmedUtxos {
+			ids = append(ids, u.Txid)
+		}
+		count, err := a.store.TransactionStore().ConfirmTransactions(
+			ctx, ids, time.Now(),
+		)
+		if err != nil {
+			log.WithError(err).Error("failed to update boarding transactions")
+			return err
+		}
+		// ensure that we add transactions that were not in memepool
+		// but were confirmed in the blockchain
+		if count != len(confirmedUtxos) {
+			newPendingBoardingTxs := make([]types.Transaction, len(confirmedUtxos))
+			for _, u := range confirmedUtxos {
+				newPendingBoardingTxs = append(newPendingBoardingTxs, types.Transaction{
+					TransactionKey: types.TransactionKey{
+						BoardingTxid: u.Txid,
+					},
+					Amount:    u.Value,
+					Type:      types.TxReceived,
+					CreatedAt: time.Now(),
+				})
+			}
+			count, err = a.store.TransactionStore().AddTransactions(
+				ctx, newPendingBoardingTxs,
+			)
+			if err != nil {
+				log.WithError(err).Error("failed to add new boarding transactions")
+				return err
+			}
+
+		}
+		log.Debugf("confirmed %d boarding transaction(s)", count)
+	}
+	return nil
+
+}
+
+func (a *arkClient) listenWebsocketBoardingTxns(ctx context.Context) {
+	err := a.explorer.ListenAddresses(func(update explorer.StreamUtxoUpdate) error {
+		return a.ProcessedStreamUtxoUpdate(context.Background(), update)
+	})
+	// falback to polling if websocket fails
+	if err != nil {
+		log.WithError(err).Error("Failed to listen for boarding utxos on websocket, falling back to polling")
+		a.listenForBoardingTxs(ctx)
+	}
+}
+
 func (a *arkClient) listenForBoardingTxs(ctx context.Context) {
 	ticker := time.NewTicker(onchainPollingInterval)
 	defer ticker.Stop()
@@ -1184,12 +1307,12 @@ func (a *arkClient) getBoardingTransactions(
 	replacements := make(map[string]struct{}, 0)
 	for _, tx := range oldTxs {
 		if tx.BoardingTxid != "" && tx.CreatedAt.IsZero() {
-			isRbf, replacedBy, timestamp, err := a.explorer.IsRBFTx(tx.BoardingTxid, tx.Hex)
+			isRbf, replacement, timestamp, err := a.explorer.GetRBFReplacementTx(tx.BoardingTxid, tx.Hex)
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			if isRbf {
-				txHex, err := a.explorer.GetTxHex(replacedBy)
+				txHex, err := a.explorer.GetTxHex(replacement)
 				if err != nil {
 					return nil, nil, nil, err
 				}
@@ -1220,13 +1343,13 @@ func (a *arkClient) getBoardingTransactions(
 				}
 				rbfTxs[tx.BoardingTxid] = types.Transaction{
 					TransactionKey: types.TransactionKey{
-						BoardingTxid: replacedBy,
+						BoardingTxid: replacement,
 					},
 					CreatedAt: time.Unix(timestamp, 0),
 					Hex:       txHex,
 					Amount:    amount,
 				}
-				replacements[replacedBy] = struct{}{}
+				replacements[replacement] = struct{}{}
 			}
 		}
 	}

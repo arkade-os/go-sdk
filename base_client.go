@@ -334,6 +334,14 @@ func (a *arkClient) initWithWallet(
 		return err
 	}
 
+	if args.WithTransactionFeed {
+		// subscribe to boarding address events
+		explorerSvc.SubscribeToAddressEvent(a.wallet.GetAddressChannel(ctx))
+		if a.UtxoMaxAmount != 0 {
+			go a.listenWebsocketBoardingTxns(context.Background())
+		}
+	}
+
 	a.Config = &storeData
 	a.wallet = args.Wallet
 	a.explorer = explorerSvc
@@ -440,6 +448,14 @@ func (a *arkClient) init(
 		//nolint:all
 		a.store.ConfigStore().CleanData(ctx)
 		return err
+	}
+
+	if args.WithTransactionFeed {
+		// subscribe to boarding address events
+		explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(ctx))
+		if a.UtxoMaxAmount != 0 {
+			go a.listenWebsocketBoardingTxns(context.Background())
+		}
 	}
 
 	a.Config = &cfgData
