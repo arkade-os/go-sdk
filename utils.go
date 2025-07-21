@@ -17,11 +17,9 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -435,33 +433,6 @@ func finalizeWithNotes(notesWitnesses map[int][]byte) func(ptx *psbt.Packet) err
 
 		return nil
 	}
-}
-
-func handleBatchTreeSignature(
-	event client.TreeSignatureEvent, txTree *tree.TxTree,
-) error {
-	if event.BatchIndex != 0 {
-		return fmt.Errorf("batch index %d is not 0", event.BatchIndex)
-	}
-
-	decodedSig, err := hex.DecodeString(event.Signature)
-	if err != nil {
-		return fmt.Errorf("failed to decode signature: %s", err)
-	}
-
-	sig, err := schnorr.ParseSignature(decodedSig)
-	if err != nil {
-		return fmt.Errorf("failed to parse signature: %s", err)
-	}
-
-	return txTree.Apply(func(g *tree.TxTree) (bool, error) {
-		if g.Root.UnsignedTx.TxID() != event.Txid {
-			return true, nil
-		}
-
-		g.Root.Inputs[0].TaprootKeySpendSig = sig.Serialize()
-		return false, nil
-	})
 }
 
 func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
