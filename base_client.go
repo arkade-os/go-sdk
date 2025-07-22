@@ -336,7 +336,11 @@ func (a *arkClient) initWithWallet(
 
 	if args.WithTransactionFeed {
 		// subscribe to boarding address events
-		explorerSvc.SubscribeToAddressEvent(a.wallet.GetAddressChannel(ctx))
+		err = explorerSvc.SubscribeToAddressEvent(a.wallet.GetAddressChannel(ctx))
+		if err != nil {
+			return fmt.Errorf("failed to subscribe to address events: %s", err)
+		}
+
 		if a.UtxoMaxAmount != 0 {
 			go a.listenWebsocketBoardingTxns(context.Background())
 		}
@@ -452,7 +456,11 @@ func (a *arkClient) init(
 
 	if args.WithTransactionFeed {
 		// subscribe to boarding address events
-		explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(ctx))
+		err = explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(ctx))
+		if err != nil {
+			return fmt.Errorf("failed to subscribe to address events: %s", err)
+		}
+
 		if a.UtxoMaxAmount != 0 {
 			go a.listenWebsocketBoardingTxns(context.Background())
 		}

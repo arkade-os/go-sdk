@@ -1236,7 +1236,8 @@ func (a *arkClient) listenWebsocketBoardingTxns(ctx context.Context) {
 	})
 	// falback to polling if websocket fails
 	if err != nil {
-		log.WithError(err).Error("Failed to listen for boarding utxos on websocket, falling back to polling")
+		log.WithError(err).
+			Error("Failed to listen for boarding utxos on websocket, falling back to polling")
 		a.listenForBoardingTxs(ctx)
 	}
 }
@@ -1307,7 +1308,10 @@ func (a *arkClient) getBoardingTransactions(
 	replacements := make(map[string]struct{}, 0)
 	for _, tx := range oldTxs {
 		if tx.BoardingTxid != "" && tx.CreatedAt.IsZero() {
-			isRbf, replacement, timestamp, err := a.explorer.GetRBFReplacementTx(tx.BoardingTxid, tx.Hex)
+			isRbf, replacement, timestamp, err := a.explorer.GetRBFReplacementTx(
+				tx.BoardingTxid,
+				tx.Hex,
+			)
 			if err != nil {
 				return nil, nil, nil, err
 			}

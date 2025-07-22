@@ -262,7 +262,9 @@ func (e explorerSvc) GetRBFReplacedTxns(txid string) (bool, []string, int64, err
 	}
 
 	if explorerType != Mempool {
-		return false, nil, -1, fmt.Errorf("RBF replaced txns are only supported for Mempool explorer")
+		return false, nil, -1, fmt.Errorf(
+			"RBF replaced txns are only supported for Mempool explorer",
+		)
 	}
 
 	isRbf, replacedBy, timestamp, err := e.getMempoolRBFReplacedTx(
