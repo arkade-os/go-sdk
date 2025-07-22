@@ -1128,7 +1128,7 @@ func (a *arkClient) ProcessedStreamUtxoUpdate(ctx context.Context, update explor
 
 	mempoolUtxos := update.MempoolUtxos
 	if len(mempoolUtxos) > 0 {
-		newPendingBoardingTxs := make([]types.Transaction, len(mempoolUtxos))
+		newPendingBoardingTxs := make([]types.Transaction, 0, len(mempoolUtxos))
 		createdAt := time.Now()
 
 		for _, u := range mempoolUtxos {

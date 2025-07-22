@@ -245,7 +245,6 @@ func (e *explorerSvc) SubscribeToAddressEvent(addressEvent <-chan string) error 
 				if err != nil {
 					log.Printf("failed to subscribe to address %s: %v", address, err)
 				}
-				return
 			}
 		}
 	}()
