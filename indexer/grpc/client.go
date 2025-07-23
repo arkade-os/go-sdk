@@ -406,9 +406,11 @@ func (a *grpcClient) GetSubscription(
 ) (<-chan *indexer.ScriptEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := a.svc.GetSubscription(ctx, &arkv1.GetSubscriptionRequest{
+	req := &arkv1.GetSubscriptionRequest{
 		SubscriptionId: subscriptionId,
-	})
+	}
+
+	stream, err := a.svc.GetSubscription(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -429,6 +431,21 @@ func (a *grpcClient) GetSubscription(
 				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
 					return
 				}
+
+				// Check if it's a 524 error during stream reading
+				if st, ok := status.FromError(err); ok && st.Code() == codes.Unknown {
+					errMsg := st.Message()
+					if strings.Contains(errMsg, "524") {
+						stream, err = a.svc.GetSubscription(ctx, req)
+						if err != nil {
+							eventsCh <- &indexer.ScriptEvent{Err: err}
+							return
+						}
+
+						continue
+					}
+				}
+
 				eventsCh <- &indexer.ScriptEvent{Err: err}
 				return
 			}
