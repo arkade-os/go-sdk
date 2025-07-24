@@ -1117,7 +1117,7 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 }
 
 func (a *arkClient) listenForBoardingTxs(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {
