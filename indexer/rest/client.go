@@ -582,19 +582,28 @@ func listenToStream(url string, chunkCh chan chunk) {
 
 	httpClient := &http.Client{Timeout: time.Second * 0}
 
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		chunkCh <- chunk{err: err}
-		return
-	}
-	// nolint:all
-	defer resp.Body.Close()
+	var resp *http.Response
 
-	if resp.StatusCode != http.StatusOK {
-		chunkCh <- chunk{err: fmt.Errorf(
-			"got unexpected status %d code", resp.StatusCode,
-		)}
-		return
+	for resp == nil {
+		var err error
+		resp, err = httpClient.Get(url)
+		if err != nil {
+			chunkCh <- chunk{err: err}
+			return
+		}
+		// nolint:all
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// handle 524 error by retrying
+			if resp.StatusCode == 524 {
+				resp = nil
+				continue
+			}
+
+			chunkCh <- chunk{err: fmt.Errorf("got unexpected status %d code", resp.StatusCode)}
+			return
+		}
 	}
 
 	reader := bufio.NewReader(resp.Body)
