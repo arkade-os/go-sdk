@@ -1,23 +1,19 @@
 package indexer
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice"
 	"github.com/arkade-os/go-sdk/indexer/rest/service/indexerservice/indexer_service"
 	"github.com/arkade-os/go-sdk/indexer/rest/service/models"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
@@ -404,12 +400,12 @@ func (a *restClient) GetSubscription(
 ) (<-chan *indexer.ScriptEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 	eventsCh := make(chan *indexer.ScriptEvent)
-	chunkCh := make(chan chunk)
+	chunkCh := make(chan utils.ChunkJSONStream)
 	url := fmt.Sprintf("%s/v1/script/subscription/%s", a.serverURL, subscriptionId)
 
-	go listenToStream(url, chunkCh)
+	go utils.ListenToJSONStream(url, chunkCh)
 
-	go func(eventsCh chan *indexer.ScriptEvent, chunkCh chan chunk) {
+	go func(eventsCh chan *indexer.ScriptEvent, chunkCh chan utils.ChunkJSONStream) {
 		defer close(eventsCh)
 
 		for {
@@ -417,17 +413,17 @@ func (a *restClient) GetSubscription(
 			case <-ctx.Done():
 				return
 			case chunk := <-chunkCh:
-				if chunk.err == nil && len(chunk.msg) == 0 {
+				if chunk.Err == nil && len(chunk.Msg) == 0 {
 					continue
 				}
 
-				if chunk.err != nil {
-					eventsCh <- &indexer.ScriptEvent{Err: chunk.err}
+				if chunk.Err != nil {
+					eventsCh <- &indexer.ScriptEvent{Err: chunk.Err}
 					return
 				}
 
 				resp := indexer_service.IndexerServiceGetSubscriptionOKBody{}
-				if err := json.Unmarshal(chunk.msg, &resp); err != nil {
+				if err := json.Unmarshal(chunk.Msg, &resp); err != nil {
 					eventsCh <- &indexer.ScriptEvent{
 						Err: fmt.Errorf("failed to parse message from address stream: %s", err),
 					}
@@ -568,46 +564,6 @@ func parsePage(page *models.V1IndexerPageResponse) *indexer.PageResponse {
 		Current: page.Current,
 		Next:    page.Next,
 		Total:   page.Total,
-	}
-}
-
-type chunk struct {
-	msg []byte
-	err error
-}
-
-func listenToStream(url string, chunkCh chan chunk) {
-	defer close(chunkCh)
-
-	httpClient := &http.Client{Timeout: time.Second * 0}
-
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		chunkCh <- chunk{err: err}
-		return
-	}
-	// nolint:all
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		chunkCh <- chunk{err: fmt.Errorf(
-			"got unexpected status %d code", resp.StatusCode,
-		)}
-		return
-	}
-
-	reader := bufio.NewReader(resp.Body)
-	for {
-		msg, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				err = client.ErrConnectionClosedByServer
-			}
-			chunkCh <- chunk{err: err}
-			return
-		}
-		msg = bytes.Trim(msg, "\n")
-		chunkCh <- chunk{msg: msg}
 	}
 }
 

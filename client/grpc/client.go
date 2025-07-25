@@ -20,6 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const cloudflare524Error = "524"
+
 type service struct {
 	arkv1.ArkServiceClient
 }
@@ -185,7 +187,9 @@ func (a *grpcClient) GetEventStream(
 ) (<-chan client.BatchEventChannel, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := a.svc.GetEventStream(ctx, &arkv1.GetEventStreamRequest{Topics: topics})
+	req := &arkv1.GetEventStreamRequest{Topics: topics}
+
+	stream, err := a.svc.GetEventStream(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -203,9 +207,26 @@ func (a *grpcClient) GetEventStream(
 					eventsCh <- client.BatchEventChannel{Err: client.ErrConnectionClosedByServer}
 					return
 				}
-				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
-					return
+				st, ok := status.FromError(err)
+				if ok {
+					switch st.Code() {
+					case codes.Canceled:
+						return
+					case codes.Unknown:
+						errMsg := st.Message()
+						// Check if it's a 524 error during stream reading
+						if strings.Contains(errMsg, cloudflare524Error) {
+							stream, err = a.svc.GetEventStream(ctx, req)
+							if err != nil {
+								eventsCh <- client.BatchEventChannel{Err: err}
+								return
+							}
+
+							continue
+						}
+					}
 				}
+
 				eventsCh <- client.BatchEventChannel{Err: err}
 				return
 			}
@@ -263,7 +284,9 @@ func (c *grpcClient) GetTransactionsStream(
 ) (<-chan client.TransactionEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := c.svc.GetTransactionsStream(ctx, &arkv1.GetTransactionsStreamRequest{})
+	req := &arkv1.GetTransactionsStreamRequest{}
+
+	stream, err := c.svc.GetTransactionsStream(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -281,8 +304,24 @@ func (c *grpcClient) GetTransactionsStream(
 					eventsCh <- client.TransactionEvent{Err: client.ErrConnectionClosedByServer}
 					return
 				}
-				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
-					return
+				st, ok := status.FromError(err)
+				if ok {
+					switch st.Code() {
+					case codes.Canceled:
+						return
+					case codes.Unknown:
+						errMsg := st.Message()
+						// Check if it's a 524 error during stream reading
+						if strings.Contains(errMsg, cloudflare524Error) {
+							stream, err = c.svc.GetTransactionsStream(ctx, req)
+							if err != nil {
+								eventsCh <- client.TransactionEvent{Err: err}
+								return
+							}
+
+							continue
+						}
+					}
 				}
 				eventsCh <- client.TransactionEvent{Err: err}
 				return

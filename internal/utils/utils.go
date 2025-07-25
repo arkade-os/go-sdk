@@ -1,13 +1,18 @@
 package utils
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/client"
@@ -239,4 +244,57 @@ func deriveKey(password, salt []byte) ([]byte, []byte, error) {
 	keySize := 32
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
 	return key, salt, nil
+}
+
+type ChunkJSONStream struct {
+	Msg []byte
+	Err error
+}
+
+func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
+	defer close(chunkCh)
+
+	httpClient := &http.Client{Timeout: time.Second * 0}
+
+	var resp *http.Response
+
+	for resp == nil {
+		var err error
+		resp, err = httpClient.Get(url)
+		if err != nil {
+			chunkCh <- ChunkJSONStream{Err: err}
+			return
+		}
+
+		// nolint:errcheck
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// handle 524 error by retrying
+			if resp.StatusCode == 524 {
+				//nolint:errcheck
+				resp.Body.Close()
+
+				resp = nil
+				continue
+			}
+
+			chunkCh <- ChunkJSONStream{Err: fmt.Errorf("got unexpected status %d code", resp.StatusCode)}
+			return
+		}
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		msg, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				err = client.ErrConnectionClosedByServer
+			}
+			chunkCh <- ChunkJSONStream{Err: err}
+			return
+		}
+		msg = bytes.Trim(msg, "\n")
+		chunkCh <- ChunkJSONStream{Msg: msg}
+	}
 }
