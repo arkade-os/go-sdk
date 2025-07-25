@@ -18,6 +18,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const cloudflare524Error = "524"
+
 type grpcClient struct {
 	conn *grpc.ClientConn
 	svc  arkv1.IndexerServiceClient
@@ -428,21 +430,24 @@ func (a *grpcClient) GetSubscription(
 					eventsCh <- &indexer.ScriptEvent{Err: fmt.Errorf("connection closed by server")}
 					return
 				}
-				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
-					return
-				}
 
-				// Check if it's a 524 error during stream reading
-				if st, ok := status.FromError(err); ok && st.Code() == codes.Unknown {
-					errMsg := st.Message()
-					if strings.Contains(errMsg, "524") {
-						stream, err = a.svc.GetSubscription(ctx, req)
-						if err != nil {
-							eventsCh <- &indexer.ScriptEvent{Err: err}
-							return
+				st, ok := status.FromError(err)
+				if ok {
+					switch st.Code() {
+					case codes.Canceled:
+						return
+					case codes.Unknown:
+						errMsg := st.Message()
+						// Check if it's a 524 error during stream reading
+						if strings.Contains(errMsg, cloudflare524Error) {
+							stream, err = a.svc.GetSubscription(ctx, req)
+							if err != nil {
+								eventsCh <- &indexer.ScriptEvent{Err: err}
+								return
+							}
+
+							continue
 						}
-
-						continue
 					}
 				}
 

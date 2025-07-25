@@ -1,13 +1,9 @@
 package restclient
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -18,6 +14,7 @@ import (
 	"github.com/arkade-os/go-sdk/client/rest/service/arkservice"
 	"github.com/arkade-os/go-sdk/client/rest/service/arkservice/ark_service"
 	"github.com/arkade-os/go-sdk/client/rest/service/models"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
 	httptransport "github.com/go-openapi/runtime/client"
@@ -239,7 +236,7 @@ func (c *restClient) GetEventStream(
 ) (<-chan client.BatchEventChannel, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 	eventsCh := make(chan client.BatchEventChannel)
-	chunkCh := make(chan chunk)
+	chunkCh := make(chan utils.ChunkJSONStream)
 
 	// Construct the URL with proper multi-format topics parameter
 	url := fmt.Sprintf("%s/v1/batch/events", c.serverURL)
@@ -251,9 +248,9 @@ func (c *restClient) GetEventStream(
 		url += "?" + strings.Join(queryParams, "&")
 	}
 
-	go listenToStream(url, chunkCh)
+	go utils.ListenToJSONStream(url, chunkCh)
 
-	go func(ctx context.Context, eventsCh chan client.BatchEventChannel, chunkCh chan chunk) {
+	go func(ctx context.Context, eventsCh chan client.BatchEventChannel, chunkCh chan utils.ChunkJSONStream) {
 		defer close(eventsCh)
 
 		for {
@@ -261,19 +258,19 @@ func (c *restClient) GetEventStream(
 			case <-ctx.Done():
 				return
 			case chunk := <-chunkCh:
-				if chunk.err == nil && len(chunk.msg) == 0 {
+				if chunk.Err == nil && len(chunk.Msg) == 0 {
 					continue
 				}
 
-				if chunk.err != nil {
-					eventsCh <- client.BatchEventChannel{Err: chunk.err}
+				if chunk.Err != nil {
+					eventsCh <- client.BatchEventChannel{Err: chunk.Err}
 					return
 				}
 				// TODO: handle receival of partial chunks
 				resp := ark_service.ArkServiceGetEventStreamOKBody{}
-				if err := json.Unmarshal(chunk.msg, &resp); err != nil {
+				if err := json.Unmarshal(chunk.Msg, &resp); err != nil {
 					eventsCh <- client.BatchEventChannel{
-						Err: fmt.Errorf("failed to parse message from batch event stream: %s, %s", err, string(chunk.msg)),
+						Err: fmt.Errorf("failed to parse message from batch event stream: %s, %s", err, string(chunk.Msg)),
 					}
 					return
 				}
@@ -420,12 +417,12 @@ func (c *restClient) GetTransactionsStream(
 ) (<-chan client.TransactionEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 	eventsCh := make(chan client.TransactionEvent)
-	chunkCh := make(chan chunk)
+	chunkCh := make(chan utils.ChunkJSONStream)
 	url := fmt.Sprintf("%s/v1/txs", c.serverURL)
 
-	go listenToStream(url, chunkCh)
+	go utils.ListenToJSONStream(url, chunkCh)
 
-	go func(ctx context.Context, eventsCh chan client.TransactionEvent, chunkCh chan chunk) {
+	go func(ctx context.Context, eventsCh chan client.TransactionEvent, chunkCh chan utils.ChunkJSONStream) {
 		defer close(eventsCh)
 
 		for {
@@ -433,17 +430,17 @@ func (c *restClient) GetTransactionsStream(
 			case <-ctx.Done():
 				return
 			case chunk := <-chunkCh:
-				if chunk.err == nil && len(chunk.msg) == 0 {
+				if chunk.Err == nil && len(chunk.Msg) == 0 {
 					continue
 				}
 
-				if chunk.err != nil {
-					eventsCh <- client.TransactionEvent{Err: chunk.err}
+				if chunk.Err != nil {
+					eventsCh <- client.TransactionEvent{Err: chunk.Err}
 					return
 				}
 
 				resp := ark_service.ArkServiceGetTransactionsStreamOKBody{}
-				if err := json.Unmarshal(chunk.msg, &resp); err != nil {
+				if err := json.Unmarshal(chunk.Msg, &resp); err != nil {
 					eventsCh <- client.TransactionEvent{
 						Err: fmt.Errorf("failed to parse message from transaction stream: %s", err),
 					}
@@ -582,44 +579,4 @@ func vtxosFromRest(restVtxos []*models.V1Vtxo) []types.Vtxo {
 		}
 	}
 	return vtxos
-}
-
-type chunk struct {
-	msg []byte
-	err error
-}
-
-func listenToStream(url string, chunkCh chan chunk) {
-	defer close(chunkCh)
-
-	httpClient := &http.Client{Timeout: time.Second * 0}
-
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		chunkCh <- chunk{err: err}
-		return
-	}
-	// nolint:all
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		chunkCh <- chunk{err: fmt.Errorf(
-			"got unexpected status %d code", resp.StatusCode,
-		)}
-		return
-	}
-
-	reader := bufio.NewReader(resp.Body)
-	for {
-		msg, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				err = client.ErrConnectionClosedByServer
-			}
-			chunkCh <- chunk{err: err}
-			return
-		}
-		msg = bytes.Trim(msg, "\n")
-		chunkCh <- chunk{msg: msg}
-	}
 }
