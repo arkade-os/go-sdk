@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
@@ -610,16 +609,6 @@ func listenToStream(url string, chunkCh chan chunk) {
 	for {
 		msg, err := reader.ReadBytes('\n')
 		if err != nil {
-			if strings.Contains(err.Error(), "524") {
-				fmt.Println("524 error, retrying")
-				resp, err = httpClient.Get(url)
-				if err != nil {
-					chunkCh <- chunk{err: err}
-					return
-				}
-				reader = bufio.NewReader(resp.Body)
-				continue
-			}
 			if err == io.EOF {
 				err = client.ErrConnectionClosedByServer
 			}
