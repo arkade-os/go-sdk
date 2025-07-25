@@ -378,7 +378,11 @@ func (c *restClient) GetEventStream(
 				}
 			}
 		}
-	}(ctx, eventsCh, chunkCh)
+	}(
+		ctx,
+		eventsCh,
+		chunkCh,
+	)
 
 	return eventsCh, cancel, nil
 }
@@ -500,7 +504,11 @@ func (c *restClient) GetTransactionsStream(
 				eventsCh <- event
 			}
 		}
-	}(ctx, eventsCh, chunkCh)
+	}(
+		ctx,
+		eventsCh,
+		chunkCh,
+	)
 
 	return eventsCh, cancel, nil
 }
