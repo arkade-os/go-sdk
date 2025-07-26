@@ -39,6 +39,4 @@ type WalletService interface {
 	SignMessage(ctx context.Context, message []byte) (signature string, err error)
 	Dump(ctx context.Context) (seed string, err error)
 	NewVtxoTreeSigner(ctx context.Context, derivationPath string) (tree.SignerSession, error)
-	GetAddressChannel(
-		ctx context.Context) <-chan string
 }

@@ -314,6 +314,7 @@ func (a *arkClient) initWithWallet(
 		},
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
+		WithBoardingUtxoStream:  args.WithBoardingUtxoStream,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -335,14 +336,8 @@ func (a *arkClient) initWithWallet(
 	}
 
 	if args.WithTransactionFeed {
-		// subscribe to boarding address events
-		err = explorerSvc.SubscribeToAddressEvent(a.wallet.GetAddressChannel(ctx))
-		if err != nil {
-			return fmt.Errorf("failed to subscribe to address events: %s", err)
-		}
-
 		if a.UtxoMaxAmount != 0 {
-			go a.listenWebsocketBoardingTxns(context.Background())
+			go a.listenForBoardingTxns(context.Background())
 		}
 	}
 
@@ -430,6 +425,7 @@ func (a *arkClient) init(
 		ExplorerURL:             explorerSvc.BaseUrl(),
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
+		WithBoardingUtxoStream:  args.WithBoardingUtxoStream,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -439,7 +435,7 @@ func (a *arkClient) init(
 		VtxoMinAmount:           info.VtxoMinAmount,
 		VtxoMaxAmount:           info.VtxoMaxAmount,
 	}
-	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
+	walletSvc, err := getWallet(a.store.ConfigStore(), explorerSvc, &cfgData, supportedWallets)
 	if err != nil {
 		return err
 	}
@@ -455,14 +451,8 @@ func (a *arkClient) init(
 	}
 
 	if args.WithTransactionFeed {
-		// subscribe to boarding address events
-		err = explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(ctx))
-		if err != nil {
-			return fmt.Errorf("failed to subscribe to address events: %s", err)
-		}
-
 		if a.UtxoMaxAmount != 0 {
-			go a.listenWebsocketBoardingTxns(context.Background())
+			go a.listenForBoardingTxns(context.Background())
 		}
 	}
 
@@ -513,12 +503,12 @@ func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
 }
 
 func getWallet(
-	configStore types.ConfigStore, data *types.Config,
+	configStore types.ConfigStore, explorer explorer.Explorer, data *types.Config,
 	supportedWallets utils.SupportedType[struct{}],
 ) (wallet.WalletService, error) {
 	switch data.WalletType {
 	case wallet.SingleKeyWallet:
-		return getSingleKeyWallet(configStore)
+		return getSingleKeyWallet(configStore, explorer)
 	default:
 		return nil, fmt.Errorf(
 			"unsupported wallet type '%s', please select one of: %s",
@@ -527,13 +517,16 @@ func getWallet(
 	}
 }
 
-func getSingleKeyWallet(configStore types.ConfigStore) (wallet.WalletService, error) {
+func getSingleKeyWallet(
+	configStore types.ConfigStore,
+	explorer explorer.Explorer,
+) (wallet.WalletService, error) {
 	walletStore, err := getWalletStore(configStore.GetType(), configStore.GetDatadir())
 	if err != nil {
 		return nil, err
 	}
 
-	return singlekeywallet.NewBitcoinWallet(configStore, walletStore)
+	return singlekeywallet.NewBitcoinWallet(configStore, walletStore, explorer)
 }
 
 func getWalletStore(storeType, datadir string) (walletstore.WalletStore, error) {

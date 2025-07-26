@@ -90,6 +90,7 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 
 	walletSvc, err := getWallet(
 		sdkStore.ConfigStore(),
+		explorerSvc,
 		cfgData,
 		supportedWallets,
 	)
@@ -107,10 +108,6 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 	}
 
 	if cfgData.WithTransactionFeed {
-		// subscribe to boarding address events
-		if err := explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(context.Background())); err != nil {
-			return nil, fmt.Errorf("failed to subscribe to address events: %s", err)
-		}
 
 		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 		client.txStreamCtxCancel = txStreamCtxCancel
@@ -119,7 +116,7 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 		}
 		go client.listenForArkTxs(txStreamCtx)
 		if cfgData.UtxoMaxAmount != 0 {
-			go client.listenWebsocketBoardingTxns(txStreamCtx)
+			go client.listenForBoardingTxns(txStreamCtx)
 		}
 	}
 
@@ -172,10 +169,6 @@ func LoadArkClientWithWallet(
 	}
 
 	if cfgData.WithTransactionFeed {
-		// subscribe to boarding address events
-		if err := explorerSvc.SubscribeToAddressEvent(walletSvc.GetAddressChannel(context.Background())); err != nil {
-			return nil, fmt.Errorf("failed to subscribe to address events: %s", err)
-		}
 
 		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 		client.txStreamCtxCancel = txStreamCtxCancel
@@ -184,7 +177,7 @@ func LoadArkClientWithWallet(
 		}
 		go client.listenForArkTxs(txStreamCtx)
 		if cfgData.UtxoMaxAmount != 0 {
-			go client.listenWebsocketBoardingTxns(txStreamCtx)
+			go client.listenForBoardingTxns(txStreamCtx)
 		}
 	}
 
@@ -1230,19 +1223,32 @@ func (a *arkClient) ProcessedStreamUtxoUpdate(ctx context.Context, update explor
 
 }
 
-func (a *arkClient) listenWebsocketBoardingTxns(ctx context.Context) {
-	err := a.explorer.ListenAddresses(func(update explorer.StreamUtxoUpdate) error {
-		return a.ProcessedStreamUtxoUpdate(context.Background(), update)
-	})
-	// falback to polling if websocket fails
-	if err != nil {
-		log.WithError(err).
-			Error("Failed to listen for boarding utxos on websocket, falling back to polling")
-		a.listenForBoardingTxs(ctx)
+func (a *arkClient) listenForBoardingTxns(ctx context.Context) {
+
+	if a.WithBoardingUtxoStream {
+		a.pollForBoardingTxs(ctx)
 	}
+
+	var channel <-chan explorer.StreamUtxoUpdate
+	var err error
+	for {
+		channel, err = a.explorer.GetAddressesEvents()
+		if err != nil {
+			continue
+		}
+		break
+	}
+	for update := range channel {
+		err := a.ProcessedStreamUtxoUpdate(context.Background(), update)
+		if err != nil {
+			break
+		}
+	}
+	// falback to polling if websocket fails
+	a.pollForBoardingTxs(context.Background())
 }
 
-func (a *arkClient) listenForBoardingTxs(ctx context.Context) {
+func (a *arkClient) pollForBoardingTxs(ctx context.Context) {
 	ticker := time.NewTicker(onchainPollingInterval)
 	defer ticker.Stop()
 
