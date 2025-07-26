@@ -50,3 +50,40 @@ type Utxo struct {
 func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	return newUtxo(e, delay, tapscripts)
 }
+
+type StreamTransactions struct {
+	BlockTransactions   []RawTx `json:"block-transactions,omitempty"`
+	MempoolTransactions []RawTx `json:"address-transactions,omitempty"`
+}
+
+type RbfTxId struct {
+	TxId string `json:"txid"`
+}
+
+type RawTx struct {
+	Txid string      `json:"txid"`
+	Vout []VoutEntry `json:"vout"`
+}
+
+type VoutEntry struct {
+	ScriptPubKey     string `json:"scriptpubkey"`
+	ScriptPubKeyAddr string `json:"scriptpubkey_address"`
+	Value            uint64 `json:"value"`
+}
+
+type StreamUtxo struct {
+	Txid             string
+	VoutIndex        int
+	ScriptPubAddress string
+	Value            uint64
+}
+
+type StreamUtxoUpdate struct {
+	MempoolUtxos   []StreamUtxo
+	ConfirmedUtxos []StreamUtxo
+}
+
+type RBFTxn struct {
+	TxId       string
+	ReplacedBy string
+}

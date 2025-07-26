@@ -36,6 +36,7 @@ type Config struct {
 	ExplorerURL             string
 	ForfeitAddress          string
 	WithTransactionFeed     bool
+	WithBoardingUtxoStream  bool
 	MarketHourStartTime     int64
 	MarketHourEndTime       int64
 	MarketHourPeriod        int64

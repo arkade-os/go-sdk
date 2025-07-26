@@ -29,7 +29,7 @@ type bitcoinWallet struct {
 }
 
 func NewBitcoinWallet(
-	configStore types.ConfigStore, walletStore walletstore.WalletStore,
+	configStore types.ConfigStore, walletStore walletstore.WalletStore, explorer explorer.Explorer,
 ) (wallet.WalletService, error) {
 	walletData, err := walletStore.GetWallet()
 	if err != nil {
@@ -40,6 +40,7 @@ func NewBitcoinWallet(
 			configStore: configStore,
 			walletStore: walletStore,
 			walletData:  walletData,
+			explorer:    explorer,
 		},
 	}, nil
 }
@@ -117,6 +118,18 @@ func (w *bitcoinWallet) NewAddress(
 		return "", nil, nil, err
 	}
 
+	configData, err := w.configStore.GetData(ctx)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	if configData.WithBoardingUtxoStream {
+		err := w.explorer.SubscribeForAddresses([]string{boardingAddr.Address})
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("failed to subscribe for boarding address: %w", err)
+		}
+	}
+
 	return onchainAddr.EncodeAddress(), &wallet.TapscriptsAddress{
 		Tapscripts: offchainAddr.Tapscripts,
 		Address:    encodedOffchainAddr,
@@ -129,6 +142,18 @@ func (w *bitcoinWallet) NewAddresses(
 	offchainAddr, boardingAddr, err := w.getArkAddresses(ctx)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	configData, err := w.configStore.GetData(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if configData.WithBoardingUtxoStream {
+		err := w.explorer.SubscribeForAddresses([]string{boardingAddr.Address})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to subscribe for boarding address: %w", err)
+		}
 	}
 
 	offchainAddrs := make([]wallet.TapscriptsAddress, 0, num)
