@@ -1116,7 +1116,7 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 	return nil
 }
 
-func (a *arkClient) ProcessedStreamUtxoUpdate(ctx context.Context, update explorer.StreamUtxoUpdate,
+func (a *arkClient) processedStreamUtxoUpdate(ctx context.Context, update explorer.StreamUtxoUpdate,
 ) error {
 
 	mempoolUtxos := update.MempoolUtxos
@@ -1239,7 +1239,7 @@ func (a *arkClient) listenForBoardingTxns(ctx context.Context) {
 		break
 	}
 	for update := range channel {
-		err := a.ProcessedStreamUtxoUpdate(context.Background(), update)
+		err := a.processedStreamUtxoUpdate(context.Background(), update)
 		if err != nil {
 			break
 		}
