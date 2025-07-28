@@ -314,7 +314,6 @@ func (a *arkClient) initWithWallet(
 		},
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
-		WithBoardingUtxoStream:  args.WithBoardingUtxoStream,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -425,7 +424,6 @@ func (a *arkClient) init(
 		ExplorerURL:             explorerSvc.BaseUrl(),
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
-		WithBoardingUtxoStream:  args.WithBoardingUtxoStream,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -435,7 +433,7 @@ func (a *arkClient) init(
 		VtxoMinAmount:           info.VtxoMinAmount,
 		VtxoMaxAmount:           info.VtxoMaxAmount,
 	}
-	walletSvc, err := getWallet(a.store.ConfigStore(), explorerSvc, &cfgData, supportedWallets)
+	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
 	if err != nil {
 		return err
 	}
@@ -503,12 +501,12 @@ func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
 }
 
 func getWallet(
-	configStore types.ConfigStore, explorer explorer.Explorer, data *types.Config,
+	configStore types.ConfigStore, data *types.Config,
 	supportedWallets utils.SupportedType[struct{}],
 ) (wallet.WalletService, error) {
 	switch data.WalletType {
 	case wallet.SingleKeyWallet:
-		return getSingleKeyWallet(configStore, explorer)
+		return getSingleKeyWallet(configStore)
 	default:
 		return nil, fmt.Errorf(
 			"unsupported wallet type '%s', please select one of: %s",
@@ -517,16 +515,13 @@ func getWallet(
 	}
 }
 
-func getSingleKeyWallet(
-	configStore types.ConfigStore,
-	explorer explorer.Explorer,
-) (wallet.WalletService, error) {
+func getSingleKeyWallet(configStore types.ConfigStore) (wallet.WalletService, error) {
 	walletStore, err := getWalletStore(configStore.GetType(), configStore.GetDatadir())
 	if err != nil {
 		return nil, err
 	}
 
-	return singlekeywallet.NewBitcoinWallet(configStore, walletStore, explorer)
+	return singlekeywallet.NewBitcoinWallet(configStore, walletStore)
 }
 
 func getWalletStore(storeType, datadir string) (walletstore.WalletStore, error) {

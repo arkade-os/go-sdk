@@ -21,14 +21,13 @@ var (
 )
 
 type InitArgs struct {
-	ClientType             string
-	WalletType             string
-	ServerUrl              string
-	Seed                   string
-	Password               string
-	ExplorerURL            string
-	WithTransactionFeed    bool
-	WithBoardingUtxoStream bool
+	ClientType          string
+	WalletType          string
+	ServerUrl           string
+	Seed                string
+	Password            string
+	ExplorerURL         string
+	WithTransactionFeed bool
 }
 
 func (a InitArgs) validate() error {
@@ -62,14 +61,13 @@ func (a InitArgs) validate() error {
 }
 
 type InitWithWalletArgs struct {
-	ClientType             string
-	Wallet                 wallet.WalletService
-	ServerUrl              string
-	Seed                   string
-	Password               string
-	ExplorerURL            string
-	WithTransactionFeed    bool
-	WithBoardingUtxoStream bool
+	ClientType          string
+	Wallet              wallet.WalletService
+	ServerUrl           string
+	Seed                string
+	Password            string
+	ExplorerURL         string
+	WithTransactionFeed bool
 }
 
 func (a InitWithWalletArgs) validate() error {

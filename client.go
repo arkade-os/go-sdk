@@ -90,7 +90,6 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 
 	walletSvc, err := getWallet(
 		sdkStore.ConfigStore(),
-		explorerSvc,
 		cfgData,
 		supportedWallets,
 	)
@@ -108,7 +107,6 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 	}
 
 	if cfgData.WithTransactionFeed {
-
 		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 		client.txStreamCtxCancel = txStreamCtxCancel
 		if err := client.refreshDb(context.Background()); err != nil {
@@ -169,7 +167,6 @@ func LoadArkClientWithWallet(
 	}
 
 	if cfgData.WithTransactionFeed {
-
 		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 		client.txStreamCtxCancel = txStreamCtxCancel
 		if err := client.refreshDb(context.Background()); err != nil {
@@ -196,7 +193,9 @@ func (a *arkClient) Init(ctx context.Context, args InitArgs) error {
 			return err
 		}
 		go a.listenForArkTxs(txStreamCtx)
-
+		if a.UtxoMaxAmount != 0 {
+			go a.listenForBoardingTxns(txStreamCtx)
+		}
 	}
 
 	return nil
@@ -214,6 +213,9 @@ func (a *arkClient) InitWithWallet(ctx context.Context, args InitWithWalletArgs)
 			return err
 		}
 		go a.listenForArkTxs(txStreamCtx)
+		if a.UtxoMaxAmount != 0 {
+			go a.listenForBoardingTxns(txStreamCtx)
+		}
 	}
 
 	return nil
@@ -1118,14 +1120,12 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 
 func (a *arkClient) processedStreamUtxoUpdate(ctx context.Context, update explorer.StreamUtxoUpdate,
 ) error {
-
 	mempoolUtxos := update.MempoolUtxos
 	if len(mempoolUtxos) > 0 {
 		newPendingBoardingTxs := make([]types.Transaction, 0, len(mempoolUtxos))
 		createdAt := time.Now()
 
 		for _, u := range mempoolUtxos {
-
 			isRbf, replacedTxIds, timestamp, err := a.explorer.GetRBFReplacedTxns(u.Txid)
 			if err != nil {
 				return err
@@ -1224,28 +1224,15 @@ func (a *arkClient) processedStreamUtxoUpdate(ctx context.Context, update explor
 }
 
 func (a *arkClient) listenForBoardingTxns(ctx context.Context) {
-
-	if a.WithBoardingUtxoStream {
-		a.pollForBoardingTxs(ctx)
-	}
-
-	var channel <-chan explorer.StreamUtxoUpdate
-	var err error
-	for {
-		channel, err = a.explorer.GetAddressesEvents()
-		if err != nil {
-			continue
-		}
-		break
+	channel, err := a.explorer.GetAddressesEvents(ctx)
+	if err != nil {
+		log.WithError(err).Fatal("failed to connect to explorer")
 	}
 	for update := range channel {
-		err := a.processedStreamUtxoUpdate(context.Background(), update)
-		if err != nil {
-			break
+		if err := a.processedStreamUtxoUpdate(context.Background(), update); err != nil {
+			log.WithError(err).Fatal("failed to handle onchain event")
 		}
 	}
-	// falback to polling if websocket fails
-	a.pollForBoardingTxs(context.Background())
 }
 
 func (a *arkClient) pollForBoardingTxs(ctx context.Context) {

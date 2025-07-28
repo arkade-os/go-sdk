@@ -7,7 +7,6 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/client"
-	"github.com/arkade-os/go-sdk/explorer"
 	inmemorystore "github.com/arkade-os/go-sdk/store/inmemory"
 	sdktypes "github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
@@ -62,9 +61,7 @@ func TestWallet(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, walletStore)
 
-			explorerSvc := explorer.NewExplorer("", arklib.BitcoinRegTest)
-
-			walletSvc, err := singlekeywallet.NewBitcoinWallet(store, walletStore, explorerSvc)
+			walletSvc, err := singlekeywallet.NewBitcoinWallet(store, walletStore)
 			require.NoError(t, err)
 			require.NotNil(t, walletSvc)
 

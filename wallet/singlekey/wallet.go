@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
@@ -19,7 +18,6 @@ type singlekeyWallet struct {
 	walletStore walletstore.WalletStore
 	privateKey  *secp256k1.PrivateKey
 	walletData  *walletstore.WalletData
-	explorer    explorer.Explorer
 }
 
 func (w *singlekeyWallet) GetType() string {

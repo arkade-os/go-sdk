@@ -43,7 +43,7 @@ type Explorer interface {
 	) (confirmed bool, blocktime int64, err error)
 	BaseUrl() string
 	GetFeeRate() (float64, error)
-	GetAddressesEvents() (<-chan StreamUtxoUpdate, error)
+	GetAddressesEvents(ctx context.Context) (<-chan StreamUtxoUpdate, error)
 	SubscribeForAddresses(addresses []string) error
 }
 
@@ -62,7 +62,6 @@ type explorerSvc struct {
 }
 
 func NewExplorer(baseUrl string, net arklib.Network) Explorer {
-
 	return &explorerSvc{
 		cache:       utils.NewCache[string](),
 		baseUrl:     baseUrl,
@@ -109,7 +108,7 @@ func (e *explorerSvc) GetFeeRate() (float64, error) {
 	return response["1"], nil
 }
 
-func (e *explorerSvc) GetAddressesEvents() (<-chan StreamUtxoUpdate, error) {
+func (e *explorerSvc) GetAddressesEvents(ctx context.Context) (<-chan StreamUtxoUpdate, error) {
 	if e.addrTracker == nil {
 		return nil, fmt.Errorf(
 			"address tracker is not initialized, call SubscribeForAddresses first",
@@ -664,7 +663,6 @@ func (t *AddrTracker) SubscribeToUtxoEvent() {
 	deriveUtxos := func(trasactions []RawTx) []StreamUtxo {
 		utxos := make([]StreamUtxo, 0, len(t.subscribedMap))
 		for _, rawTransaction := range trasactions {
-
 			for index, out := range rawTransaction.Vout {
 				if _, ok := t.subscribedMap[out.ScriptPubKeyAddr]; ok {
 					utxos = append(utxos, StreamUtxo{
@@ -683,7 +681,6 @@ func (t *AddrTracker) SubscribeToUtxoEvent() {
 	events := make(chan StreamUtxoUpdate)
 
 	go func() {
-
 		for {
 			var payload StreamTransactions
 			err := t.conn.ReadJSON(&payload)
