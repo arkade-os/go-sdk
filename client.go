@@ -2753,6 +2753,7 @@ func (h *batchHandlers) OnTreeSigningStarted(ctx context.Context, event client.T
 	}
 
 	if len(foundPubkeys) <= 0 {
+		log.Info("no signer found in cosigner list, waiting for next one...")
 		return true, nil
 	}
 
