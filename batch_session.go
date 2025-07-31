@@ -7,6 +7,7 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	log "github.com/sirupsen/logrus"
 )
@@ -18,6 +19,17 @@ const (
 	treeNoncesAggregated
 	batchFinalization
 )
+
+func GetEventStreamTopics(
+	spentOutpoints []types.Outpoint,
+	signerPublicKeys []string,
+) []string {
+	topics := make([]string, 0, len(spentOutpoints)+len(signerPublicKeys))
+	for _, outpoint := range spentOutpoints {
+		topics = append(topics, outpoint.String())
+	}
+	return append(topics, signerPublicKeys...)
+}
 
 type BatchEventHandlers interface {
 	OnBatchStarted(ctx context.Context, event client.BatchStartedEvent) (bool, error)
