@@ -119,11 +119,11 @@ func (s *txStore) ConfirmTransactions(
 }
 
 func (s *txStore) RbfTransactions(
-	ctx context.Context, rbfTxs map[string]types.Transaction,
+	ctx context.Context, replacements map[string]string,
 ) (int, error) {
-	txids := make([]string, 0, len(rbfTxs))
-	for txid := range rbfTxs {
-		txids = append(txids, txid)
+	txids := make([]string, 0, len(replacements))
+	for replacedTxid := range replacements {
+		txids = append(txids, replacedTxid)
 	}
 
 	txs, err := s.GetTransactions(ctx, txids)
@@ -137,14 +137,19 @@ func (s *txStore) RbfTransactions(
 
 	txsToAdd := make([]types.Transaction, 0, len(txs))
 	txsToDelete := make([]string, 0, len(txs))
-	replacements := make(map[string]string)
 	for _, tx := range txs {
-		rbfTx := rbfTxs[tx.TransactionKey.String()]
-		rbfTx.Type = tx.Type
-		rbfTx.Amount = tx.Amount
-		txsToAdd = append(txsToAdd, rbfTx)
+		txsToAdd = append(txsToAdd, types.Transaction{
+			TransactionKey: types.TransactionKey{
+				BoardingTxid: replacements[tx.TransactionKey.String()],
+			},
+			Type:      tx.Type,
+			Amount:    tx.Amount,
+			Settled:   tx.Settled,
+			CreatedAt: tx.CreatedAt,
+			Hex:       tx.Hex,
+			SettledBy: tx.SettledBy,
+		})
 		txsToDelete = append(txsToDelete, tx.TransactionKey.String())
-		replacements[tx.TransactionKey.String()] = rbfTx.TransactionKey.String()
 	}
 
 	count, err := s.replaceTxs(txsToAdd, txsToDelete)

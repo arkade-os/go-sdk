@@ -101,14 +101,8 @@ var (
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
 
-	testReplacedTxs = map[string]types.Transaction{
-		"0000000000000000000000000000000000000000000000000000000000000000": {
-			TransactionKey: types.TransactionKey{
-				BoardingTxid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			},
-			Amount: 5000,
-			Type:   types.TxReceived,
-		},
+	testReplacedTxs = map[string]string{
+		"0000000000000000000000000000000000000000000000000000000000000000": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	}
 	testReplacedTxids = []string{
 		"0000000000000000000000000000000000000000000000000000000000000000",
@@ -369,12 +363,10 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		require.NoError(t, err)
 		require.Empty(t, txs)
 
-		newTxids := []string{
-			testReplacedTxs[testReplacedTxids[0]].TransactionKey.String(),
-		}
+		newTxids := []string{testReplacedTxs[testReplacedTxids[0]]}
 		txs, err = storeSvc.GetTransactions(ctx, newTxids)
 		require.NoError(t, err)
-		require.Equal(t, testReplacedTxs[testReplacedTxids[0]], txs[0])
+		require.Equal(t, testReplacedTxs[testReplacedTxids[0]], txs[0].TransactionKey.String())
 	})
 
 	t.Run("confirm txs", func(t *testing.T) {

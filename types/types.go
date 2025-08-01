@@ -183,6 +183,7 @@ type Utxo struct {
 	Txid        string
 	VOut        uint32
 	Amount      uint64
+	Script      string
 	Delay       arklib.RelativeLocktime
 	SpendableAt time.Time
 	CreatedAt   time.Time
@@ -238,4 +239,19 @@ func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
 		Value:    int64(o.Amount),
 		PkScript: pkScript,
 	}, isOnchain, nil
+}
+
+type OnchainAddressEvent struct {
+	SpentUtxos     []UtxoNotification
+	NewUtxos       []UtxoNotification
+	ConfirmedUtxos []UtxoNotification
+	Replacements   map[string]string // replacedTxid -> replacementTxid
+}
+
+type UtxoNotification struct {
+	Txid        string
+	VOut        uint32
+	Script      string
+	Amount      uint64
+	ConfirmedAt int64
 }
