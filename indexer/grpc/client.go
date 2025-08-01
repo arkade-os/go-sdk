@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
@@ -21,8 +24,43 @@ import (
 const cloudflare524Error = "524"
 
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  arkv1.IndexerServiceClient
+	mu     sync.Mutex
+	target string
+	opts   []grpc.DialOption
+	conn   *grpc.ClientConn
+	svc    arkv1.IndexerServiceClient
+}
+
+func (c *grpcClient) ensureConnection(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for {
+		state := c.conn.GetState()
+		if state == connectivity.Ready {
+			return nil
+		}
+
+		if state == connectivity.Shutdown || state == connectivity.TransientFailure {
+			if err := c.conn.Close(); err != nil {
+				logrus.Warnf("failed to close grpc connection: %v", err)
+			}
+			conn, err := grpc.NewClient(c.target, c.opts...)
+			if err != nil {
+				return err
+			}
+			c.conn = conn
+			c.svc = arkv1.NewIndexerServiceClient(conn)
+			state = c.conn.GetState()
+			if state == connectivity.Ready {
+				return nil
+			}
+		}
+
+		if !c.conn.WaitForStateChange(ctx, state) {
+			return ctx.Err()
+		}
+	}
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -41,20 +79,23 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	conn, err := grpc.NewClient(serverUrl, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	svc := arkv1.NewIndexerServiceClient(conn)
-
-	return &grpcClient{conn, svc}, nil
+	return &grpcClient{target: serverUrl, opts: opts, conn: conn, svc: svc}, nil
 }
 
 func (a *grpcClient) GetCommitmentTx(
 	ctx context.Context,
 	txid string,
 ) (*indexer.CommitmentTx, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	req := &arkv1.GetCommitmentTxRequest{
 		Txid: txid,
 	}
@@ -87,6 +128,9 @@ func (a *grpcClient) GetCommitmentTx(
 func (a *grpcClient) GetVtxoTree(
 	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
@@ -126,6 +170,9 @@ func (a *grpcClient) GetVtxoTree(
 func (a *grpcClient) GetFullVtxoTree(
 	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) ([]tree.TxTreeNode, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	resp, err := a.GetVtxoTree(ctx, batchOutpoint, opts...)
 	if err != nil {
 		return nil, err
@@ -159,6 +206,9 @@ func (a *grpcClient) GetFullVtxoTree(
 func (a *grpcClient) GetVtxoTreeLeaves(
 	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeLeavesResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
@@ -198,6 +248,9 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 func (a *grpcClient) GetForfeitTxs(
 	ctx context.Context, txid string, opts ...indexer.RequestOption,
 ) (*indexer.ForfeitTxsResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
@@ -226,6 +279,9 @@ func (a *grpcClient) GetForfeitTxs(
 func (a *grpcClient) GetConnectors(
 	ctx context.Context, txid string, opts ...indexer.RequestOption,
 ) (*indexer.ConnectorsResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
@@ -262,6 +318,9 @@ func (a *grpcClient) GetConnectors(
 func (a *grpcClient) GetVtxos(
 	ctx context.Context, opts ...indexer.GetVtxosRequestOption,
 ) (*indexer.VtxosResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	if len(opts) <= 0 {
 		return nil, fmt.Errorf("missing opts")
 	}
@@ -303,6 +362,9 @@ func (a *grpcClient) GetVtxos(
 func (a *grpcClient) GetVtxoChain(
 	ctx context.Context, outpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoChainResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
@@ -358,6 +420,9 @@ func (a *grpcClient) GetVtxoChain(
 func (a *grpcClient) GetVirtualTxs(
 	ctx context.Context, txids []string, opts ...indexer.RequestOption,
 ) (*indexer.VirtualTxsResponse, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	var page *arkv1.IndexerPageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
@@ -387,6 +452,9 @@ func (a *grpcClient) GetBatchSweepTxs(
 	ctx context.Context,
 	batchOutpoint types.Outpoint,
 ) ([]string, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	req := &arkv1.GetBatchSweepTransactionsRequest{
 		BatchOutpoint: &arkv1.IndexerOutpoint{
 			Txid: batchOutpoint.Txid,
@@ -406,6 +474,9 @@ func (a *grpcClient) GetSubscription(
 	ctx context.Context,
 	subscriptionId string,
 ) (<-chan *indexer.ScriptEvent, func(), error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetSubscriptionRequest{
@@ -491,6 +562,9 @@ func (a *grpcClient) SubscribeForScripts(
 	subscriptionId string,
 	scripts []string,
 ) (string, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return "", err
+	}
 	req := &arkv1.SubscribeForScriptsRequest{
 		Scripts: scripts,
 	}
@@ -510,6 +584,9 @@ func (a *grpcClient) UnsubscribeForScripts(
 	subscriptionId string,
 	scripts []string,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.UnsubscribeForScriptsRequest{
 		Scripts: scripts,
 	}
