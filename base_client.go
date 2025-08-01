@@ -20,6 +20,7 @@ import (
 	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -76,11 +77,30 @@ func (a *arkClient) GetConfigData(
 }
 
 func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
-	if a.wallet == nil {
-		return fmt.Errorf("wallet not initialized")
+	cfgData, err := a.GetConfigData(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := a.wallet.Unlock(ctx, pasword)
-	return err
+
+	if _, err := a.wallet.Unlock(ctx, pasword); err != nil {
+		return err
+	}
+
+	go func() {
+		if cfgData.WithTransactionFeed {
+			txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
+			a.txStreamCtxCancel = txStreamCtxCancel
+			if err := a.refreshDb(context.Background()); err != nil {
+				log.WithError(err).Fatal("failed to refresh db")
+			}
+			go a.listenForArkTxs(txStreamCtx)
+			if cfgData.UtxoMaxAmount != 0 {
+				go a.listenForBoardingTxs()
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {

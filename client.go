@@ -106,18 +106,6 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 		indexer:  indexerSvc,
 	}
 
-	if cfgData.WithTransactionFeed {
-		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
-		client.txStreamCtxCancel = txStreamCtxCancel
-		if err := client.refreshDb(context.Background()); err != nil {
-			return nil, err
-		}
-		go client.listenForArkTxs(txStreamCtx)
-		if cfgData.UtxoMaxAmount != 0 {
-			go client.listenForBoardingTxs()
-		}
-	}
-
 	return client, nil
 }
 
@@ -166,59 +154,15 @@ func LoadArkClientWithWallet(
 		indexer:  indexerSvc,
 	}
 
-	if cfgData.WithTransactionFeed {
-		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
-		client.txStreamCtxCancel = txStreamCtxCancel
-		if err := client.refreshDb(context.Background()); err != nil {
-			return nil, err
-		}
-		go client.listenForArkTxs(txStreamCtx)
-		if cfgData.UtxoMaxAmount != 0 {
-			go client.listenForBoardingTxs()
-		}
-	}
-
 	return client, nil
 }
 
 func (a *arkClient) Init(ctx context.Context, args InitArgs) error {
-	if err := a.init(ctx, args); err != nil {
-		return err
-	}
-
-	if args.WithTransactionFeed {
-		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
-		a.txStreamCtxCancel = txStreamCtxCancel
-		if err := a.refreshDb(context.Background()); err != nil {
-			return err
-		}
-		go a.listenForArkTxs(txStreamCtx)
-		if a.UtxoMaxAmount != 0 {
-			go a.listenForBoardingTxs()
-		}
-	}
-
-	return nil
+	return a.init(ctx, args)
 }
 
 func (a *arkClient) InitWithWallet(ctx context.Context, args InitWithWalletArgs) error {
-	if err := a.initWithWallet(ctx, args); err != nil {
-		return err
-	}
-
-	if a.WithTransactionFeed {
-		txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
-		a.txStreamCtxCancel = txStreamCtxCancel
-		if err := a.refreshDb(context.Background()); err != nil {
-			return err
-		}
-		go a.listenForArkTxs(txStreamCtx)
-		if a.UtxoMaxAmount != 0 {
-			go a.listenForBoardingTxs()
-		}
-	}
-
-	return nil
+	return a.initWithWallet(ctx, args)
 }
 
 func (a *arkClient) Balance(
