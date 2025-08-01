@@ -12,6 +12,7 @@ import (
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -41,7 +42,9 @@ func (c *grpcClient) ensureConnection(ctx context.Context) error {
 		}
 
 		if state == connectivity.Shutdown || state == connectivity.TransientFailure {
-			c.conn.Close()
+			if err := c.conn.Close(); err != nil {
+				logrus.Warnf("failed to close grpc connection: %v", err)
+			}
 			conn, err := grpc.NewClient(c.target, c.opts...)
 			if err != nil {
 				return err
