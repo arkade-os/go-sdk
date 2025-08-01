@@ -12,6 +12,14 @@ type spentStatus struct {
 
 type tx struct {
 	Txid string `json:"txid"`
+	Vin  []struct {
+		Txid    string `json:"txid"`
+		Vout    uint32 `json:"vout"`
+		Prevout struct {
+			Address string `json:"scriptpubkey_address"`
+			Amount  uint64 `json:"value"`
+		} `json:"prevout"`
+	} `json:"vin"`
 	Vout []struct {
 		Address string `json:"scriptpubkey_address"`
 		Amount  uint64 `json:"value"`
@@ -42,45 +50,47 @@ type Utxo struct {
 	Amount uint64 `json:"value"`
 	Asset  string `json:"asset,omitempty"`
 	Status struct {
-		Confirmed bool  `json:"confirmed"`
-		Blocktime int64 `json:"block_time"`
+		Confirmed   bool  `json:"confirmed"`
+		BlockHeight int64 `json:"block_height"`
 	} `json:"status"`
+	Script string
 }
 
 func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	return newUtxo(e, delay, tapscripts)
 }
 
-type StreamTransactions struct {
-	BlockTransactions   []RawTx `json:"block-transactions,omitempty"`
-	MempoolTransactions []RawTx `json:"address-transactions,omitempty"`
+type addressNotification struct {
+	MultiAddrTx map[string]txNotificationSet `json:"multi-address-transactions"`
+}
+
+type txNotificationSet struct {
+	Mempool   []txNotification `json:"mempool"`
+	Confirmed []txNotification `json:"confirmed"`
+	Removed   []txNotification `json:"removed"`
+}
+
+type txNotification struct {
+	Txid    string                  `json:"txid"`
+	Version uint32                  `json:"version"`
+	Inputs  []txNotificationInput   `json:"vin"`
+	Outputs []txNotificationPrevout `json:"vout"`
+}
+
+type txNotificationInput struct {
+	Prevout txNotificationPrevout `json:"prevout"`
+	Txid    string                `json:"txid"`
+	Vout    int                   `json:"vout"`
+}
+
+type txNotificationPrevout struct {
+	Script  string `json:"scriptpubkey"`
+	Address string `json:"scriptpubkey_address"`
+	Amount  uint64 `json:"value"`
 }
 
 type RbfTxId struct {
 	TxId string `json:"txid"`
-}
-
-type RawTx struct {
-	Txid string      `json:"txid"`
-	Vout []VoutEntry `json:"vout"`
-}
-
-type VoutEntry struct {
-	ScriptPubKey     string `json:"scriptpubkey"`
-	ScriptPubKeyAddr string `json:"scriptpubkey_address"`
-	Value            uint64 `json:"value"`
-}
-
-type StreamUtxo struct {
-	Txid             string
-	VoutIndex        int
-	ScriptPubAddress string
-	Value            uint64
-}
-
-type StreamUtxoUpdate struct {
-	MempoolUtxos   []StreamUtxo
-	ConfirmedUtxos []StreamUtxo
 }
 
 type RBFTxn struct {

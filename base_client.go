@@ -334,12 +334,6 @@ func (a *arkClient) initWithWallet(
 		return err
 	}
 
-	if args.WithTransactionFeed {
-		if a.UtxoMaxAmount != 0 {
-			go a.listenForBoardingTxns(context.Background())
-		}
-	}
-
 	a.Config = &storeData
 	a.wallet = args.Wallet
 	a.explorer = explorerSvc
@@ -448,12 +442,6 @@ func (a *arkClient) init(
 		return err
 	}
 
-	if args.WithTransactionFeed {
-		if a.UtxoMaxAmount != 0 {
-			go a.listenForBoardingTxns(context.Background())
-		}
-	}
-
 	a.Config = &cfgData
 	a.wallet = walletSvc
 	a.explorer = explorerSvc
@@ -487,7 +475,7 @@ func getExplorer(explorerURL, network string) (explorer.Explorer, error) {
 			return nil, fmt.Errorf("invalid network")
 		}
 	}
-	return explorer.NewExplorer(explorerURL, utils.NetworkFromString(network)), nil
+	return explorer.NewExplorer(explorerURL, utils.NetworkFromString(network))
 }
 
 func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {

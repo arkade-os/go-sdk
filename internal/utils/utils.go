@@ -10,9 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -299,38 +297,4 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 		msg = bytes.Trim(msg, "\n")
 		chunkCh <- ChunkJSONStream{Msg: msg}
 	}
-}
-
-func DeriveWsURl(baseUrl string, network arklib.Network) (string, error) {
-	var wsUrl string
-
-	parsedUrl, err := url.Parse(baseUrl)
-	if err != nil {
-		return "", fmt.Errorf("invalid base URL: %w", err)
-	}
-
-	switch parsedUrl.Scheme {
-	case "http":
-		parsedUrl.Scheme = "ws"
-	case "https":
-		parsedUrl.Scheme = "wss"
-	default:
-		// default fallback
-		parsedUrl.Scheme = "ws"
-	}
-	wsUrl = parsedUrl.String()
-
-	if network.Name == arklib.BitcoinSigNet.Name {
-		wsUrl = strings.TrimRight(wsUrl, "/") + "/v1/ws"
-
-		return wsUrl, nil
-	}
-
-	if network.Name == arklib.BitcoinMutinyNet.Name {
-		wsUrl = strings.TrimRight(wsUrl, "/") + "/v1/ws"
-
-		return wsUrl, nil
-	}
-
-	return "", fmt.Errorf("unsupported network for WebSocket URL derivation: %s", network.Name)
 }

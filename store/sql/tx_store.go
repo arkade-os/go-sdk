@@ -154,12 +154,11 @@ func (v *txStore) ConfirmTransactions(
 }
 
 func (v *txStore) RbfTransactions(
-	ctx context.Context,
-	rbfTxs map[string]types.Transaction,
+	ctx context.Context, replacements map[string]string,
 ) (int, error) {
-	txids := make([]string, 0, len(rbfTxs))
-	for txid := range rbfTxs {
-		txids = append(txids, txid)
+	txids := make([]string, 0, len(replacements))
+	for replacedTxid := range replacements {
+		txids = append(txids, replacedTxid)
 	}
 
 	txs, err := v.GetTransactions(ctx, txids)
@@ -171,35 +170,29 @@ func (v *txStore) RbfTransactions(
 		return 0, nil
 	}
 
-	replacements := make(map[string]string)
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
-			replacedBy := rbfTxs[tx.TransactionKey.String()]
-			txidType := "commitment"
-			if replacedBy.ArkTxid != "" {
-				txidType = "ark"
-			}
-			if replacedBy.BoardingTxid != "" {
-				txidType = "boarding"
+			txidType := "boarding"
+			if tx.CommitmentTxid != "" {
+				txidType = "commitment"
 			}
 			var createdAt int64
-			if !replacedBy.CreatedAt.IsZero() {
-				createdAt = replacedBy.CreatedAt.Unix()
+			if !tx.CreatedAt.IsZero() {
+				createdAt = tx.CreatedAt.Unix()
 			}
 			if err := querierWithTx.ReplaceTx(ctx, queries.ReplaceTxParams{
-				NewTxid:   replacedBy.TransactionKey.String(),
+				NewTxid:   replacements[tx.TransactionKey.String()],
 				TxidType:  txidType,
-				Amount:    int64(replacedBy.Amount),
-				Type:      string(replacedBy.Type),
-				Settled:   replacedBy.Settled,
+				Amount:    int64(tx.Amount),
+				Type:      string(tx.Type),
+				Settled:   tx.Settled,
 				CreatedAt: createdAt,
-				Hex:       sql.NullString{String: replacedBy.Hex, Valid: true},
+				Hex:       sql.NullString{String: tx.Hex, Valid: len(tx.Hex) > 0},
 				OldTxid:   tx.TransactionKey.String(),
-				SettledBy: sql.NullString{String: replacedBy.SettledBy, Valid: true},
+				SettledBy: sql.NullString{String: tx.SettledBy, Valid: len(tx.SettledBy) > 0},
 			}); err != nil {
 				return err
 			}
-			replacements[tx.TransactionKey.String()] = replacedBy.TransactionKey.String()
 		}
 		return nil
 	}
