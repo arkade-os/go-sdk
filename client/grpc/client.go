@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
@@ -15,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
@@ -27,8 +29,41 @@ type service struct {
 }
 
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  service
+	mu     sync.Mutex
+	target string
+	opts   []grpc.DialOption
+	conn   *grpc.ClientConn
+	svc    service
+}
+
+func (c *grpcClient) ensureConnection(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for {
+		state := c.conn.GetState()
+		if state == connectivity.Ready {
+			return nil
+		}
+
+		if state == connectivity.Shutdown || state == connectivity.TransientFailure {
+			c.conn.Close()
+			conn, err := grpc.NewClient(c.target, c.opts...)
+			if err != nil {
+				return err
+			}
+			c.conn = conn
+			c.svc = service{arkv1.NewArkServiceClient(conn)}
+			state = c.conn.GetState()
+			if state == connectivity.Ready {
+				return nil
+			}
+		}
+
+		if !c.conn.WaitForStateChange(ctx, state) {
+			return ctx.Err()
+		}
+	}
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -47,16 +82,20 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	conn, err := grpc.NewClient(serverUrl, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	svc := service{arkv1.NewArkServiceClient(conn)}
-	return &grpcClient{conn, svc}, nil
+	return &grpcClient{target: serverUrl, opts: opts, conn: conn, svc: svc}, nil
 }
 
 func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	req := &arkv1.GetInfoRequest{}
 	resp, err := a.svc.GetInfo(ctx, req)
 	if err != nil {
@@ -94,6 +133,9 @@ func (a *grpcClient) RegisterIntent(
 	ctx context.Context,
 	signature, message string,
 ) (string, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return "", err
+	}
 	req := &arkv1.RegisterIntentRequest{
 		Intent: &arkv1.Bip322Signature{
 			Message:   message,
@@ -109,6 +151,9 @@ func (a *grpcClient) RegisterIntent(
 }
 
 func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.DeleteIntentRequest{
 		Proof: &arkv1.Bip322Signature{
 			Message:   message,
@@ -120,6 +165,9 @@ func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string
 }
 
 func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.ConfirmRegistrationRequest{
 		IntentId: intentID,
 	}
@@ -130,6 +178,9 @@ func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) e
 func (a *grpcClient) SubmitTreeNonces(
 	ctx context.Context, batchId, cosignerPubkey string, nonces tree.TreeNonces,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	sigsJSON, err := json.Marshal(nonces)
 	if err != nil {
 		return err
@@ -151,6 +202,9 @@ func (a *grpcClient) SubmitTreeNonces(
 func (a *grpcClient) SubmitTreeSignatures(
 	ctx context.Context, batchId, cosignerPubkey string, signatures tree.TreePartialSigs,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	sigsJSON, err := json.Marshal(signatures)
 	if err != nil {
 		return err
@@ -172,6 +226,9 @@ func (a *grpcClient) SubmitTreeSignatures(
 func (a *grpcClient) SubmitSignedForfeitTxs(
 	ctx context.Context, signedForfeitTxs []string, signedCommitmentTx string,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.SubmitSignedForfeitTxsRequest{
 		SignedForfeitTxs:   signedForfeitTxs,
 		SignedCommitmentTx: signedCommitmentTx,
@@ -185,6 +242,9 @@ func (a *grpcClient) GetEventStream(
 	ctx context.Context,
 	topics []string,
 ) (<-chan client.BatchEventChannel, func(), error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetEventStreamRequest{Topics: topics}
@@ -254,6 +314,9 @@ func (a *grpcClient) GetEventStream(
 func (a *grpcClient) SubmitTx(
 	ctx context.Context, signedArkTx string, checkpointTxs []string,
 ) (string, string, []string, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return "", "", nil, err
+	}
 	req := &arkv1.SubmitTxRequest{
 		SignedArkTx:   signedArkTx,
 		CheckpointTxs: checkpointTxs,
@@ -270,6 +333,9 @@ func (a *grpcClient) SubmitTx(
 func (a *grpcClient) FinalizeTx(
 	ctx context.Context, arkTxid string, finalCheckpointTxs []string,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.FinalizeTxRequest{
 		ArkTxid:            arkTxid,
 		FinalCheckpointTxs: finalCheckpointTxs,
@@ -282,6 +348,9 @@ func (a *grpcClient) FinalizeTx(
 func (c *grpcClient) GetTransactionsStream(
 	ctx context.Context,
 ) (<-chan client.TransactionEvent, func(), error) {
+	if err := c.ensureConnection(ctx); err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetTransactionsStreamRequest{}
