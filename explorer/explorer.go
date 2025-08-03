@@ -446,7 +446,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 					if err := e.conn.WriteControl(
 						websocket.PingMessage, nil, deadline,
 					); err != nil {
-						log.Fatalf("failed to ping explorer: %s", err)
+						log.WithError(err).Error("failed to ping explorer")
 						return
 					}
 				}

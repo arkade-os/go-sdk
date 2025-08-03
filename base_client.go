@@ -91,7 +91,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 			a.txStreamCtxCancel = txStreamCtxCancel
 			if err := a.refreshDb(context.Background()); err != nil {
-				log.WithError(err).Fatal("failed to refresh db")
+				log.WithError(err).Error("failed to refresh db")
 			}
 			go a.listenForArkTxs(txStreamCtx)
 			if cfgData.UtxoMaxAmount != 0 {
