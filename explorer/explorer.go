@@ -416,7 +416,9 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 	if e.conn != nil {
 		// .
 		go func(ctx context.Context) {
+			// nolint
 			e.conn.SetReadDeadline(time.Now().Add(pongInterval))
+			// nolint
 			e.conn.SetPongHandler(func(string) error {
 				e.conn.SetReadDeadline(time.Now().Add(pongInterval))
 				return nil

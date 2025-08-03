@@ -30,20 +30,6 @@ type tx struct {
 	} `json:"status"`
 }
 
-type rbfTx struct {
-	Txid    string `json:"txid"`
-	RBF     bool   `json:"rbf"`
-	FullRBF bool   `json:"fullRbf"`
-}
-
-type replacement struct {
-	Tx        rbfTx         `json:"tx"`
-	Timestamp int64         `json:"time"`
-	FullRBF   bool          `json:"fullRbf"`
-	Mined     bool          `json:"mined"`
-	Replaces  []replacement `json:"replaces"`
-}
-
 type Utxo struct {
 	Txid   string `json:"txid"`
 	Vout   uint32 `json:"vout"`
