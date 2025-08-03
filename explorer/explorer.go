@@ -447,7 +447,6 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						log.Fatalf("failed to ping explorer: %s", err)
 						return
 					}
-					fmt.Println("sent ping")
 				}
 			}
 		}(ctx)
@@ -641,78 +640,6 @@ func (e *explorerSvc) broadcast(txHex string) (string, error) {
 	}
 
 	return string(bodyResponse), nil
-}
-
-func (e *explorerSvc) mempoolIsReplacement(txid string) (bool, string, int64, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/v1/fullrbf/replacements", e.baseUrl))
-	if err != nil {
-		return false, "", -1, err
-	}
-
-	// nolint:all
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", -1, err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		return false, "", -1, fmt.Errorf("not found")
-	}
-	if resp.StatusCode != http.StatusOK {
-		return false, "", -1, fmt.Errorf("%s", string(body))
-	}
-
-	replacements := make([]replacement, 0)
-	if err := json.Unmarshal(body, &replacements); err != nil {
-		return false, "", -1, err
-	}
-
-	if len(replacements) == 0 {
-		return false, "", 0, nil
-	}
-
-	for _, r := range replacements {
-		if r.Tx.Txid == txid {
-			return true, r.Replaces[0].Tx.Txid, r.Timestamp, nil
-		}
-	}
-	return false, "", 0, nil
-}
-
-func (e *explorerSvc) esploraIsReplacement(txid string) (bool, string, int64, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/tx/%s", e.baseUrl, txid))
-	if err != nil {
-		return false, "", -1, err
-	}
-
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", -1, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return false, "", -1, fmt.Errorf("failed to get tx: %s", string(body))
-	}
-
-	var tx tx
-	if err := json.Unmarshal(body, &tx); err != nil {
-		return false, "", -1, err
-	}
-
-	for _, in := range tx.Vin {
-		resp, err := http.Get(fmt.Sprintf("%s/tx/%s/hex", e.baseUrl, in.Txid))
-		if err != nil {
-			return false, "", -1, err
-		}
-
-		// If the tx has been replaced, the explorer will return a 404 for the replaced one, hence
-		// the current tx is a repleacement.
-		if resp.StatusCode == http.StatusNotFound {
-			return true, in.Txid, tx.Status.Blocktime, nil
-		}
-	}
-	return false, "", -1, nil
 }
 
 func parseBitcoinTx(txStr string) (string, string, error) {

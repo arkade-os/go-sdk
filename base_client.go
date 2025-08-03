@@ -138,6 +138,14 @@ func (a *arkClient) Receive(ctx context.Context) (string, string, string, error)
 		boardingAddr.Address = ""
 	}
 
+	if a.WithTransactionFeed {
+		go func() {
+			if err := a.explorer.SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
+				log.WithError(err).Error("failed to subscribe for boarding address")
+			}
+		}()
+	}
+
 	return onchainAddr, offchainAddr.Address, boardingAddr.Address, nil
 }
 

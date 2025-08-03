@@ -1065,6 +1065,21 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 func (a *arkClient) listenForBoardingTxs() {
 	ctx := context.Background()
 
+	_, _, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		log.WithError(err).Error("failed to get boarding addresses")
+		return
+	}
+
+	addresses := make([]string, 0, len(boardingAddrs))
+	for _, addr := range boardingAddrs {
+		addresses = append(addresses, addr.Address)
+	}
+	if err := a.explorer.SubscribeForAddresses(addresses); err != nil {
+		log.WithError(err).Error("failed to subscribe for boarding addresses")
+		return
+	}
+
 	for update := range a.explorer.GetAddressesEvents() {
 		txsToAdd := make([]types.Transaction, 0)
 		txsToConfirm := make([]string, 0)
