@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
@@ -15,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
@@ -27,8 +29,44 @@ type service struct {
 }
 
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  service
+	mu     sync.Mutex
+	target string
+	opts   []grpc.DialOption
+	conn   *grpc.ClientConn
+	svc    service
+	cancel context.CancelFunc
+}
+
+func (c *grpcClient) ensureConnection(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for {
+		state := c.conn.GetState()
+		if state == connectivity.Ready {
+			return nil
+		}
+
+		if state == connectivity.Shutdown || state == connectivity.TransientFailure {
+			if err := c.conn.Close(); err != nil {
+				logrus.Warnf("failed to close grpc connection: %v", err)
+			}
+			conn, err := grpc.NewClient(c.target, c.opts...)
+			if err != nil {
+				return err
+			}
+			c.conn = conn
+			c.svc = service{arkv1.NewArkServiceClient(conn)}
+			state = c.conn.GetState()
+			if state == connectivity.Ready {
+				return nil
+			}
+		}
+
+		if !c.conn.WaitForStateChange(ctx, state) {
+			return ctx.Err()
+		}
+	}
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -47,16 +85,45 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	conn, err := grpc.NewClient(serverUrl, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := service{arkv1.NewArkServiceClient(conn)}
-	return &grpcClient{conn, svc}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &grpcClient{
+		target: serverUrl,
+		opts:   opts,
+		conn:   conn,
+		svc:    service{arkv1.NewArkServiceClient(conn)},
+		cancel: cancel,
+	}
+	go c.monitorConnection(ctx)
+	return c, nil
+}
+
+func (c *grpcClient) monitorConnection(ctx context.Context) {
+	for {
+		if err := c.ensureConnection(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logrus.Warnf("failed to ensure grpc connection: %v", err)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if !c.conn.WaitForStateChange(ctx, connectivity.Ready) {
+			return
+		}
+	}
 }
 
 func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, err
+	}
 	req := &arkv1.GetInfoRequest{}
 	resp, err := a.svc.GetInfo(ctx, req)
 	if err != nil {
@@ -94,6 +161,9 @@ func (a *grpcClient) RegisterIntent(
 	ctx context.Context,
 	signature, message string,
 ) (string, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return "", err
+	}
 	req := &arkv1.RegisterIntentRequest{
 		Intent: &arkv1.Bip322Signature{
 			Message:   message,
@@ -109,6 +179,9 @@ func (a *grpcClient) RegisterIntent(
 }
 
 func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.DeleteIntentRequest{
 		Proof: &arkv1.Bip322Signature{
 			Message:   message,
@@ -120,6 +193,9 @@ func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string
 }
 
 func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.ConfirmRegistrationRequest{
 		IntentId: intentID,
 	}
@@ -130,6 +206,9 @@ func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) e
 func (a *grpcClient) SubmitTreeNonces(
 	ctx context.Context, batchId, cosignerPubkey string, nonces tree.TreeNonces,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	sigsJSON, err := json.Marshal(nonces)
 	if err != nil {
 		return err
@@ -151,6 +230,9 @@ func (a *grpcClient) SubmitTreeNonces(
 func (a *grpcClient) SubmitTreeSignatures(
 	ctx context.Context, batchId, cosignerPubkey string, signatures tree.TreePartialSigs,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	sigsJSON, err := json.Marshal(signatures)
 	if err != nil {
 		return err
@@ -172,6 +254,9 @@ func (a *grpcClient) SubmitTreeSignatures(
 func (a *grpcClient) SubmitSignedForfeitTxs(
 	ctx context.Context, signedForfeitTxs []string, signedCommitmentTx string,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.SubmitSignedForfeitTxsRequest{
 		SignedForfeitTxs:   signedForfeitTxs,
 		SignedCommitmentTx: signedCommitmentTx,
@@ -185,6 +270,9 @@ func (a *grpcClient) GetEventStream(
 	ctx context.Context,
 	topics []string,
 ) (<-chan client.BatchEventChannel, func(), error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetEventStreamRequest{Topics: topics}
@@ -203,8 +291,7 @@ func (a *grpcClient) GetEventStream(
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
-				if err == io.EOF {
-					eventsCh <- client.BatchEventChannel{Err: client.ErrConnectionClosedByServer}
+				if ctx.Err() != nil {
 					return
 				}
 				st, ok := status.FromError(err)
@@ -214,21 +301,27 @@ func (a *grpcClient) GetEventStream(
 						return
 					case codes.Unknown:
 						errMsg := st.Message()
-						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
 							stream, err = a.svc.GetEventStream(ctx, req)
 							if err != nil {
 								eventsCh <- client.BatchEventChannel{Err: err}
 								return
 							}
-
 							continue
 						}
 					}
 				}
 
-				eventsCh <- client.BatchEventChannel{Err: err}
-				return
+				if err := a.ensureConnection(ctx); err != nil {
+					eventsCh <- client.BatchEventChannel{Err: err}
+					return
+				}
+				stream, err = a.svc.GetEventStream(ctx, req)
+				if err != nil {
+					eventsCh <- client.BatchEventChannel{Err: err}
+					return
+				}
+				continue
 			}
 
 			ev, err := event{resp}.toBatchEvent()
@@ -254,6 +347,9 @@ func (a *grpcClient) GetEventStream(
 func (a *grpcClient) SubmitTx(
 	ctx context.Context, signedArkTx string, checkpointTxs []string,
 ) (string, string, []string, error) {
+	if err := a.ensureConnection(ctx); err != nil {
+		return "", "", nil, err
+	}
 	req := &arkv1.SubmitTxRequest{
 		SignedArkTx:   signedArkTx,
 		CheckpointTxs: checkpointTxs,
@@ -270,6 +366,9 @@ func (a *grpcClient) SubmitTx(
 func (a *grpcClient) FinalizeTx(
 	ctx context.Context, arkTxid string, finalCheckpointTxs []string,
 ) error {
+	if err := a.ensureConnection(ctx); err != nil {
+		return err
+	}
 	req := &arkv1.FinalizeTxRequest{
 		ArkTxid:            arkTxid,
 		FinalCheckpointTxs: finalCheckpointTxs,
@@ -282,6 +381,9 @@ func (a *grpcClient) FinalizeTx(
 func (c *grpcClient) GetTransactionsStream(
 	ctx context.Context,
 ) (<-chan client.TransactionEvent, func(), error) {
+	if err := c.ensureConnection(ctx); err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetTransactionsStreamRequest{}
@@ -300,8 +402,7 @@ func (c *grpcClient) GetTransactionsStream(
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
-				if err == io.EOF {
-					eventsCh <- client.TransactionEvent{Err: client.ErrConnectionClosedByServer}
+				if ctx.Err() != nil {
 					return
 				}
 				st, ok := status.FromError(err)
@@ -311,20 +412,27 @@ func (c *grpcClient) GetTransactionsStream(
 						return
 					case codes.Unknown:
 						errMsg := st.Message()
-						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
 							stream, err = c.svc.GetTransactionsStream(ctx, req)
 							if err != nil {
 								eventsCh <- client.TransactionEvent{Err: err}
 								return
 							}
-
 							continue
 						}
 					}
 				}
-				eventsCh <- client.TransactionEvent{Err: err}
-				return
+
+				if err := c.ensureConnection(ctx); err != nil {
+					eventsCh <- client.TransactionEvent{Err: err}
+					return
+				}
+				stream, err = c.svc.GetTransactionsStream(ctx, req)
+				if err != nil {
+					eventsCh <- client.TransactionEvent{Err: err}
+					return
+				}
+				continue
 			}
 
 			switch tx := resp.Tx.(type) {
@@ -378,6 +486,9 @@ func (c *grpcClient) GetTransactionsStream(
 }
 
 func (c *grpcClient) Close() {
+	if c.cancel != nil {
+		c.cancel()
+	}
 	//nolint:all
 	c.conn.Close()
 }
