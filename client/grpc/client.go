@@ -10,6 +10,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/sirupsen/logrus"
@@ -22,13 +23,11 @@ import (
 
 const cloudflare524Error = "524"
 
-type service struct {
-	arkv1.ArkServiceClient
-}
-
 type grpcClient struct {
 	conn *grpc.ClientConn
-	svc  service
+	svc  arkv1.ArkServiceClient
+
+	retryHandler *utils.RetryGrpcHandler
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -52,16 +51,34 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		return nil, err
 	}
 
-	svc := service{arkv1.NewArkServiceClient(conn)}
-	return &grpcClient{conn, svc}, nil
+	svc := arkv1.NewArkServiceClient(conn)
+	client := &grpcClient{conn, svc, nil}
+
+	client.retryHandler = utils.NewRetryGrpcHandler(func() error {
+		if err := client.conn.Close(); err != nil {
+			return err
+		}
+		client.conn, err = grpc.NewClient(client.conn.Target(), grpc.WithTransportCredentials(creds))
+		if err != nil {
+			return err
+		}
+		client.svc = arkv1.NewArkServiceClient(conn)
+		return nil
+	})
+
+	return client, nil
 }
 
 func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	req := &arkv1.GetInfoRequest{}
 	resp, err := a.svc.GetInfo(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetInfo(ctx)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
 	if mktHour := resp.GetMarketHour(); mktHour != nil {
 		marketHourStartTime = mktHour.GetNextStartTime()
@@ -103,8 +120,12 @@ func (a *grpcClient) RegisterIntent(
 
 	resp, err := a.svc.RegisterIntent(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.RegisterIntent(ctx, signature, message)
+		}
 		return "", err
 	}
+	a.retryHandler.Reset()
 	return resp.GetIntentId(), nil
 }
 
@@ -116,7 +137,14 @@ func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string
 		},
 	}
 	_, err := a.svc.DeleteIntent(ctx, req)
-	return err
+	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.DeleteIntent(ctx, signature, message)
+		}
+		return err
+	}
+	a.retryHandler.Reset()
+	return nil
 }
 
 func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) error {
@@ -124,7 +152,14 @@ func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) e
 		IntentId: intentID,
 	}
 	_, err := a.svc.ConfirmRegistration(ctx, req)
-	return err
+	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.ConfirmRegistration(ctx, intentID)
+		}
+		return err
+	}
+	a.retryHandler.Reset()
+	return nil
 }
 
 func (a *grpcClient) SubmitTreeNonces(
@@ -142,9 +177,13 @@ func (a *grpcClient) SubmitTreeNonces(
 	}
 
 	if _, err := a.svc.SubmitTreeNonces(ctx, req); err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.SubmitTreeNonces(ctx, batchId, cosignerPubkey, nonces)
+		}
 		return err
 	}
 
+	a.retryHandler.Reset()
 	return nil
 }
 
@@ -163,9 +202,13 @@ func (a *grpcClient) SubmitTreeSignatures(
 	}
 
 	if _, err := a.svc.SubmitTreeSignatures(ctx, req); err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.SubmitTreeSignatures(ctx, batchId, cosignerPubkey, signatures)
+		}
 		return err
 	}
 
+	a.retryHandler.Reset()
 	return nil
 }
 
@@ -178,7 +221,14 @@ func (a *grpcClient) SubmitSignedForfeitTxs(
 	}
 
 	_, err := a.svc.SubmitSignedForfeitTxs(ctx, req)
-	return err
+	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.SubmitSignedForfeitTxs(ctx, signedForfeitTxs, signedCommitmentTx)
+		}
+		return err
+	}
+	a.retryHandler.Reset()
+	return nil
 }
 
 func (a *grpcClient) GetEventStream(
@@ -192,8 +242,12 @@ func (a *grpcClient) GetEventStream(
 	stream, err := a.svc.GetEventStream(ctx, req)
 	if err != nil {
 		cancel()
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetEventStream(ctx, topics)
+		}
 		return nil, nil, err
 	}
+	a.retryHandler.Reset()
 
 	eventsCh := make(chan client.BatchEventChannel)
 
@@ -261,9 +315,13 @@ func (a *grpcClient) SubmitTx(
 
 	resp, err := a.svc.SubmitTx(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.SubmitTx(ctx, signedArkTx, checkpointTxs)
+		}
 		return "", "", nil, err
 	}
 
+	a.retryHandler.Reset()
 	return resp.GetArkTxid(), resp.GetFinalArkTx(), resp.GetSignedCheckpointTxs(), nil
 }
 
@@ -276,7 +334,14 @@ func (a *grpcClient) FinalizeTx(
 	}
 
 	_, err := a.svc.FinalizeTx(ctx, req)
-	return err
+	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.FinalizeTx(ctx, arkTxid, finalCheckpointTxs)
+		}
+		return err
+	}
+	a.retryHandler.Reset()
+	return nil
 }
 
 func (c *grpcClient) GetTransactionsStream(
@@ -289,8 +354,12 @@ func (c *grpcClient) GetTransactionsStream(
 	stream, err := c.svc.GetTransactionsStream(ctx, req)
 	if err != nil {
 		cancel()
+		if c.retryHandler.ShouldRetry(err) {
+			return c.GetTransactionsStream(ctx)
+		}
 		return nil, nil, err
 	}
+	c.retryHandler.Reset()
 
 	eventsCh := make(chan client.TransactionEvent)
 

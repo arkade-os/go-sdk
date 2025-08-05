@@ -10,6 +10,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,8 @@ const cloudflare524Error = "524"
 type grpcClient struct {
 	conn *grpc.ClientConn
 	svc  arkv1.IndexerServiceClient
+
+	retryHandler *utils.RetryGrpcHandler
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -48,7 +51,21 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 
 	svc := arkv1.NewIndexerServiceClient(conn)
 
-	return &grpcClient{conn, svc}, nil
+	client := &grpcClient{conn: conn, svc: svc}
+
+	client.retryHandler = utils.NewRetryGrpcHandler(func() error {
+		if err := client.conn.Close(); err != nil {
+			return err
+		}
+		client.conn, err = grpc.NewClient(client.conn.Target(), grpc.WithTransportCredentials(creds))
+		if err != nil {
+			return err
+		}
+		client.svc = arkv1.NewIndexerServiceClient(conn)
+		return nil
+	})
+
+	return client, nil
 }
 
 func (a *grpcClient) GetCommitmentTx(
@@ -60,8 +77,12 @@ func (a *grpcClient) GetCommitmentTx(
 	}
 	resp, err := a.svc.GetCommitmentTx(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetCommitmentTx(ctx, txid)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	batches := make(map[uint32]*indexer.Batch)
 	for vout, batch := range resp.GetBatches() {
@@ -106,8 +127,12 @@ func (a *grpcClient) GetVtxoTree(
 
 	resp, err := a.svc.GetVtxoTree(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetVtxoTree(ctx, batchOutpoint, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	nodes := make([]indexer.TxNode, 0, len(resp.GetVtxoTree()))
 	for _, node := range resp.GetVtxoTree() {
@@ -178,8 +203,12 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 
 	resp, err := a.svc.GetVtxoTreeLeaves(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetVtxoTreeLeaves(ctx, batchOutpoint, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	leaves := make([]types.Outpoint, 0, len(resp.GetLeaves()))
 	for _, leaf := range resp.GetLeaves() {
@@ -214,8 +243,12 @@ func (a *grpcClient) GetForfeitTxs(
 
 	resp, err := a.svc.GetForfeitTxs(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetForfeitTxs(ctx, txid, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	return &indexer.ForfeitTxsResponse{
 		Txids: resp.GetTxids(),
@@ -242,8 +275,12 @@ func (a *grpcClient) GetConnectors(
 
 	resp, err := a.svc.GetConnectors(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetConnectors(ctx, txid, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	connectors := make([]indexer.TxNode, 0, len(resp.GetConnectors()))
 	for _, connector := range resp.GetConnectors() {
@@ -286,8 +323,12 @@ func (a *grpcClient) GetVtxos(
 
 	resp, err := a.svc.GetVtxos(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetVtxos(ctx, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	vtxos := make([]types.Vtxo, 0, len(resp.GetVtxos()))
 	for _, vtxo := range resp.GetVtxos() {
@@ -322,8 +363,12 @@ func (a *grpcClient) GetVtxoChain(
 
 	resp, err := a.svc.GetVtxoChain(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetVtxoChain(ctx, outpoint, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	chain := make([]indexer.ChainWithExpiry, 0, len(resp.GetChain()))
 	for _, c := range resp.GetChain() {
@@ -374,8 +419,12 @@ func (a *grpcClient) GetVirtualTxs(
 
 	resp, err := a.svc.GetVirtualTxs(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetVirtualTxs(ctx, txids, opts...)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	return &indexer.VirtualTxsResponse{
 		Txs:  resp.GetTxs(),
@@ -396,8 +445,12 @@ func (a *grpcClient) GetBatchSweepTxs(
 
 	resp, err := a.svc.GetBatchSweepTransactions(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetBatchSweepTxs(ctx, batchOutpoint)
+		}
 		return nil, err
 	}
+	a.retryHandler.Reset()
 
 	return resp.GetSweptBy(), nil
 }
@@ -415,9 +468,12 @@ func (a *grpcClient) GetSubscription(
 	stream, err := a.svc.GetSubscription(ctx, req)
 	if err != nil {
 		cancel()
+		if a.retryHandler.ShouldRetry(err) {
+			return a.GetSubscription(ctx, subscriptionId)
+		}
 		return nil, nil, err
 	}
-
+	a.retryHandler.Reset()
 	eventsCh := make(chan *indexer.ScriptEvent)
 
 	go func() {
@@ -500,8 +556,12 @@ func (a *grpcClient) SubscribeForScripts(
 
 	resp, err := a.svc.SubscribeForScripts(ctx, req)
 	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.SubscribeForScripts(ctx, subscriptionId, scripts)
+		}
 		return "", err
 	}
+	a.retryHandler.Reset()
 	return resp.GetSubscriptionId(), nil
 }
 
@@ -517,11 +577,18 @@ func (a *grpcClient) UnsubscribeForScripts(
 		req.SubscriptionId = subscriptionId
 	}
 	_, err := a.svc.UnsubscribeForScripts(ctx, req)
-	return err
+	if err != nil {
+		if a.retryHandler.ShouldRetry(err) {
+			return a.UnsubscribeForScripts(ctx, subscriptionId, scripts)
+		}
+		return err
+	}
+	a.retryHandler.Reset()
+	return nil
 }
 
 func (a *grpcClient) Close() {
-	// nolint
+	// nolint:errcheck
 	a.conn.Close()
 }
 
