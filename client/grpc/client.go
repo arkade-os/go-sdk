@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
@@ -24,10 +25,8 @@ import (
 const cloudflare524Error = "524"
 
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  arkv1.ArkServiceClient
-
-	retryHandler *utils.RetryGrpcHandler
+	conn             *grpc.ClientConn
+	monitoringCancel context.CancelFunc
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -46,42 +45,70 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+
+	option := grpc.WithTransportCredentials(creds)
+
+	conn, err := grpc.NewClient(serverUrl, option)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := arkv1.NewArkServiceClient(conn)
-	client := &grpcClient{conn, svc, nil}
+	monitoringCtx, monitoringCancel := context.WithCancel(context.Background())
+	client := &grpcClient{conn, monitoringCancel}
 
-	client.retryHandler = utils.NewRetryGrpcHandler(func() error {
-		if err := client.conn.Close(); err != nil {
-			return err
+	go utils.MonitorSubscription(monitoringCtx, conn, func(ctx context.Context) error {
+		// nolint:errcheck
+		conn.Close()
+
+		// wait for the arkd server to be ready by pinging it every 5 seconds
+		ticker := time.NewTicker(time.Second * 5)
+		defer ticker.Stop()
+		isUnlocked := false
+		for !isUnlocked {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				pingConn, err := grpc.NewClient(serverUrl, option)
+				if err != nil {
+					continue
+				}
+				// we use GetInfo to check if the server is ready
+				// we know that if this RPC returns an error, the server is not unlocked yet
+				_, err = arkv1.NewArkServiceClient(pingConn).GetInfo(ctx, &arkv1.GetInfoRequest{})
+				if err != nil {
+					// nolint:errcheck
+					pingConn.Close()
+					continue
+				}
+
+				// nolint:errcheck
+				pingConn.Close()
+				isUnlocked = true
+			}
 		}
-		client.conn, err = grpc.NewClient(
-			client.conn.Target(),
-			grpc.WithTransportCredentials(creds),
-		)
+
+		client.conn, err = grpc.NewClient(serverUrl, option)
 		if err != nil {
 			return err
 		}
-		client.svc = arkv1.NewArkServiceClient(client.conn)
+
 		return nil
 	})
 
 	return client, nil
 }
 
+func (a *grpcClient) svc() arkv1.ArkServiceClient {
+	return arkv1.NewArkServiceClient(a.conn)
+}
+
 func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	req := &arkv1.GetInfoRequest{}
-	resp, err := a.svc.GetInfo(ctx, req)
+	resp, err := a.svc().GetInfo(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetInfo(ctx)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
 	if mktHour := resp.GetMarketHour(); mktHour != nil {
 		marketHourStartTime = mktHour.GetNextStartTime()
@@ -121,14 +148,10 @@ func (a *grpcClient) RegisterIntent(
 		},
 	}
 
-	resp, err := a.svc.RegisterIntent(ctx, req)
+	resp, err := a.svc().RegisterIntent(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.RegisterIntent(ctx, signature, message)
-		}
 		return "", err
 	}
-	a.retryHandler.Reset()
 	return resp.GetIntentId(), nil
 }
 
@@ -139,14 +162,10 @@ func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string
 			Signature: signature,
 		},
 	}
-	_, err := a.svc.DeleteIntent(ctx, req)
+	_, err := a.svc().DeleteIntent(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.DeleteIntent(ctx, signature, message)
-		}
 		return err
 	}
-	a.retryHandler.Reset()
 	return nil
 }
 
@@ -154,14 +173,10 @@ func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) e
 	req := &arkv1.ConfirmRegistrationRequest{
 		IntentId: intentID,
 	}
-	_, err := a.svc.ConfirmRegistration(ctx, req)
+	_, err := a.svc().ConfirmRegistration(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.ConfirmRegistration(ctx, intentID)
-		}
 		return err
 	}
-	a.retryHandler.Reset()
 	return nil
 }
 
@@ -179,14 +194,10 @@ func (a *grpcClient) SubmitTreeNonces(
 		TreeNonces: string(sigsJSON),
 	}
 
-	if _, err := a.svc.SubmitTreeNonces(ctx, req); err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.SubmitTreeNonces(ctx, batchId, cosignerPubkey, nonces)
-		}
+	if _, err := a.svc().SubmitTreeNonces(ctx, req); err != nil {
 		return err
 	}
 
-	a.retryHandler.Reset()
 	return nil
 }
 
@@ -204,14 +215,10 @@ func (a *grpcClient) SubmitTreeSignatures(
 		TreeSignatures: string(sigsJSON),
 	}
 
-	if _, err := a.svc.SubmitTreeSignatures(ctx, req); err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.SubmitTreeSignatures(ctx, batchId, cosignerPubkey, signatures)
-		}
+	if _, err := a.svc().SubmitTreeSignatures(ctx, req); err != nil {
 		return err
 	}
 
-	a.retryHandler.Reset()
 	return nil
 }
 
@@ -223,14 +230,10 @@ func (a *grpcClient) SubmitSignedForfeitTxs(
 		SignedCommitmentTx: signedCommitmentTx,
 	}
 
-	_, err := a.svc.SubmitSignedForfeitTxs(ctx, req)
+	_, err := a.svc().SubmitSignedForfeitTxs(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.SubmitSignedForfeitTxs(ctx, signedForfeitTxs, signedCommitmentTx)
-		}
 		return err
 	}
-	a.retryHandler.Reset()
 	return nil
 }
 
@@ -242,15 +245,11 @@ func (a *grpcClient) GetEventStream(
 
 	req := &arkv1.GetEventStreamRequest{Topics: topics}
 
-	stream, err := a.svc.GetEventStream(ctx, req)
+	stream, err := a.svc().GetEventStream(ctx, req)
 	if err != nil {
 		cancel()
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetEventStream(ctx, topics)
-		}
 		return nil, nil, err
 	}
-	a.retryHandler.Reset()
 
 	eventsCh := make(chan client.BatchEventChannel)
 
@@ -273,7 +272,7 @@ func (a *grpcClient) GetEventStream(
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = a.svc.GetEventStream(ctx, req)
+							stream, err = a.svc().GetEventStream(ctx, req)
 							if err != nil {
 								eventsCh <- client.BatchEventChannel{Err: err}
 								return
@@ -316,15 +315,11 @@ func (a *grpcClient) SubmitTx(
 		CheckpointTxs: checkpointTxs,
 	}
 
-	resp, err := a.svc.SubmitTx(ctx, req)
+	resp, err := a.svc().SubmitTx(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.SubmitTx(ctx, signedArkTx, checkpointTxs)
-		}
 		return "", "", nil, err
 	}
 
-	a.retryHandler.Reset()
 	return resp.GetArkTxid(), resp.GetFinalArkTx(), resp.GetSignedCheckpointTxs(), nil
 }
 
@@ -336,14 +331,10 @@ func (a *grpcClient) FinalizeTx(
 		FinalCheckpointTxs: finalCheckpointTxs,
 	}
 
-	_, err := a.svc.FinalizeTx(ctx, req)
+	_, err := a.svc().FinalizeTx(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.FinalizeTx(ctx, arkTxid, finalCheckpointTxs)
-		}
 		return err
 	}
-	a.retryHandler.Reset()
 	return nil
 }
 
@@ -354,15 +345,11 @@ func (c *grpcClient) GetTransactionsStream(
 
 	req := &arkv1.GetTransactionsStreamRequest{}
 
-	stream, err := c.svc.GetTransactionsStream(ctx, req)
+	stream, err := c.svc().GetTransactionsStream(ctx, req)
 	if err != nil {
 		cancel()
-		if c.retryHandler.ShouldRetry(err) {
-			return c.GetTransactionsStream(ctx)
-		}
 		return nil, nil, err
 	}
-	c.retryHandler.Reset()
 
 	eventsCh := make(chan client.TransactionEvent)
 
@@ -385,7 +372,7 @@ func (c *grpcClient) GetTransactionsStream(
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = c.svc.GetTransactionsStream(ctx, req)
+							stream, err = c.svc().GetTransactionsStream(ctx, req)
 							if err != nil {
 								eventsCh <- client.TransactionEvent{Err: err}
 								return
@@ -450,6 +437,7 @@ func (c *grpcClient) GetTransactionsStream(
 }
 
 func (c *grpcClient) Close() {
+	c.monitoringCancel()
 	//nolint:all
 	c.conn.Close()
 }

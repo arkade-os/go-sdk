@@ -22,10 +22,8 @@ import (
 const cloudflare524Error = "524"
 
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  arkv1.IndexerServiceClient
-
-	retryHandler *utils.RetryGrpcHandler
+	conn             *grpc.ClientConn
+	monitoringCancel context.CancelFunc
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -44,31 +42,67 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+
+	option := grpc.WithTransportCredentials(creds)
+
+	conn, err := grpc.NewClient(serverUrl, option)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := arkv1.NewIndexerServiceClient(conn)
+	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
+	client := &grpcClient{conn, monitoringCancel}
 
-	client := &grpcClient{conn: conn, svc: svc}
+	go utils.MonitorSubscription(monitorCtx, conn, func(ctx context.Context) error {
+		// nolint:errcheck
+		conn.Close()
 
-	client.retryHandler = utils.NewRetryGrpcHandler(func() error {
-		if err := client.conn.Close(); err != nil {
-			return err
+		// wait for the arkd server to be ready by pinging it every 5 seconds
+		ticker := time.NewTicker(time.Second * 5)
+		defer ticker.Stop()
+		isUnlocked := false
+		for !isUnlocked {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				pingConn, err := grpc.NewClient(serverUrl, option)
+				if err != nil {
+					continue
+				}
+				// we use GetVirtualTxs with a dummy txid to check if the server is ready
+				// we know that if this RPC returns an error, the server is not unlocked yet
+				_, err = arkv1.NewIndexerServiceClient(pingConn).
+					GetVirtualTxs(ctx, &arkv1.GetVirtualTxsRequest{
+						Txids: []string{
+							"0000000000000000000000000000000000000000000000000000000000000000",
+						},
+					})
+				if err != nil {
+					// nolint:errcheck
+					pingConn.Close()
+					continue
+				}
+
+				// nolint:errcheck
+				pingConn.Close()
+				isUnlocked = true
+			}
 		}
-		client.conn, err = grpc.NewClient(
-			client.conn.Target(),
-			grpc.WithTransportCredentials(creds),
-		)
+
+		client.conn, err = grpc.NewClient(serverUrl, option)
 		if err != nil {
 			return err
 		}
-		client.svc = arkv1.NewIndexerServiceClient(client.conn)
+
 		return nil
 	})
 
 	return client, nil
+}
+
+func (a *grpcClient) svc() arkv1.IndexerServiceClient {
+	return arkv1.NewIndexerServiceClient(a.conn)
 }
 
 func (a *grpcClient) GetCommitmentTx(
@@ -78,14 +112,10 @@ func (a *grpcClient) GetCommitmentTx(
 	req := &arkv1.GetCommitmentTxRequest{
 		Txid: txid,
 	}
-	resp, err := a.svc.GetCommitmentTx(ctx, req)
+	resp, err := a.svc().GetCommitmentTx(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetCommitmentTx(ctx, txid)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	batches := make(map[uint32]*indexer.Batch)
 	for vout, batch := range resp.GetBatches() {
@@ -128,14 +158,10 @@ func (a *grpcClient) GetVtxoTree(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoTree(ctx, req)
+	resp, err := a.svc().GetVtxoTree(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetVtxoTree(ctx, batchOutpoint, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	nodes := make([]indexer.TxNode, 0, len(resp.GetVtxoTree()))
 	for _, node := range resp.GetVtxoTree() {
@@ -204,14 +230,10 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoTreeLeaves(ctx, req)
+	resp, err := a.svc().GetVtxoTreeLeaves(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetVtxoTreeLeaves(ctx, batchOutpoint, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	leaves := make([]types.Outpoint, 0, len(resp.GetLeaves()))
 	for _, leaf := range resp.GetLeaves() {
@@ -244,14 +266,10 @@ func (a *grpcClient) GetForfeitTxs(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetForfeitTxs(ctx, req)
+	resp, err := a.svc().GetForfeitTxs(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetForfeitTxs(ctx, txid, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	return &indexer.ForfeitTxsResponse{
 		Txids: resp.GetTxids(),
@@ -276,14 +294,10 @@ func (a *grpcClient) GetConnectors(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetConnectors(ctx, req)
+	resp, err := a.svc().GetConnectors(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetConnectors(ctx, txid, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	connectors := make([]indexer.TxNode, 0, len(resp.GetConnectors()))
 	for _, connector := range resp.GetConnectors() {
@@ -324,14 +338,10 @@ func (a *grpcClient) GetVtxos(
 		Page:            page,
 	}
 
-	resp, err := a.svc.GetVtxos(ctx, req)
+	resp, err := a.svc().GetVtxos(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetVtxos(ctx, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	vtxos := make([]types.Vtxo, 0, len(resp.GetVtxos()))
 	for _, vtxo := range resp.GetVtxos() {
@@ -364,14 +374,10 @@ func (a *grpcClient) GetVtxoChain(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoChain(ctx, req)
+	resp, err := a.svc().GetVtxoChain(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetVtxoChain(ctx, outpoint, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	chain := make([]indexer.ChainWithExpiry, 0, len(resp.GetChain()))
 	for _, c := range resp.GetChain() {
@@ -420,14 +426,10 @@ func (a *grpcClient) GetVirtualTxs(
 		Page:  page,
 	}
 
-	resp, err := a.svc.GetVirtualTxs(ctx, req)
+	resp, err := a.svc().GetVirtualTxs(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetVirtualTxs(ctx, txids, opts...)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	return &indexer.VirtualTxsResponse{
 		Txs:  resp.GetTxs(),
@@ -446,14 +448,10 @@ func (a *grpcClient) GetBatchSweepTxs(
 		},
 	}
 
-	resp, err := a.svc.GetBatchSweepTransactions(ctx, req)
+	resp, err := a.svc().GetBatchSweepTransactions(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetBatchSweepTxs(ctx, batchOutpoint)
-		}
 		return nil, err
 	}
-	a.retryHandler.Reset()
 
 	return resp.GetSweptBy(), nil
 }
@@ -468,15 +466,11 @@ func (a *grpcClient) GetSubscription(
 		SubscriptionId: subscriptionId,
 	}
 
-	stream, err := a.svc.GetSubscription(ctx, req)
+	stream, err := a.svc().GetSubscription(ctx, req)
 	if err != nil {
 		cancel()
-		if a.retryHandler.ShouldRetry(err) {
-			return a.GetSubscription(ctx, subscriptionId)
-		}
 		return nil, nil, err
 	}
-	a.retryHandler.Reset()
 	eventsCh := make(chan *indexer.ScriptEvent)
 
 	go func() {
@@ -499,7 +493,7 @@ func (a *grpcClient) GetSubscription(
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = a.svc.GetSubscription(ctx, req)
+							stream, err = a.svc().GetSubscription(ctx, req)
 							if err != nil {
 								eventsCh <- &indexer.ScriptEvent{Err: err}
 								return
@@ -557,14 +551,10 @@ func (a *grpcClient) SubscribeForScripts(
 		req.SubscriptionId = subscriptionId
 	}
 
-	resp, err := a.svc.SubscribeForScripts(ctx, req)
+	resp, err := a.svc().SubscribeForScripts(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.SubscribeForScripts(ctx, subscriptionId, scripts)
-		}
 		return "", err
 	}
-	a.retryHandler.Reset()
 	return resp.GetSubscriptionId(), nil
 }
 
@@ -579,18 +569,15 @@ func (a *grpcClient) UnsubscribeForScripts(
 	if len(subscriptionId) > 0 {
 		req.SubscriptionId = subscriptionId
 	}
-	_, err := a.svc.UnsubscribeForScripts(ctx, req)
+	_, err := a.svc().UnsubscribeForScripts(ctx, req)
 	if err != nil {
-		if a.retryHandler.ShouldRetry(err) {
-			return a.UnsubscribeForScripts(ctx, subscriptionId, scripts)
-		}
 		return err
 	}
-	a.retryHandler.Reset()
 	return nil
 }
 
 func (a *grpcClient) Close() {
+	a.monitoringCancel()
 	// nolint:errcheck
 	a.conn.Close()
 }
