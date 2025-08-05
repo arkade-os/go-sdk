@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ const (
 )
 
 type RetryGrpcHandler struct {
+	lock          sync.Mutex
 	retryCount    int
 	retryDuration time.Duration
 	reconnectFn   func() error
@@ -24,6 +26,7 @@ func NewRetryGrpcHandler(reconnectFn func() error) *RetryGrpcHandler {
 		reconnectFn:   reconnectFn,
 		retryDuration: retryWaitDuration,
 		retryCount:    0,
+		lock:          sync.Mutex{},
 	}
 }
 
@@ -37,6 +40,9 @@ func (h *RetryGrpcHandler) ShouldRetry(err error) bool {
 		if h.retryCount >= maxRetryCount {
 			return false
 		}
+		h.lock.Lock()
+		defer h.lock.Unlock()
+
 		if err := h.reconnectFn(); err != nil {
 			logrus.WithError(err).Error("failed to reconnect to grpc server")
 		}
@@ -49,6 +55,8 @@ func (h *RetryGrpcHandler) ShouldRetry(err error) bool {
 }
 
 func (h *RetryGrpcHandler) Reset() {
+	h.lock.Lock()
+	defer h.lock.Unlock()
 	h.retryCount = 0
 	h.retryDuration = retryWaitDuration
 }
