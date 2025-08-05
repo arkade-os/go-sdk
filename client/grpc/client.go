@@ -58,7 +58,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 
 	go utils.MonitorSubscription(monitoringCtx, conn, func(ctx context.Context) error {
 		// nolint:errcheck
-		conn.Close()
+		client.conn.Close()
 
 		// wait for the arkd server to be ready by pinging it every 5 seconds
 		ticker := time.NewTicker(time.Second * 5)

@@ -11,7 +11,7 @@ import (
 func MonitorSubscription(
 	ctx context.Context,
 	conn *grpc.ClientConn,
-	onReconnect func(ctx context.Context) error,
+	onDisconnect func(ctx context.Context) error,
 ) {
 	firstReadySeen := false
 
@@ -29,7 +29,7 @@ func MonitorSubscription(
 					}
 				} else {
 					if firstReadySeen {
-						if err := onReconnect(ctx); err != nil {
+						if err := onDisconnect(ctx); err != nil {
 							logrus.WithError(err).Error("failed to reconnect to grpc server")
 						}
 					}
