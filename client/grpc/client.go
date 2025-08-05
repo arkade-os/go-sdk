@@ -65,7 +65,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		if err != nil {
 			return err
 		}
-		client.svc = arkv1.NewArkServiceClient(conn)
+		client.svc = arkv1.NewArkServiceClient(client.conn)
 		return nil
 	})
 

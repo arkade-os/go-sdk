@@ -64,7 +64,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		if err != nil {
 			return err
 		}
-		client.svc = arkv1.NewIndexerServiceClient(conn)
+		client.svc = arkv1.NewIndexerServiceClient(client.conn)
 		return nil
 	})
 
