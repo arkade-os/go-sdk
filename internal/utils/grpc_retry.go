@@ -3,6 +3,7 @@ package utils
 import (
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -31,11 +32,14 @@ func (h *RetryGrpcHandler) ShouldRetry(err error) bool {
 	if !ok {
 		return false
 	}
-	if st.Code() == codes.Unimplemented || st.Code() == codes.Canceled || st.Code() == codes.DataLoss {
+	if st.Code() == codes.Unimplemented || st.Code() == codes.Canceled ||
+		st.Code() == codes.DataLoss {
 		if h.retryCount >= maxRetryCount {
 			return false
 		}
-		h.reconnectFn()
+		if err := h.reconnectFn(); err != nil {
+			logrus.WithError(err).Error("failed to reconnect to grpc server")
+		}
 		time.Sleep(h.retryDuration)
 		h.retryCount++
 		h.retryDuration *= 2 // double

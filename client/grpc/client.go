@@ -58,7 +58,10 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		if err := client.conn.Close(); err != nil {
 			return err
 		}
-		client.conn, err = grpc.NewClient(client.conn.Target(), grpc.WithTransportCredentials(creds))
+		client.conn, err = grpc.NewClient(
+			client.conn.Target(),
+			grpc.WithTransportCredentials(creds),
+		)
 		if err != nil {
 			return err
 		}
