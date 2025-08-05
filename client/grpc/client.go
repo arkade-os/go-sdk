@@ -56,7 +56,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	monitoringCtx, monitoringCancel := context.WithCancel(context.Background())
 	client := &grpcClient{conn, monitoringCancel}
 
-	go utils.MonitorSubscription(monitoringCtx, conn, func(ctx context.Context) error {
+	go utils.MonitorGrpcConn(monitoringCtx, conn, func(ctx context.Context) error {
 		// nolint:errcheck
 		client.conn.Close()
 

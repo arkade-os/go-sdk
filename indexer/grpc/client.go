@@ -53,7 +53,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
 	client := &grpcClient{conn, monitoringCancel}
 
-	go utils.MonitorSubscription(monitorCtx, conn, func(ctx context.Context) error {
+	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
 		// nolint:errcheck
 		client.conn.Close()
 

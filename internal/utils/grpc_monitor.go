@@ -8,10 +8,10 @@ import (
 	"google.golang.org/grpc/connectivity"
 )
 
-func MonitorSubscription(
+func MonitorGrpcConn(
 	ctx context.Context,
 	conn *grpc.ClientConn,
-	onDisconnect func(ctx context.Context) error,
+	onReconnect func(ctx context.Context) error,
 ) {
 	firstReadySeen := false
 
@@ -27,11 +27,8 @@ func MonitorSubscription(
 						firstReadySeen = true
 						continue
 					}
-				} else {
-					if firstReadySeen {
-						if err := onDisconnect(ctx); err != nil {
-							logrus.WithError(err).Error("failed to reconnect to grpc server")
-						}
+					if err := onReconnect(ctx); err != nil {
+						logrus.WithError(err).Error("failed to reconnect to grpc server")
 					}
 				}
 			}
