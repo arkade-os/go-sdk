@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
@@ -23,6 +24,7 @@ const cloudflare524Error = "524"
 
 type grpcClient struct {
 	conn             *grpc.ClientConn
+	connMu           sync.RWMutex
 	monitoringCancel context.CancelFunc
 }
 
@@ -51,11 +53,13 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	}
 
 	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
-	client := &grpcClient{conn, monitoringCancel}
+	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
 
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
+		client.connMu.Lock()
 		// nolint:errcheck
 		client.conn.Close()
+		client.connMu.Unlock()
 
 		// wait for the arkd server to be ready by pinging it every 5 seconds
 		ticker := time.NewTicker(time.Second * 5)
@@ -90,11 +94,12 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 			}
 		}
 
+		client.connMu.Lock()
+		defer client.connMu.Unlock()
 		client.conn, err = grpc.NewClient(serverUrl, option)
 		if err != nil {
 			return err
 		}
-
 		return nil
 	})
 
@@ -102,6 +107,8 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 }
 
 func (a *grpcClient) svc() arkv1.IndexerServiceClient {
+	a.connMu.RLock()
+	defer a.connMu.RUnlock()
 	return arkv1.NewIndexerServiceClient(a.conn)
 }
 
@@ -578,6 +585,8 @@ func (a *grpcClient) UnsubscribeForScripts(
 
 func (a *grpcClient) Close() {
 	a.monitoringCancel()
+	a.connMu.Lock()
+	defer a.connMu.Unlock()
 	// nolint:errcheck
 	a.conn.Close()
 }
