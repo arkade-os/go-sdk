@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/sirupsen/logrus"
@@ -22,13 +25,10 @@ import (
 
 const cloudflare524Error = "524"
 
-type service struct {
-	arkv1.ArkServiceClient
-}
-
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  service
+	conn             *grpc.ClientConn
+	connMu           sync.RWMutex
+	monitoringCancel context.CancelFunc
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -47,18 +47,73 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+
+	option := grpc.WithTransportCredentials(creds)
+
+	conn, err := grpc.NewClient(serverUrl, option)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := service{arkv1.NewArkServiceClient(conn)}
-	return &grpcClient{conn, svc}, nil
+	monitoringCtx, monitoringCancel := context.WithCancel(context.Background())
+	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
+
+	go utils.MonitorGrpcConn(monitoringCtx, conn, func(ctx context.Context) error {
+		client.connMu.Lock()
+		// nolint:errcheck
+		client.conn.Close()
+		client.connMu.Unlock()
+
+		// wait for the arkd server to be ready by pinging it every 5 seconds
+		ticker := time.NewTicker(time.Second * 5)
+		defer ticker.Stop()
+		isUnlocked := false
+		for !isUnlocked {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				pingConn, err := grpc.NewClient(serverUrl, option)
+				if err != nil {
+					continue
+				}
+				// we use GetInfo to check if the server is ready
+				// we know that if this RPC returns an error, the server is not unlocked yet
+				_, err = arkv1.NewArkServiceClient(pingConn).GetInfo(ctx, &arkv1.GetInfoRequest{})
+				if err != nil {
+					// nolint:errcheck
+					pingConn.Close()
+					continue
+				}
+
+				// nolint:errcheck
+				pingConn.Close()
+				isUnlocked = true
+			}
+		}
+
+		client.connMu.Lock()
+		defer client.connMu.Unlock()
+		client.conn, err = grpc.NewClient(serverUrl, option)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return client, nil
+}
+
+func (a *grpcClient) svc() arkv1.ArkServiceClient {
+	a.connMu.RLock()
+	defer a.connMu.RUnlock()
+
+	return arkv1.NewArkServiceClient(a.conn)
 }
 
 func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	req := &arkv1.GetInfoRequest{}
-	resp, err := a.svc.GetInfo(ctx, req)
+	resp, err := a.svc().GetInfo(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +156,7 @@ func (a *grpcClient) RegisterIntent(
 		},
 	}
 
-	resp, err := a.svc.RegisterIntent(ctx, req)
+	resp, err := a.svc().RegisterIntent(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -115,16 +170,22 @@ func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string
 			Signature: signature,
 		},
 	}
-	_, err := a.svc.DeleteIntent(ctx, req)
-	return err
+	_, err := a.svc().DeleteIntent(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) error {
 	req := &arkv1.ConfirmRegistrationRequest{
 		IntentId: intentID,
 	}
-	_, err := a.svc.ConfirmRegistration(ctx, req)
-	return err
+	_, err := a.svc().ConfirmRegistration(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *grpcClient) SubmitTreeNonces(
@@ -141,7 +202,7 @@ func (a *grpcClient) SubmitTreeNonces(
 		TreeNonces: string(sigsJSON),
 	}
 
-	if _, err := a.svc.SubmitTreeNonces(ctx, req); err != nil {
+	if _, err := a.svc().SubmitTreeNonces(ctx, req); err != nil {
 		return err
 	}
 
@@ -162,7 +223,7 @@ func (a *grpcClient) SubmitTreeSignatures(
 		TreeSignatures: string(sigsJSON),
 	}
 
-	if _, err := a.svc.SubmitTreeSignatures(ctx, req); err != nil {
+	if _, err := a.svc().SubmitTreeSignatures(ctx, req); err != nil {
 		return err
 	}
 
@@ -177,8 +238,11 @@ func (a *grpcClient) SubmitSignedForfeitTxs(
 		SignedCommitmentTx: signedCommitmentTx,
 	}
 
-	_, err := a.svc.SubmitSignedForfeitTxs(ctx, req)
-	return err
+	_, err := a.svc().SubmitSignedForfeitTxs(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *grpcClient) GetEventStream(
@@ -189,7 +253,7 @@ func (a *grpcClient) GetEventStream(
 
 	req := &arkv1.GetEventStreamRequest{Topics: topics}
 
-	stream, err := a.svc.GetEventStream(ctx, req)
+	stream, err := a.svc().GetEventStream(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -216,7 +280,7 @@ func (a *grpcClient) GetEventStream(
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = a.svc.GetEventStream(ctx, req)
+							stream, err = a.svc().GetEventStream(ctx, req)
 							if err != nil {
 								eventsCh <- client.BatchEventChannel{Err: err}
 								return
@@ -259,7 +323,7 @@ func (a *grpcClient) SubmitTx(
 		CheckpointTxs: checkpointTxs,
 	}
 
-	resp, err := a.svc.SubmitTx(ctx, req)
+	resp, err := a.svc().SubmitTx(ctx, req)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -275,8 +339,11 @@ func (a *grpcClient) FinalizeTx(
 		FinalCheckpointTxs: finalCheckpointTxs,
 	}
 
-	_, err := a.svc.FinalizeTx(ctx, req)
-	return err
+	_, err := a.svc().FinalizeTx(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *grpcClient) GetTransactionsStream(
@@ -286,7 +353,7 @@ func (c *grpcClient) GetTransactionsStream(
 
 	req := &arkv1.GetTransactionsStreamRequest{}
 
-	stream, err := c.svc.GetTransactionsStream(ctx, req)
+	stream, err := c.svc().GetTransactionsStream(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -313,7 +380,7 @@ func (c *grpcClient) GetTransactionsStream(
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = c.svc.GetTransactionsStream(ctx, req)
+							stream, err = c.svc().GetTransactionsStream(ctx, req)
 							if err != nil {
 								eventsCh <- client.TransactionEvent{Err: err}
 								return
@@ -378,6 +445,9 @@ func (c *grpcClient) GetTransactionsStream(
 }
 
 func (c *grpcClient) Close() {
-	//nolint:all
+	c.monitoringCancel()
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	// nolint:errcheck
 	c.conn.Close()
 }
