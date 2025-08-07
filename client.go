@@ -39,7 +39,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const onchainPollingInterval = 10 * time.Second
+const onchainPollingInterval = 5 * time.Minute
 
 var (
 	ErrWaitingForConfirmation = fmt.Errorf("waiting for confirmation(s), please retry later")
