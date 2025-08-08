@@ -2879,7 +2879,9 @@ func (h *batchHandlers) OnBatchFinalization(ctx context.Context, event client.Ba
 	}
 
 	var forfeits []string
+	var signedCommitmentTx string
 
+	// if we spend vtxos, we must create and sign forfeits.
 	if len(h.vtxos) > 0 {
 		signedForfeits, err := h.createAndSignForfeits(
 			ctx,
@@ -2892,71 +2894,69 @@ func (h *batchHandlers) OnBatchFinalization(ctx context.Context, event client.Ba
 		forfeits = signedForfeits
 	}
 
-	if len(h.boardingUtxos) <= 0 {
-		return nil
-	}
-
-	// if we have boarding inputs, we must sign the commitment transaction too.
-	commitmentPtx, err := psbt.NewFromRawBytes(strings.NewReader(event.Tx), true)
-	if err != nil {
-		return err
-	}
-
-	for _, boardingUtxo := range h.boardingUtxos {
-		boardingVtxoScript, err := script.ParseVtxoScript(boardingUtxo.Tapscripts)
+	// if we spend boarding inputs, we must sign the commitment transaction.
+	if len(h.boardingUtxos) > 0 {
+		commitmentPtx, err := psbt.NewFromRawBytes(strings.NewReader(event.Tx), true)
 		if err != nil {
 			return err
 		}
 
-		forfeitClosures := boardingVtxoScript.ForfeitClosures()
-		if len(forfeitClosures) <= 0 {
-			return fmt.Errorf("no forfeit closures found")
-		}
+		for _, boardingUtxo := range h.boardingUtxos {
+			boardingVtxoScript, err := script.ParseVtxoScript(boardingUtxo.Tapscripts)
+			if err != nil {
+				return err
+			}
 
-		forfeitClosure := forfeitClosures[0]
+			forfeitClosures := boardingVtxoScript.ForfeitClosures()
+			if len(forfeitClosures) <= 0 {
+				return fmt.Errorf("no forfeit closures found")
+			}
 
-		forfeitScript, err := forfeitClosure.Script()
-		if err != nil {
-			return err
-		}
+			forfeitClosure := forfeitClosures[0]
 
-		_, taprootTree, err := boardingVtxoScript.TapTree()
-		if err != nil {
-			return err
-		}
+			forfeitScript, err := forfeitClosure.Script()
+			if err != nil {
+				return err
+			}
 
-		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
-		forfeitProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
-		if err != nil {
-			return fmt.Errorf(
-				"failed to get taproot merkle proof for boarding utxo: %s", err,
-			)
-		}
+			_, taprootTree, err := boardingVtxoScript.TapTree()
+			if err != nil {
+				return err
+			}
 
-		tapscript := &psbt.TaprootTapLeafScript{
-			ControlBlock: forfeitProof.ControlBlock,
-			Script:       forfeitProof.Script,
-			LeafVersion:  txscript.BaseLeafVersion,
-		}
+			forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+			forfeitProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
+			if err != nil {
+				return fmt.Errorf(
+					"failed to get taproot merkle proof for boarding utxo: %s", err,
+				)
+			}
 
-		for i := range commitmentPtx.Inputs {
-			prevout := commitmentPtx.UnsignedTx.TxIn[i].PreviousOutPoint
+			tapscript := &psbt.TaprootTapLeafScript{
+				ControlBlock: forfeitProof.ControlBlock,
+				Script:       forfeitProof.Script,
+				LeafVersion:  txscript.BaseLeafVersion,
+			}
 
-			if boardingUtxo.Txid == prevout.Hash.String() && boardingUtxo.VOut == prevout.Index {
-				commitmentPtx.Inputs[i].TaprootLeafScript = []*psbt.TaprootTapLeafScript{tapscript}
-				break
+			for i := range commitmentPtx.Inputs {
+				prevout := commitmentPtx.UnsignedTx.TxIn[i].PreviousOutPoint
+
+				if boardingUtxo.Txid == prevout.Hash.String() && boardingUtxo.VOut == prevout.Index {
+					commitmentPtx.Inputs[i].TaprootLeafScript = []*psbt.TaprootTapLeafScript{tapscript}
+					break
+				}
 			}
 		}
-	}
 
-	b64, err := commitmentPtx.B64Encode()
-	if err != nil {
-		return err
-	}
+		b64, err := commitmentPtx.B64Encode()
+		if err != nil {
+			return err
+		}
 
-	signedCommitmentTx, err := h.wallet.SignTransaction(ctx, h.explorer, b64)
-	if err != nil {
-		return err
+		signedCommitmentTx, err = h.wallet.SignTransaction(ctx, h.explorer, b64)
+		if err != nil {
+			return err
+		}
 	}
 
 	if len(forfeits) > 0 || len(signedCommitmentTx) > 0 {
