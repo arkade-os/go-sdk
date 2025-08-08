@@ -39,6 +39,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const onchainPollingInterval = 5 * time.Minute
+
 var (
 	ErrWaitingForConfirmation = fmt.Errorf("waiting for confirmation(s), please retry later")
 )
@@ -1117,7 +1119,7 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 }
 
 func (a *arkClient) listenForBoardingTxs(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(onchainPollingInterval)
 	defer ticker.Stop()
 
 	for {
