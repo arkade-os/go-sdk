@@ -1893,11 +1893,12 @@ func (a *arkClient) handleBatchEvents(
 
 	handlers := a.newBatchHandlers(intentId, vtxos, boardingUtxos, receivers, signerSessions)
 
-	// skip if there is no offchain output
-	skipVtxoTreeSigning := false
+	// skip only if there is no offchain output
+	skipVtxoTreeSigning := true
+
 	for _, receiver := range receivers {
 		if _, err := arklib.DecodeAddressV0(receiver.To); err == nil {
-			skipVtxoTreeSigning = true
+			skipVtxoTreeSigning = false
 			break
 		}
 	}
