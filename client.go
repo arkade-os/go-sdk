@@ -1855,7 +1855,11 @@ func (a *arkClient) joinBatchWithRetry(
 }
 
 func (a *arkClient) newBatchHandlers(
-	intentId string, vtxos []client.TapscriptsVtxo, boardingUtxos []types.Utxo, receivers []types.Receiver, signerSessions []tree.SignerSession,
+	intentId string,
+	vtxos []client.TapscriptsVtxo,
+	boardingUtxos []types.Utxo,
+	receivers []types.Receiver,
+	signerSessions []tree.SignerSession,
 ) *batchHandlers {
 	// exclude recoverable vtxos as they don't need any signing step
 	vtxosToSign := make([]client.TapscriptsVtxo, 0)
@@ -2705,7 +2709,10 @@ type batchHandlers struct {
 	cacheBatchId string
 }
 
-func (h *batchHandlers) OnBatchStarted(ctx context.Context, event client.BatchStartedEvent) (bool, error) {
+func (h *batchHandlers) OnBatchStarted(
+	ctx context.Context,
+	event client.BatchStartedEvent,
+) (bool, error) {
 	buf := sha256.Sum256([]byte(h.intentId))
 	hashedIntentId := hex.EncodeToString(buf[:])
 
@@ -2723,7 +2730,10 @@ func (h *batchHandlers) OnBatchStarted(ctx context.Context, event client.BatchSt
 	return true, nil
 }
 
-func (h *batchHandlers) OnBatchFinalized(ctx context.Context, event client.BatchFinalizedEvent) error {
+func (h *batchHandlers) OnBatchFinalized(
+	ctx context.Context,
+	event client.BatchFinalizedEvent,
+) error {
 	log.Infof("batch completed in commitment tx %s", event.Txid)
 	return nil
 }
@@ -2739,11 +2749,18 @@ func (h *batchHandlers) OnTreeTxEvent(ctx context.Context, event client.TreeTxEv
 	return nil
 }
 
-func (h *batchHandlers) OnTreeSignatureEvent(ctx context.Context, event client.TreeSignatureEvent) error {
+func (h *batchHandlers) OnTreeSignatureEvent(
+	ctx context.Context,
+	event client.TreeSignatureEvent,
+) error {
 	return nil
 }
 
-func (h *batchHandlers) OnTreeSigningStarted(ctx context.Context, event client.TreeSigningStartedEvent, vtxoTree *tree.TxTree) (bool, error) {
+func (h *batchHandlers) OnTreeSigningStarted(
+	ctx context.Context,
+	event client.TreeSigningStartedEvent,
+	vtxoTree *tree.TxTree,
+) (bool, error) {
 	foundPubkeys := make([]string, 0, len(h.signerSessions))
 	for _, session := range h.signerSessions {
 		myPubkey := session.GetPublicKey()
@@ -2825,7 +2842,10 @@ func (h *batchHandlers) OnTreeSigningStarted(ctx context.Context, event client.T
 	return false, nil
 }
 
-func (h *batchHandlers) OnTreeNoncesAggregated(ctx context.Context, event client.TreeNoncesAggregatedEvent) error {
+func (h *batchHandlers) OnTreeNoncesAggregated(
+	ctx context.Context,
+	event client.TreeNoncesAggregatedEvent,
+) error {
 	log.Info("tree nonces aggregated, sending signatures...")
 	if len(h.signerSessions) <= 0 {
 		return fmt.Errorf("tree signer session not set")
@@ -2872,7 +2892,12 @@ func (h *batchHandlers) OnTreeNoncesAggregated(ctx context.Context, event client
 	return nil
 }
 
-func (h *batchHandlers) OnBatchFinalization(ctx context.Context, event client.BatchFinalizationEvent, vtxoTree *tree.TxTree, connectorTree *tree.TxTree) error {
+func (h *batchHandlers) OnBatchFinalization(
+	ctx context.Context,
+	event client.BatchFinalizationEvent,
+	vtxoTree *tree.TxTree,
+	connectorTree *tree.TxTree,
+) error {
 	log.Info("vtxo and connector trees fully signed, sending forfeit transactions...")
 	if err := h.validateVtxoTree(event, vtxoTree, connectorTree); err != nil {
 		return fmt.Errorf("failed to verify vtxo tree: %s", err)
@@ -2941,8 +2966,11 @@ func (h *batchHandlers) OnBatchFinalization(ctx context.Context, event client.Ba
 			for i := range commitmentPtx.Inputs {
 				prevout := commitmentPtx.UnsignedTx.TxIn[i].PreviousOutPoint
 
-				if boardingUtxo.Txid == prevout.Hash.String() && boardingUtxo.VOut == prevout.Index {
-					commitmentPtx.Inputs[i].TaprootLeafScript = []*psbt.TaprootTapLeafScript{tapscript}
+				if boardingUtxo.Txid == prevout.Hash.String() &&
+					boardingUtxo.VOut == prevout.Index {
+					commitmentPtx.Inputs[i].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+						tapscript,
+					}
 					break
 				}
 			}

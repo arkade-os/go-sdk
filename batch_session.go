@@ -37,7 +37,11 @@ type BatchEventHandlers interface {
 	OnBatchFailed(ctx context.Context, event client.BatchFailedEvent) error
 	OnTreeTxEvent(ctx context.Context, event client.TreeTxEvent) error
 	OnTreeSignatureEvent(ctx context.Context, event client.TreeSignatureEvent) error
-	OnTreeSigningStarted(ctx context.Context, event client.TreeSigningStartedEvent, vtxoTree *tree.TxTree) (bool, error)
+	OnTreeSigningStarted(
+		ctx context.Context,
+		event client.TreeSigningStartedEvent,
+		vtxoTree *tree.TxTree,
+	) (bool, error)
 	OnTreeNoncesAggregated(ctx context.Context, event client.TreeNoncesAggregatedEvent) error
 	OnBatchFinalization(
 		ctx context.Context, event client.BatchFinalizationEvent,
