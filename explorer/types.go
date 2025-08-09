@@ -36,8 +36,8 @@ type Utxo struct {
 	Amount uint64 `json:"value"`
 	Asset  string `json:"asset,omitempty"`
 	Status struct {
-		Confirmed   bool  `json:"confirmed"`
-		BlockHeight int64 `json:"block_height"`
+		Confirmed bool  `json:"confirmed"`
+		BlockTime int64 `json:"block_time"`
 	} `json:"status"`
 	Script string
 }

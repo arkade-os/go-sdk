@@ -78,9 +78,7 @@ func NewExplorer(baseUrl string, net arklib.Network) (Explorer, error) {
 	conn, resp, err := dialer.DialContext(context.Background(), wsURL, nil)
 	if err != nil {
 		if resp != nil && resp.StatusCode != http.StatusNotFound {
-			if resp != nil {
-				return nil, fmt.Errorf("dial failed: %v (http status %d)", err, resp.StatusCode)
-			}
+			return nil, fmt.Errorf("dial failed: %v (http status %d)", err, resp.StatusCode)
 		}
 		return nil, fmt.Errorf("dial failed: %s", err)
 	}
@@ -356,7 +354,7 @@ func (e *explorerSvc) GetRedeemedVtxosBalance(
 	for _, utxo := range utxos {
 		blocktime := now
 		if utxo.Status.Confirmed {
-			blocktime = time.Unix(utxo.Status.BlockHeight, 0)
+			blocktime = time.Unix(utxo.Status.BlockTime, 0)
 		}
 
 		delay := time.Duration(unilateralExitDelay.Seconds()) * time.Second
@@ -416,9 +414,10 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 	if e.conn != nil {
 		// .
 		go func(ctx context.Context) {
-			// nolint
-			e.conn.SetReadDeadline(time.Now().Add(pongInterval))
-			// nolint
+			if err := e.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
+				log.WithError(err).Error("failed to set read deadline")
+				return
+			}
 			e.conn.SetPongHandler(func(string) error {
 				e.conn.SetReadDeadline(time.Now().Add(pongInterval))
 				return nil
@@ -574,7 +573,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 		if !ok {
 			var confirmedAt int64
 			if newUtxo.Status.Confirmed {
-				confirmedAt = newUtxo.Status.BlockHeight
+				confirmedAt = newUtxo.Status.BlockTime
 			}
 			receivedUtxos = append(receivedUtxos, types.UtxoNotification{
 				Txid:        newUtxo.Txid,
@@ -591,7 +590,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 				VOut:        newUtxo.Vout,
 				Script:      newUtxo.Script,
 				Amount:      newUtxo.Amount,
-				ConfirmedAt: newUtxo.Status.BlockHeight,
+				ConfirmedAt: newUtxo.Status.BlockTime,
 			})
 		}
 	}
@@ -674,7 +673,7 @@ func parseBitcoinTx(txStr string) (string, string, error) {
 }
 
 func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
-	utxoTime := explorerUtxo.Status.BlockHeight
+	utxoTime := explorerUtxo.Status.BlockTime
 	createdAt := time.Unix(utxoTime, 0)
 	if utxoTime == 0 {
 		createdAt = time.Time{}
