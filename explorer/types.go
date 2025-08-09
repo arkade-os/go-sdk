@@ -61,6 +61,10 @@ type txNotification struct {
 	Version uint32                  `json:"version"`
 	Inputs  []txNotificationInput   `json:"vin"`
 	Outputs []txNotificationPrevout `json:"vout"`
+	Status  struct {
+		Confirmed bool  `json:"confirmed"`
+		BlockTime int64 `json:"block_time"`
+	} `json:"status"`
 }
 
 type txNotificationInput struct {

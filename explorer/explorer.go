@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,6 +49,8 @@ type Explorer interface {
 	GetFeeRate() (float64, error)
 	GetAddressesEvents() <-chan types.OnchainAddressEvent
 	SubscribeForAddresses(addresses []string) error
+	UnsubscribeForAddresses(addresses []string) error
+	Stop()
 }
 
 type addressData struct {
@@ -99,6 +103,14 @@ func NewExplorer(baseUrl string, net arklib.Network) (Explorer, error) {
 	}
 
 	return svc, nil
+}
+
+func (e *explorerSvc) Stop() {
+	e.stopTracking()
+	if e.conn != nil {
+		e.conn.Close()
+	}
+	close(e.channel)
 }
 
 func (e *explorerSvc) BaseUrl() string {
@@ -258,7 +270,13 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 	}
 
 	if e.conn != nil {
-		payload := map[string][]string{"track-addresses": addressesToSubscribe}
+		// When adding new addresses we have to resubscribe for the whole new total list of
+		// addresses.
+		trackAddresses := append([]string{}, addressesToSubscribe...)
+		for addr := range e.subscribedMap {
+			trackAddresses = append(trackAddresses, addr)
+		}
+		payload := map[string][]string{"track-addresses": trackAddresses}
 
 		if err := e.conn.WriteJSON(payload); err != nil {
 			return fmt.Errorf("failed to subscribe for addresses %s: %s", addressesToSubscribe, err)
@@ -267,6 +285,30 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 
 	for _, addr := range addressesToSubscribe {
 		e.subscribedMap[addr] = addressData{}
+	}
+
+	return nil
+}
+
+func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
+	e.subscribedMu.Lock()
+	defer e.subscribedMu.Unlock()
+
+	for _, addr := range addresses {
+		delete(e.subscribedMap, addr)
+	}
+
+	if e.conn != nil {
+		// When unsubscribing we have to resubscribe for the remaining addresses.
+		trackAddresses := make([]string, 0, len(e.subscribedMap))
+		for addr := range e.subscribedMap {
+			trackAddresses = append(trackAddresses, addr)
+		}
+		payload := map[string][]string{"track-addresses": trackAddresses}
+
+		if err := e.conn.WriteJSON(payload); err != nil {
+			return fmt.Errorf("failed to unsubscribe for addresses %s: %s", addresses, err)
+		}
 	}
 
 	return nil
@@ -412,7 +454,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 	// If the ws endpoint is avaialble (mempool.space url), read from websocket and eventually
 	// send notifications and periodically send a ping message to keep the connection alive.
 	if e.conn != nil {
-		// .
+		// Go routine to listen for addresses updates from websocket.
 		go func(ctx context.Context) {
 			if err := e.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
 				log.WithError(err).Error("failed to set read deadline")
@@ -425,7 +467,14 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 			for {
 				var payload addressNotification
 				if err := e.conn.ReadJSON(&payload); err != nil {
+					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, net.ErrClosed) {
+						return
+					}
 					log.WithError(err).Error("failed to read address notification")
+					continue
+				}
+				// Skip handling the received message if it's not an address update.
+				if len(payload.MultiAddrTx) == 0 {
 					continue
 				}
 
@@ -433,6 +482,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 			}
 		}(ctx)
 
+		// Go routine to periodically send ping messages and keep the connection alive.
 		go func(ctx context.Context) {
 			ticker := time.NewTicker(pingInterval)
 			defer ticker.Stop()
@@ -532,8 +582,11 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 				for i, out := range tx.Outputs {
 					if out.Address == addr {
 						confirmedUtxos = append(confirmedUtxos, types.UtxoNotification{
-							Txid: tx.Txid,
-							VOut: uint32(i),
+							Txid:        tx.Txid,
+							VOut:        uint32(i),
+							Script:      out.Script,
+							Amount:      out.Amount,
+							ConfirmedAt: tx.Status.BlockTime,
 						})
 					}
 				}
