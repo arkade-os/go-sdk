@@ -110,14 +110,20 @@ func HandleBatchEvents(
 			return "", fmt.Errorf("canceled")
 		case <-ctx.Done():
 			return "", fmt.Errorf("context done %s", ctx.Err())
-		case notify := <-eventsCh:
+		case notify, ok := <-eventsCh:
+			if !ok {
+				return "", fmt.Errorf("event stream closed")
+			}
 			if notify.Err != nil {
 				return "", notify.Err
 			}
 
 			if options.replayEventsCh != nil {
 				go func() {
-					options.replayEventsCh <- notify.Event
+					select {
+					case options.replayEventsCh <- notify.Event:
+					default:
+					}
 				}()
 			}
 

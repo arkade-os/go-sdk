@@ -1918,9 +1918,9 @@ func (a *arkClient) handleBatchEvents(
 	}
 
 	eventsCh, close, err := a.client.GetEventStream(ctx, topics)
+	defer close()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			close()
 			return "", fmt.Errorf("connection closed by server")
 		}
 		return "", err
@@ -1928,7 +1928,6 @@ func (a *arkClient) handleBatchEvents(
 
 	commitmentTxid, err := HandleBatchEvents(ctx, eventsCh, handlers, options...)
 	if err != nil {
-		close()
 		return "", err
 	}
 
