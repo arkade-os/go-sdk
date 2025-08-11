@@ -118,7 +118,7 @@ func (r *CovenantlessRedeemBranch) NextRedeemTx() (string, error) {
 				return "", err
 			}
 
-			args := make(map[string][]byte)
+			args := make(map[string]any)
 			if len(conditionWitness) > 0 {
 				var conditionWitnessBytes bytes.Buffer
 				if err := psbt.WriteTxWitness(&conditionWitnessBytes, conditionWitness); err != nil {
