@@ -326,7 +326,7 @@ func toBIP322Inputs(
 			return nil, nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 		}
 
-		witness, err := vtxoScript.Closures[0].Witness(leafProof.ControlBlock, map[string][]byte{
+		witness, err := vtxoScript.Closures[0].Witness(leafProof.ControlBlock, map[string]any{
 			"preimage": parsedNote.Preimage[:],
 		})
 		if err != nil {
