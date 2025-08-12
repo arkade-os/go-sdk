@@ -21,6 +21,7 @@ type tx struct {
 		} `json:"prevout"`
 	} `json:"vin"`
 	Vout []struct {
+		Script  string `json:"scriptpubkey"`
 		Address string `json:"scriptpubkey_address"`
 		Amount  uint64 `json:"value"`
 	} `json:"vout"`

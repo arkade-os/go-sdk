@@ -544,9 +544,9 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 }
 
 func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
-	spentUtxos := make([]types.UtxoNotification, 0)
-	newUtxos := make([]types.UtxoNotification, 0)
-	confirmedUtxos := make([]types.UtxoNotification, 0)
+	spentUtxos := make([]types.Utxo, 0)
+	newUtxos := make([]types.Utxo, 0)
+	confirmedUtxos := make([]types.Utxo, 0)
 	replacements := make(map[string]string)
 	for addr, data := range payload.MultiAddrTx {
 		if len(data.Removed) > 0 {
@@ -559,19 +559,30 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 			for _, tx := range data.Mempool {
 				for _, in := range tx.Inputs {
 					if in.Prevout.Address == addr {
-						spentUtxos = append(spentUtxos, types.UtxoNotification{
-							Txid: in.Txid,
-							VOut: uint32(in.Vout),
+						spentUtxos = append(spentUtxos, types.Utxo{
+							Outpoint: types.Outpoint{
+								Txid: in.Txid,
+								VOut: uint32(in.Vout),
+							},
+							SpentBy: tx.Txid,
+							Spent:   true,
 						})
 					}
 				}
 				for i, out := range tx.Outputs {
 					if out.Address == addr {
-						newUtxos = append(newUtxos, types.UtxoNotification{
-							Txid:   tx.Txid,
-							VOut:   uint32(i),
-							Script: out.Script,
-							Amount: out.Amount,
+						var createdAt time.Time
+						if tx.Status.Confirmed {
+							createdAt = time.Unix(tx.Status.BlockTime, 0)
+						}
+						newUtxos = append(newUtxos, types.Utxo{
+							Outpoint: types.Outpoint{
+								Txid: tx.Txid,
+								VOut: uint32(i),
+							},
+							Script:    out.Script,
+							Amount:    out.Amount,
+							CreatedAt: createdAt,
 						})
 					}
 				}
@@ -581,12 +592,14 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 			for _, tx := range data.Confirmed {
 				for i, out := range tx.Outputs {
 					if out.Address == addr {
-						confirmedUtxos = append(confirmedUtxos, types.UtxoNotification{
-							Txid:        tx.Txid,
-							VOut:        uint32(i),
-							Script:      out.Script,
-							Amount:      out.Amount,
-							ConfirmedAt: tx.Status.BlockTime,
+						confirmedUtxos = append(confirmedUtxos, types.Utxo{
+							Outpoint: types.Outpoint{
+								Txid: tx.Txid,
+								VOut: uint32(i),
+							},
+							Script:    out.Script,
+							Amount:    out.Amount,
+							CreatedAt: time.Unix(tx.Status.BlockTime, 0),
 						})
 					}
 				}
@@ -610,40 +623,53 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 	for _, newUtxo := range newUtxos {
 		indexedNewUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)] = newUtxo
 	}
-	spentUtxos := make([]types.UtxoNotification, 0)
+	spentUtxos := make([]types.Utxo, 0)
 	for _, oldUtxo := range oldUtxos {
 		if _, ok := indexedNewUtxos[fmt.Sprintf("%s:%d", oldUtxo.Txid, oldUtxo.Vout)]; !ok {
-			spentUtxos = append(spentUtxos, types.UtxoNotification{
-				Txid: oldUtxo.Txid,
-				VOut: oldUtxo.Vout,
+			var spentBy string
+			spentStatus, _ := e.GetTxOutspends(oldUtxo.Txid)
+			if len(spentStatus) > int(oldUtxo.Vout) {
+				spentBy = spentStatus[oldUtxo.Vout].SpentBy
+			}
+			spentUtxos = append(spentUtxos, types.Utxo{
+				Outpoint: types.Outpoint{
+					Txid: oldUtxo.Txid,
+					VOut: oldUtxo.Vout,
+				},
+				SpentBy: spentBy,
+				Spent:   true,
 			})
 		}
 	}
-	receivedUtxos := make([]types.UtxoNotification, 0)
-	confirmedUtxos := make([]types.UtxoNotification, 0)
+	receivedUtxos := make([]types.Utxo, 0)
+	confirmedUtxos := make([]types.Utxo, 0)
 	for _, newUtxo := range newUtxos {
 		oldUtxo, ok := indexedOldUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)]
 		if !ok {
-			var confirmedAt int64
+			var createdAt time.Time
 			if newUtxo.Status.Confirmed {
-				confirmedAt = newUtxo.Status.BlockTime
+				createdAt = time.Unix(newUtxo.Status.BlockTime, 0)
 			}
-			receivedUtxos = append(receivedUtxos, types.UtxoNotification{
-				Txid:        newUtxo.Txid,
-				VOut:        newUtxo.Vout,
-				Script:      newUtxo.Script,
-				Amount:      newUtxo.Amount,
-				ConfirmedAt: confirmedAt,
+			receivedUtxos = append(receivedUtxos, types.Utxo{
+				Outpoint: types.Outpoint{
+					Txid: newUtxo.Txid,
+					VOut: newUtxo.Vout,
+				},
+				Script:    newUtxo.Script,
+				Amount:    newUtxo.Amount,
+				CreatedAt: createdAt,
 			})
 			continue
 		}
 		if !oldUtxo.Status.Confirmed && newUtxo.Status.Confirmed {
-			confirmedUtxos = append(confirmedUtxos, types.UtxoNotification{
-				Txid:        newUtxo.Txid,
-				VOut:        newUtxo.Vout,
-				Script:      newUtxo.Script,
-				Amount:      newUtxo.Amount,
-				ConfirmedAt: newUtxo.Status.BlockTime,
+			confirmedUtxos = append(confirmedUtxos, types.Utxo{
+				Outpoint: types.Outpoint{
+					Txid: newUtxo.Txid,
+					VOut: newUtxo.Vout,
+				},
+				Script:    newUtxo.Script,
+				Amount:    newUtxo.Amount,
+				CreatedAt: time.Unix(newUtxo.Status.BlockTime, 0),
 			})
 		}
 	}
@@ -734,8 +760,10 @@ func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []stri
 	}
 
 	return types.Utxo{
-		Txid:        explorerUtxo.Txid,
-		VOut:        explorerUtxo.Vout,
+		Outpoint: types.Outpoint{
+			Txid: explorerUtxo.Txid,
+			VOut: explorerUtxo.Vout,
+		},
 		Amount:      explorerUtxo.Amount,
 		Delay:       delay,
 		SpendableAt: time.Unix(utxoTime, 0).Add(time.Duration(delay.Seconds()) * time.Second),

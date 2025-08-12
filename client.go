@@ -948,33 +948,87 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) refreshDb(ctx context.Context) error {
-	// fetch new data
-	history, err := a.getTxHistory(ctx)
-	if err != nil {
-		return err
-	}
+	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.ListVtxos(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := a.refreshTxDb(history); err != nil {
+	// Fetch new and spent utxos.
+	allUtxos, err := a.getAllBoardingUtxos(ctx)
+	if err != nil {
 		return err
 	}
 
-	return a.refreshVtxoDb(spendableVtxos, spentVtxos)
+	spendableUtxos := make([]types.Utxo, 0, len(allUtxos))
+	spentUtxos := make([]types.Utxo, 0, len(allUtxos))
+	commitmentTxsToIgnore := make(map[string]struct{})
+	for _, utxo := range allUtxos {
+		if utxo.Spent {
+			spentUtxos = append(spentUtxos, utxo)
+			commitmentTxsToIgnore[utxo.SpentBy] = struct{}{}
+			continue
+		}
+		spendableUtxos = append(spendableUtxos, utxo)
+	}
+
+	// Rebuild tx history.
+	unconfirmedTxs := make([]types.Transaction, 0)
+	confirmedTxs := make([]types.Transaction, 0)
+	for _, u := range allUtxos {
+		tx := types.Transaction{
+			TransactionKey: types.TransactionKey{
+				BoardingTxid: u.Txid,
+			},
+			Amount:    u.Amount,
+			Type:      types.TxReceived,
+			CreatedAt: u.CreatedAt,
+			Settled:   u.Spent,
+			SettledBy: u.SpentBy,
+			Hex:       u.Tx,
+		}
+
+		if u.CreatedAt.IsZero() {
+			unconfirmedTxs = append(unconfirmedTxs, tx)
+			continue
+		}
+		confirmedTxs = append(confirmedTxs, tx)
+	}
+
+	onchainHistory := append(unconfirmedTxs, confirmedTxs...)
+
+	offchainHistory, err := a.vtxosToTxs(ctx, spendableVtxos, spentVtxos, commitmentTxsToIgnore)
+	if err != nil {
+		return err
+	}
+
+	history := append(onchainHistory, offchainHistory...)
+	sort.SliceStable(history, func(i, j int) bool {
+		return history[i].CreatedAt.After(history[j].CreatedAt)
+	})
+
+	// Update tx history in db.
+	if err := a.refreshTxDb(ctx, history); err != nil {
+		return err
+	}
+
+	// Update utxos in db.
+	if err := a.refreshUtxoDb(ctx, spendableUtxos, spentUtxos); err != nil {
+		return err
+	}
+
+	// Update vtxos in db.
+	return a.refreshVtxoDb(ctx, spendableVtxos, spentVtxos)
 }
 
-func (a *arkClient) refreshTxDb(newTxs []types.Transaction) error {
-	ctx := context.Background()
-
-	// fetch old data
+func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction) error {
+	// Fetch old data.
 	oldTxs, err := a.store.TransactionStore().GetAllTransactions(ctx)
 	if err != nil {
 		return err
 	}
 
-	// build a map for quick lookups
+	// Index the old data for quick lookups.
 	oldTxsMap := make(map[string]types.Transaction, len(oldTxs))
 	txsToUpdate := make(map[string]types.Transaction, 0)
 	for _, tx := range oldTxs {
@@ -1002,27 +1056,98 @@ func (a *arkClient) refreshTxDb(newTxs []types.Transaction) error {
 		if err != nil {
 			return err
 		}
-		log.Debugf("added %d new transaction(s)", count)
+		if count > 0 {
+			log.Debugf("added %d new transaction(s)", count)
+		}
 	}
 	if len(txsToReplace) > 0 {
 		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToReplace)
 		if err != nil {
 			return err
 		}
-		log.Debugf("updated %d transaction(s)", count)
+		if count > 0 {
+			log.Debugf("replaced %d transaction(s)", count)
+		}
 	}
 
 	return nil
 }
 
-func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error {
-	ctx := context.Background()
+func (a *arkClient) refreshUtxoDb(ctx context.Context, spendableUtxos, spentUtxos []types.Utxo) error {
+	// Fetch old data.
+	oldSpendableUtxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
+	if err != nil {
+		return err
+	}
 
+	// Index old data for quick lookups.
+	oldSpendableUtxoMap := make(map[types.Outpoint]types.Utxo, 0)
+	for _, u := range oldSpendableUtxos {
+		oldSpendableUtxoMap[u.Outpoint] = u
+	}
+
+	utxosToAdd := make([]types.Utxo, 0, len(spendableUtxos))
+	utxosToConfirm := make(map[types.Outpoint]int64)
+	for _, utxo := range spendableUtxos {
+		if _, ok := oldSpendableUtxoMap[utxo.Outpoint]; !ok {
+			utxosToAdd = append(utxosToAdd, utxo)
+		} else {
+			var confirmedAt int64
+			if !utxo.CreatedAt.IsZero() {
+				confirmedAt = utxo.CreatedAt.Unix()
+			}
+			utxosToConfirm[utxo.Outpoint] = confirmedAt
+		}
+	}
+
+	// Spent vtxos include swept and redeemed, let's make sure to update any vtxo that was
+	// previously spendable.
+	utxosToSpend := make(map[types.Outpoint]string)
+	for _, utxo := range spentUtxos {
+		if _, ok := oldSpendableUtxoMap[utxo.Outpoint]; ok {
+			utxosToSpend[utxo.Outpoint] = utxo.SpentBy
+		}
+	}
+
+	if len(utxosToAdd) > 0 {
+		count, err := a.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			log.Debugf("added %d new boarding utxo(s)", count)
+		}
+	}
+	if len(utxosToConfirm) > 0 {
+		count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			log.Debugf("confirmed %d boarding utxo(s)", count)
+		}
+	}
+	if len(utxosToSpend) > 0 {
+		count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			log.Debugf("spent %d boarding utxo(s)", count)
+		}
+	}
+
+	return nil
+}
+
+func (a *arkClient) refreshVtxoDb(ctx context.Context, spendableVtxos, spentVtxos []types.Vtxo) error {
+	// Fetch old data.
 	oldSpendableVtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
 	if err != nil {
 		return err
 	}
 
+	// Index old data for quick lookups.
 	oldSpendableVtxoMap := make(map[types.Outpoint]types.Vtxo, 0)
 	for _, v := range oldSpendableVtxos {
 		oldSpendableVtxoMap[v.Outpoint] = v
@@ -1035,10 +1160,12 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 		}
 	}
 
-	vtxosToReplace := make([]types.Vtxo, 0, len(spentVtxos))
+	// Spent vtxos include swept and redeemed, let's make sure to update any vtxo that was
+	// previously spendable.
+	vtxosToUpdate := make([]types.Vtxo, 0, len(spentVtxos))
 	for _, vtxo := range spentVtxos {
 		if _, ok := oldSpendableVtxoMap[vtxo.Outpoint]; ok {
-			vtxosToReplace = append(vtxosToReplace, vtxo)
+			vtxosToUpdate = append(vtxosToUpdate, vtxo)
 		}
 	}
 
@@ -1047,14 +1174,18 @@ func (a *arkClient) refreshVtxoDb(spendableVtxos, spentVtxos []types.Vtxo) error
 		if err != nil {
 			return err
 		}
-		log.Debugf("added %d new vtxo(s)", count)
+		if count > 0 {
+			log.Debugf("added %d new vtxo(s)", count)
+		}
 	}
-	if len(vtxosToReplace) > 0 {
-		count, err := a.store.VtxoStore().UpdateVtxos(ctx, vtxosToReplace)
+	if len(vtxosToUpdate) > 0 {
+		count, err := a.store.VtxoStore().UpdateVtxos(ctx, vtxosToUpdate)
 		if err != nil {
 			return err
 		}
-		log.Debugf("updated %d vtxo(s)", count)
+		if count > 0 {
+			log.Debugf("updated %d vtxo(s)", count)
+		}
 	}
 
 	return nil
@@ -1081,25 +1212,29 @@ func (a *arkClient) listenForBoardingTxs() {
 	for update := range a.explorer.GetAddressesEvents() {
 		txsToAdd := make([]types.Transaction, 0)
 		txsToConfirm := make([]string, 0)
+		utxosToConfirm := make(map[types.Outpoint]int64)
+		utxosToSpend := make(map[types.Outpoint]string)
 		if len(update.NewUtxos) > 0 {
 			for _, u := range update.NewUtxos {
-				var createdAt time.Time
-				if u.ConfirmedAt > 0 {
-					createdAt = time.Unix(u.ConfirmedAt, 0)
-				}
 				txsToAdd = append(txsToAdd, types.Transaction{
 					TransactionKey: types.TransactionKey{
 						BoardingTxid: u.Txid,
 					},
 					Amount:    u.Amount,
 					Type:      types.TxReceived,
-					CreatedAt: createdAt,
+					CreatedAt: u.CreatedAt,
 				})
 			}
 		}
 		if len(update.ConfirmedUtxos) > 0 {
 			for _, u := range update.ConfirmedUtxos {
 				txsToConfirm = append(txsToConfirm, u.Txid)
+				utxosToConfirm[u.Outpoint] = u.CreatedAt.Unix()
+			}
+		}
+		if len(update.SpentUtxos) > 0 {
+			for _, u := range update.SpentUtxos {
+				utxosToSpend[u.Outpoint] = u.SpentBy
 			}
 		}
 
@@ -1111,7 +1246,9 @@ func (a *arkClient) listenForBoardingTxs() {
 				log.WithError(err).Error("failed to add new boarding transactions")
 				continue
 			}
-			log.Debugf("added %d boarding transaction(s)", count)
+			if count > 0 {
+				log.Debugf("added %d boarding transaction(s)", count)
+			}
 		}
 
 		if len(txsToConfirm) > 0 {
@@ -1122,7 +1259,9 @@ func (a *arkClient) listenForBoardingTxs() {
 				log.WithError(err).Error("failed to update boarding transactions")
 				continue
 			}
-			log.Debugf("confirmed %d boarding transaction(s)", count)
+			if count > 0 {
+				log.Debugf("confirmed %d boarding transaction(s)", count)
+			}
 		}
 
 		if len(update.Replacements) > 0 {
@@ -1131,7 +1270,40 @@ func (a *arkClient) listenForBoardingTxs() {
 				log.WithError(err).Error("failed to update rbf boarding transactions")
 				continue
 			}
-			log.Debugf("replaced %d boarding transaction(s)", count)
+			if count > 0 {
+				log.Debugf("replaced %d boarding transaction(s)", count)
+			}
+		}
+
+		if len(update.NewUtxos) > 0 {
+			count, err := a.store.UtxoStore().AddUtxos(ctx, update.NewUtxos)
+			if err != nil {
+				log.WithError(err).Error("failed to add new boarding utxos")
+				continue
+			}
+			if count > 0 {
+				log.Debugf("added %d new boarding utxo(s)", count)
+			}
+		}
+		if len(utxosToConfirm) > 0 {
+			count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
+			if err != nil {
+				log.WithError(err).Error("failed to add new boarding utxos")
+				continue
+			}
+			if count > 0 {
+				log.Debugf("confirmed %d boarding utxo(s)", count)
+			}
+		}
+		if len(utxosToSpend) > 0 {
+			count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+			if err != nil {
+				log.WithError(err).Error("failed to mark boarding utxos as spent")
+				continue
+			}
+			if count > 0 {
+				log.Debugf("spent %d boarding utxo(s)", count)
+			}
 		}
 	}
 }
@@ -2538,54 +2710,66 @@ func (a *arkClient) getOffchainBalance(
 
 func (a *arkClient) getAllBoardingUtxos(
 	ctx context.Context,
-) ([]types.Utxo, map[string]struct{}, error) {
+) ([]types.Utxo, error) {
 	_, _, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	utxos := []types.Utxo{}
-	ignoreVtxos := make(map[string]struct{}, 0)
 	for _, addr := range boardingAddrs {
 		txs, err := a.explorer.GetTxs(addr.Address)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		for _, tx := range txs {
 			for i, vout := range tx.Vout {
-				var spent bool
 				if vout.Address == addr.Address {
+					createdAt := time.Time{}
+					utxoTime := time.Now()
+					if tx.Status.Confirmed {
+						createdAt = time.Unix(tx.Status.Blocktime, 0)
+						utxoTime = time.Unix(tx.Status.Blocktime, 0)
+					}
+
 					txHex, err := a.explorer.GetTxHex(tx.Txid)
 					if err != nil {
-						return nil, nil, err
+						return nil, err
 					}
 					spentStatuses, err := a.explorer.GetTxOutspends(tx.Txid)
 					if err != nil {
-						return nil, nil, err
+						return nil, err
 					}
-					if s := spentStatuses[i]; s.Spent {
-						ignoreVtxos[s.SpentBy] = struct{}{}
-						spent = true
+					spent := false
+					spentBy := ""
+					if len(spentStatuses) > i {
+						if spentStatuses[i].Spent {
+							spent = true
+							spentBy = spentStatuses[i].SpentBy
+						}
 					}
-					createdAt := time.Time{}
-					if tx.Status.Confirmed {
-						createdAt = time.Unix(tx.Status.Blocktime, 0)
-					}
+
 					utxos = append(utxos, types.Utxo{
-						Txid:       tx.Txid,
-						VOut:       uint32(i),
-						Amount:     vout.Amount,
-						CreatedAt:  createdAt,
-						Tapscripts: addr.Tapscripts,
-						Spent:      spent,
-						Tx:         txHex,
+						Outpoint: types.Outpoint{
+							Txid: tx.Txid,
+							VOut: uint32(i),
+						},
+						Amount:      vout.Amount,
+						Script:      vout.Script,
+						Delay:       a.BoardingExitDelay,
+						SpendableAt: utxoTime.Add(time.Duration(a.BoardingExitDelay.Seconds()) * time.Second),
+						CreatedAt:   createdAt,
+						Tapscripts:  addr.Tapscripts,
+						Spent:       spent,
+						SpentBy:     spentBy,
+						Tx:          txHex,
 					})
 				}
 			}
 		}
 	}
 
-	return utxos, ignoreVtxos, nil
+	return utxos, nil
 }
 
 func (a *arkClient) getClaimableBoardingUtxos(
@@ -2751,10 +2935,10 @@ func (a *arkClient) getVtxos(
 
 func (a *arkClient) getBoardingTxs(
 	ctx context.Context,
-) ([]types.Transaction, map[string]struct{}, error) {
-	allUtxos, ignoreVtxos, err := a.getAllBoardingUtxos(ctx)
+) ([]types.Transaction, error) {
+	allUtxos, err := a.getAllBoardingUtxos(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	unconfirmedTxs := make([]types.Transaction, 0)
@@ -2768,6 +2952,7 @@ func (a *arkClient) getBoardingTxs(
 			Type:      types.TxReceived,
 			CreatedAt: u.CreatedAt,
 			Settled:   u.Spent,
+			SettledBy: u.SpentBy,
 			Hex:       u.Tx,
 		}
 
@@ -2779,7 +2964,7 @@ func (a *arkClient) getBoardingTxs(
 	}
 
 	txs := append(unconfirmedTxs, confirmedTxs...)
-	return txs, ignoreVtxos, nil
+	return txs, nil
 }
 
 func (a *arkClient) handleCommitmentTx(
@@ -3092,12 +3277,18 @@ func (a *arkClient) getTxHistory(ctx context.Context) ([]types.Transaction, erro
 		return nil, err
 	}
 
-	onchainHistory, batchesToIgnore, err := a.getBoardingTxs(ctx)
+	onchainHistory, err := a.getBoardingTxs(ctx)
 	if err != nil {
 		return nil, err
 	}
+	commitmentTxsToIgnore := make(map[string]struct{})
+	for _, tx := range onchainHistory {
+		if tx.SettledBy != "" {
+			commitmentTxsToIgnore[tx.SettledBy] = struct{}{}
+		}
+	}
 
-	offchainHistory, err := a.vtxosToTxs(ctx, spendable, spent, batchesToIgnore)
+	offchainHistory, err := a.vtxosToTxs(ctx, spendable, spent, commitmentTxsToIgnore)
 	if err != nil {
 		return nil, err
 	}
@@ -3111,7 +3302,7 @@ func (a *arkClient) getTxHistory(ctx context.Context) ([]types.Transaction, erro
 }
 
 func (i *arkClient) vtxosToTxs(
-	ctx context.Context, spendable, spent []types.Vtxo, batchesToIgnore map[string]struct{},
+	ctx context.Context, spendable, spent []types.Vtxo, commitmentTxsToIgnore map[string]struct{},
 ) ([]types.Transaction, error) {
 	txs := make([]types.Transaction, 0)
 
@@ -3122,7 +3313,7 @@ func (i *arkClient) vtxosToTxs(
 	// - they are the change of a spend tx
 	vtxosLeftToCheck := append([]types.Vtxo{}, spent...)
 	for _, vtxo := range append(spendable, spent...) {
-		if _, ok := batchesToIgnore[vtxo.CommitmentTxids[0]]; !vtxo.Preconfirmed && ok {
+		if _, ok := commitmentTxsToIgnore[vtxo.CommitmentTxids[0]]; !vtxo.Preconfirmed && ok {
 			continue
 		}
 
