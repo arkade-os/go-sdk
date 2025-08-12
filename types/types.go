@@ -102,6 +102,29 @@ func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, 
 	return a.EncodeV0()
 }
 
+type UtxoEventType int
+
+const (
+	UtxosAdded UtxoEventType = iota
+	UtxosConfirmed
+	UtxosReplaced
+	UtxosSpent
+)
+
+func (e UtxoEventType) String() string {
+	return map[UtxoEventType]string{
+		UtxosAdded:     "UTXOS_ADDED",
+		UtxosConfirmed: "UTXOS_CONFIRMED",
+		UtxosReplaced:  "UTXOS_REPLACED",
+		UtxosSpent:     "UTXOS_SPENT",
+	}[e]
+}
+
+type UtxoEvent struct {
+	Type  UtxoEventType
+	Utxos []Utxo
+}
+
 type VtxoEventType int
 
 const (
@@ -112,8 +135,9 @@ const (
 
 func (e VtxoEventType) String() string {
 	return map[VtxoEventType]string{
-		VtxosAdded: "VTXOS_ADDED",
-		VtxosSpent: "VTXOS_SPENT",
+		VtxosAdded:   "VTXOS_ADDED",
+		VtxosSpent:   "VTXOS_SPENT",
+		VtxosUpdated: "VTXOS_UPDATED",
 	}[e]
 }
 
@@ -180,8 +204,7 @@ type TransactionEvent struct {
 }
 
 type Utxo struct {
-	Txid        string
-	VOut        uint32
+	Outpoint
 	Amount      uint64
 	Script      string
 	Delay       arklib.RelativeLocktime
@@ -189,6 +212,7 @@ type Utxo struct {
 	CreatedAt   time.Time
 	Tapscripts  []string
 	Spent       bool
+	SpentBy     string
 	Tx          string
 }
 
@@ -242,16 +266,8 @@ func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
 }
 
 type OnchainAddressEvent struct {
-	SpentUtxos     []UtxoNotification
-	NewUtxos       []UtxoNotification
-	ConfirmedUtxos []UtxoNotification
+	SpentUtxos     []Utxo
+	NewUtxos       []Utxo
+	ConfirmedUtxos []Utxo
 	Replacements   map[string]string // replacedTxid -> replacementTxid
-}
-
-type UtxoNotification struct {
-	Txid        string
-	VOut        uint32
-	Script      string
-	Amount      uint64
-	ConfirmedAt int64
 }

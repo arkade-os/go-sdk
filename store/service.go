@@ -27,6 +27,7 @@ const (
 
 type service struct {
 	configStore types.ConfigStore
+	utxoStore   types.UtxoStore
 	vtxoStore   types.VtxoStore
 	txStore     types.TransactionStore
 }
@@ -41,6 +42,7 @@ type Config struct {
 func NewStore(storeConfig Config) (types.Store, error) {
 	var (
 		configStore types.ConfigStore
+		utxoStore   types.UtxoStore
 		vtxoStore   types.VtxoStore
 		txStore     types.TransactionStore
 		err         error
@@ -63,6 +65,10 @@ func NewStore(storeConfig Config) (types.Store, error) {
 	if len(storeConfig.AppDataStoreType) > 0 {
 		switch storeConfig.AppDataStoreType {
 		case types.KVStore:
+			utxoStore, err = kvstore.NewUtxoStore(dir, nil)
+			if err != nil {
+				return nil, err
+			}
 			vtxoStore, err = kvstore.NewVtxoStore(dir, nil)
 			if err != nil {
 				return nil, err
@@ -92,6 +98,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 				return nil, fmt.Errorf("failed to run migrations: %s", err)
 			}
+			utxoStore = sqlstore.NewUtxoStore(db)
 			vtxoStore = sqlstore.NewVtxoStore(db)
 			txStore = sqlstore.NewTransactionStore(db)
 		default:
@@ -102,11 +109,15 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		}
 	}
 
-	return &service{configStore, vtxoStore, txStore}, nil
+	return &service{configStore, utxoStore, vtxoStore, txStore}, nil
 }
 
 func (s *service) ConfigStore() types.ConfigStore {
 	return s.configStore
+}
+
+func (s *service) UtxoStore() types.UtxoStore {
+	return s.utxoStore
 }
 
 func (s *service) VtxoStore() types.VtxoStore {

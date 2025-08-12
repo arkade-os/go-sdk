@@ -8,6 +8,7 @@ import (
 type Store interface {
 	ConfigStore() ConfigStore
 	TransactionStore() TransactionStore
+	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
 	Clean(ctx context.Context)
 	Close()
@@ -35,6 +36,17 @@ type TransactionStore interface {
 	Close()
 }
 
+type UtxoStore interface {
+	AddUtxos(ctx context.Context, utxos []Utxo) (int, error)
+	ConfirmUtxos(ctx context.Context, confirmedUtxos map[Outpoint]int64) (int, error)
+	SpendUtxos(ctx context.Context, spentUtxos map[Outpoint]string) (int, error)
+	GetAllUtxos(ctx context.Context) (spendable, spent []Utxo, err error)
+	GetUtxos(ctx context.Context, keys []Outpoint) ([]Utxo, error)
+	Clean(ctx context.Context) error
+	GetEventChannel() chan UtxoEvent
+	Close()
+}
+
 type VtxoStore interface {
 	AddVtxos(ctx context.Context, vtxos []Vtxo) (int, error)
 	SpendVtxos(
@@ -44,7 +56,7 @@ type VtxoStore interface {
 		ctx context.Context, spentVtxos map[Outpoint]string, settledBy string,
 	) (int, error)
 	UpdateVtxos(ctx context.Context, vtxos []Vtxo) (int, error)
-	GetAllVtxos(ctx context.Context) (spendable []Vtxo, spent []Vtxo, err error)
+	GetAllVtxos(ctx context.Context) (spendable, spent []Vtxo, err error)
 	GetVtxos(ctx context.Context, keys []Outpoint) ([]Vtxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() chan VtxoEvent

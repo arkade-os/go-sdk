@@ -20,6 +20,15 @@ func (q *Queries) CleanTxs(ctx context.Context) error {
 	return err
 }
 
+const cleanUtxos = `-- name: CleanUtxos :exec
+DELETE FROM utxo
+`
+
+func (q *Queries) CleanUtxos(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, cleanUtxos)
+	return err
+}
+
 const cleanVtxos = `-- name: CleanVtxos :exec
 DELETE FROM vtxo
 `
@@ -56,6 +65,45 @@ func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
 		arg.CreatedAt,
 		arg.Hex,
 		arg.SettledBy,
+	)
+	return err
+}
+
+const insertUtxo = `-- name: InsertUtxo :exec
+INSERT INTO utxo (
+    txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertUtxoParams struct {
+	Txid        string
+	Vout        int64
+	Script      string
+	Amount      int64
+	SpentBy     sql.NullString
+	Spent       bool
+	Tapscripts  sql.NullString
+	SpendableAt sql.NullInt64
+	CreatedAt   sql.NullInt64
+	DelayValue  sql.NullInt64
+	DelayType   sql.NullString
+	Tx          sql.NullString
+}
+
+func (q *Queries) InsertUtxo(ctx context.Context, arg InsertUtxoParams) error {
+	_, err := q.db.ExecContext(ctx, insertUtxo,
+		arg.Txid,
+		arg.Vout,
+		arg.Script,
+		arg.Amount,
+		arg.SpentBy,
+		arg.Spent,
+		arg.Tapscripts,
+		arg.SpendableAt,
+		arg.CreatedAt,
+		arg.DelayValue,
+		arg.DelayType,
+		arg.Tx,
 	)
 	return err
 }
@@ -179,6 +227,46 @@ func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
 	return items, nil
 }
 
+const selectAllUtxos = `-- name: SelectAllUtxos :many
+SELECT txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx from utxo
+`
+
+func (q *Queries) SelectAllUtxos(ctx context.Context) ([]Utxo, error) {
+	rows, err := q.db.QueryContext(ctx, selectAllUtxos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Utxo
+	for rows.Next() {
+		var i Utxo
+		if err := rows.Scan(
+			&i.Txid,
+			&i.Vout,
+			&i.Script,
+			&i.Amount,
+			&i.SpentBy,
+			&i.Spent,
+			&i.Tapscripts,
+			&i.SpendableAt,
+			&i.CreatedAt,
+			&i.DelayValue,
+			&i.DelayType,
+			&i.Tx,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectAllVtxos = `-- name: SelectAllVtxos :many
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid from vtxo
 `
@@ -268,6 +356,37 @@ func (q *Queries) SelectTxs(ctx context.Context, txids []string) ([]Tx, error) {
 	return items, nil
 }
 
+const selectUtxo = `-- name: SelectUtxo :one
+SELECT txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx
+FROM utxo
+WHERE txid = ?1 AND vout = ?2
+`
+
+type SelectUtxoParams struct {
+	Txid string
+	Vout int64
+}
+
+func (q *Queries) SelectUtxo(ctx context.Context, arg SelectUtxoParams) (Utxo, error) {
+	row := q.db.QueryRowContext(ctx, selectUtxo, arg.Txid, arg.Vout)
+	var i Utxo
+	err := row.Scan(
+		&i.Txid,
+		&i.Vout,
+		&i.Script,
+		&i.Amount,
+		&i.SpentBy,
+		&i.Spent,
+		&i.Tapscripts,
+		&i.SpendableAt,
+		&i.CreatedAt,
+		&i.DelayValue,
+		&i.DelayType,
+		&i.Tx,
+	)
+	return i, err
+}
+
 const selectVtxo = `-- name: SelectVtxo :one
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid
 FROM vtxo
@@ -323,6 +442,34 @@ func (q *Queries) UpdateTx(ctx context.Context, arg UpdateTxParams) error {
 		arg.Settled,
 		arg.SettledBy,
 		arg.Txid,
+	)
+	return err
+}
+
+const updateUtxo = `-- name: UpdateUtxo :exec
+UPDATE utxo
+SET
+    spent = ?1,
+    spent_by = ?2,
+    created_at = ?3
+WHERE txid = ?4 AND vout = ?5
+`
+
+type UpdateUtxoParams struct {
+	Spent     bool
+	SpentBy   sql.NullString
+	CreatedAt sql.NullInt64
+	Txid      string
+	Vout      int64
+}
+
+func (q *Queries) UpdateUtxo(ctx context.Context, arg UpdateUtxoParams) error {
+	_, err := q.db.ExecContext(ctx, updateUtxo,
+		arg.Spent,
+		arg.SpentBy,
+		arg.CreatedAt,
+		arg.Txid,
+		arg.Vout,
 	)
 	return err
 }
