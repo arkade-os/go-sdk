@@ -35,8 +35,26 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 	return &utxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.UtxoEvent),
+		eventCh: make(chan types.UtxoEvent, 100),
 	}, nil
+}
+
+func (s *utxoStore) ReplaceUtxos(ctx context.Context, from types.Outpoint, to types.Outpoint) error {
+	var utxo types.Utxo
+	if err := s.db.Get(from.String(), &utxo); err != nil {
+		return err
+	}
+
+	originalUtxo := utxo
+
+	utxo.Outpoint = to
+	if err := s.db.Update(to.String(), &utxo); err != nil {
+		return err
+	}
+
+	go s.sendEvent(types.UtxoEvent{Type: types.UtxosReplaced, Utxos: []types.Utxo{originalUtxo}})
+
+	return nil
 }
 
 func (s *utxoStore) AddUtxos(_ context.Context, utxos []types.Utxo) (int, error) {
@@ -160,7 +178,7 @@ func (s *utxoStore) GetUtxos(
 	return utxos, nil
 }
 
-func (s *utxoStore) GetEventChannel() chan types.UtxoEvent {
+func (s *utxoStore) GetEventChannel() <-chan types.UtxoEvent {
 	return s.eventCh
 }
 

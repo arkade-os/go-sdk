@@ -38,7 +38,7 @@ func NewTransactionStore(
 	return &txStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.TransactionEvent),
+		eventCh: make(chan types.TransactionEvent, 100),
 	}, nil
 }
 
@@ -217,7 +217,7 @@ func (s *txStore) UpdateTransactions(_ context.Context, txs []types.Transaction)
 	return len(txs), nil
 }
 
-func (s *txStore) GetEventChannel() chan types.TransactionEvent {
+func (s *txStore) GetEventChannel() <-chan types.TransactionEvent {
 	return s.eventCh
 }
 

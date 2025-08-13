@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -25,8 +26,95 @@ func NewUtxoStore(db *sql.DB) types.UtxoStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.UtxoEvent),
+		eventCh: make(chan types.UtxoEvent, 100),
 	}
+}
+
+func (r *utxoRepository) ReplaceUtxos(ctx context.Context, from types.Outpoint, to types.Outpoint) error {
+	// Get the UTXO at the 'from' outpoint
+	utxo, err := r.querier.SelectUtxo(ctx, queries.SelectUtxoParams{
+		Txid: from.Txid,
+		Vout: int64(from.VOut),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("utxo not found at outpoint %s", from.String())
+		}
+		return err
+	}
+
+	// Convert the database row to our Utxo type
+	existingUtxo := rowToUtxo(utxo)
+
+	// Update the outpoint to the new location
+	existingUtxo.Outpoint = to
+
+	// Use a transaction to ensure atomicity
+	txBody := func(querierWithTx *queries.Queries) error {
+		// Delete the old UTXO
+		if err := querierWithTx.DeleteUtxo(ctx, queries.DeleteUtxoParams{
+			Txid: from.Txid,
+			Vout: int64(from.VOut),
+		}); err != nil {
+			return err
+		}
+
+		// Insert the UTXO at the new location
+		var createdAt, spendableAt int64
+		if !existingUtxo.CreatedAt.IsZero() {
+			createdAt = existingUtxo.CreatedAt.Unix()
+		}
+		if !existingUtxo.SpendableAt.IsZero() {
+			spendableAt = existingUtxo.SpendableAt.Unix()
+		}
+		var delayType string
+		emptyDelay := arklib.RelativeLocktime{}
+		if existingUtxo.Delay != emptyDelay {
+			delayType = "seconds"
+			if existingUtxo.Delay.Type == arklib.LocktimeTypeBlock {
+				delayType = "blocks"
+			}
+		}
+
+		if err := querierWithTx.InsertUtxo(ctx, queries.InsertUtxoParams{
+			Txid:        existingUtxo.Txid,
+			Vout:        int64(existingUtxo.VOut),
+			Script:      existingUtxo.Script,
+			Amount:      int64(existingUtxo.Amount),
+			SpendableAt: sql.NullInt64{Int64: spendableAt, Valid: spendableAt != 0},
+			CreatedAt:   sql.NullInt64{Int64: createdAt, Valid: createdAt != 0},
+			Spent:       existingUtxo.Spent,
+			SpentBy:     sql.NullString{String: existingUtxo.SpentBy, Valid: existingUtxo.SpentBy != ""},
+			Tapscripts: sql.NullString{
+				String: strings.Join(existingUtxo.Tapscripts, ","),
+				Valid:  len(existingUtxo.Tapscripts) > 0,
+			},
+			Tx: sql.NullString{String: existingUtxo.Tx, Valid: existingUtxo.Tx != ""},
+			DelayValue: sql.NullInt64{
+				Int64: int64(existingUtxo.Delay.Value),
+				Valid: existingUtxo.Delay.Value != 0,
+			},
+			DelayType: sql.NullString{
+				String: delayType,
+				Valid:  delayType != "",
+			},
+		}); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if err := execTx(ctx, r.db, txBody); err != nil {
+		return err
+	}
+
+	go r.sendEvent(types.UtxoEvent{
+		Type:  types.UtxosReplaced,
+		Utxos: []types.Utxo{existingUtxo},
+	})
+
+	return nil
 }
 
 func (r *utxoRepository) AddUtxos(ctx context.Context, utxos []types.Utxo) (int, error) {
@@ -216,7 +304,7 @@ func (r *utxoRepository) GetUtxos(
 	return vtxos, nil
 }
 
-func (r *utxoRepository) GetEventChannel() chan types.UtxoEvent {
+func (r *utxoRepository) GetEventChannel() <-chan types.UtxoEvent {
 	return r.eventCh
 }
 

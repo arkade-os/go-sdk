@@ -38,6 +38,21 @@ func (q *Queries) CleanVtxos(ctx context.Context) error {
 	return err
 }
 
+const deleteUtxo = `-- name: DeleteUtxo :exec
+DELETE FROM utxo
+WHERE txid = ?1 AND vout = ?2
+`
+
+type DeleteUtxoParams struct {
+	Txid string
+	Vout int64
+}
+
+func (q *Queries) DeleteUtxo(ctx context.Context, arg DeleteUtxoParams) error {
+	_, err := q.db.ExecContext(ctx, deleteUtxo, arg.Txid, arg.Vout)
+	return err
+}
+
 const insertTx = `-- name: InsertTx :exec
 INSERT INTO tx (
     txid, txid_type, amount, type, settled, created_at, hex, settled_by
@@ -423,15 +438,15 @@ func (q *Queries) SelectVtxo(ctx context.Context, arg SelectVtxoParams) (Vtxo, e
 const updateTx = `-- name: UpdateTx :exec
 UPDATE tx
 SET
-    created_at     = COALESCE(?1,     created_at),
-    settled    = COALESCE(?2,    settled),
-    settled_by    = COALESCE(?3,    settled_by)
+    created_at     = COALESCE(?1, created_at),
+    settled    = CASE WHEN ?2 IS TRUE THEN TRUE ELSE settled END,
+    settled_by    = COALESCE(?3, settled_by)
 WHERE txid = ?4
 `
 
 type UpdateTxParams struct {
 	CreatedAt sql.NullInt64
-	Settled   sql.NullBool
+	Settled   interface{}
 	SettledBy sql.NullString
 	Txid      string
 }
@@ -449,14 +464,14 @@ func (q *Queries) UpdateTx(ctx context.Context, arg UpdateTxParams) error {
 const updateUtxo = `-- name: UpdateUtxo :exec
 UPDATE utxo
 SET
-    spent = ?1,
-    spent_by = ?2,
-    created_at = ?3
+    spent = CASE WHEN ?1 IS TRUE THEN TRUE ELSE spent END,
+    spent_by = COALESCE(?2, spent_by),
+    created_at = COALESCE(?3, created_at)
 WHERE txid = ?4 AND vout = ?5
 `
 
 type UpdateUtxoParams struct {
-	Spent     bool
+	Spent     interface{}
 	SpentBy   sql.NullString
 	CreatedAt sql.NullInt64
 	Txid      string
@@ -479,8 +494,8 @@ UPDATE vtxo
 SET
     spent = true,
     spent_by = ?1,
-    settled_by = ?2,
-    ark_txid = ?3
+    settled_by = COALESCE(?2, settled_by),
+    ark_txid = COALESCE(?3, ark_txid)
 WHERE txid = ?4 AND vout = ?5
 `
 

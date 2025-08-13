@@ -149,14 +149,14 @@ func (a *arkClient) Receive(ctx context.Context) (string, string, string, error)
 	return onchainAddr, offchainAddr.Address, boardingAddr.Address, nil
 }
 
-func (a *arkClient) GetTransactionEventChannel(_ context.Context) chan types.TransactionEvent {
+func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
 	if a.store != nil && a.store.TransactionStore() != nil {
 		return a.store.TransactionStore().GetEventChannel()
 	}
 	return nil
 }
 
-func (a *arkClient) GetVtxoEventChannel(_ context.Context) chan types.VtxoEvent {
+func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
 	if a.store != nil && a.store.VtxoStore() != nil {
 		return a.store.VtxoStore().GetEventChannel()
 	}

@@ -32,18 +32,19 @@ type TransactionStore interface {
 	GetTransactions(ctx context.Context, txids []string) ([]Transaction, error)
 	UpdateTransactions(ctx context.Context, txs []Transaction) (int, error)
 	Clean(ctx context.Context) error
-	GetEventChannel() chan TransactionEvent
+	GetEventChannel() <-chan TransactionEvent
 	Close()
 }
 
 type UtxoStore interface {
 	AddUtxos(ctx context.Context, utxos []Utxo) (int, error)
+	ReplaceUtxos(ctx context.Context, to Outpoint, from Outpoint) error
 	ConfirmUtxos(ctx context.Context, confirmedUtxos map[Outpoint]int64) (int, error)
 	SpendUtxos(ctx context.Context, spentUtxos map[Outpoint]string) (int, error)
 	GetAllUtxos(ctx context.Context) (spendable, spent []Utxo, err error)
 	GetUtxos(ctx context.Context, keys []Outpoint) ([]Utxo, error)
 	Clean(ctx context.Context) error
-	GetEventChannel() chan UtxoEvent
+	GetEventChannel() <-chan UtxoEvent
 	Close()
 }
 
@@ -59,6 +60,6 @@ type VtxoStore interface {
 	GetAllVtxos(ctx context.Context) (spendable, spent []Vtxo, err error)
 	GetVtxos(ctx context.Context, keys []Outpoint) ([]Vtxo, error)
 	Clean(ctx context.Context) error
-	GetEventChannel() chan VtxoEvent
+	GetEventChannel() <-chan VtxoEvent
 	Close()
 }

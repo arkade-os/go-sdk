@@ -1273,6 +1273,38 @@ func (a *arkClient) listenForBoardingTxs() {
 			if count > 0 {
 				log.Debugf("replaced %d boarding transaction(s)", count)
 			}
+
+			for replacedTxid, replacementTxid := range update.Replacements {
+				newTransaction, err := a.explorer.GetTxHex(replacementTxid)
+				if err != nil {
+					log.WithError(err).Error("failed to get boarding replacement transaction")
+					continue
+				}
+				var tx wire.MsgTx
+				if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(newTransaction))); err != nil {
+					log.WithError(err).Error("failed to deserialize boarding replacement transaction")
+					continue
+				}
+
+				utxoStore := a.store.UtxoStore()
+
+				for outputIndex := range tx.TxOut {
+					replacedUtxo := types.Outpoint{
+						Txid: replacedTxid,
+						VOut: uint32(outputIndex),
+					}
+
+					if utxos, err := utxoStore.GetUtxos(ctx, []types.Outpoint{replacedUtxo}); err != nil && len(utxos) > 0 {
+						if err := utxoStore.ReplaceUtxos(ctx, replacedUtxo, types.Outpoint{
+							Txid: replacementTxid,
+							VOut: uint32(outputIndex),
+						}); err != nil {
+							log.WithError(err).Error("failed to replace boarding utxo")
+							continue
+						}
+					}
+				}
+			}
 		}
 
 		if len(update.NewUtxos) > 0 {

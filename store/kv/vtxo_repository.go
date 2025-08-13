@@ -35,7 +35,7 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 	return &vtxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.VtxoEvent),
+		eventCh: make(chan types.VtxoEvent, 100),
 	}, nil
 }
 
@@ -178,7 +178,7 @@ func (s *vtxoStore) GetVtxos(
 	return vtxos, nil
 }
 
-func (s *vtxoStore) GetEventChannel() chan types.VtxoEvent {
+func (s *vtxoStore) GetEventChannel() <-chan types.VtxoEvent {
 	return s.eventCh
 }
 

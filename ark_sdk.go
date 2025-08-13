@@ -39,8 +39,8 @@ type ArkClient interface {
 	ListVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)
 	Dump(ctx context.Context) (seed string, err error)
 	GetTransactionHistory(ctx context.Context) ([]types.Transaction, error)
-	GetTransactionEventChannel(ctx context.Context) chan types.TransactionEvent
-	GetVtxoEventChannel(ctx context.Context) chan types.VtxoEvent
+	GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent
+	GetVtxoEventChannel(ctx context.Context) <-chan types.VtxoEvent
 	RedeemNotes(ctx context.Context, notes []string, opts ...Option) (string, error)
 	SignTransaction(ctx context.Context, tx string) (string, error)
 	NotifyIncomingFunds(ctx context.Context, address string) ([]types.Vtxo, error)

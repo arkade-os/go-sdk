@@ -23,7 +23,7 @@ func NewTransactionStore(db *sql.DB) types.TransactionStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.TransactionEvent),
+		eventCh: make(chan types.TransactionEvent, 100),
 	}
 }
 
@@ -258,7 +258,7 @@ func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transactio
 	return len(txs), nil
 }
 
-func (v *txStore) GetEventChannel() chan types.TransactionEvent {
+func (v *txStore) GetEventChannel() <-chan types.TransactionEvent {
 	return v.eventCh
 }
 
