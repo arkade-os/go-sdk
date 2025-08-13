@@ -166,6 +166,74 @@ func (a *arkClient) InitWithWallet(ctx context.Context, args InitWithWalletArgs)
 func (a *arkClient) Balance(
 	ctx context.Context, computeVtxoExpiration bool,
 ) (*Balance, error) {
+	if a.WithTransactionFeed {
+		return a.getBalanceFromStore(ctx, computeVtxoExpiration)
+	}
+
+	return a.getBalanceFromExplorer(ctx, computeVtxoExpiration)
+}
+
+func (a *arkClient) getBalanceFromStore(
+	ctx context.Context, computeVtxoExpiration bool,
+) (*Balance, error) {
+	balance := &Balance{
+		OnchainBalance: OnchainBalance{
+			SpendableAmount: 0,
+			LockedAmount:    make([]LockedOnchainBalance, 0),
+		},
+		OffchainBalance: OffchainBalance{
+			Total:          0,
+			NextExpiration: "",
+			Details:        make([]VtxoDetails, 0),
+		},
+	}
+
+	// offchain balance
+	offchainBalance, amountByExpiration, err := a.getOffchainBalance(ctx, computeVtxoExpiration)
+	if err != nil {
+		return nil, err
+	}
+
+	nextExpiration, details := getOffchainBalanceDetails(amountByExpiration)
+	balance.OffchainBalance.Total = offchainBalance
+	balance.OffchainBalance.NextExpiration = getFancyTimeExpiration(nextExpiration)
+	balance.OffchainBalance.Details = details
+
+	if a.UtxoMaxAmount == 0 {
+		return balance, nil
+	}
+
+	// onchain balance
+	utxoStore := a.store.UtxoStore()
+	utxos, _, err := utxoStore.GetAllUtxos(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+
+	for _, utxo := range utxos {
+		if !utxo.IsConfirmed() {
+			continue // TODO handle unconfirmed balance ? (not spendable on ark)
+		}
+
+		if now.After(utxo.SpendableAt) {
+			balance.OnchainBalance.SpendableAmount += utxo.Amount
+			continue
+		}
+
+		balance.OnchainBalance.LockedAmount = append(balance.OnchainBalance.LockedAmount, LockedOnchainBalance{
+			SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
+			Amount:      utxo.Amount,
+		})
+	}
+
+	return balance, nil
+}
+
+func (a *arkClient) getBalanceFromExplorer(
+	ctx context.Context, computeVtxoExpiration bool,
+) (*Balance, error) {
 	if a.wallet == nil {
 		return nil, fmt.Errorf("wallet not initialized")
 	}
@@ -241,7 +309,11 @@ func (a *arkClient) Balance(
 			defer wg.Done()
 			totalOnchainBalance := uint64(0)
 			for _, addr := range onchainAddrs {
-				balance, err := a.explorer.GetBalance(addr)
+				utxos, err := a.explorer.GetUtxos(addr)
+				balance := uint64(0)
+				for _, utxo := range utxos {
+					balance += utxo.Amount
+				}
 				if err != nil {
 					chRes <- balanceRes{err: err}
 					return
@@ -665,12 +737,7 @@ func (a *arkClient) bumpAnchorTx(
 		return "", err
 	}
 
-	addr, err := btcutil.DecodeAddress(newAddr, nil)
-	if err != nil {
-		return "", err
-	}
-
-	pkScript, err := txscript.PayToAddrScript(addr)
+	pkScript, err := toOutputScript(newAddr, a.Network)
 	if err != nil {
 		return "", err
 	}
@@ -1191,150 +1258,242 @@ func (a *arkClient) refreshVtxoDb(ctx context.Context, spendableVtxos, spentVtxo
 	return nil
 }
 
-func (a *arkClient) listenForBoardingTxs() {
-	ctx := context.Background()
-
-	_, _, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
+func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
+	onchainAddrs, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		log.WithError(err).Error("failed to get boarding addresses")
 		return
 	}
 
-	addresses := make([]string, 0, len(boardingAddrs))
+	addresses := make([]string, 0, len(boardingAddrs)+len(onchainAddrs)+len(offchainAddrs))
+	type addressInfo struct {
+		tapscripts []string
+		delay      arklib.RelativeLocktime
+	}
+	addressByScript := make(map[string]addressInfo, 0)
+
+	// we listen for boarding addresses to catch "boarding" events
 	for _, addr := range boardingAddrs {
 		addresses = append(addresses, addr.Address)
+
+		script, err := toOutputScript(addr.Address, a.Network)
+		if err != nil {
+			log.WithError(err).Error("failed to get pk script for boarding address")
+			continue
+		}
+
+		addressByScript[hex.EncodeToString(script)] = addressInfo{
+			tapscripts: addr.Tapscripts,
+			delay:      a.BoardingExitDelay, // TODO: ideally computed from tapscripts
+		}
 	}
+
+	// we listen for classic P2TR addresses to catch onchain send/receive events
+	for _, addr := range onchainAddrs {
+		addresses = append(addresses, addr)
+
+		script, err := toOutputScript(addr, a.Network)
+		if err != nil {
+			log.WithError(err).Error("failed to get pk script for onchain address")
+			continue
+		}
+
+		addressByScript[hex.EncodeToString(script)] = addressInfo{
+			tapscripts: []string{},                // no tapscripts for onchain address
+			delay:      arklib.RelativeLocktime{}, // no delay for classic onchain address
+		}
+	}
+
+	// we listen for offchain addresses to catch unrolling events
+	for _, offchainAddr := range offchainAddrs {
+		addr, err := toOnchainAddress(offchainAddr.Address, a.Network)
+		if err != nil {
+			log.WithError(err).Error("failed to get onchain address for offchain address")
+			continue
+		}
+
+		addresses = append(addresses, addr)
+
+		script, err := toOutputScript(addr, a.Network)
+		if err != nil {
+			log.WithError(err).Error("failed to get pk script for offchain address")
+			continue
+		}
+
+		addressByScript[hex.EncodeToString(script)] = addressInfo{
+			tapscripts: offchainAddr.Tapscripts,
+			delay:      a.UnilateralExitDelay, // TODO: ideally computed from tapscripts
+		}
+	}
+
 	if err := a.explorer.SubscribeForAddresses(addresses); err != nil {
 		log.WithError(err).Error("failed to subscribe for boarding addresses")
 		return
 	}
 
-	for update := range a.explorer.GetAddressesEvents() {
-		txsToAdd := make([]types.Transaction, 0)
-		txsToConfirm := make([]string, 0)
-		utxosToConfirm := make(map[types.Outpoint]int64)
-		utxosToSpend := make(map[types.Outpoint]string)
-		if len(update.NewUtxos) > 0 {
-			for _, u := range update.NewUtxos {
-				txsToAdd = append(txsToAdd, types.Transaction{
-					TransactionKey: types.TransactionKey{
-						BoardingTxid: u.Txid,
-					},
-					Amount:    u.Amount,
-					Type:      types.TxReceived,
-					CreatedAt: u.CreatedAt,
-				})
-			}
-		}
-		if len(update.ConfirmedUtxos) > 0 {
-			for _, u := range update.ConfirmedUtxos {
-				txsToConfirm = append(txsToConfirm, u.Txid)
-				utxosToConfirm[u.Outpoint] = u.CreatedAt.Unix()
-			}
-		}
-		if len(update.SpentUtxos) > 0 {
-			for _, u := range update.SpentUtxos {
-				utxosToSpend[u.Outpoint] = u.SpentBy
-			}
-		}
+	ch := a.explorer.GetAddressesEvents()
 
-		if len(txsToAdd) > 0 {
-			count, err := a.store.TransactionStore().AddTransactions(
-				ctx, txsToAdd,
-			)
-			if err != nil {
-				log.WithError(err).Error("failed to add new boarding transactions")
-				continue
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("stopping onchain transaction listener")
+			if err := a.explorer.UnsubscribeForAddresses(addresses); err != nil {
+				log.WithError(err).Error("failed to unsubscribe for onchain addresses")
 			}
-			if count > 0 {
-				log.Debugf("added %d boarding transaction(s)", count)
+			return
+		case update := <-ch:
+			txsToAdd := make([]types.Transaction, 0)
+			txsToConfirm := make([]string, 0)
+			utxosToConfirm := make(map[types.Outpoint]int64)
+			utxosToSpend := make(map[types.Outpoint]string)
+			if len(update.NewUtxos) > 0 {
+				for _, u := range update.NewUtxos {
+					txsToAdd = append(txsToAdd, types.Transaction{
+						TransactionKey: types.TransactionKey{
+							BoardingTxid: u.Txid,
+						},
+						Amount:    u.Amount,
+						Type:      types.TxReceived,
+						CreatedAt: u.CreatedAt,
+					})
+				}
 			}
-		}
-
-		if len(txsToConfirm) > 0 {
-			count, err := a.store.TransactionStore().ConfirmTransactions(
-				ctx, txsToConfirm, time.Now(),
-			)
-			if err != nil {
-				log.WithError(err).Error("failed to update boarding transactions")
-				continue
+			if len(update.ConfirmedUtxos) > 0 {
+				for _, u := range update.ConfirmedUtxos {
+					txsToConfirm = append(txsToConfirm, u.Txid)
+					utxosToConfirm[u.Outpoint] = u.CreatedAt.Unix()
+				}
 			}
-			if count > 0 {
-				log.Debugf("confirmed %d boarding transaction(s)", count)
-			}
-		}
-
-		if len(update.Replacements) > 0 {
-			count, err := a.store.TransactionStore().RbfTransactions(ctx, update.Replacements)
-			if err != nil {
-				log.WithError(err).Error("failed to update rbf boarding transactions")
-				continue
-			}
-			if count > 0 {
-				log.Debugf("replaced %d boarding transaction(s)", count)
+			if len(update.SpentUtxos) > 0 {
+				for _, u := range update.SpentUtxos {
+					utxosToSpend[u.Outpoint] = u.SpentBy
+				}
 			}
 
-			for replacedTxid, replacementTxid := range update.Replacements {
-				newTransaction, err := a.explorer.GetTxHex(replacementTxid)
+			if len(txsToAdd) > 0 {
+				count, err := a.store.TransactionStore().AddTransactions(
+					ctx, txsToAdd,
+				)
 				if err != nil {
-					log.WithError(err).Error("failed to get boarding replacement transaction")
+					log.WithError(err).Error("failed to add new boarding transactions")
 					continue
 				}
-				var tx wire.MsgTx
-				if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(newTransaction))); err != nil {
-					log.WithError(err).Error("failed to deserialize boarding replacement transaction")
+				if count > 0 {
+					log.Debugf("added %d boarding transaction(s)", count)
+				}
+			}
+
+			if len(txsToConfirm) > 0 {
+				count, err := a.store.TransactionStore().ConfirmTransactions(
+					ctx, txsToConfirm, time.Now(),
+				)
+				if err != nil {
+					log.WithError(err).Error("failed to update boarding transactions")
 					continue
 				}
+				if count > 0 {
+					log.Debugf("confirmed %d boarding transaction(s)", count)
+				}
+			}
 
-				utxoStore := a.store.UtxoStore()
+			if len(update.Replacements) > 0 {
+				count, err := a.store.TransactionStore().RbfTransactions(ctx, update.Replacements)
+				if err != nil {
+					log.WithError(err).Error("failed to update rbf boarding transactions")
+					continue
+				}
+				if count > 0 {
+					log.Debugf("replaced %d boarding transaction(s)", count)
+				}
 
-				for outputIndex := range tx.TxOut {
-					replacedUtxo := types.Outpoint{
-						Txid: replacedTxid,
-						VOut: uint32(outputIndex),
+				for replacedTxid, replacementTxid := range update.Replacements {
+					newTransaction, err := a.explorer.GetTxHex(replacementTxid)
+					if err != nil {
+						log.WithError(err).Error("failed to get boarding replacement transaction")
+						continue
+					}
+					var tx wire.MsgTx
+					if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(newTransaction))); err != nil {
+						log.WithError(err).Error("failed to deserialize boarding replacement transaction")
+						continue
 					}
 
-					if utxos, err := utxoStore.GetUtxos(ctx, []types.Outpoint{replacedUtxo}); err != nil && len(utxos) > 0 {
-						if err := utxoStore.ReplaceUtxos(ctx, replacedUtxo, types.Outpoint{
-							Txid: replacementTxid,
+					utxoStore := a.store.UtxoStore()
+
+					for outputIndex := range tx.TxOut {
+						replacedUtxo := types.Outpoint{
+							Txid: replacedTxid,
 							VOut: uint32(outputIndex),
-						}); err != nil {
-							log.WithError(err).Error("failed to replace boarding utxo")
-							continue
+						}
+
+						if utxos, err := utxoStore.GetUtxos(ctx, []types.Outpoint{replacedUtxo}); err == nil && len(utxos) > 0 {
+							if err := utxoStore.ReplaceUtxos(ctx, replacedUtxo, types.Outpoint{
+								Txid: replacementTxid,
+								VOut: uint32(outputIndex),
+							}); err != nil {
+								log.WithError(err).Error("failed to replace boarding utxo")
+								continue
+							}
 						}
 					}
 				}
 			}
-		}
 
-		if len(update.NewUtxos) > 0 {
-			count, err := a.store.UtxoStore().AddUtxos(ctx, update.NewUtxos)
-			if err != nil {
-				log.WithError(err).Error("failed to add new boarding utxos")
-				continue
+			if len(update.NewUtxos) > 0 {
+				utxosToAdd := make([]types.Utxo, 0, len(update.NewUtxos))
+				for _, u := range update.NewUtxos {
+					address, ok := addressByScript[u.Script]
+					if !ok {
+						log.WithField("script", u.Script).WithField("outpoint", u.Outpoint).Error("failed to find address for new boarding utxo")
+						continue
+					}
+
+					txHex, err := a.explorer.GetTxHex(u.Txid)
+					if err != nil {
+						log.WithField("txid", u.Txid).WithError(err).Error("failed to get boarding utxo transaction")
+						continue
+					}
+
+					utxosToAdd = append(utxosToAdd, types.Utxo{
+						Outpoint:   u.Outpoint,
+						Amount:     u.Amount,
+						Script:     u.Script,
+						Delay:      address.delay,
+						Spent:      false,
+						SpentBy:    "",
+						Tx:         txHex,
+						Tapscripts: address.tapscripts,
+					})
+				}
+
+				count, err := a.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
+				if err != nil {
+					log.WithError(err).Error("failed to add new boarding utxos")
+					continue
+				}
+				if count > 0 {
+					log.Debugf("added %d new boarding utxo(s)", count)
+				}
 			}
-			if count > 0 {
-				log.Debugf("added %d new boarding utxo(s)", count)
+			if len(utxosToConfirm) > 0 {
+				count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
+				if err != nil {
+					log.WithError(err).Error("failed to add new boarding utxos")
+					continue
+				}
+				if count > 0 {
+					log.Debugf("confirmed %d boarding utxo(s)", count)
+				}
 			}
-		}
-		if len(utxosToConfirm) > 0 {
-			count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
-			if err != nil {
-				log.WithError(err).Error("failed to add new boarding utxos")
-				continue
-			}
-			if count > 0 {
-				log.Debugf("confirmed %d boarding utxo(s)", count)
-			}
-		}
-		if len(utxosToSpend) > 0 {
-			count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
-			if err != nil {
-				log.WithError(err).Error("failed to mark boarding utxos as spent")
-				continue
-			}
-			if count > 0 {
-				log.Debugf("spent %d boarding utxo(s)", count)
+			if len(utxosToSpend) > 0 {
+				count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+				if err != nil {
+					log.WithError(err).Error("failed to mark boarding utxos as spent")
+					continue
+				}
+				if count > 0 {
+					log.Debugf("spent %d boarding utxo(s)", count)
+				}
 			}
 		}
 	}
@@ -1343,13 +1502,7 @@ func (a *arkClient) listenForBoardingTxs() {
 func (a *arkClient) sendExpiredBoardingUtxos(
 	ctx context.Context, to string,
 ) (string, error) {
-	netParams := utils.ToBitcoinNetwork(a.Network)
-	rcvAddr, err := btcutil.DecodeAddress(to, &netParams)
-	if err != nil {
-		return "", err
-	}
-
-	pkscript, err := txscript.PayToAddrScript(rcvAddr)
+	pkscript, err := toOutputScript(to, a.Network)
 	if err != nil {
 		return "", err
 	}
@@ -1425,13 +1578,7 @@ func (a *arkClient) sendExpiredBoardingUtxos(
 func (a *arkClient) completeUnilateralExit(
 	ctx context.Context, to string,
 ) (string, error) {
-	netParams := utils.ToBitcoinNetwork(a.Network)
-	rcvAddr, err := btcutil.DecodeAddress(to, &netParams)
-	if err != nil {
-		return "", err
-	}
-
-	pkscript, err := txscript.PayToAddrScript(rcvAddr)
+	pkscript, err := toOutputScript(to, a.Network)
 	if err != nil {
 		return "", err
 	}
@@ -2542,12 +2689,7 @@ func (a *arkClient) createAndSignForfeits(
 	vtxosToSign []client.TapscriptsVtxo,
 	connectorsLeaves []*psbt.Packet,
 ) ([]string, error) {
-	parsedForfeitAddr, err := btcutil.DecodeAddress(a.ForfeitAddress, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	forfeitPkScript, err := txscript.PayToAddrScript(parsedForfeitAddr)
+	forfeitPkScript, err := toOutputScript(a.ForfeitAddress, a.Network)
 	if err != nil {
 		return nil, err
 	}
@@ -3447,4 +3589,32 @@ func (i *arkClient) vtxosToTxs(
 	}
 
 	return txs, nil
+}
+
+func toOutputScript(onchainAddress string, network arklib.Network) ([]byte, error) {
+	netParams := utils.ToBitcoinNetwork(network)
+	rcvAddr, err := btcutil.DecodeAddress(onchainAddress, &netParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return txscript.PayToAddrScript(rcvAddr)
+}
+
+func toOnchainAddress(arkAddress string, network arklib.Network) (string, error) {
+	netParams := utils.ToBitcoinNetwork(network)
+
+	decodedAddr, err := arklib.DecodeAddressV0(arkAddress)
+	if err != nil {
+		return "", err
+	}
+
+	witnessProgram := schnorr.SerializePubKey(decodedAddr.VtxoTapKey)
+
+	addr, err := btcutil.NewAddressTaproot(witnessProgram, &netParams)
+	if err != nil {
+		return "", err
+	}
+
+	return addr.String(), nil
 }

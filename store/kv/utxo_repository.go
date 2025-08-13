@@ -94,6 +94,10 @@ func (s *utxoStore) ConfirmUtxos(
 			continue
 		}
 		utxo.CreatedAt = time.Unix(confirmedUtxoMap[utxo.Outpoint], 0)
+		utxo.SpendableAt = utxo.CreatedAt
+		if utxo.Delay.Value > 0 {
+			utxo.SpendableAt = utxo.SpendableAt.Add(time.Duration(utxo.Delay.Seconds()) * time.Second)
+		}
 
 		if err := s.db.Update(utxo.Outpoint.String(), &utxo); err != nil {
 			return -1, err

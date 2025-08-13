@@ -466,16 +466,18 @@ UPDATE utxo
 SET
     spent = CASE WHEN ?1 IS TRUE THEN TRUE ELSE spent END,
     spent_by = COALESCE(?2, spent_by),
-    created_at = COALESCE(?3, created_at)
-WHERE txid = ?4 AND vout = ?5
+    created_at = COALESCE(?3, created_at),
+    spendable_at = COALESCE(?4, spendable_at)
+WHERE txid = ?5 AND vout = ?6
 `
 
 type UpdateUtxoParams struct {
-	Spent     interface{}
-	SpentBy   sql.NullString
-	CreatedAt sql.NullInt64
-	Txid      string
-	Vout      int64
+	Spent       interface{}
+	SpentBy     sql.NullString
+	CreatedAt   sql.NullInt64
+	SpendableAt sql.NullInt64
+	Txid        string
+	Vout        int64
 }
 
 func (q *Queries) UpdateUtxo(ctx context.Context, arg UpdateUtxoParams) error {
@@ -483,6 +485,7 @@ func (q *Queries) UpdateUtxo(ctx context.Context, arg UpdateUtxoParams) error {
 		arg.Spent,
 		arg.SpentBy,
 		arg.CreatedAt,
+		arg.SpendableAt,
 		arg.Txid,
 		arg.Vout,
 	)

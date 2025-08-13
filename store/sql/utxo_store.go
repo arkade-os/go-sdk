@@ -242,10 +242,21 @@ func (r *utxoRepository) ConfirmUtxos(
 			if !utxo.CreatedAt.IsZero() {
 				continue
 			}
+
+			createdAtUnix := confirmedUtxosMap[utxo.Outpoint]
+			spendableAt := time.Unix(createdAtUnix, 0)
+			if utxo.Delay.Value > 0 {
+				spendableAt = spendableAt.Add(time.Duration(utxo.Delay.Seconds()) * time.Second)
+			}
+
 			if err := querierWithTx.UpdateUtxo(ctx, queries.UpdateUtxoParams{
 				Txid:      utxo.Txid,
 				Vout:      int64(utxo.VOut),
-				CreatedAt: sql.NullInt64{Int64: confirmedUtxosMap[utxo.Outpoint], Valid: true},
+				CreatedAt: sql.NullInt64{Int64: createdAtUnix, Valid: true},
+				SpendableAt: sql.NullInt64{
+					Int64: spendableAt.Unix(),
+					Valid: true,
+				},
 			}); err != nil {
 				return err
 			}

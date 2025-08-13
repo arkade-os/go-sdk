@@ -90,13 +90,13 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		if cfgData.WithTransactionFeed {
 			txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
 			a.txStreamCtxCancel = txStreamCtxCancel
-			if err := a.refreshDb(context.Background()); err != nil {
+
+			if err := a.refreshDb(txStreamCtx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
 			}
+
 			go a.listenForArkTxs(txStreamCtx)
-			if cfgData.UtxoMaxAmount != 0 {
-				go a.listenForBoardingTxs()
-			}
+			go a.listenForOnchainTxs(txStreamCtx)
 		}
 	}()
 
@@ -190,6 +190,10 @@ func (a *arkClient) Stop() {
 func (a *arkClient) ListVtxos(ctx context.Context) (
 	spendableVtxos, spentVtxos []types.Vtxo, err error,
 ) {
+	if a.WithTransactionFeed {
+		return a.store.VtxoStore().GetAllVtxos(ctx)
+	}
+
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return

@@ -38,7 +38,6 @@ type Explorer interface {
 	GetTxs(addr string) ([]tx, error)
 	GetTxOutspends(tx string) ([]spentStatus, error)
 	GetUtxos(addr string) ([]Utxo, error)
-	GetBalance(addr string) (uint64, error)
 	GetRedeemedVtxosBalance(
 		addr string, unilateralExitDelay arklib.RelativeLocktime,
 	) (uint64, map[int64]uint64, error)
@@ -370,19 +369,6 @@ func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
 	return utxos, nil
 }
 
-func (e *explorerSvc) GetBalance(addr string) (uint64, error) {
-	utxos, err := e.GetUtxos(addr)
-	if err != nil {
-		return 0, err
-	}
-
-	balance := uint64(0)
-	for _, p := range utxos {
-		balance += p.Amount
-	}
-	return balance, nil
-}
-
 func (e *explorerSvc) GetRedeemedVtxosBalance(
 	addr string, unilateralExitDelay arklib.RelativeLocktime,
 ) (spendableBalance uint64, lockedBalance map[int64]uint64, err error) {
@@ -544,9 +530,9 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 }
 
 func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
-	spentUtxos := make([]types.Utxo, 0)
-	newUtxos := make([]types.Utxo, 0)
-	confirmedUtxos := make([]types.Utxo, 0)
+	spentUtxos := make([]types.OnchainOutput, 0)
+	newUtxos := make([]types.OnchainOutput, 0)
+	confirmedUtxos := make([]types.OnchainOutput, 0)
 	replacements := make(map[string]string)
 	for addr, data := range payload.MultiAddrTx {
 		if len(data.Removed) > 0 {
@@ -559,7 +545,7 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 			for _, tx := range data.Mempool {
 				for _, in := range tx.Inputs {
 					if in.Prevout.Address == addr {
-						spentUtxos = append(spentUtxos, types.Utxo{
+						spentUtxos = append(spentUtxos, types.OnchainOutput{
 							Outpoint: types.Outpoint{
 								Txid: in.Txid,
 								VOut: uint32(in.Vout),
@@ -575,7 +561,7 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 						if tx.Status.Confirmed {
 							createdAt = time.Unix(tx.Status.BlockTime, 0)
 						}
-						newUtxos = append(newUtxos, types.Utxo{
+						newUtxos = append(newUtxos, types.OnchainOutput{
 							Outpoint: types.Outpoint{
 								Txid: tx.Txid,
 								VOut: uint32(i),
@@ -592,7 +578,7 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 			for _, tx := range data.Confirmed {
 				for i, out := range tx.Outputs {
 					if out.Address == addr {
-						confirmedUtxos = append(confirmedUtxos, types.Utxo{
+						confirmedUtxos = append(confirmedUtxos, types.OnchainOutput{
 							Outpoint: types.Outpoint{
 								Txid: tx.Txid,
 								VOut: uint32(i),
@@ -623,7 +609,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 	for _, newUtxo := range newUtxos {
 		indexedNewUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)] = newUtxo
 	}
-	spentUtxos := make([]types.Utxo, 0)
+	spentUtxos := make([]types.OnchainOutput, 0)
 	for _, oldUtxo := range oldUtxos {
 		if _, ok := indexedNewUtxos[fmt.Sprintf("%s:%d", oldUtxo.Txid, oldUtxo.Vout)]; !ok {
 			var spentBy string
@@ -631,7 +617,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 			if len(spentStatus) > int(oldUtxo.Vout) {
 				spentBy = spentStatus[oldUtxo.Vout].SpentBy
 			}
-			spentUtxos = append(spentUtxos, types.Utxo{
+			spentUtxos = append(spentUtxos, types.OnchainOutput{
 				Outpoint: types.Outpoint{
 					Txid: oldUtxo.Txid,
 					VOut: oldUtxo.Vout,
@@ -641,8 +627,8 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 			})
 		}
 	}
-	receivedUtxos := make([]types.Utxo, 0)
-	confirmedUtxos := make([]types.Utxo, 0)
+	receivedUtxos := make([]types.OnchainOutput, 0)
+	confirmedUtxos := make([]types.OnchainOutput, 0)
 	for _, newUtxo := range newUtxos {
 		oldUtxo, ok := indexedOldUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)]
 		if !ok {
@@ -650,7 +636,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 			if newUtxo.Status.Confirmed {
 				createdAt = time.Unix(newUtxo.Status.BlockTime, 0)
 			}
-			receivedUtxos = append(receivedUtxos, types.Utxo{
+			receivedUtxos = append(receivedUtxos, types.OnchainOutput{
 				Outpoint: types.Outpoint{
 					Txid: newUtxo.Txid,
 					VOut: newUtxo.Vout,
@@ -662,7 +648,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 			continue
 		}
 		if !oldUtxo.Status.Confirmed && newUtxo.Status.Confirmed {
-			confirmedUtxos = append(confirmedUtxos, types.Utxo{
+			confirmedUtxos = append(confirmedUtxos, types.OnchainOutput{
 				Outpoint: types.Outpoint{
 					Txid: newUtxo.Txid,
 					VOut: newUtxo.Vout,

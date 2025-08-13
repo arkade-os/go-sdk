@@ -216,6 +216,10 @@ type Utxo struct {
 	Tx          string
 }
 
+func (u Utxo) IsConfirmed() bool {
+	return !u.CreatedAt.IsZero()
+}
+
 func (u *Utxo) Sequence() (uint32, error) {
 	return arklib.BIP68Sequence(u.Delay)
 }
@@ -265,9 +269,18 @@ func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
 	}, isOnchain, nil
 }
 
+type OnchainOutput struct {
+	Outpoint
+	Script    string
+	Amount    uint64
+	CreatedAt time.Time
+	Spent     bool
+	SpentBy   string
+}
+
 type OnchainAddressEvent struct {
-	SpentUtxos     []Utxo
-	NewUtxos       []Utxo
-	ConfirmedUtxos []Utxo
+	SpentUtxos     []OnchainOutput
+	NewUtxos       []OnchainOutput
+	ConfirmedUtxos []OnchainOutput
 	Replacements   map[string]string // replacedTxid -> replacementTxid
 }

@@ -69,6 +69,7 @@ SET
     spent = CASE WHEN :spent IS TRUE THEN TRUE ELSE spent END,
     spent_by = COALESCE(sqlc.narg(spent_by), spent_by),
     created_at = COALESCE(sqlc.narg(created_at), created_at),
+    spendable_at = COALESCE(sqlc.narg(spendable_at), spendable_at)
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SelectAllUtxos :many
@@ -77,6 +78,10 @@ SELECT * from utxo;
 -- name: SelectUtxo :one
 SELECT *
 FROM utxo
+WHERE txid = :txid AND vout = :vout;
+
+-- name: DeleteUtxo :exec
+DELETE FROM utxo
 WHERE txid = :txid AND vout = :vout;
 
 -- name: CleanUtxos :exec
