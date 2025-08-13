@@ -30,7 +30,11 @@ func NewUtxoStore(db *sql.DB) types.UtxoStore {
 	}
 }
 
-func (r *utxoRepository) ReplaceUtxos(ctx context.Context, from types.Outpoint, to types.Outpoint) error {
+func (r *utxoRepository) ReplaceUtxos(
+	ctx context.Context,
+	from types.Outpoint,
+	to types.Outpoint,
+) error {
 	// Get the UTXO at the 'from' outpoint
 	utxo, err := r.querier.SelectUtxo(ctx, queries.SelectUtxoParams{
 		Txid: from.Txid,

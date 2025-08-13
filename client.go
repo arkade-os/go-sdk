@@ -222,10 +222,13 @@ func (a *arkClient) getBalanceFromStore(
 			continue
 		}
 
-		balance.OnchainBalance.LockedAmount = append(balance.OnchainBalance.LockedAmount, LockedOnchainBalance{
-			SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
-			Amount:      utxo.Amount,
-		})
+		balance.OnchainBalance.LockedAmount = append(
+			balance.OnchainBalance.LockedAmount,
+			LockedOnchainBalance{
+				SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
+				Amount:      utxo.Amount,
+			},
+		)
 	}
 
 	return balance, nil
@@ -1140,7 +1143,10 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 	return nil
 }
 
-func (a *arkClient) refreshUtxoDb(ctx context.Context, spendableUtxos, spentUtxos []types.Utxo) error {
+func (a *arkClient) refreshUtxoDb(
+	ctx context.Context,
+	spendableUtxos, spentUtxos []types.Utxo,
+) error {
 	// Fetch old data.
 	oldSpendableUtxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
 	if err != nil {
@@ -1207,7 +1213,10 @@ func (a *arkClient) refreshUtxoDb(ctx context.Context, spendableUtxos, spentUtxo
 	return nil
 }
 
-func (a *arkClient) refreshVtxoDb(ctx context.Context, spendableVtxos, spentVtxos []types.Vtxo) error {
+func (a *arkClient) refreshVtxoDb(
+	ctx context.Context,
+	spendableVtxos, spentVtxos []types.Vtxo,
+) error {
 	// Fetch old data.
 	oldSpendableVtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
 	if err != nil {
@@ -1414,7 +1423,8 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					}
 					var tx wire.MsgTx
 					if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(newTransaction))); err != nil {
-						log.WithError(err).Error("failed to deserialize boarding replacement transaction")
+						log.WithError(err).
+							Error("failed to deserialize boarding replacement transaction")
 						continue
 					}
 
@@ -1426,7 +1436,8 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 							VOut: uint32(outputIndex),
 						}
 
-						if utxos, err := utxoStore.GetUtxos(ctx, []types.Outpoint{replacedUtxo}); err == nil && len(utxos) > 0 {
+						if utxos, err := utxoStore.GetUtxos(ctx, []types.Outpoint{replacedUtxo}); err == nil &&
+							len(utxos) > 0 {
 							if err := utxoStore.ReplaceUtxos(ctx, replacedUtxo, types.Outpoint{
 								Txid: replacementTxid,
 								VOut: uint32(outputIndex),
@@ -1444,13 +1455,17 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				for _, u := range update.NewUtxos {
 					address, ok := addressByScript[u.Script]
 					if !ok {
-						log.WithField("script", u.Script).WithField("outpoint", u.Outpoint).Error("failed to find address for new boarding utxo")
+						log.WithField("script", u.Script).
+							WithField("outpoint", u.Outpoint).
+							Error("failed to find address for new boarding utxo")
 						continue
 					}
 
 					txHex, err := a.explorer.GetTxHex(u.Txid)
 					if err != nil {
-						log.WithField("txid", u.Txid).WithError(err).Error("failed to get boarding utxo transaction")
+						log.WithField("txid", u.Txid).
+							WithError(err).
+							Error("failed to get boarding utxo transaction")
 						continue
 					}
 
@@ -2928,15 +2943,17 @@ func (a *arkClient) getAllBoardingUtxos(
 							Txid: tx.Txid,
 							VOut: uint32(i),
 						},
-						Amount:      vout.Amount,
-						Script:      vout.Script,
-						Delay:       a.BoardingExitDelay,
-						SpendableAt: utxoTime.Add(time.Duration(a.BoardingExitDelay.Seconds()) * time.Second),
-						CreatedAt:   createdAt,
-						Tapscripts:  addr.Tapscripts,
-						Spent:       spent,
-						SpentBy:     spentBy,
-						Tx:          txHex,
+						Amount: vout.Amount,
+						Script: vout.Script,
+						Delay:  a.BoardingExitDelay,
+						SpendableAt: utxoTime.Add(
+							time.Duration(a.BoardingExitDelay.Seconds()) * time.Second,
+						),
+						CreatedAt:  createdAt,
+						Tapscripts: addr.Tapscripts,
+						Spent:      spent,
+						SpentBy:    spentBy,
+						Tx:         txHex,
 					})
 				}
 			}

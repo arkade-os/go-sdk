@@ -39,7 +39,11 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 	}, nil
 }
 
-func (s *utxoStore) ReplaceUtxos(ctx context.Context, from types.Outpoint, to types.Outpoint) error {
+func (s *utxoStore) ReplaceUtxos(
+	ctx context.Context,
+	from types.Outpoint,
+	to types.Outpoint,
+) error {
 	var utxo types.Utxo
 	if err := s.db.Get(from.String(), &utxo); err != nil {
 		return err
@@ -60,7 +64,7 @@ func (s *utxoStore) ReplaceUtxos(ctx context.Context, from types.Outpoint, to ty
 func (s *utxoStore) AddUtxos(_ context.Context, utxos []types.Utxo) (int, error) {
 	addedUtxos := make([]types.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
-		if err := s.db.Insert(utxo.Outpoint.String(), &utxo); err != nil {
+		if err := s.db.Insert(utxo.String(), &utxo); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
 				continue
 			}
@@ -96,10 +100,12 @@ func (s *utxoStore) ConfirmUtxos(
 		utxo.CreatedAt = time.Unix(confirmedUtxoMap[utxo.Outpoint], 0)
 		utxo.SpendableAt = utxo.CreatedAt
 		if utxo.Delay.Value > 0 {
-			utxo.SpendableAt = utxo.SpendableAt.Add(time.Duration(utxo.Delay.Seconds()) * time.Second)
+			utxo.SpendableAt = utxo.SpendableAt.Add(
+				time.Duration(utxo.Delay.Seconds()) * time.Second,
+			)
 		}
 
-		if err := s.db.Update(utxo.Outpoint.String(), &utxo); err != nil {
+		if err := s.db.Update(utxo.String(), &utxo); err != nil {
 			return -1, err
 		}
 		confirmedUtxos = append(confirmedUtxos, utxo)
@@ -132,7 +138,7 @@ func (s *utxoStore) SpendUtxos(
 		utxo.Spent = true
 		utxo.SpentBy = spentUtxoMap[utxo.Outpoint]
 
-		if err := s.db.Update(utxo.Outpoint.String(), &utxo); err != nil {
+		if err := s.db.Update(utxo.String(), &utxo); err != nil {
 			return -1, err
 		}
 		spentUtxos = append(spentUtxos, utxo)

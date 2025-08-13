@@ -107,7 +107,9 @@ func NewExplorer(baseUrl string, net arklib.Network) (Explorer, error) {
 func (e *explorerSvc) Stop() {
 	e.stopTracking()
 	if e.conn != nil {
-		e.conn.Close()
+		if err := e.conn.Close(); err != nil {
+			log.WithError(err).Error("failed to close websocket connection")
+		}
 	}
 	close(e.channel)
 }
@@ -447,13 +449,17 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 				return
 			}
 			e.conn.SetPongHandler(func(string) error {
-				e.conn.SetReadDeadline(time.Now().Add(pongInterval))
-				return nil
+				return e.conn.SetReadDeadline(time.Now().Add(pongInterval))
 			})
 			for {
 				var payload addressNotification
 				if err := e.conn.ReadJSON(&payload); err != nil {
-					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, net.ErrClosed) {
+					if websocket.IsCloseError(
+						err,
+						websocket.CloseNormalClosure,
+						websocket.CloseGoingAway,
+					) ||
+						errors.Is(err, net.ErrClosed) {
 						return
 					}
 					log.WithError(err).Error("failed to read address notification")
