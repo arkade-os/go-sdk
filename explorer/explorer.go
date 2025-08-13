@@ -104,7 +104,7 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		conn:          conn,
 		subscribedMu:  &sync.RWMutex{},
 		subscribedMap: make(map[string]addressData),
-		channel:       make(chan types.OnchainAddressEvent),
+		channel:       make(chan types.OnchainAddressEvent, 100),
 		stopTracking:  cancel,
 		pollInterval:  defaultPollInterval,
 	}
@@ -486,7 +486,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 					continue
 				}
 
-				go e.sendAddressEventFromWs(payload)
+				go e.sendAddressEventFromWs(ctx, payload)
 			}
 		}(ctx)
 
@@ -522,8 +522,21 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			e.subscribedMu.RLock()
-			subscribedMap := e.subscribedMap
+			// make a snapshot copy of the map to avoid race conditions
+			subscribedMap := make(map[string]addressData, len(e.subscribedMap))
+			for addr, data := range e.subscribedMap {
+				hashCopy := make([]byte, len(data.hash))
+				copy(hashCopy, data.hash)
+				utxosCopy := make([]Utxo, len(data.utxos))
+				copy(utxosCopy, data.utxos)
+
+				subscribedMap[addr] = addressData{
+					hash:  hashCopy,
+					utxos: utxosCopy,
+				}
+			}
 			e.subscribedMu.RUnlock()
+
 			if len(subscribedMap) == 0 {
 				continue
 			}
@@ -535,7 +548,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 				buf, _ := json.Marshal(utxos)
 				hashedResp := sha256.Sum256(buf)
 				if !bytes.Equal(data.hash, hashedResp[:]) {
-					go e.sendAddressEventFromPolling(data.utxos, utxos)
+					go e.sendAddressEventFromPolling(ctx, data.utxos, utxos)
 					e.subscribedMu.Lock()
 					e.subscribedMap[addr] = addressData{
 						hash:  hashedResp[:],
@@ -551,7 +564,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 	}
 }
 
-func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
+func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
 	spentUtxos := make([]types.OnchainOutput, 0)
 	newUtxos := make([]types.OnchainOutput, 0)
 	confirmedUtxos := make([]types.OnchainOutput, 0)
@@ -559,7 +572,9 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 	for addr, data := range payload.MultiAddrTx {
 		if len(data.Removed) > 0 {
 			for _, tx := range data.Removed {
-				replacements[tx.Txid] = data.Mempool[0].Txid
+				if len(data.Mempool) > 0 {
+					replacements[tx.Txid] = data.Mempool[0].Txid
+				}
 			}
 			continue
 		}
@@ -614,15 +629,16 @@ func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 			}
 		}
 	}
-	e.channel <- types.OnchainAddressEvent{
+
+	e.sendAddressEvent(ctx, types.OnchainAddressEvent{
 		NewUtxos:       newUtxos,
 		SpentUtxos:     spentUtxos,
 		ConfirmedUtxos: confirmedUtxos,
 		Replacements:   replacements,
-	}
+	})
 }
 
-func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
+func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos, newUtxos []Utxo) {
 	indexedOldUtxos := make(map[string]Utxo, 0)
 	indexedNewUtxos := make(map[string]Utxo, 0)
 	for _, oldUtxo := range oldUtxos {
@@ -681,11 +697,12 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []Utxo) {
 			})
 		}
 	}
-	e.channel <- types.OnchainAddressEvent{
+
+	e.sendAddressEvent(ctx, types.OnchainAddressEvent{
 		SpentUtxos:     spentUtxos,
 		NewUtxos:       receivedUtxos,
 		ConfirmedUtxos: confirmedUtxos,
-	}
+	})
 }
 
 func (e *explorerSvc) getTxHex(txid string) (string, error) {
@@ -728,6 +745,14 @@ func (e *explorerSvc) broadcast(txHex string) (string, error) {
 	}
 
 	return string(bodyResponse), nil
+}
+
+func (e *explorerSvc) sendAddressEvent(ctx context.Context, event types.OnchainAddressEvent) {
+	select {
+	case <-ctx.Done():
+		return
+	case e.channel <- event:
+	}
 }
 
 func parseBitcoinTx(txStr string) (string, string, error) {

@@ -30,12 +30,11 @@ func NewUtxoStore(db *sql.DB) types.UtxoStore {
 	}
 }
 
-func (r *utxoRepository) ReplaceUtxos(
+func (r *utxoRepository) ReplaceUtxo(
 	ctx context.Context,
 	from types.Outpoint,
 	to types.Outpoint,
 ) error {
-	// Get the UTXO at the 'from' outpoint
 	utxo, err := r.querier.SelectUtxo(ctx, queries.SelectUtxoParams{
 		Txid: from.Txid,
 		Vout: int64(from.VOut),
@@ -47,15 +46,11 @@ func (r *utxoRepository) ReplaceUtxos(
 		return err
 	}
 
-	// Convert the database row to our Utxo type
 	existingUtxo := rowToUtxo(utxo)
 
-	// Update the outpoint to the new location
 	existingUtxo.Outpoint = to
 
-	// Use a transaction to ensure atomicity
 	txBody := func(querierWithTx *queries.Queries) error {
-		// Delete the old UTXO
 		if err := querierWithTx.DeleteUtxo(ctx, queries.DeleteUtxoParams{
 			Txid: from.Txid,
 			Vout: int64(from.VOut),
@@ -63,7 +58,6 @@ func (r *utxoRepository) ReplaceUtxos(
 			return err
 		}
 
-		// Insert the UTXO at the new location
 		var createdAt, spendableAt int64
 		if !existingUtxo.CreatedAt.IsZero() {
 			createdAt = existingUtxo.CreatedAt.Unix()
@@ -167,7 +161,7 @@ func (r *utxoRepository) AddUtxos(ctx context.Context, utxos []types.Utxo) (int,
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-					return nil
+					continue
 				}
 				return err
 			}
@@ -213,6 +207,8 @@ func (r *utxoRepository) SpendUtxos(
 			}); err != nil {
 				return err
 			}
+			utxo.Spent = true
+			utxo.SpentBy = spentUtxoMap[utxo.Outpoint]
 			spentUtxos = append(spentUtxos, utxo)
 		}
 		return nil
@@ -264,6 +260,8 @@ func (r *utxoRepository) ConfirmUtxos(
 			}); err != nil {
 				return err
 			}
+			utxo.CreatedAt = spendableAt
+			utxo.SpendableAt = spendableAt
 			confirmedUtxos = append(confirmedUtxos, utxo)
 		}
 		return nil

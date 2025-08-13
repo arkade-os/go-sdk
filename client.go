@@ -1438,7 +1438,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 
 						if utxos, err := utxoStore.GetUtxos(ctx, []types.Outpoint{replacedUtxo}); err == nil &&
 							len(utxos) > 0 {
-							if err := utxoStore.ReplaceUtxos(ctx, replacedUtxo, types.Outpoint{
+							if err := utxoStore.ReplaceUtxo(ctx, replacedUtxo, types.Outpoint{
 								Txid: replacementTxid,
 								VOut: uint32(outputIndex),
 							}); err != nil {

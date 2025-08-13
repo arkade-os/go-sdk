@@ -39,7 +39,7 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 	}, nil
 }
 
-func (s *utxoStore) ReplaceUtxos(
+func (s *utxoStore) ReplaceUtxo(
 	ctx context.Context,
 	from types.Outpoint,
 	to types.Outpoint,
@@ -49,14 +49,16 @@ func (s *utxoStore) ReplaceUtxos(
 		return err
 	}
 
-	originalUtxo := utxo
-
-	utxo.Outpoint = to
-	if err := s.db.Update(to.String(), &utxo); err != nil {
+	if err := s.db.Delete(from.String(), &utxo); err != nil {
 		return err
 	}
 
-	go s.sendEvent(types.UtxoEvent{Type: types.UtxosReplaced, Utxos: []types.Utxo{originalUtxo}})
+	utxo.Outpoint = to
+	if err := s.db.Insert(to.String(), &utxo); err != nil {
+		return err
+	}
+
+	go s.sendEvent(types.UtxoEvent{Type: types.UtxosReplaced, Utxos: []types.Utxo{utxo}})
 
 	return nil
 }

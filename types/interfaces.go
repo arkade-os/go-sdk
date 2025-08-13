@@ -38,7 +38,7 @@ type TransactionStore interface {
 
 type UtxoStore interface {
 	AddUtxos(ctx context.Context, utxos []Utxo) (int, error)
-	ReplaceUtxos(ctx context.Context, to Outpoint, from Outpoint) error
+	ReplaceUtxo(ctx context.Context, from Outpoint, to Outpoint) error
 	ConfirmUtxos(ctx context.Context, confirmedUtxos map[Outpoint]int64) (int, error)
 	SpendUtxos(ctx context.Context, spentUtxos map[Outpoint]string) (int, error)
 	GetAllUtxos(ctx context.Context) (spendable, spent []Utxo, err error)
