@@ -27,9 +27,10 @@ import (
 )
 
 const (
-	BitcoinExplorer = "bitcoin"
-	pongInterval    = 60 * time.Second
-	pingInterval    = (pongInterval * 9) / 10
+	BitcoinExplorer     = "bitcoin"
+	pongInterval        = 60 * time.Second
+	pingInterval        = (pongInterval * 9) / 10
+	defaultPollInterval = 10 * time.Second
 )
 
 type Explorer interface {
@@ -66,9 +67,18 @@ type explorerSvc struct {
 	subscribedMap map[string]addressData
 	channel       chan types.OnchainAddressEvent
 	stopTracking  func()
+	pollInterval  time.Duration
 }
 
-func NewExplorer(baseUrl string, net arklib.Network) (Explorer, error) {
+type Option func(*explorerSvc)
+
+func WithPollInterval(interval time.Duration) Option {
+	return func(svc *explorerSvc) {
+		svc.pollInterval = interval
+	}
+}
+
+func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, error) {
 	wsURL, err := deriveWsURL(baseUrl, net)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base url: %s", err)
@@ -96,7 +106,13 @@ func NewExplorer(baseUrl string, net arklib.Network) (Explorer, error) {
 		subscribedMap: make(map[string]addressData),
 		channel:       make(chan types.OnchainAddressEvent),
 		stopTracking:  cancel,
+		pollInterval:  defaultPollInterval,
 	}
+
+	for _, opt := range opts {
+		opt(svc)
+	}
+
 	if conn != nil {
 		svc.startTracking(ctx)
 	}
@@ -499,7 +515,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 
 	// Otherwise (esplora url), poll the explorer every 10s and manually send notifications of
 	// spent, new and confirmed utxos.
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 
 	for {
