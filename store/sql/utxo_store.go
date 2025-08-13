@@ -260,7 +260,7 @@ func (r *utxoRepository) ConfirmUtxos(
 			}); err != nil {
 				return err
 			}
-			utxo.CreatedAt = spendableAt
+			utxo.CreatedAt = time.Unix(createdAtUnix, 0)
 			utxo.SpendableAt = spendableAt
 			confirmedUtxos = append(confirmedUtxos, utxo)
 		}

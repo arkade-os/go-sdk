@@ -1168,8 +1168,8 @@ func (a *arkClient) refreshUtxoDb(
 			var confirmedAt int64
 			if !utxo.CreatedAt.IsZero() {
 				confirmedAt = utxo.CreatedAt.Unix()
+				utxosToConfirm[utxo.Outpoint] = confirmedAt
 			}
-			utxosToConfirm[utxo.Outpoint] = confirmedAt
 		}
 	}
 
