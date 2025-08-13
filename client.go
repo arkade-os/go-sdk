@@ -1943,6 +1943,8 @@ func (a *arkClient) handleBatchEvents(
 	flatVtxoTree := make([]tree.TxTreeNode, 0)
 	flatConnectorTree := make([]tree.TxTreeNode, 0)
 
+	batchId := ""
+
 	var vtxoTree, connectorTree *tree.TxTree
 
 	if !hasOffchainOutput {
@@ -1966,8 +1968,6 @@ func (a *arkClient) handleBatchEvents(
 					replayEventsCh <- notify.Event
 				}()
 			}
-
-			batchId := ""
 
 			switch event := notify.Event; event.(type) {
 			case client.BatchStartedEvent:

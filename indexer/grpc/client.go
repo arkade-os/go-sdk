@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -21,8 +23,9 @@ import (
 const cloudflare524Error = "524"
 
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  arkv1.IndexerServiceClient
+	conn             *grpc.ClientConn
+	connMu           sync.RWMutex
+	monitoringCancel context.CancelFunc
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -41,14 +44,72 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+
+	option := grpc.WithTransportCredentials(creds)
+
+	conn, err := grpc.NewClient(serverUrl, option)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := arkv1.NewIndexerServiceClient(conn)
+	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
+	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
 
-	return &grpcClient{conn, svc}, nil
+	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
+		client.connMu.Lock()
+		// nolint:errcheck
+		client.conn.Close()
+		client.connMu.Unlock()
+
+		// wait for the arkd server to be ready by pinging it every 5 seconds
+		ticker := time.NewTicker(time.Second * 5)
+		defer ticker.Stop()
+		isUnlocked := false
+		for !isUnlocked {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				pingConn, err := grpc.NewClient(serverUrl, option)
+				if err != nil {
+					continue
+				}
+				// we use GetVirtualTxs with a dummy txid to check if the server is ready
+				// we know that if this RPC returns an error, the server is not unlocked yet
+				_, err = arkv1.NewIndexerServiceClient(pingConn).
+					GetVirtualTxs(ctx, &arkv1.GetVirtualTxsRequest{
+						Txids: []string{
+							"0000000000000000000000000000000000000000000000000000000000000000",
+						},
+					})
+				if err != nil {
+					// nolint:errcheck
+					pingConn.Close()
+					continue
+				}
+
+				// nolint:errcheck
+				pingConn.Close()
+				isUnlocked = true
+			}
+		}
+
+		client.connMu.Lock()
+		defer client.connMu.Unlock()
+		client.conn, err = grpc.NewClient(serverUrl, option)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return client, nil
+}
+
+func (a *grpcClient) svc() arkv1.IndexerServiceClient {
+	a.connMu.RLock()
+	defer a.connMu.RUnlock()
+	return arkv1.NewIndexerServiceClient(a.conn)
 }
 
 func (a *grpcClient) GetCommitmentTx(
@@ -58,7 +119,7 @@ func (a *grpcClient) GetCommitmentTx(
 	req := &arkv1.GetCommitmentTxRequest{
 		Txid: txid,
 	}
-	resp, err := a.svc.GetCommitmentTx(ctx, req)
+	resp, err := a.svc().GetCommitmentTx(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +165,7 @@ func (a *grpcClient) GetVtxoTree(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoTree(ctx, req)
+	resp, err := a.svc().GetVtxoTree(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +237,7 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoTreeLeaves(ctx, req)
+	resp, err := a.svc().GetVtxoTreeLeaves(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +273,7 @@ func (a *grpcClient) GetForfeitTxs(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetForfeitTxs(ctx, req)
+	resp, err := a.svc().GetForfeitTxs(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +301,7 @@ func (a *grpcClient) GetConnectors(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetConnectors(ctx, req)
+	resp, err := a.svc().GetConnectors(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +345,7 @@ func (a *grpcClient) GetVtxos(
 		Page:            page,
 	}
 
-	resp, err := a.svc.GetVtxos(ctx, req)
+	resp, err := a.svc().GetVtxos(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +381,7 @@ func (a *grpcClient) GetVtxoChain(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoChain(ctx, req)
+	resp, err := a.svc().GetVtxoChain(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +433,7 @@ func (a *grpcClient) GetVirtualTxs(
 		Page:  page,
 	}
 
-	resp, err := a.svc.GetVirtualTxs(ctx, req)
+	resp, err := a.svc().GetVirtualTxs(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +455,7 @@ func (a *grpcClient) GetBatchSweepTxs(
 		},
 	}
 
-	resp, err := a.svc.GetBatchSweepTransactions(ctx, req)
+	resp, err := a.svc().GetBatchSweepTransactions(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -412,12 +473,11 @@ func (a *grpcClient) GetSubscription(
 		SubscriptionId: subscriptionId,
 	}
 
-	stream, err := a.svc.GetSubscription(ctx, req)
+	stream, err := a.svc().GetSubscription(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
-
 	eventsCh := make(chan *indexer.ScriptEvent)
 
 	go func() {
@@ -440,7 +500,7 @@ func (a *grpcClient) GetSubscription(
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = a.svc.GetSubscription(ctx, req)
+							stream, err = a.svc().GetSubscription(ctx, req)
 							if err != nil {
 								eventsCh <- &indexer.ScriptEvent{Err: err}
 								return
@@ -498,7 +558,7 @@ func (a *grpcClient) SubscribeForScripts(
 		req.SubscriptionId = subscriptionId
 	}
 
-	resp, err := a.svc.SubscribeForScripts(ctx, req)
+	resp, err := a.svc().SubscribeForScripts(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -516,12 +576,18 @@ func (a *grpcClient) UnsubscribeForScripts(
 	if len(subscriptionId) > 0 {
 		req.SubscriptionId = subscriptionId
 	}
-	_, err := a.svc.UnsubscribeForScripts(ctx, req)
-	return err
+	_, err := a.svc().UnsubscribeForScripts(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *grpcClient) Close() {
-	// nolint
+	a.monitoringCancel()
+	a.connMu.Lock()
+	defer a.connMu.Unlock()
+	// nolint:errcheck
 	a.conn.Close()
 }
 
