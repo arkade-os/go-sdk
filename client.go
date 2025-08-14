@@ -976,9 +976,12 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 	}
 	defer closeFunc()
 
-	ctxBg := context.Background()
+	log.Debugf("listening for ark txs")
 	for {
 		select {
+		case <-ctx.Done():
+			log.Debugf("stopping ark tx listener")
+			return
 		case event, ok := <-eventChan:
 			if !ok {
 				continue
@@ -1009,14 +1012,14 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			}
 
 			if event.CommitmentTx != nil {
-				if err := a.handleCommitmentTx(ctxBg, myScripts, event.CommitmentTx); err != nil {
+				if err := a.handleCommitmentTx(ctx, myScripts, event.CommitmentTx); err != nil {
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
 			}
 
 			if event.ArkTx != nil {
-				if err := a.handleArkTx(ctxBg, myScripts, event.ArkTx); err != nil {
+				if err := a.handleArkTx(ctx, myScripts, event.ArkTx); err != nil {
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
@@ -1352,6 +1355,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 
 	ch := a.explorer.GetAddressesEvents()
 
+	log.Debugf("subscribed for %d addresses", len(addresses))
 	for {
 		select {
 		case <-ctx.Done():
@@ -1361,6 +1365,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 			return
 		case update := <-ch:
+			log.Debugf("received onchain transaction event: %+v", update)
 			txsToAdd := make([]types.Transaction, 0)
 			txsToConfirm := make([]string, 0)
 			utxosToConfirm := make(map[types.Outpoint]int64)

@@ -537,6 +537,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			log.Debugf("polling explorer to refresh utxos")
 			e.subscribedMu.RLock()
 			// make a snapshot copy of the map to avoid race conditions
 			subscribedMap := make(map[string]addressData, len(e.subscribedMap))
@@ -554,6 +555,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 			e.subscribedMu.RUnlock()
 
 			if len(subscribedMap) == 0 {
+				log.Debugf("no addresses to poll")
 				continue
 			}
 			for addr, data := range subscribedMap {
