@@ -33,6 +33,17 @@ const (
 	defaultPollInterval = 10 * time.Second
 )
 
+var (
+	defaultExplorerUrls = utils.SupportedType[string]{
+		arklib.Bitcoin.Name:        "https://mempool.space/api",
+		arklib.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
+		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
+		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
+		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
+		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
+	}
+)
+
 type Explorer interface {
 	GetTxHex(txid string) (string, error)
 	Broadcast(txs ...string) (string, error)
@@ -76,6 +87,14 @@ func WithPollInterval(interval time.Duration) Option {
 	return func(svc *explorerSvc) {
 		svc.pollInterval = interval
 	}
+}
+
+func NewDefaultExplorer(network string, opts ...Option) (Explorer, error) {
+	baseUrl, ok := defaultExplorerUrls[network]
+	if !ok {
+		return nil, fmt.Errorf("invalid network: %s", network)
+	}
+	return NewExplorer(baseUrl, utils.NetworkFromString(network), opts...)
 }
 
 func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, error) {

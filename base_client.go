@@ -41,17 +41,6 @@ var (
 	ErrNotInitialized     = fmt.Errorf("client not initialized")
 )
 
-var (
-	defaultNetworks = utils.SupportedType[string]{
-		arklib.Bitcoin.Name:        "https://mempool.space/api",
-		arklib.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
-		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
-		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
-		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
-		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
-	}
-)
-
 type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
@@ -298,7 +287,15 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(args.ExplorerURL, info.Network)
+	explorerOpts := []explorer.Option{}
+	if args.ExplorerPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+	}
+
+	explorerSvc, err := explorer.NewExplorer(
+		args.ExplorerURL,
+		utils.NetworkFromString(info.Network),
+		explorerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -401,7 +398,15 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(args.ExplorerURL, info.Network)
+	explorerOpts := []explorer.Option{}
+	if args.ExplorerPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+	}
+
+	explorerSvc, err := explorer.NewExplorer(
+		args.ExplorerURL,
+		utils.NetworkFromString(info.Network),
+		explorerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -505,16 +510,6 @@ func getClient(
 ) (client.TransportClient, error) {
 	factory := supportedClients[clientType]
 	return factory(serverUrl)
-}
-
-func getExplorer(explorerURL, network string) (explorer.Explorer, error) {
-	if explorerURL == "" {
-		var ok bool
-		if explorerURL, ok = defaultNetworks[network]; !ok {
-			return nil, fmt.Errorf("invalid network")
-		}
-	}
-	return explorer.NewExplorer(explorerURL, utils.NetworkFromString(network))
 }
 
 func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {

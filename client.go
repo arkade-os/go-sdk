@@ -58,7 +58,7 @@ func NewArkClient(sdkStore types.Store) (ArkClient, error) {
 
 func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 	if sdkStore == nil {
-		return nil, fmt.Errorf("missin sdk repository")
+		return nil, fmt.Errorf("missing sdk repository")
 	}
 
 	cfgData, err := sdkStore.ConfigStore().GetData(context.Background())
@@ -76,7 +76,12 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(cfgData.ExplorerURL, cfgData.Network.Name)
+	explorerOpts := []explorer.Option{}
+	if cfgData.ExplorerPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
+	}
+
+	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -133,7 +138,12 @@ func LoadArkClientWithWallet(
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(cfgData.ExplorerURL, cfgData.Network.Name)
+	explorerOpts := []explorer.Option{}
+	if cfgData.ExplorerPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
+	}
+
+	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup explorer: %s", err)
 	}

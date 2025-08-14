@@ -34,6 +34,7 @@ type Config struct {
 	Dust                    uint64
 	BoardingExitDelay       arklib.RelativeLocktime
 	ExplorerURL             string
+	ExplorerPollInterval    time.Duration
 	ForfeitAddress          string
 	WithTransactionFeed     bool
 	MarketHourStartTime     int64
