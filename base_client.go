@@ -163,6 +163,13 @@ func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEven
 	return nil
 }
 
+func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
+	if a.store != nil && a.store.UtxoStore() != nil {
+		return a.store.UtxoStore().GetEventChannel()
+	}
+	return nil
+}
+
 func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
