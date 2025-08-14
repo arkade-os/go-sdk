@@ -107,12 +107,9 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, resp, err := dialer.DialContext(context.Background(), wsURL, nil)
+	conn, _, err := dialer.DialContext(context.Background(), wsURL, nil)
 	if err != nil {
-		if resp != nil && resp.StatusCode != http.StatusNotFound {
-			return nil, fmt.Errorf("dial failed: %v (http status %d)", err, resp.StatusCode)
-		}
-		return nil, fmt.Errorf("dial failed: %s", err)
+		log.WithError(err).Error("websocket dial failed, falling back to polling")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
