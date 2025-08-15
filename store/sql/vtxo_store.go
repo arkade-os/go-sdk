@@ -24,7 +24,7 @@ func NewVtxoStore(db *sql.DB) types.VtxoStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.VtxoEvent),
+		eventCh: make(chan types.VtxoEvent, 100),
 	}
 }
 
@@ -236,7 +236,7 @@ func (v *vtxoRepository) GetVtxos(
 	return vtxos, nil
 }
 
-func (v *vtxoRepository) GetEventChannel() chan types.VtxoEvent {
+func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
 	return v.eventCh
 }
 

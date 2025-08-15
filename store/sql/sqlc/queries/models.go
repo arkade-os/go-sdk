@@ -19,6 +19,21 @@ type Tx struct {
 	SettledBy sql.NullString
 }
 
+type Utxo struct {
+	Txid        string
+	Vout        int64
+	Script      string
+	Amount      int64
+	SpentBy     sql.NullString
+	Spent       bool
+	Tapscripts  sql.NullString
+	SpendableAt sql.NullInt64
+	CreatedAt   sql.NullInt64
+	DelayValue  sql.NullInt64
+	DelayType   sql.NullString
+	Tx          sql.NullString
+}
+
 type Vtxo struct {
 	Txid            string
 	Vout            int64

@@ -20,6 +20,7 @@ import (
 	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -38,17 +39,6 @@ const (
 var (
 	ErrAlreadyInitialized = fmt.Errorf("client already initialized")
 	ErrNotInitialized     = fmt.Errorf("client not initialized")
-)
-
-var (
-	defaultNetworks = utils.SupportedType[string]{
-		arklib.Bitcoin.Name:        "https://mempool.space/api",
-		arklib.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
-		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
-		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
-		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
-		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
-	}
 )
 
 type arkClient struct {
@@ -76,11 +66,30 @@ func (a *arkClient) GetConfigData(
 }
 
 func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
-	if a.wallet == nil {
-		return fmt.Errorf("wallet not initialized")
+	cfgData, err := a.GetConfigData(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := a.wallet.Unlock(ctx, pasword)
-	return err
+
+	if _, err := a.wallet.Unlock(ctx, pasword); err != nil {
+		return err
+	}
+
+	go func() {
+		if cfgData.WithTransactionFeed {
+			txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
+			a.txStreamCtxCancel = txStreamCtxCancel
+
+			if err := a.refreshDb(txStreamCtx); err != nil {
+				log.WithError(err).Error("failed to refresh db")
+			}
+
+			go a.listenForArkTxs(txStreamCtx)
+			go a.listenForOnchainTxs(txStreamCtx)
+		}
+	}()
+
+	return nil
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {
@@ -118,19 +127,34 @@ func (a *arkClient) Receive(ctx context.Context) (string, string, string, error)
 		boardingAddr.Address = ""
 	}
 
+	if a.WithTransactionFeed {
+		go func() {
+			if err := a.explorer.SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
+				log.WithError(err).Error("failed to subscribe for boarding address")
+			}
+		}()
+	}
+
 	return onchainAddr, offchainAddr.Address, boardingAddr.Address, nil
 }
 
-func (a *arkClient) GetTransactionEventChannel(_ context.Context) chan types.TransactionEvent {
+func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
 	if a.store != nil && a.store.TransactionStore() != nil {
 		return a.store.TransactionStore().GetEventChannel()
 	}
 	return nil
 }
 
-func (a *arkClient) GetVtxoEventChannel(_ context.Context) chan types.VtxoEvent {
+func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
 	if a.store != nil && a.store.VtxoStore() != nil {
 		return a.store.VtxoStore().GetEventChannel()
+	}
+	return nil
+}
+
+func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
+	if a.store != nil && a.store.UtxoStore() != nil {
+		return a.store.UtxoStore().GetEventChannel()
 	}
 	return nil
 }
@@ -162,6 +186,10 @@ func (a *arkClient) Stop() {
 func (a *arkClient) ListVtxos(ctx context.Context) (
 	spendableVtxos, spentVtxos []types.Vtxo, err error,
 ) {
+	if a.WithTransactionFeed {
+		return a.store.VtxoStore().GetAllVtxos(ctx)
+	}
+
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return
@@ -259,7 +287,15 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(args.ExplorerURL, info.Network)
+	explorerOpts := []explorer.Option{}
+	if args.ExplorerPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+	}
+
+	explorerSvc, err := explorer.NewExplorer(
+		args.ExplorerURL,
+		utils.NetworkFromString(info.Network),
+		explorerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -362,7 +398,15 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(args.ExplorerURL, info.Network)
+	explorerOpts := []explorer.Option{}
+	if args.ExplorerPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+	}
+
+	explorerSvc, err := explorer.NewExplorer(
+		args.ExplorerURL,
+		utils.NetworkFromString(info.Network),
+		explorerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -466,16 +510,6 @@ func getClient(
 ) (client.TransportClient, error) {
 	factory := supportedClients[clientType]
 	return factory(serverUrl)
-}
-
-func getExplorer(explorerURL, network string) (explorer.Explorer, error) {
-	if explorerURL == "" {
-		var ok bool
-		if explorerURL, ok = defaultNetworks[network]; !ok {
-			return nil, fmt.Errorf("invalid network")
-		}
-	}
-	return explorer.NewExplorer(explorerURL, utils.NetworkFromString(network)), nil
 }
 
 func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
