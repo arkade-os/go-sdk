@@ -21,6 +21,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -89,16 +90,19 @@ func WithPollInterval(interval time.Duration) Option {
 	}
 }
 
-func NewDefaultExplorer(network string, opts ...Option) (Explorer, error) {
-	baseUrl, ok := defaultExplorerUrls[network]
-	if !ok {
-		return nil, fmt.Errorf("invalid network: %s", network)
-	}
-	return NewExplorer(baseUrl, utils.NetworkFromString(network), opts...)
-}
-
 func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, error) {
-	wsURL, err := deriveWsURL(baseUrl, net)
+	if len(baseUrl) == 0 {
+		baseUrl, ok := defaultExplorerUrls[net.Name]
+		if !ok {
+			return nil, fmt.Errorf(
+				"cannot find default explorer url associated with network %s",
+				net.Name,
+			)
+		}
+		return NewExplorer(baseUrl, net, opts...)
+	}
+
+	wsURL, err := deriveWsURL(baseUrl)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base url: %s", err)
 	}
@@ -109,7 +113,10 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 
 	conn, _, err := dialer.DialContext(context.Background(), wsURL, nil)
 	if err != nil {
-		log.WithError(err).Error("websocket dial failed, falling back to polling")
+		log.WithFields(log.Fields{
+			"network": net.Name,
+			"url":     wsURL,
+		}).WithError(err).Warn("websocket dial failed, falling back to polling")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -129,9 +136,15 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		opt(svc)
 	}
 
-	if conn != nil {
-		svc.startTracking(ctx)
+	if svc.conn == nil {
+		log.Debugf(
+			"starting explorer background tracking with polling interval %s",
+			svc.pollInterval,
+		)
+	} else {
+		log.Debugf("starting explorer background tracking with websocket")
 	}
+	go svc.startTracking(ctx)
 
 	return svc, nil
 }
@@ -316,10 +329,6 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		}
 	}
 
-	for _, addr := range addressesToSubscribe {
-		e.subscribedMap[addr] = addressData{}
-	}
-
 	return nil
 }
 
@@ -376,6 +385,11 @@ func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
 		return nil, fmt.Errorf("invalid address: %s", err)
 	}
 
+	outputScript, err := txscript.PayToAddrScript(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %s", err)
+	}
+
 	resp, err := http.Get(fmt.Sprintf("%s/address/%s/utxo", e.baseUrl, addr))
 	if err != nil {
 		return nil, err
@@ -395,9 +409,8 @@ func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
 		return nil, err
 	}
 
-	outScript := hex.EncodeToString(decoded.ScriptAddress())
 	for i := range utxos {
-		utxos[i].Script = outScript
+		utxos[i].Script = hex.EncodeToString(outputScript)
 	}
 
 	return utxos, nil
@@ -537,7 +550,6 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			log.Debugf("polling explorer to refresh utxos")
 			e.subscribedMu.RLock()
 			// make a snapshot copy of the map to avoid race conditions
 			subscribedMap := make(map[string]addressData, len(e.subscribedMap))
@@ -555,22 +567,21 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 			e.subscribedMu.RUnlock()
 
 			if len(subscribedMap) == 0 {
-				log.Debugf("no addresses to poll")
 				continue
 			}
-			for addr, data := range subscribedMap {
-				utxos, err := e.GetUtxos(addr)
+			for addr, oldUtxos := range subscribedMap {
+				newUtxos, err := e.GetUtxos(addr)
 				if err != nil {
 					log.WithError(err).Error("failed to poll explorer")
 				}
-				buf, _ := json.Marshal(utxos)
+				buf, _ := json.Marshal(newUtxos)
 				hashedResp := sha256.Sum256(buf)
-				if !bytes.Equal(data.hash, hashedResp[:]) {
-					go e.sendAddressEventFromPolling(ctx, data.utxos, utxos)
+				if !bytes.Equal(oldUtxos.hash, hashedResp[:]) {
+					go e.sendAddressEventFromPolling(ctx, oldUtxos.utxos, newUtxos)
 					e.subscribedMu.Lock()
 					e.subscribedMap[addr] = addressData{
 						hash:  hashedResp[:],
-						utxos: utxos,
+						utxos: newUtxos,
 					}
 					e.subscribedMu.Unlock()
 				}
@@ -591,7 +602,8 @@ func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addres
 		if len(data.Removed) > 0 {
 			for _, tx := range data.Removed {
 				if len(data.Mempool) > 0 {
-					replacements[tx.Txid] = data.Mempool[0].Txid
+					replacementTxid := data.Mempool[0].Txid
+					replacements[tx.Txid] = replacementTxid
 				}
 			}
 			continue
@@ -692,7 +704,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos,
 			if newUtxo.Status.Confirmed {
 				createdAt = time.Unix(newUtxo.Status.BlockTime, 0)
 			}
-			receivedUtxos = append(receivedUtxos, types.OnchainOutput{
+			utxo := types.OnchainOutput{
 				Outpoint: types.Outpoint{
 					Txid: newUtxo.Txid,
 					VOut: newUtxo.Vout,
@@ -700,7 +712,11 @@ func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos,
 				Script:    newUtxo.Script,
 				Amount:    newUtxo.Amount,
 				CreatedAt: createdAt,
-			})
+			}
+			receivedUtxos = append(receivedUtxos, utxo)
+			if newUtxo.Status.Confirmed {
+				confirmedUtxos = append(confirmedUtxos, utxo)
+			}
 			continue
 		}
 		if !oldUtxo.Status.Confirmed && newUtxo.Status.Confirmed {
@@ -823,7 +839,7 @@ func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []stri
 	}
 }
 
-func deriveWsURL(baseUrl string, network arklib.Network) (string, error) {
+func deriveWsURL(baseUrl string) (string, error) {
 	var wsUrl string
 
 	parsedUrl, err := url.Parse(baseUrl)

@@ -1349,7 +1349,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 	}
 
 	if err := a.explorer.SubscribeForAddresses(addresses); err != nil {
-		log.WithError(err).Error("failed to subscribe for boarding addresses")
+		log.WithError(err).Error("failed to subscribe for onchain addresses")
 		return
 	}
 
@@ -1365,7 +1365,6 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 			return
 		case update := <-ch:
-			log.Debugf("received onchain transaction event: %+v", update)
 			txsToAdd := make([]types.Transaction, 0)
 			txsToConfirm := make([]string, 0)
 			utxosToConfirm := make(map[types.Outpoint]int64)
@@ -1472,7 +1471,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					if !ok {
 						log.WithField("script", u.Script).
 							WithField("outpoint", u.Outpoint).
-							Error("failed to find address for new boarding utxo")
+							Error("failed to find address for new utxo")
 						continue
 					}
 
