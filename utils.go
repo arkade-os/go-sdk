@@ -37,7 +37,7 @@ type arkTxInput struct {
 
 func buildOffchainTx(
 	vtxos []arkTxInput, receivers []types.Receiver,
-	serverUnrollScript *script.CSVMultisigClosure, dustLimit uint64,
+	serverUnrollScriptHex string, dustLimit uint64,
 ) (string, []string, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, fmt.Errorf("missing vtxos")
@@ -119,6 +119,11 @@ func buildOffchainTx(
 			Value:    int64(receiver.Amount),
 			PkScript: newVtxoScript,
 		})
+	}
+
+	serverUnrollScript, err := hex.DecodeString(serverUnrollScriptHex)
+	if err != nil {
+		return "", nil, err
 	}
 
 	arkPtx, checkpointPtxs, err := offchain.BuildTxs(ins, outs, serverUnrollScript)
