@@ -1,4 +1,4 @@
-.PHONY: genrest test vet lint migrate sqlc
+.PHONY: proto genrest test vet lint migrate sqlc
 
 ark_client_dir = $(or $(REST_DIR),$(PWD)/client/rest/service)
 indexer_client_dir = $(or $(REST_DIR),$(PWD)/indexer/rest/service)
@@ -23,9 +23,9 @@ SWAGGER ?= $(shell \
 
 proto:
 	@echo "Compiling stubs..."
-	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate buf.build/arkade-os/arkd --exclude-path arkwallet/v1/bitcoin_wallet.proto
+	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace bufbuild/buf generate
 
-## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
+## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
 genrest:
 	@if [ "$(CI)" != "true" ]; then \
 		$(MAKE) proto; \
@@ -39,7 +39,7 @@ genrest:
 	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/service.swagger.json -t $(ark_client_dir) --client-package=arkservice
 	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/indexer.swagger.json -t $(indexer_client_dir) --client-package=indexerservice
 
-## test: runs unit tests
+## test: runs unit tests
 test:
 	@echo "Running unit tests..."
 	@go test -v -count=1 -race $$(go list ./... | grep -v '/test/wasm')

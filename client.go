@@ -499,14 +499,7 @@ func (a *arkClient) SendOffChain(
 		})
 	}
 
-	checkpointExitScript := &script.CSVMultisigClosure{
-		Locktime: a.UnilateralExitDelay,
-		MultisigClosure: script.MultisigClosure{
-			PubKeys: []*secp256k1.PublicKey{a.SignerPubKey},
-		},
-	}
-
-	arkTx, checkpointTxs, err := buildOffchainTx(inputs, receivers, checkpointExitScript, a.Dust)
+	arkTx, checkpointTxs, err := buildOffchainTx(inputs, receivers, a.CheckpointTapscript, a.Dust)
 	if err != nil {
 		return "", err
 	}

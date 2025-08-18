@@ -21,6 +21,9 @@ type V1GetInfoResponse struct {
 	// boarding exit delay
 	BoardingExitDelay string `json:"boardingExitDelay,omitempty"`
 
+	// checkpoint tapscript
+	CheckpointTapscript string `json:"checkpointTapscript,omitempty"`
+
 	// dust
 	Dust string `json:"dust,omitempty"`
 

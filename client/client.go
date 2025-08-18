@@ -64,6 +64,7 @@ type Info struct {
 	UtxoMaxAmount           int64
 	VtxoMinAmount           int64
 	VtxoMaxAmount           int64
+	CheckpointTapscript     string
 }
 
 type BatchEventChannel struct {

@@ -32,6 +32,7 @@ type storeData struct {
 	UtxoMaxAmount           string `json:"utxo_max_amount"`
 	VtxoMinAmount           string `json:"vtxo_min_amount"`
 	VtxoMaxAmount           string `json:"vtxo_max_amount"`
+	CheckpointTapscript     string `json:"checkpoint_tapscript"`
 }
 
 func (d storeData) isEmpty() bool {
@@ -109,6 +110,7 @@ func (d storeData) decode() types.Config {
 		UtxoMaxAmount:           int64(utxoMaxAmount),
 		VtxoMinAmount:           int64(vtxoMinAmount),
 		VtxoMaxAmount:           int64(vtxoMaxAmount),
+		CheckpointTapscript:     d.CheckpointTapscript,
 	}
 }
 
@@ -135,5 +137,6 @@ func (d storeData) asMap() map[string]string {
 		"utxo_max_amount":            d.UtxoMaxAmount,
 		"vtxo_min_amount":            d.VtxoMinAmount,
 		"vtxo_max_amount":            d.VtxoMaxAmount,
+		"checkpoint_tapscript":       d.CheckpointTapscript,
 	}
 }
