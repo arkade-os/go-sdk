@@ -1,14 +1,28 @@
 package arksdk
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
+	"sync"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
+	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,46 +35,32 @@ const (
 )
 
 func GetEventStreamTopics(
-	spentOutpoints []types.Outpoint,
-	signerPublicKeys []string,
+	spentOutpoints []types.Outpoint, signerSessions []tree.SignerSession,
 ) []string {
-	topics := make([]string, 0, len(spentOutpoints)+len(signerPublicKeys))
+	topics := make([]string, 0, len(spentOutpoints))
 	for _, outpoint := range spentOutpoints {
 		topics = append(topics, outpoint.String())
 	}
-	return append(topics, signerPublicKeys...)
+	for _, signer := range signerSessions {
+		topics = append(topics, signer.GetPublicKey())
+	}
+	return topics
 }
 
-type BatchEventHandlers interface {
+type BatchEventsHandler interface {
 	OnBatchStarted(ctx context.Context, event client.BatchStartedEvent) (bool, error)
 	OnBatchFinalized(ctx context.Context, event client.BatchFinalizedEvent) error
 	OnBatchFailed(ctx context.Context, event client.BatchFailedEvent) error
 	OnTreeTxEvent(ctx context.Context, event client.TreeTxEvent) error
 	OnTreeSignatureEvent(ctx context.Context, event client.TreeSignatureEvent) error
 	OnTreeSigningStarted(
-		ctx context.Context,
-		event client.TreeSigningStartedEvent,
-		vtxoTree *tree.TxTree,
+		ctx context.Context, event client.TreeSigningStartedEvent, vtxoTree *tree.TxTree,
 	) (bool, error)
 	OnTreeNoncesAggregated(ctx context.Context, event client.TreeNoncesAggregatedEvent) error
 	OnBatchFinalization(
-		ctx context.Context, event client.BatchFinalizationEvent,
-		vtxoTree *tree.TxTree, connectorTree *tree.TxTree,
+		ctx context.Context,
+		event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
 	) error
-}
-
-type options struct {
-	signVtxoTree   bool            // default: true
-	replayEventsCh chan<- any      // default: nil
-	cancelCh       <-chan struct{} // default: nil
-}
-
-func newOptions() *options {
-	return &options{
-		signVtxoTree:   true,
-		replayEventsCh: nil,
-		cancelCh:       nil,
-	}
 }
 
 type BatchSessionOption func(*options)
@@ -83,11 +83,9 @@ func WithCancel(cancelCh <-chan struct{}) BatchSessionOption {
 	}
 }
 
-func HandleBatchEvents(
-	ctx context.Context,
-	eventsCh <-chan client.BatchEventChannel,
-	handlers BatchEventHandlers,
-	opts ...BatchSessionOption,
+func JoinBatchSession(
+	ctx context.Context, eventsCh <-chan client.BatchEventChannel,
+	eventsHandler BatchEventsHandler, opts ...BatchSessionOption,
 ) (string, error) {
 	options := newOptions()
 
@@ -130,7 +128,7 @@ func HandleBatchEvents(
 			switch event := notify.Event; event.(type) {
 			case client.BatchStartedEvent:
 				e := event.(client.BatchStartedEvent)
-				skip, err := handlers.OnBatchStarted(ctx, e)
+				skip, err := eventsHandler.OnBatchStarted(ctx, e)
 				if err != nil {
 					return "", err
 				}
@@ -148,14 +146,14 @@ func HandleBatchEvents(
 					continue
 				}
 				event := event.(client.BatchFinalizedEvent)
-				if err := handlers.OnBatchFinalized(ctx, event); err != nil {
+				if err := eventsHandler.OnBatchFinalized(ctx, event); err != nil {
 					return "", err
 				}
 				return event.Txid, nil
 			// the batch session failed, return error only if we joined.
 			case client.BatchFailedEvent:
 				e := event.(client.BatchFailedEvent)
-				if err := handlers.OnBatchFailed(ctx, e); err != nil {
+				if err := eventsHandler.OnBatchFailed(ctx, e); err != nil {
 					return "", err
 				}
 				continue
@@ -167,7 +165,7 @@ func HandleBatchEvents(
 
 				treeTxEvent := event.(client.TreeTxEvent)
 
-				if err := handlers.OnTreeTxEvent(ctx, treeTxEvent); err != nil {
+				if err := eventsHandler.OnTreeTxEvent(ctx, treeTxEvent); err != nil {
 					return "", err
 				}
 
@@ -187,7 +185,7 @@ func HandleBatchEvents(
 				}
 
 				event := event.(client.TreeSignatureEvent)
-				if err := handlers.OnTreeSignatureEvent(ctx, event); err != nil {
+				if err := eventsHandler.OnTreeSignatureEvent(ctx, event); err != nil {
 					return "", err
 				}
 
@@ -208,7 +206,7 @@ func HandleBatchEvents(
 				}
 
 				event := event.(client.TreeSigningStartedEvent)
-				skip, err := handlers.OnTreeSigningStarted(ctx, event, vtxoTree)
+				skip, err := eventsHandler.OnTreeSigningStarted(ctx, event, vtxoTree)
 				if err != nil {
 					return "", err
 				}
@@ -224,7 +222,7 @@ func HandleBatchEvents(
 				}
 
 				event := event.(client.TreeNoncesAggregatedEvent)
-				if err := handlers.OnTreeNoncesAggregated(ctx, event); err != nil {
+				if err := eventsHandler.OnTreeNoncesAggregated(ctx, event); err != nil {
 					return "", err
 				}
 
@@ -250,7 +248,7 @@ func HandleBatchEvents(
 				}
 
 				event := event.(client.BatchFinalizationEvent)
-				if err := handlers.OnBatchFinalization(ctx, event, vtxoTree, connectorTree); err != nil {
+				if err := eventsHandler.OnBatchFinalization(ctx, event, vtxoTree, connectorTree); err != nil {
 					return "", err
 				}
 
@@ -288,4 +286,533 @@ func addSignatureToTxTree(
 		g.Root.Inputs[0].TaprootKeySpendSig = sig.Serialize()
 		return false, nil
 	})
+}
+
+type options struct {
+	signVtxoTree   bool            // default: true
+	replayEventsCh chan<- any      // default: nil
+	cancelCh       <-chan struct{} // default: nil
+}
+
+func newOptions() *options {
+	return &options{
+		signVtxoTree:   true,
+		replayEventsCh: nil,
+		cancelCh:       nil,
+	}
+}
+
+type defaultBatchEventsHandler struct {
+	*arkClient
+
+	intentId       string
+	vtxos          []client.TapscriptsVtxo
+	boardingUtxos  []types.Utxo
+	receivers      []types.Receiver
+	signerSessions []tree.SignerSession
+
+	batchSessionId string
+}
+
+func newBatchEventsHandler(
+	arkClient *arkClient,
+	intentId string,
+	vtxos []client.TapscriptsVtxo,
+	boardingUtxos []types.Utxo,
+	receivers []types.Receiver,
+	signerSessions []tree.SignerSession,
+) *defaultBatchEventsHandler {
+	vtxosToSign := make([]client.TapscriptsVtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		// exclude recoverable vtxos as they don't need any signing step
+		if vtxo.IsRecoverable() {
+			continue
+		}
+		vtxosToSign = append(vtxosToSign, vtxo)
+	}
+
+	return &defaultBatchEventsHandler{
+		arkClient:      arkClient,
+		intentId:       intentId,
+		vtxos:          vtxosToSign,
+		boardingUtxos:  boardingUtxos,
+		receivers:      receivers,
+		signerSessions: signerSessions,
+		batchSessionId: "",
+	}
+}
+
+func (h *defaultBatchEventsHandler) OnBatchStarted(
+	ctx context.Context, event client.BatchStartedEvent,
+) (bool, error) {
+	buf := sha256.Sum256([]byte(h.intentId))
+	hashedIntentId := hex.EncodeToString(buf[:])
+
+	for _, hash := range event.HashedIntentIds {
+		if hash == hashedIntentId {
+			if err := h.client.ConfirmRegistration(ctx, h.intentId); err != nil {
+				return false, err
+			}
+			h.batchSessionId = event.Id
+			return false, nil
+		}
+	}
+
+	log.Info("intent id not found in batch proposal, waiting for next one...")
+	return true, nil
+}
+
+func (h *defaultBatchEventsHandler) OnBatchFinalized(
+	ctx context.Context, event client.BatchFinalizedEvent,
+) error {
+	if event.Id == h.batchSessionId {
+		log.Infof("batch completed in commitment tx %s", event.Txid)
+	}
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) OnBatchFailed(
+	ctx context.Context, event client.BatchFailedEvent,
+) error {
+	if event.Id == h.batchSessionId {
+		return fmt.Errorf("batch failed: %s", event.Reason)
+	}
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) OnTreeTxEvent(
+	ctx context.Context, event client.TreeTxEvent,
+) error {
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) OnTreeSignatureEvent(
+	ctx context.Context, event client.TreeSignatureEvent,
+) error {
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
+	ctx context.Context, event client.TreeSigningStartedEvent, vtxoTree *tree.TxTree,
+) (bool, error) {
+	foundPubkeys := make([]string, 0, len(h.signerSessions))
+	for _, session := range h.signerSessions {
+		myPubkey := session.GetPublicKey()
+		for _, cosigner := range event.CosignersPubkeys {
+			if cosigner == myPubkey {
+				foundPubkeys = append(foundPubkeys, myPubkey)
+				break
+			}
+		}
+	}
+
+	if len(foundPubkeys) <= 0 {
+		log.Info("no signer found in cosigner list, waiting for next one...")
+		return true, nil
+	}
+
+	if len(foundPubkeys) != len(h.signerSessions) {
+		return false, fmt.Errorf("not all signers found in cosigner list")
+	}
+
+	sweepClosure := script.CSVMultisigClosure{
+		MultisigClosure: script.MultisigClosure{PubKeys: []*secp256k1.PublicKey{h.SignerPubKey}},
+		Locktime:        h.VtxoTreeExpiry,
+	}
+
+	script, err := sweepClosure.Script()
+	if err != nil {
+		return false, err
+	}
+
+	commitmentTx, err := psbt.NewFromRawBytes(strings.NewReader(event.UnsignedCommitmentTx), true)
+	if err != nil {
+		return false, err
+	}
+
+	batchOutput := commitmentTx.UnsignedTx.TxOut[0]
+	batchOutputAmount := batchOutput.Value
+
+	sweepTapLeaf := txscript.NewBaseTapLeaf(script)
+	sweepTapTree := txscript.AssembleTaprootScriptTree(sweepTapLeaf)
+	root := sweepTapTree.RootNode.TapHash()
+
+	generateAndSendNonces := func(session tree.SignerSession) error {
+		if err := session.Init(root.CloneBytes(), batchOutputAmount, vtxoTree); err != nil {
+			return err
+		}
+
+		nonces, err := session.GetNonces()
+		if err != nil {
+			return err
+		}
+
+		return h.client.SubmitTreeNonces(ctx, event.Id, session.GetPublicKey(), nonces)
+	}
+
+	errChan := make(chan error, len(h.signerSessions))
+	waitGroup := sync.WaitGroup{}
+	waitGroup.Add(len(h.signerSessions))
+
+	for _, session := range h.signerSessions {
+		go func(session tree.SignerSession) {
+			defer waitGroup.Done()
+			if err := generateAndSendNonces(session); err != nil {
+				errChan <- err
+			}
+		}(session)
+	}
+
+	waitGroup.Wait()
+
+	close(errChan)
+
+	for err := range errChan {
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
+}
+
+func (h *defaultBatchEventsHandler) OnTreeNoncesAggregated(
+	ctx context.Context, event client.TreeNoncesAggregatedEvent,
+) error {
+	log.Info("tree nonces aggregated, sending signatures...")
+	if len(h.signerSessions) <= 0 {
+		return fmt.Errorf("tree signer session not set")
+	}
+
+	sign := func(session tree.SignerSession) error {
+		session.SetAggregatedNonces(event.Nonces)
+
+		sigs, err := session.Sign()
+		if err != nil {
+			return err
+		}
+
+		return h.client.SubmitTreeSignatures(
+			ctx,
+			event.Id,
+			session.GetPublicKey(),
+			sigs,
+		)
+	}
+
+	errChan := make(chan error, len(h.signerSessions))
+	waitGroup := sync.WaitGroup{}
+	waitGroup.Add(len(h.signerSessions))
+
+	for _, session := range h.signerSessions {
+		go func(session tree.SignerSession) {
+			defer waitGroup.Done()
+			if err := sign(session); err != nil {
+				errChan <- err
+			}
+		}(session)
+	}
+
+	waitGroup.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) OnBatchFinalization(
+	ctx context.Context, event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
+) error {
+	log.Info("vtxo and connector trees fully signed, sending forfeit transactions...")
+	if err := h.validateVtxoTree(event, vtxoTree, connectorTree); err != nil {
+		return fmt.Errorf("failed to verify vtxo tree: %s", err)
+	}
+
+	var forfeits []string
+	var signedCommitmentTx string
+
+	// if we spend vtxos, we must create and sign forfeits.
+	if len(h.vtxos) > 0 {
+		signedForfeits, err := h.createAndSignForfeits(
+			ctx,
+			h.vtxos, connectorTree.Leaves(),
+		)
+		if err != nil {
+			return err
+		}
+
+		forfeits = signedForfeits
+	}
+
+	// if we spend boarding inputs, we must sign the commitment transaction.
+	if len(h.boardingUtxos) > 0 {
+		commitmentPtx, err := psbt.NewFromRawBytes(strings.NewReader(event.Tx), true)
+		if err != nil {
+			return err
+		}
+
+		for _, boardingUtxo := range h.boardingUtxos {
+			boardingVtxoScript, err := script.ParseVtxoScript(boardingUtxo.Tapscripts)
+			if err != nil {
+				return err
+			}
+
+			forfeitClosures := boardingVtxoScript.ForfeitClosures()
+			if len(forfeitClosures) <= 0 {
+				return fmt.Errorf("no forfeit closures found")
+			}
+
+			forfeitClosure := forfeitClosures[0]
+
+			forfeitScript, err := forfeitClosure.Script()
+			if err != nil {
+				return err
+			}
+
+			_, taprootTree, err := boardingVtxoScript.TapTree()
+			if err != nil {
+				return err
+			}
+
+			forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+			forfeitProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
+			if err != nil {
+				return fmt.Errorf(
+					"failed to get taproot merkle proof for boarding utxo: %s", err,
+				)
+			}
+
+			tapscript := &psbt.TaprootTapLeafScript{
+				ControlBlock: forfeitProof.ControlBlock,
+				Script:       forfeitProof.Script,
+				LeafVersion:  txscript.BaseLeafVersion,
+			}
+
+			for i := range commitmentPtx.Inputs {
+				prevout := commitmentPtx.UnsignedTx.TxIn[i].PreviousOutPoint
+
+				if boardingUtxo.Txid == prevout.Hash.String() &&
+					boardingUtxo.VOut == prevout.Index {
+					commitmentPtx.Inputs[i].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+						tapscript,
+					}
+					break
+				}
+			}
+		}
+
+		b64, err := commitmentPtx.B64Encode()
+		if err != nil {
+			return err
+		}
+
+		signedCommitmentTx, err = h.wallet.SignTransaction(ctx, h.explorer, b64)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(forfeits) > 0 || len(signedCommitmentTx) > 0 {
+		if err := h.client.SubmitSignedForfeitTxs(
+			ctx, forfeits, signedCommitmentTx,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) validateVtxoTree(
+	event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
+) error {
+	commitmentTx := event.Tx
+	commitmentPtx, err := psbt.NewFromRawBytes(strings.NewReader(commitmentTx), true)
+	if err != nil {
+		return err
+	}
+
+	// validate the vtxo tree is well formed
+	if !utils.IsOnchainOnly(h.receivers) {
+		if err := tree.ValidateVtxoTree(
+			vtxoTree, commitmentPtx, h.SignerPubKey, h.VtxoTreeExpiry,
+		); err != nil {
+			return err
+		}
+	}
+
+	// validate it contains our outputs
+	if err := validateReceivers(h.Network, commitmentPtx, h.receivers, vtxoTree); err != nil {
+		return err
+	}
+
+	if len(h.vtxos) > 0 {
+		rootParentTxid := vtxoTree.Root.UnsignedTx.TxIn[0].PreviousOutPoint.Hash.String()
+		rootParentVout := vtxoTree.Root.UnsignedTx.TxIn[0].PreviousOutPoint.Index
+
+		if rootParentTxid != commitmentPtx.UnsignedTx.TxID() {
+			return fmt.Errorf(
+				"root's parent txid is not the same as the commitment txid: %s != %s",
+				rootParentTxid,
+				commitmentPtx.UnsignedTx.TxID(),
+			)
+		}
+
+		if rootParentVout != 0 {
+			return fmt.Errorf(
+				"root's parent vout is not the same as the shared output index: %d != %d",
+				rootParentVout,
+				0,
+			)
+		}
+
+		if err := connectorTree.Validate(); err != nil {
+			return err
+		}
+
+		connectorsLeaves := connectorTree.Leaves()
+		if len(connectorsLeaves) != len(h.vtxos) {
+			return fmt.Errorf(
+				"unexpected num of connectors received: expected %d, got %d",
+				len(h.vtxos),
+				len(connectorsLeaves),
+			)
+		}
+	}
+
+	return nil
+}
+
+func (h *defaultBatchEventsHandler) createAndSignForfeits(
+	ctx context.Context, vtxosToSign []client.TapscriptsVtxo, connectorsLeaves []*psbt.Packet,
+) ([]string, error) {
+	parsedForfeitAddr, err := btcutil.DecodeAddress(h.ForfeitAddress, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	forfeitPkScript, err := txscript.PayToAddrScript(parsedForfeitAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	signedForfeitTxs := make([]string, 0, len(vtxosToSign))
+	for i, vtxo := range vtxosToSign {
+		connectorTx := connectorsLeaves[i]
+
+		var connector *wire.TxOut
+		var connectorOutpoint *wire.OutPoint
+		for outIndex, output := range connectorTx.UnsignedTx.TxOut {
+			if bytes.Equal(txutils.ANCHOR_PKSCRIPT, output.PkScript) {
+				continue
+			}
+
+			connector = output
+			connectorOutpoint = &wire.OutPoint{
+				Hash:  connectorTx.UnsignedTx.TxHash(),
+				Index: uint32(outIndex),
+			}
+			break
+		}
+
+		if connector == nil {
+			return nil, fmt.Errorf("connector not found for vtxo %s", vtxo.Outpoint.String())
+		}
+
+		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
+		if err != nil {
+			return nil, err
+		}
+
+		vtxoTapKey, vtxoTapTree, err := vtxoScript.TapTree()
+		if err != nil {
+			return nil, err
+		}
+
+		vtxoOutputScript, err := script.P2TRScript(vtxoTapKey)
+		if err != nil {
+			return nil, err
+		}
+
+		vtxoTxHash, err := chainhash.NewHashFromStr(vtxo.Txid)
+		if err != nil {
+			return nil, err
+		}
+
+		vtxoInput := &wire.OutPoint{
+			Hash:  *vtxoTxHash,
+			Index: vtxo.VOut,
+		}
+
+		forfeitClosures := vtxoScript.ForfeitClosures()
+		if len(forfeitClosures) <= 0 {
+			return nil, fmt.Errorf("no forfeit closures found")
+		}
+
+		forfeitClosure := forfeitClosures[0]
+
+		forfeitScript, err := forfeitClosure.Script()
+		if err != nil {
+			return nil, err
+		}
+
+		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+		leafProof, err := vtxoTapTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
+		if err != nil {
+			return nil, err
+		}
+
+		tapscript := psbt.TaprootTapLeafScript{
+			ControlBlock: leafProof.ControlBlock,
+			Script:       leafProof.Script,
+			LeafVersion:  txscript.BaseLeafVersion,
+		}
+
+		vtxoLocktime := arklib.AbsoluteLocktime(0)
+		if cltv, ok := forfeitClosure.(*script.CLTVMultisigClosure); ok {
+			vtxoLocktime = cltv.Locktime
+		}
+
+		vtxoPrevout := &wire.TxOut{
+			Value:    int64(vtxo.Amount),
+			PkScript: vtxoOutputScript,
+		}
+
+		vtxoSequence := wire.MaxTxInSequenceNum
+		if vtxoLocktime != 0 {
+			vtxoSequence = wire.MaxTxInSequenceNum - 1
+		}
+
+		forfeitTx, err := tree.BuildForfeitTx(
+			[]*wire.OutPoint{vtxoInput, connectorOutpoint},
+			[]uint32{vtxoSequence, wire.MaxTxInSequenceNum},
+			[]*wire.TxOut{vtxoPrevout, connector},
+			forfeitPkScript,
+			uint32(vtxoLocktime),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		forfeitTx.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{&tapscript}
+
+		b64, err := forfeitTx.B64Encode()
+		if err != nil {
+			return nil, err
+		}
+
+		signedForfeitTx, err := h.wallet.SignTransaction(ctx, h.explorer, b64)
+		if err != nil {
+			return nil, err
+		}
+
+		signedForfeitTxs = append(signedForfeitTxs, signedForfeitTx)
+	}
+
+	return signedForfeitTxs, nil
 }
