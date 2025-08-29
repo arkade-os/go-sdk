@@ -32,7 +32,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	log "github.com/sirupsen/logrus"
@@ -498,14 +497,7 @@ func (a *arkClient) SendOffChain(
 		})
 	}
 
-	checkpointExitScript := &script.CSVMultisigClosure{
-		Locktime: a.UnilateralExitDelay,
-		MultisigClosure: script.MultisigClosure{
-			PubKeys: []*secp256k1.PublicKey{a.SignerPubKey},
-		},
-	}
-
-	arkTx, checkpointTxs, err := buildOffchainTx(inputs, receivers, checkpointExitScript, a.Dust)
+	arkTx, checkpointTxs, err := buildOffchainTx(inputs, receivers, a.CheckpointTapscript, a.Dust)
 	if err != nil {
 		return "", err
 	}
