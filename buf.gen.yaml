@@ -10,7 +10,7 @@ managed:
       value: github.com/arkade-os/go-sdk/api-spec/protobuf/gen
 inputs:
   - git_repo: https://github.com/arkade-os/arkd.git
-    branch: checkpoint-sweep
+    branch: master
     subdir: api-spec/protobuf
     exclude_paths:
       - arkwallet/v1/bitcoin_wallet.proto
