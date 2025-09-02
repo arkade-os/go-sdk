@@ -20,6 +20,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -35,9 +36,93 @@ type arkTxInput struct {
 	ForfeitLeafHash chainhash.Hash
 }
 
+func validateReceivers(
+	network arklib.Network, ptx *psbt.Packet, receivers []types.Receiver, vtxoTree *tree.TxTree,
+) error {
+	netParams := utils.ToBitcoinNetwork(network)
+	for _, receiver := range receivers {
+		isOnChain, onchainScript, err := utils.ParseBitcoinAddress(receiver.To, netParams)
+		if err != nil {
+			return fmt.Errorf("invalid receiver address: %s err = %s", receiver.To, err)
+		}
+
+		if isOnChain {
+			if err := validateOnchainReceiver(ptx, receiver, onchainScript); err != nil {
+				return err
+			}
+		} else {
+			if err := validateOffchainReceiver(vtxoTree, receiver); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateOnchainReceiver(
+	ptx *psbt.Packet, receiver types.Receiver, onchainScript []byte,
+) error {
+	found := false
+	for _, output := range ptx.UnsignedTx.TxOut {
+		if bytes.Equal(output.PkScript, onchainScript) {
+			if output.Value != int64(receiver.Amount) {
+				return fmt.Errorf(
+					"invalid collaborative exit output amount: got %d, want %d",
+					output.Value, receiver.Amount,
+				)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("collaborative exit output not found: %s", receiver.To)
+	}
+	return nil
+}
+
+func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) error {
+	found := false
+
+	rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
+	if err != nil {
+		return err
+	}
+
+	vtxoTapKey := schnorr.SerializePubKey(rcvAddr.VtxoTapKey)
+
+	leaves := vtxoTree.Leaves()
+	for _, leaf := range leaves {
+		for _, output := range leaf.UnsignedTx.TxOut {
+			if len(output.PkScript) == 0 {
+				continue
+			}
+
+			if bytes.Equal(output.PkScript[2:], vtxoTapKey) {
+				if output.Value != int64(receiver.Amount) {
+					continue
+				}
+
+				found = true
+				break
+			}
+		}
+
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("offchain send output not found: %s", receiver.To)
+	}
+
+	return nil
+}
+
 func buildOffchainTx(
 	vtxos []arkTxInput, receivers []types.Receiver,
-	serverUnrollScript *script.CSVMultisigClosure, dustLimit uint64,
+	serverUnrollScriptHex string, dustLimit uint64,
 ) (string, []string, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, fmt.Errorf("missing vtxos")
@@ -119,6 +204,11 @@ func buildOffchainTx(
 			Value:    int64(receiver.Amount),
 			PkScript: newVtxoScript,
 		})
+	}
+
+	serverUnrollScript, err := hex.DecodeString(serverUnrollScriptHex)
+	if err != nil {
+		return "", nil, err
 	}
 
 	arkPtx, checkpointPtxs, err := offchain.BuildTxs(ins, outs, serverUnrollScript)
@@ -435,33 +525,6 @@ func finalizeWithNotes(notesWitnesses map[int][]byte) func(ptx *psbt.Packet) err
 
 		return nil
 	}
-}
-
-func handleBatchTreeSignature(
-	event client.TreeSignatureEvent, txTree *tree.TxTree,
-) error {
-	if event.BatchIndex != 0 {
-		return fmt.Errorf("batch index %d is not 0", event.BatchIndex)
-	}
-
-	decodedSig, err := hex.DecodeString(event.Signature)
-	if err != nil {
-		return fmt.Errorf("failed to decode signature: %s", err)
-	}
-
-	sig, err := schnorr.ParseSignature(decodedSig)
-	if err != nil {
-		return fmt.Errorf("failed to parse signature: %s", err)
-	}
-
-	return txTree.Apply(func(g *tree.TxTree) (bool, error) {
-		if g.Root.UnsignedTx.TxID() != event.Txid {
-			return true, nil
-		}
-
-		g.Root.Inputs[0].TaprootKeySpendSig = sig.Serialize()
-		return false, nil
-	})
 }
 
 func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {

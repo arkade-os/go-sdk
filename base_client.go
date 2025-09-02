@@ -359,6 +359,7 @@ func (a *arkClient) initWithWallet(
 		UtxoMaxAmount:           info.UtxoMaxAmount,
 		VtxoMinAmount:           info.VtxoMinAmount,
 		VtxoMaxAmount:           info.VtxoMaxAmount,
+		CheckpointTapscript:     info.CheckpointTapscript,
 	}
 	if err := a.store.ConfigStore().AddData(ctx, storeData); err != nil {
 		return err
@@ -470,6 +471,7 @@ func (a *arkClient) init(
 		UtxoMaxAmount:           info.UtxoMaxAmount,
 		VtxoMinAmount:           info.VtxoMinAmount,
 		VtxoMaxAmount:           info.VtxoMaxAmount,
+		CheckpointTapscript:     info.CheckpointTapscript,
 	}
 	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
 	if err != nil {

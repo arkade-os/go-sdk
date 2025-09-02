@@ -198,10 +198,6 @@ func (s *bitcoinWallet) SignTransaction(
 		if err := updater.AddInWitnessUtxo(utxo, i); err != nil {
 			return "", err
 		}
-
-		if err := updater.AddInSighashType(txscript.SigHashDefault, i); err != nil {
-			return "", err
-		}
 	}
 
 	prevouts := make(map[wire.OutPoint]*wire.TxOut)
@@ -305,15 +301,11 @@ func (w *bitcoinWallet) signTapscriptSpend(
 		}
 
 		if sign {
-			if err := updater.AddInSighashType(txscript.SigHashDefault, inputIndex); err != nil {
-				return err
-			}
-
 			hash := txscript.NewTapLeaf(leaf.LeafVersion, leaf.Script).TapHash()
 
 			preimage, err := txscript.CalcTapscriptSignaturehash(
 				txsighashes,
-				txscript.SigHashDefault,
+				input.SighashType,
 				updater.Upsbt.UnsignedTx,
 				inputIndex,
 				prevoutFetcher,
@@ -341,7 +333,7 @@ func (w *bitcoinWallet) signTapscriptSpend(
 					XOnlyPubKey: myPubkey,
 					LeafHash:    hash.CloneBytes(),
 					Signature:   sig.Serialize(),
-					SigHash:     txscript.SigHashDefault,
+					SigHash:     input.SighashType,
 				},
 			)
 		}
@@ -370,7 +362,7 @@ func (w *bitcoinWallet) signTaprootKeySpend(
 
 	preimage, err := txscript.CalcTaprootSignatureHash(
 		txsighashes,
-		txscript.SigHashDefault,
+		input.SighashType,
 		updater.Upsbt.UnsignedTx,
 		inputIndex,
 		prevoutFetcher,
