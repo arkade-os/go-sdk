@@ -315,10 +315,14 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		return nil
 	}
 
+	for _, addr := range addressesToSubscribe {
+		e.subscribedMap[addr] = addressData{}
+	}
+
 	if e.conn != nil {
 		// When adding new addresses we have to resubscribe for the whole new total list of
 		// addresses.
-		trackAddresses := append([]string{}, addressesToSubscribe...)
+		trackAddresses := make([]string, 0, len(e.subscribedMap))
 		for addr := range e.subscribedMap {
 			trackAddresses = append(trackAddresses, addr)
 		}
@@ -704,7 +708,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos,
 			if newUtxo.Status.Confirmed {
 				createdAt = time.Unix(newUtxo.Status.BlockTime, 0)
 			}
-			utxo := types.OnchainOutput{
+			receivedUtxos = append(receivedUtxos, types.OnchainOutput{
 				Outpoint: types.Outpoint{
 					Txid: newUtxo.Txid,
 					VOut: newUtxo.Vout,
@@ -712,11 +716,7 @@ func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos,
 				Script:    newUtxo.Script,
 				Amount:    newUtxo.Amount,
 				CreatedAt: createdAt,
-			}
-			receivedUtxos = append(receivedUtxos, utxo)
-			if newUtxo.Status.Confirmed {
-				confirmedUtxos = append(confirmedUtxos, utxo)
-			}
+			})
 			continue
 		}
 		if !oldUtxo.Status.Confirmed && newUtxo.Status.Confirmed {
@@ -732,11 +732,13 @@ func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos,
 		}
 	}
 
-	e.sendAddressEvent(ctx, types.OnchainAddressEvent{
-		SpentUtxos:     spentUtxos,
-		NewUtxos:       receivedUtxos,
-		ConfirmedUtxos: confirmedUtxos,
-	})
+	if len(spentUtxos) > 0 || len(receivedUtxos) > 0 || len(confirmedUtxos) > 0 {
+		e.sendAddressEvent(ctx, types.OnchainAddressEvent{
+			SpentUtxos:     spentUtxos,
+			NewUtxos:       receivedUtxos,
+			ConfirmedUtxos: confirmedUtxos,
+		})
+	}
 }
 
 func (e *explorerSvc) getTxHex(txid string) (string, error) {
