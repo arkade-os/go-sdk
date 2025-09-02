@@ -904,7 +904,7 @@ func (a *arkClient) GetTransactionHistory(
 		return history, nil
 	}
 
-	return a.getTxHistory(ctx)
+	return a.fetchTxHistory(ctx)
 }
 
 func (a *arkClient) RegisterIntent(
@@ -1023,7 +1023,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 
 func (a *arkClient) refreshDb(ctx context.Context) error {
 	// Fetch new and spent vtxos.
-	spendableVtxos, spentVtxos, err := a.ListVtxos(ctx)
+	spendableVtxos, spentVtxos, err := a.listVtxosFromIndexer(ctx)
 	if err != nil {
 		return err
 	}
@@ -2781,8 +2781,8 @@ func (a *arkClient) handleOptions(
 	return sessions, signerPubKeys, nil
 }
 
-func (a *arkClient) getTxHistory(ctx context.Context) ([]types.Transaction, error) {
-	spendable, spent, err := a.ListVtxos(ctx)
+func (a *arkClient) fetchTxHistory(ctx context.Context) ([]types.Transaction, error) {
+	spendable, spent, err := a.listVtxosFromIndexer(ctx)
 	if err != nil {
 		return nil, err
 	}

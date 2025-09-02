@@ -183,49 +183,12 @@ func (a *arkClient) Stop() {
 	a.store.Close()
 }
 
-func (a *arkClient) ListVtxos(ctx context.Context) (
-	spendableVtxos, spentVtxos []types.Vtxo, err error,
-) {
+func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, error) {
 	if a.WithTransactionFeed {
 		return a.store.VtxoStore().GetAllVtxos(ctx)
 	}
 
-	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
-	if err != nil {
-		return
-	}
-
-	scripts := make([]string, 0, len(offchainAddrs))
-	for _, addr := range offchainAddrs {
-		decoded, err := arklib.DecodeAddressV0(addr.Address)
-		if err != nil {
-			return nil, nil, err
-		}
-		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
-		if err != nil {
-			return nil, nil, err
-		}
-		scripts = append(scripts, hex.EncodeToString(vtxoScript))
-	}
-	opt := indexer.GetVtxosRequestOption{}
-	if err = opt.WithScripts(scripts); err != nil {
-		return
-	}
-
-	resp, err := a.indexer.GetVtxos(ctx, opt)
-	if err != nil {
-		return
-	}
-
-	for _, vtxo := range resp.Vtxos {
-		if vtxo.Spent || vtxo.Swept || vtxo.Unrolled {
-			spentVtxos = append(spentVtxos, vtxo)
-			continue
-		}
-		spendableVtxos = append(spendableVtxos, vtxo)
-	}
-
-	return
+	return a.listVtxosFromIndexer(ctx)
 }
 
 func (a *arkClient) NotifyIncomingFunds(
@@ -495,6 +458,50 @@ func (a *arkClient) init(
 	a.indexer = indexerSvc
 
 	return nil
+}
+
+func (a *arkClient) listVtxosFromIndexer(
+	ctx context.Context,
+) (spendableVtxos, spentVtxos []types.Vtxo, err error) {
+	if a.wallet == nil {
+		return nil, nil, ErrNotInitialized
+	}
+
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return
+	}
+
+	scripts := make([]string, 0, len(offchainAddrs))
+	for _, addr := range offchainAddrs {
+		decoded, err := arklib.DecodeAddressV0(addr.Address)
+		if err != nil {
+			return nil, nil, err
+		}
+		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		scripts = append(scripts, hex.EncodeToString(vtxoScript))
+	}
+	opt := indexer.GetVtxosRequestOption{}
+	if err = opt.WithScripts(scripts); err != nil {
+		return
+	}
+
+	resp, err := a.indexer.GetVtxos(ctx, opt)
+	if err != nil {
+		return
+	}
+
+	for _, vtxo := range resp.Vtxos {
+		if vtxo.Spent || vtxo.Swept || vtxo.Unrolled {
+			spentVtxos = append(spentVtxos, vtxo)
+			continue
+		}
+		spendableVtxos = append(spendableVtxos, vtxo)
+	}
+	return
 }
 
 func (a *arkClient) safeCheck() error {
