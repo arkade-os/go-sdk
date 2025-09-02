@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"fmt"
+	"time"
 
 	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	restclient "github.com/arkade-os/go-sdk/client/rest"
@@ -21,13 +22,14 @@ var (
 )
 
 type InitArgs struct {
-	ClientType          string
-	WalletType          string
-	ServerUrl           string
-	Seed                string
-	Password            string
-	ExplorerURL         string
-	WithTransactionFeed bool
+	ClientType           string
+	WalletType           string
+	ServerUrl            string
+	Seed                 string
+	Password             string
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	WithTransactionFeed  bool
 }
 
 func (a InitArgs) validate() error {
@@ -61,13 +63,14 @@ func (a InitArgs) validate() error {
 }
 
 type InitWithWalletArgs struct {
-	ClientType          string
-	Wallet              wallet.WalletService
-	ServerUrl           string
-	Seed                string
-	Password            string
-	ExplorerURL         string
-	WithTransactionFeed bool
+	ClientType           string
+	Wallet               wallet.WalletService
+	ServerUrl            string
+	Seed                 string
+	Password             string
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	WithTransactionFeed  bool
 }
 
 func (a InitWithWalletArgs) validate() error {

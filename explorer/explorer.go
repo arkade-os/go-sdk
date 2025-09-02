@@ -2,34 +2,55 @@ package explorer
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	BitcoinExplorer = "bitcoin"
+	BitcoinExplorer     = "bitcoin"
+	pongInterval        = 60 * time.Second
+	pingInterval        = (pongInterval * 9) / 10
+	defaultPollInterval = 10 * time.Second
+)
+
+var (
+	defaultExplorerUrls = utils.SupportedType[string]{
+		arklib.Bitcoin.Name:        "https://mempool.space/api",
+		arklib.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
+		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
+		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
+		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
+		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
+	}
 )
 
 type Explorer interface {
 	GetTxHex(txid string) (string, error)
 	Broadcast(txs ...string) (string, error)
 	GetTxs(addr string) ([]tx, error)
-	IsRBFTx(txid, txHex string) (bool, string, int64, error)
 	GetTxOutspends(tx string) ([]spentStatus, error)
 	GetUtxos(addr string) ([]Utxo, error)
-	GetBalance(addr string) (uint64, error)
 	GetRedeemedVtxosBalance(
 		addr string, unilateralExitDelay arklib.RelativeLocktime,
 	) (uint64, map[int64]uint64, error)
@@ -38,20 +59,104 @@ type Explorer interface {
 	) (confirmed bool, blocktime int64, err error)
 	BaseUrl() string
 	GetFeeRate() (float64, error)
+	GetAddressesEvents() <-chan types.OnchainAddressEvent
+	SubscribeForAddresses(addresses []string) error
+	UnsubscribeForAddresses(addresses []string) error
+	Stop()
+}
+
+type addressData struct {
+	hash  []byte
+	utxos []Utxo
 }
 
 type explorerSvc struct {
-	cache   *utils.Cache[string]
-	baseUrl string
-	net     arklib.Network
+	cache         *utils.Cache[string]
+	baseUrl       string
+	net           arklib.Network
+	conn          *websocket.Conn
+	subscribedMu  *sync.RWMutex
+	subscribedMap map[string]addressData
+	channel       chan types.OnchainAddressEvent
+	stopTracking  func()
+	pollInterval  time.Duration
 }
 
-func NewExplorer(baseUrl string, net arklib.Network) Explorer {
-	return &explorerSvc{
-		cache:   utils.NewCache[string](),
-		baseUrl: baseUrl,
-		net:     net,
+type Option func(*explorerSvc)
+
+func WithPollInterval(interval time.Duration) Option {
+	return func(svc *explorerSvc) {
+		svc.pollInterval = interval
 	}
+}
+
+func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, error) {
+	if len(baseUrl) == 0 {
+		baseUrl, ok := defaultExplorerUrls[net.Name]
+		if !ok {
+			return nil, fmt.Errorf(
+				"cannot find default explorer url associated with network %s",
+				net.Name,
+			)
+		}
+		return NewExplorer(baseUrl, net, opts...)
+	}
+
+	wsURL, err := deriveWsURL(baseUrl)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base url: %s", err)
+	}
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(context.Background(), wsURL, nil)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"network": net.Name,
+			"url":     wsURL,
+		}).WithError(err).Warn("websocket dial failed, falling back to polling")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	svc := &explorerSvc{
+		cache:         utils.NewCache[string](),
+		baseUrl:       baseUrl,
+		net:           net,
+		conn:          conn,
+		subscribedMu:  &sync.RWMutex{},
+		subscribedMap: make(map[string]addressData),
+		channel:       make(chan types.OnchainAddressEvent, 100),
+		stopTracking:  cancel,
+		pollInterval:  defaultPollInterval,
+	}
+
+	for _, opt := range opts {
+		opt(svc)
+	}
+
+	if svc.conn == nil {
+		log.Debugf(
+			"starting explorer background tracking with polling interval %s",
+			svc.pollInterval,
+		)
+	} else {
+		log.Debugf("starting explorer background tracking with websocket")
+	}
+	go svc.startTracking(ctx)
+
+	return svc, nil
+}
+
+func (e *explorerSvc) Stop() {
+	e.stopTracking()
+	if e.conn != nil {
+		if err := e.conn.Close(); err != nil {
+			log.WithError(err).Error("failed to close websocket connection")
+		}
+	}
+	close(e.channel)
 }
 
 func (e *explorerSvc) BaseUrl() string {
@@ -90,6 +195,10 @@ func (e *explorerSvc) GetFeeRate() (float64, error) {
 	}
 
 	return response["1"], nil
+}
+
+func (e *explorerSvc) GetAddressesEvents() <-chan types.OnchainAddressEvent {
+	return e.channel
 }
 
 func (e *explorerSvc) GetTxHex(txid string) (string, error) {
@@ -190,36 +299,65 @@ func (e *explorerSvc) GetTxs(addr string) ([]tx, error) {
 	return payload, nil
 }
 
-func (e explorerSvc) IsRBFTx(txid, txHex string) (bool, string, int64, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/v1/fullrbf/replacements", e.baseUrl))
-	if err != nil {
-		return false, "", -1, err
+func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
+	e.subscribedMu.Lock()
+	defer e.subscribedMu.Unlock()
+
+	addressesToSubscribe := make([]string, 0, len(addresses))
+	for _, addr := range addresses {
+		if _, ok := e.subscribedMap[addr]; ok {
+			continue
+		}
+		addressesToSubscribe = append(addressesToSubscribe, addr)
 	}
 
-	// nolint:all
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", -1, err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		return e.esploraIsRBFTx(txid, txHex)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return false, "", -1, fmt.Errorf("%s", string(body))
+	if len(addressesToSubscribe) == 0 {
+		return nil
 	}
 
-	isRbf, replacedBy, timestamp, err := e.mempoolIsRBFTx(
-		fmt.Sprintf("%s/v1/fullrbf/replacements", e.baseUrl), txid,
-	)
-	if err != nil {
-		return false, "", -1, err
-	}
-	if isRbf {
-		return isRbf, replacedBy, timestamp, nil
+	for _, addr := range addressesToSubscribe {
+		e.subscribedMap[addr] = addressData{}
 	}
 
-	return e.mempoolIsRBFTx(fmt.Sprintf("%s/v1/replacements", e.baseUrl), txid)
+	if e.conn != nil {
+		// When adding new addresses we have to resubscribe for the whole new total list of
+		// addresses.
+		trackAddresses := make([]string, 0, len(e.subscribedMap))
+		for addr := range e.subscribedMap {
+			trackAddresses = append(trackAddresses, addr)
+		}
+		payload := map[string][]string{"track-addresses": trackAddresses}
+
+		if err := e.conn.WriteJSON(payload); err != nil {
+			return fmt.Errorf("failed to subscribe for addresses %s: %s", addressesToSubscribe, err)
+		}
+	}
+
+	return nil
+}
+
+func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
+	e.subscribedMu.Lock()
+	defer e.subscribedMu.Unlock()
+
+	for _, addr := range addresses {
+		delete(e.subscribedMap, addr)
+	}
+
+	if e.conn != nil {
+		// When unsubscribing we have to resubscribe for the remaining addresses.
+		trackAddresses := make([]string, 0, len(e.subscribedMap))
+		for addr := range e.subscribedMap {
+			trackAddresses = append(trackAddresses, addr)
+		}
+		payload := map[string][]string{"track-addresses": trackAddresses}
+
+		if err := e.conn.WriteJSON(payload); err != nil {
+			return fmt.Errorf("failed to unsubscribe for addresses %s: %s", addresses, err)
+		}
+	}
+
+	return nil
 }
 
 func (e *explorerSvc) GetTxOutspends(txid string) ([]spentStatus, error) {
@@ -246,6 +384,16 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]spentStatus, error) {
 }
 
 func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
+	decoded, err := btcutil.DecodeAddress(addr, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %s", err)
+	}
+
+	outputScript, err := txscript.PayToAddrScript(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %s", err)
+	}
+
 	resp, err := http.Get(fmt.Sprintf("%s/address/%s/utxo", e.baseUrl, addr))
 	if err != nil {
 		return nil, err
@@ -260,25 +408,16 @@ func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get utxos: %s", string(body))
 	}
-	payload := []Utxo{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	utxos := []Utxo{}
+	if err := json.Unmarshal(body, &utxos); err != nil {
 		return nil, err
 	}
 
-	return payload, nil
-}
-
-func (e *explorerSvc) GetBalance(addr string) (uint64, error) {
-	payload, err := e.GetUtxos(addr)
-	if err != nil {
-		return 0, err
+	for i := range utxos {
+		utxos[i].Script = hex.EncodeToString(outputScript)
 	}
 
-	balance := uint64(0)
-	for _, p := range payload {
-		balance += p.Amount
-	}
-	return balance, nil
+	return utxos, nil
 }
 
 func (e *explorerSvc) GetRedeemedVtxosBalance(
@@ -294,7 +433,7 @@ func (e *explorerSvc) GetRedeemedVtxosBalance(
 	for _, utxo := range utxos {
 		blocktime := now
 		if utxo.Status.Confirmed {
-			blocktime = time.Unix(utxo.Status.Blocktime, 0)
+			blocktime = time.Unix(utxo.Status.BlockTime, 0)
 		}
 
 		delay := time.Duration(unilateralExitDelay.Seconds()) * time.Second
@@ -346,7 +485,260 @@ func (e *explorerSvc) GetTxBlockTime(
 	}
 
 	return true, tx.Status.Blocktime, nil
+}
 
+func (e *explorerSvc) startTracking(ctx context.Context) {
+	// If the ws endpoint is avaialble (mempool.space url), read from websocket and eventually
+	// send notifications and periodically send a ping message to keep the connection alive.
+	if e.conn != nil {
+		// Go routine to listen for addresses updates from websocket.
+		go func(ctx context.Context) {
+			if err := e.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
+				log.WithError(err).Error("failed to set read deadline")
+				return
+			}
+			e.conn.SetPongHandler(func(string) error {
+				return e.conn.SetReadDeadline(time.Now().Add(pongInterval))
+			})
+			for {
+				var payload addressNotification
+				if err := e.conn.ReadJSON(&payload); err != nil {
+					if websocket.IsCloseError(
+						err,
+						websocket.CloseNormalClosure,
+						websocket.CloseGoingAway,
+					) ||
+						errors.Is(err, net.ErrClosed) {
+						return
+					}
+					log.WithError(err).Error("failed to read address notification")
+					continue
+				}
+				// Skip handling the received message if it's not an address update.
+				if len(payload.MultiAddrTx) == 0 {
+					continue
+				}
+
+				go e.sendAddressEventFromWs(ctx, payload)
+			}
+		}(ctx)
+
+		// Go routine to periodically send ping messages and keep the connection alive.
+		go func(ctx context.Context) {
+			ticker := time.NewTicker(pingInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					deadline := time.Now().Add(10 * time.Second)
+					if err := e.conn.WriteControl(
+						websocket.PingMessage, nil, deadline,
+					); err != nil {
+						log.WithError(err).Error("failed to ping explorer")
+						return
+					}
+				}
+			}
+		}(ctx)
+
+		return
+	}
+
+	// Otherwise (esplora url), poll the explorer every 10s and manually send notifications of
+	// spent, new and confirmed utxos.
+	ticker := time.NewTicker(e.pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			e.subscribedMu.RLock()
+			// make a snapshot copy of the map to avoid race conditions
+			subscribedMap := make(map[string]addressData, len(e.subscribedMap))
+			for addr, data := range e.subscribedMap {
+				hashCopy := make([]byte, len(data.hash))
+				copy(hashCopy, data.hash)
+				utxosCopy := make([]Utxo, len(data.utxos))
+				copy(utxosCopy, data.utxos)
+
+				subscribedMap[addr] = addressData{
+					hash:  hashCopy,
+					utxos: utxosCopy,
+				}
+			}
+			e.subscribedMu.RUnlock()
+
+			if len(subscribedMap) == 0 {
+				continue
+			}
+			for addr, oldUtxos := range subscribedMap {
+				newUtxos, err := e.GetUtxos(addr)
+				if err != nil {
+					log.WithError(err).Error("failed to poll explorer")
+				}
+				buf, _ := json.Marshal(newUtxos)
+				hashedResp := sha256.Sum256(buf)
+				if !bytes.Equal(oldUtxos.hash, hashedResp[:]) {
+					go e.sendAddressEventFromPolling(ctx, oldUtxos.utxos, newUtxos)
+					e.subscribedMu.Lock()
+					e.subscribedMap[addr] = addressData{
+						hash:  hashedResp[:],
+						utxos: newUtxos,
+					}
+					e.subscribedMu.Unlock()
+				}
+
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
+	spentUtxos := make([]types.OnchainOutput, 0)
+	newUtxos := make([]types.OnchainOutput, 0)
+	confirmedUtxos := make([]types.OnchainOutput, 0)
+	replacements := make(map[string]string)
+	for addr, data := range payload.MultiAddrTx {
+		if len(data.Removed) > 0 {
+			for _, tx := range data.Removed {
+				if len(data.Mempool) > 0 {
+					replacementTxid := data.Mempool[0].Txid
+					replacements[tx.Txid] = replacementTxid
+				}
+			}
+			continue
+		}
+		if len(data.Mempool) > 0 {
+			for _, tx := range data.Mempool {
+				for _, in := range tx.Inputs {
+					if in.Prevout.Address == addr {
+						spentUtxos = append(spentUtxos, types.OnchainOutput{
+							Outpoint: types.Outpoint{
+								Txid: in.Txid,
+								VOut: uint32(in.Vout),
+							},
+							SpentBy: tx.Txid,
+							Spent:   true,
+						})
+					}
+				}
+				for i, out := range tx.Outputs {
+					if out.Address == addr {
+						var createdAt time.Time
+						if tx.Status.Confirmed {
+							createdAt = time.Unix(tx.Status.BlockTime, 0)
+						}
+						newUtxos = append(newUtxos, types.OnchainOutput{
+							Outpoint: types.Outpoint{
+								Txid: tx.Txid,
+								VOut: uint32(i),
+							},
+							Script:    out.Script,
+							Amount:    out.Amount,
+							CreatedAt: createdAt,
+						})
+					}
+				}
+			}
+		}
+		if len(data.Confirmed) > 0 {
+			for _, tx := range data.Confirmed {
+				for i, out := range tx.Outputs {
+					if out.Address == addr {
+						confirmedUtxos = append(confirmedUtxos, types.OnchainOutput{
+							Outpoint: types.Outpoint{
+								Txid: tx.Txid,
+								VOut: uint32(i),
+							},
+							Script:    out.Script,
+							Amount:    out.Amount,
+							CreatedAt: time.Unix(tx.Status.BlockTime, 0),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	e.sendAddressEvent(ctx, types.OnchainAddressEvent{
+		NewUtxos:       newUtxos,
+		SpentUtxos:     spentUtxos,
+		ConfirmedUtxos: confirmedUtxos,
+		Replacements:   replacements,
+	})
+}
+
+func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos, newUtxos []Utxo) {
+	indexedOldUtxos := make(map[string]Utxo, 0)
+	indexedNewUtxos := make(map[string]Utxo, 0)
+	for _, oldUtxo := range oldUtxos {
+		indexedOldUtxos[fmt.Sprintf("%s:%d", oldUtxo.Txid, oldUtxo.Vout)] = oldUtxo
+	}
+	for _, newUtxo := range newUtxos {
+		indexedNewUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)] = newUtxo
+	}
+	spentUtxos := make([]types.OnchainOutput, 0)
+	for _, oldUtxo := range oldUtxos {
+		if _, ok := indexedNewUtxos[fmt.Sprintf("%s:%d", oldUtxo.Txid, oldUtxo.Vout)]; !ok {
+			var spentBy string
+			spentStatus, _ := e.GetTxOutspends(oldUtxo.Txid)
+			if len(spentStatus) > int(oldUtxo.Vout) {
+				spentBy = spentStatus[oldUtxo.Vout].SpentBy
+			}
+			spentUtxos = append(spentUtxos, types.OnchainOutput{
+				Outpoint: types.Outpoint{
+					Txid: oldUtxo.Txid,
+					VOut: oldUtxo.Vout,
+				},
+				SpentBy: spentBy,
+				Spent:   true,
+			})
+		}
+	}
+	receivedUtxos := make([]types.OnchainOutput, 0)
+	confirmedUtxos := make([]types.OnchainOutput, 0)
+	for _, newUtxo := range newUtxos {
+		oldUtxo, ok := indexedOldUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)]
+		if !ok {
+			var createdAt time.Time
+			if newUtxo.Status.Confirmed {
+				createdAt = time.Unix(newUtxo.Status.BlockTime, 0)
+			}
+			receivedUtxos = append(receivedUtxos, types.OnchainOutput{
+				Outpoint: types.Outpoint{
+					Txid: newUtxo.Txid,
+					VOut: newUtxo.Vout,
+				},
+				Script:    newUtxo.Script,
+				Amount:    newUtxo.Amount,
+				CreatedAt: createdAt,
+			})
+			continue
+		}
+		if !oldUtxo.Status.Confirmed && newUtxo.Status.Confirmed {
+			confirmedUtxos = append(confirmedUtxos, types.OnchainOutput{
+				Outpoint: types.Outpoint{
+					Txid: newUtxo.Txid,
+					VOut: newUtxo.Vout,
+				},
+				Script:    newUtxo.Script,
+				Amount:    newUtxo.Amount,
+				CreatedAt: time.Unix(newUtxo.Status.BlockTime, 0),
+			})
+		}
+	}
+
+	if len(spentUtxos) > 0 || len(receivedUtxos) > 0 || len(confirmedUtxos) > 0 {
+		e.sendAddressEvent(ctx, types.OnchainAddressEvent{
+			SpentUtxos:     spentUtxos,
+			NewUtxos:       receivedUtxos,
+			ConfirmedUtxos: confirmedUtxos,
+		})
+	}
 }
 
 func (e *explorerSvc) getTxHex(txid string) (string, error) {
@@ -391,70 +783,12 @@ func (e *explorerSvc) broadcast(txHex string) (string, error) {
 	return string(bodyResponse), nil
 }
 
-func (e *explorerSvc) mempoolIsRBFTx(url, txid string) (bool, string, int64, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return false, "", -1, err
+func (e *explorerSvc) sendAddressEvent(ctx context.Context, event types.OnchainAddressEvent) {
+	select {
+	case <-ctx.Done():
+		return
+	case e.channel <- event:
 	}
-
-	// nolint:all
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", -1, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return false, "", -1, fmt.Errorf("%s", string(body))
-	}
-
-	replacements := make([]replacement, 0)
-	if err := json.Unmarshal(body, &replacements); err != nil {
-		return false, "", -1, err
-	}
-
-	for _, r := range replacements {
-		for _, rr := range r.Replaces {
-			if rr.Tx.Txid == txid {
-				return true, r.Tx.Txid, r.Timestamp, nil
-			}
-		}
-	}
-	return false, "", 0, nil
-}
-
-func (e *explorerSvc) esploraIsRBFTx(txid, txHex string) (bool, string, int64, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/tx/%s/hex", e.baseUrl, txid))
-	if err != nil {
-		return false, "", -1, err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		var tx wire.MsgTx
-
-		if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(txHex))); err != nil {
-			return false, "", -1, err
-		}
-		spentBy, err := e.GetTxOutspends(tx.TxIn[0].PreviousOutPoint.Hash.String())
-		if err != nil {
-			return false, "", -1, err
-		}
-		if len(spentBy) <= 0 {
-			return false, "", -1, nil
-		}
-		rbfTx := spentBy[0].SpentBy
-
-		confirmed, timestamp, err := e.GetTxBlockTime(rbfTx)
-		if err != nil {
-			return false, "", -1, err
-		}
-		if !confirmed {
-			timestamp = 0
-		}
-
-		return true, rbfTx, timestamp, nil
-	}
-
-	return false, "", -1, nil
 }
 
 func parseBitcoinTx(txStr string) (string, string, error) {
@@ -487,7 +821,7 @@ func parseBitcoinTx(txStr string) (string, string, error) {
 }
 
 func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
-	utxoTime := explorerUtxo.Status.Blocktime
+	utxoTime := explorerUtxo.Status.BlockTime
 	createdAt := time.Unix(utxoTime, 0)
 	if utxoTime == 0 {
 		createdAt = time.Time{}
@@ -495,12 +829,34 @@ func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []stri
 	}
 
 	return types.Utxo{
-		Txid:        explorerUtxo.Txid,
-		VOut:        explorerUtxo.Vout,
+		Outpoint: types.Outpoint{
+			Txid: explorerUtxo.Txid,
+			VOut: explorerUtxo.Vout,
+		},
 		Amount:      explorerUtxo.Amount,
 		Delay:       delay,
 		SpendableAt: time.Unix(utxoTime, 0).Add(time.Duration(delay.Seconds()) * time.Second),
 		CreatedAt:   createdAt,
 		Tapscripts:  tapscripts,
 	}
+}
+
+func deriveWsURL(baseUrl string) (string, error) {
+	var wsUrl string
+
+	parsedUrl, err := url.Parse(baseUrl)
+	if err != nil {
+		return "", err
+	}
+
+	scheme := "ws"
+	if parsedUrl.Scheme == "https" {
+		scheme = "wss"
+	}
+	parsedUrl.Scheme = scheme
+	wsUrl = strings.TrimRight(parsedUrl.String(), "/")
+
+	wsUrl = fmt.Sprintf("%s/v1/ws", wsUrl)
+
+	return wsUrl, nil
 }

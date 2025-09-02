@@ -34,6 +34,7 @@ type Config struct {
 	Dust                    uint64
 	BoardingExitDelay       arklib.RelativeLocktime
 	ExplorerURL             string
+	ExplorerPollInterval    time.Duration
 	ForfeitAddress          string
 	WithTransactionFeed     bool
 	MarketHourStartTime     int64
@@ -103,6 +104,29 @@ func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, 
 	return a.EncodeV0()
 }
 
+type UtxoEventType int
+
+const (
+	UtxosAdded UtxoEventType = iota
+	UtxosConfirmed
+	UtxosReplaced
+	UtxosSpent
+)
+
+func (e UtxoEventType) String() string {
+	return map[UtxoEventType]string{
+		UtxosAdded:     "UTXOS_ADDED",
+		UtxosConfirmed: "UTXOS_CONFIRMED",
+		UtxosReplaced:  "UTXOS_REPLACED",
+		UtxosSpent:     "UTXOS_SPENT",
+	}[e]
+}
+
+type UtxoEvent struct {
+	Type  UtxoEventType
+	Utxos []Utxo
+}
+
 type VtxoEventType int
 
 const (
@@ -113,8 +137,9 @@ const (
 
 func (e VtxoEventType) String() string {
 	return map[VtxoEventType]string{
-		VtxosAdded: "VTXOS_ADDED",
-		VtxosSpent: "VTXOS_SPENT",
+		VtxosAdded:   "VTXOS_ADDED",
+		VtxosSpent:   "VTXOS_SPENT",
+		VtxosUpdated: "VTXOS_UPDATED",
 	}[e]
 }
 
@@ -181,15 +206,20 @@ type TransactionEvent struct {
 }
 
 type Utxo struct {
-	Txid        string
-	VOut        uint32
+	Outpoint
 	Amount      uint64
+	Script      string
 	Delay       arklib.RelativeLocktime
 	SpendableAt time.Time
 	CreatedAt   time.Time
 	Tapscripts  []string
 	Spent       bool
+	SpentBy     string
 	Tx          string
+}
+
+func (u Utxo) IsConfirmed() bool {
+	return !u.CreatedAt.IsZero()
 }
 
 func (u *Utxo) Sequence() (uint32, error) {
@@ -239,4 +269,20 @@ func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
 		Value:    int64(o.Amount),
 		PkScript: pkScript,
 	}, isOnchain, nil
+}
+
+type OnchainOutput struct {
+	Outpoint
+	Script    string
+	Amount    uint64
+	CreatedAt time.Time
+	Spent     bool
+	SpentBy   string
+}
+
+type OnchainAddressEvent struct {
+	SpentUtxos     []OnchainOutput
+	NewUtxos       []OnchainOutput
+	ConfirmedUtxos []OnchainOutput
+	Replacements   map[string]string // replacedTxid -> replacementTxid
 }
