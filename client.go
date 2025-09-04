@@ -1857,7 +1857,7 @@ func (a *arkClient) makeDeleteIntentBIP322Signature(
 		BaseIntentMessage: bip322.BaseIntentMessage{
 			Type: bip322.IntentMessageTypeDelete,
 		},
-		ExpireAt: time.Now().Add(2 * time.Minute).Unix(),
+		ExpireAt: 0,
 	}.Encode()
 	if err != nil {
 		return "", "", err
