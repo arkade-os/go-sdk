@@ -32,6 +32,9 @@ type V1GetSubscriptionResponse struct {
 	// spent vtxos
 	SpentVtxos []*V1IndexerVtxo `json:"spentVtxos"`
 
+	// swept vtxos
+	SweptVtxos []*V1IndexerVtxo `json:"sweptVtxos"`
+
 	// tx
 	Tx string `json:"tx,omitempty"`
 
@@ -52,6 +55,10 @@ func (m *V1GetSubscriptionResponse) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateSpentVtxos(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSweptVtxos(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -139,6 +146,32 @@ func (m *V1GetSubscriptionResponse) validateSpentVtxos(formats strfmt.Registry) 
 	return nil
 }
 
+func (m *V1GetSubscriptionResponse) validateSweptVtxos(formats strfmt.Registry) error {
+	if swag.IsZero(m.SweptVtxos) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.SweptVtxos); i++ {
+		if swag.IsZero(m.SweptVtxos[i]) { // not required
+			continue
+		}
+
+		if m.SweptVtxos[i] != nil {
+			if err := m.SweptVtxos[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("sweptVtxos" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("sweptVtxos" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 // ContextValidate validate this v1 get subscription response based on the context it is used
 func (m *V1GetSubscriptionResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -152,6 +185,10 @@ func (m *V1GetSubscriptionResponse) ContextValidate(ctx context.Context, formats
 	}
 
 	if err := m.contextValidateSpentVtxos(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSweptVtxos(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -216,6 +253,31 @@ func (m *V1GetSubscriptionResponse) contextValidateSpentVtxos(ctx context.Contex
 					return ve.ValidateName("spentVtxos" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
 					return ce.ValidateName("spentVtxos" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *V1GetSubscriptionResponse) contextValidateSweptVtxos(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.SweptVtxos); i++ {
+
+		if m.SweptVtxos[i] != nil {
+
+			if swag.IsZero(m.SweptVtxos[i]) { // not required
+				return nil
+			}
+
+			if err := m.SweptVtxos[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("sweptVtxos" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("sweptVtxos" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

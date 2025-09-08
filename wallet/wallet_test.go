@@ -18,11 +18,13 @@ import (
 
 func TestWallet(t *testing.T) {
 	ctx := context.Background()
-	key, _ := btcec.NewPrivateKey()
+	signerKey, _ := btcec.NewPrivateKey()
+	forfeitKey, _ := btcec.NewPrivateKey()
 	password := "password"
 	testStoreData := sdktypes.Config{
 		ServerUrl:           "localhost:7070",
-		SignerPubKey:        key.PubKey(),
+		SignerPubKey:        signerKey.PubKey(),
+		ForfeitPubKey:       forfeitKey.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,
 		ClientType:          client.GrpcClient,
 		Network:             arklib.BitcoinRegTest,

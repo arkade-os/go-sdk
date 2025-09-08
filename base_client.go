@@ -279,6 +279,15 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to parse server pubkey: %s", err)
 	}
 
+	buf, err = hex.DecodeString(info.ForfeitPubKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
+	}
+	forfeitPubkey, err := secp256k1.ParsePubKey(buf)
+	if err != nil {
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
+	}
+
 	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
 	if info.VtxoTreeExpiry >= 512 {
 		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
@@ -295,11 +304,12 @@ func (a *arkClient) initWithWallet(
 	}
 
 	storeData := types.Config{
-		ServerUrl:    args.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   args.Wallet.GetType(),
-		ClientType:   args.ClientType,
-		Network:      network,
+		ServerUrl:     args.ServerUrl,
+		SignerPubKey:  signerPubkey,
+		ForfeitPubKey: forfeitPubkey,
+		WalletType:    args.Wallet.GetType(),
+		ClientType:    args.ClientType,
+		Network:       network,
 		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
 		},
@@ -391,6 +401,15 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to parse server pubkey: %s", err)
 	}
 
+	buf, err = hex.DecodeString(info.ForfeitPubKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
+	}
+	forfeitPubkey, err := secp256k1.ParsePubKey(buf)
+	if err != nil {
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
+	}
+
 	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
 	if info.VtxoTreeExpiry >= 512 {
 		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
@@ -407,11 +426,12 @@ func (a *arkClient) init(
 	}
 
 	cfgData := types.Config{
-		ServerUrl:    args.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   args.WalletType,
-		ClientType:   args.ClientType,
-		Network:      network,
+		ServerUrl:     args.ServerUrl,
+		SignerPubKey:  signerPubkey,
+		ForfeitPubKey: forfeitPubkey,
+		WalletType:    args.WalletType,
+		ClientType:    args.ClientType,
+		Network:       network,
 		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
 		},

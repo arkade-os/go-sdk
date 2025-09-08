@@ -75,6 +75,7 @@ type GetInfoResponse struct {
 	VtxoMaxAmount       int64                  `protobuf:"varint,13,opt,name=vtxo_max_amount,json=vtxoMaxAmount,proto3" json:"vtxo_max_amount,omitempty"` // -1 means no limit (default)
 	BoardingExitDelay   int64                  `protobuf:"varint,14,opt,name=boarding_exit_delay,json=boardingExitDelay,proto3" json:"boarding_exit_delay,omitempty"`
 	CheckpointTapscript string                 `protobuf:"bytes,15,opt,name=checkpoint_tapscript,json=checkpointTapscript,proto3" json:"checkpoint_tapscript,omitempty"`
+	ForfeitPubkey       string                 `protobuf:"bytes,16,opt,name=forfeit_pubkey,json=forfeitPubkey,proto3" json:"forfeit_pubkey,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -210,6 +211,13 @@ func (x *GetInfoResponse) GetBoardingExitDelay() int64 {
 func (x *GetInfoResponse) GetCheckpointTapscript() string {
 	if x != nil {
 		return x.CheckpointTapscript
+	}
+	return ""
+}
+
+func (x *GetInfoResponse) GetForfeitPubkey() string {
+	if x != nil {
+		return x.ForfeitPubkey
 	}
 	return ""
 }
@@ -1293,7 +1301,7 @@ var File_ark_v1_service_proto protoreflect.FileDescriptor
 const file_ark_v1_service_proto_rawDesc = "" +
 	"\n" +
 	"\x14ark/v1/service.proto\x12\x06ark.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x12ark/v1/types.proto\"\x10\n" +
-	"\x0eGetInfoRequest\"\xe4\x04\n" +
+	"\x0eGetInfoRequest\"\x8b\x05\n" +
 	"\x0fGetInfoResponse\x12#\n" +
 	"\rsigner_pubkey\x18\x01 \x01(\tR\fsignerPubkey\x12(\n" +
 	"\x10vtxo_tree_expiry\x18\x02 \x01(\x03R\x0evtxoTreeExpiry\x122\n" +
@@ -1311,7 +1319,8 @@ const file_ark_v1_service_proto_rawDesc = "" +
 	"\x0fvtxo_min_amount\x18\f \x01(\x03R\rvtxoMinAmount\x12&\n" +
 	"\x0fvtxo_max_amount\x18\r \x01(\x03R\rvtxoMaxAmount\x12.\n" +
 	"\x13boarding_exit_delay\x18\x0e \x01(\x03R\x11boardingExitDelay\x121\n" +
-	"\x14checkpoint_tapscript\x18\x0f \x01(\tR\x13checkpointTapscript\"H\n" +
+	"\x14checkpoint_tapscript\x18\x0f \x01(\tR\x13checkpointTapscript\x12%\n" +
+	"\x0eforfeit_pubkey\x18\x10 \x01(\tR\rforfeitPubkey\"H\n" +
 	"\x15RegisterIntentRequest\x12/\n" +
 	"\x06intent\x18\x01 \x01(\v2\x17.ark.v1.Bip322SignatureR\x06intent\"5\n" +
 	"\x16RegisterIntentResponse\x12\x1b\n" +

@@ -126,6 +126,7 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	}
 	return &client.Info{
 		SignerPubKey:            resp.GetSignerPubkey(),
+		ForfeitPubKey:           resp.GetForfeitPubkey(),
 		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
 		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
 		RoundInterval:           resp.GetRoundInterval(),

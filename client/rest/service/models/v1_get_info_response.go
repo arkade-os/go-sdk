@@ -30,6 +30,9 @@ type V1GetInfoResponse struct {
 	// forfeit address
 	ForfeitAddress string `json:"forfeitAddress,omitempty"`
 
+	// forfeit pubkey
+	ForfeitPubkey string `json:"forfeitPubkey,omitempty"`
+
 	// market hour
 	MarketHour *V1MarketHour `json:"marketHour,omitempty"`
 

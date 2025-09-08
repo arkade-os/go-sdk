@@ -13,6 +13,7 @@ import (
 type storeData struct {
 	ServerUrl               string `json:"server_url"`
 	SignerPubKey            string `json:"signer_pubkey"`
+	ForfeitPubKey           string `json:"forfeit_pubkey"`
 	WalletType              string `json:"wallet_type"`
 	ClientType              string `json:"client_type"`
 	Network                 string `json:"network"`
@@ -54,6 +55,8 @@ func (d storeData) decode() types.Config {
 	dust, _ := strconv.Atoi(d.Dust)
 	buf, _ := hex.DecodeString(d.SignerPubKey)
 	signerPubkey, _ := secp256k1.ParsePubKey(buf)
+	buf, _ = hex.DecodeString(d.ForfeitPubKey)
+	forfeitPubkey, _ := secp256k1.ParsePubKey(buf)
 	explorerURL := d.ExplorerURL
 	nextStartTime, _ := strconv.Atoi(d.MarketHourStartTime)
 	nextEndTime, _ := strconv.Atoi(d.MarketHourEndTime)
@@ -80,11 +83,12 @@ func (d storeData) decode() types.Config {
 	}
 
 	return types.Config{
-		ServerUrl:    d.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   d.WalletType,
-		ClientType:   d.ClientType,
-		Network:      network,
+		ServerUrl:     d.ServerUrl,
+		SignerPubKey:  signerPubkey,
+		ForfeitPubKey: forfeitPubkey,
+		WalletType:    d.WalletType,
+		ClientType:    d.ClientType,
+		Network:       network,
 		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type:  vtxoTreeExpiryType,
 			Value: uint32(vtxoTreeExpiry),
@@ -118,6 +122,7 @@ func (d storeData) asMap() map[string]string {
 	return map[string]string{
 		"server_url":                 d.ServerUrl,
 		"signer_pubkey":              d.SignerPubKey,
+		"forfeit_pubkey":             d.ForfeitPubKey,
 		"wallet_type":                d.WalletType,
 		"client_type":                d.ClientType,
 		"network":                    d.Network,

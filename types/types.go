@@ -25,6 +25,7 @@ const (
 type Config struct {
 	ServerUrl               string
 	SignerPubKey            *secp256k1.PublicKey
+	ForfeitPubKey           *secp256k1.PublicKey
 	WalletType              string
 	ClientType              string
 	Network                 arklib.Network

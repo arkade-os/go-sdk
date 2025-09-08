@@ -49,6 +49,7 @@ type TransportClient interface {
 type Info struct {
 	Version                 string
 	SignerPubKey            string
+	ForfeitPubKey           string
 	VtxoTreeExpiry          int64
 	UnilateralExitDelay     int64
 	BoardingExitDelay       int64
