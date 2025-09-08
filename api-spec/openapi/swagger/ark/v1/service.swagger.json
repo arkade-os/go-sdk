@@ -595,9 +595,6 @@
         "boardingExitDelay": {
           "type": "string",
           "format": "int64"
-        },
-        "checkpointTapscript": {
-          "type": "string"
         }
       }
     },

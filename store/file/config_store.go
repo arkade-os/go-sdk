@@ -73,7 +73,7 @@ func (s *configStore) AddData(ctx context.Context, data types.Config) error {
 		UtxoMaxAmount:           fmt.Sprintf("%d", data.UtxoMaxAmount),
 		VtxoMinAmount:           fmt.Sprintf("%d", data.VtxoMinAmount),
 		VtxoMaxAmount:           fmt.Sprintf("%d", data.VtxoMaxAmount),
-		CheckpointTapscript:     data.CheckpointTapscript,
+		// CheckpointTapscript:     data.CheckpointTapscript,
 	}
 
 	if err := s.write(sd); err != nil {
