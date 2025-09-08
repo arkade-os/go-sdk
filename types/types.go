@@ -45,7 +45,7 @@ type Config struct {
 	UtxoMaxAmount           int64
 	VtxoMinAmount           int64
 	VtxoMaxAmount           int64
-	CheckpointTapscript     string
+	// CheckpointTapscript     string
 }
 
 type Outpoint struct {
