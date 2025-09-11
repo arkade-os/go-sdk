@@ -130,7 +130,7 @@ func (a *restClient) GetInfo(
 		UtxoMaxAmount:           int64(utxoMaxAmount),
 		VtxoMinAmount:           int64(vtxoMinAmount),
 		VtxoMaxAmount:           int64(vtxoMaxAmount),
-		CheckpointTapscript:     resp.Payload.CheckpointTapscript,
+		// CheckpointTapscript:     resp.Payload.CheckpointTapscript,
 	}, nil
 }
 
