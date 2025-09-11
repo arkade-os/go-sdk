@@ -536,7 +536,6 @@ func registerIntentMessage(
 	cosignersPublicKeys []string,
 ) (string, []*wire.TxOut, error) {
 	validAt := time.Now()
-	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
 	onchainOutputsIndexes := make([]int, 0)
 	inputTapTrees := make([]string, 0)
@@ -575,7 +574,7 @@ func registerIntentMessage(
 		},
 		InputTapTrees:        inputTapTrees,
 		OnchainOutputIndexes: onchainOutputsIndexes,
-		ExpireAt:             expireAt,
+		ExpireAt:             0,
 		ValidAt:              validAt.Unix(),
 		CosignersPublicKeys:  cosignersPublicKeys,
 	}.Encode()
