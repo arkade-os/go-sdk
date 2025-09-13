@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVirtualTxsResponse{}
 
 // GetVirtualTxsResponse struct for GetVirtualTxsResponse
 type GetVirtualTxsResponse struct {
-	Page *IndexerPageResponse `json:"page,omitempty"`
-	Txs []string `json:"txs,omitempty"`
+		Page *IndexerPageResponse `json:"page,omitempty"`
+		Txs []string `json:"txs,omitempty"`
 }
 
 // NewGetVirtualTxsResponse instantiates a new GetVirtualTxsResponse object

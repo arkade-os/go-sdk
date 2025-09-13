@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoChainRequest{}
 
 // GetVtxoChainRequest struct for GetVtxoChainRequest
 type GetVtxoChainRequest struct {
-	Outpoint *IndexerOutpoint `json:"outpoint,omitempty"`
-	Page *IndexerPageRequest `json:"page,omitempty"`
+		Outpoint *IndexerOutpoint `json:"outpoint,omitempty"`
+		Page *IndexerPageRequest `json:"page,omitempty"`
 }
 
 // NewGetVtxoChainRequest instantiates a new GetVtxoChainRequest object

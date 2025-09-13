@@ -19,19 +19,19 @@ var _ MappedNullable = &IndexerVtxo{}
 
 // IndexerVtxo struct for IndexerVtxo
 type IndexerVtxo struct {
-	Amount *int32 `json:"amount,omitempty"`
-	ArkTxid *string `json:"arkTxid,omitempty"`
-	CommitmentTxids []string `json:"commitmentTxids,omitempty"`
-	CreatedAt *int64 `json:"createdAt,omitempty"`
-	ExpiresAt *int64 `json:"expiresAt,omitempty"`
-	IsPreconfirmed *bool `json:"isPreconfirmed,omitempty"`
-	IsSpent *bool `json:"isSpent,omitempty"`
-	IsSwept *bool `json:"isSwept,omitempty"`
-	IsUnrolled *bool `json:"isUnrolled,omitempty"`
-	Outpoint *IndexerOutpoint `json:"outpoint,omitempty"`
-	Script *string `json:"script,omitempty"`
-	SettledBy *string `json:"settledBy,omitempty"`
-	SpentBy *string `json:"spentBy,omitempty"`
+		Amount *int32 `json:"amount,string,omitempty"`
+		ArkTxid *string `json:"arkTxid,omitempty"`
+		CommitmentTxids []string `json:"commitmentTxids,omitempty"`
+		CreatedAt *int64 `json:"createdAt,string,omitempty"`
+		ExpiresAt *int64 `json:"expiresAt,string,omitempty"`
+		IsPreconfirmed *bool `json:"isPreconfirmed,omitempty"`
+		IsSpent *bool `json:"isSpent,omitempty"`
+		IsSwept *bool `json:"isSwept,omitempty"`
+		IsUnrolled *bool `json:"isUnrolled,omitempty"`
+		Outpoint *IndexerOutpoint `json:"outpoint,omitempty"`
+		Script *string `json:"script,omitempty"`
+		SettledBy *string `json:"settledBy,omitempty"`
+		SpentBy *string `json:"spentBy,omitempty"`
 }
 
 // NewIndexerVtxo instantiates a new IndexerVtxo object

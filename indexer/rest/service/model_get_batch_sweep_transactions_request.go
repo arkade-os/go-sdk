@@ -19,7 +19,7 @@ var _ MappedNullable = &GetBatchSweepTransactionsRequest{}
 
 // GetBatchSweepTransactionsRequest struct for GetBatchSweepTransactionsRequest
 type GetBatchSweepTransactionsRequest struct {
-	BatchOutpoint *IndexerOutpoint `json:"batchOutpoint,omitempty"`
+		BatchOutpoint *IndexerOutpoint `json:"batchOutpoint,omitempty"`
 }
 
 // NewGetBatchSweepTransactionsRequest instantiates a new GetBatchSweepTransactionsRequest object

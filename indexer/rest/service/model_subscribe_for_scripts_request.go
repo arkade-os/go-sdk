@@ -19,9 +19,9 @@ var _ MappedNullable = &SubscribeForScriptsRequest{}
 
 // SubscribeForScriptsRequest struct for SubscribeForScriptsRequest
 type SubscribeForScriptsRequest struct {
-	Scripts []string `json:"scripts,omitempty"`
+		Scripts []string `json:"scripts,omitempty"`
 	// If set, update an existing subscription
-	SubscriptionId *string `json:"subscriptionId,omitempty"`
+		SubscriptionId *string `json:"subscriptionId,omitempty"`
 }
 
 // NewSubscribeForScriptsRequest instantiates a new SubscribeForScriptsRequest object

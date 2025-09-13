@@ -19,13 +19,13 @@ var _ MappedNullable = &IndexerTxHistoryRecord{}
 
 // IndexerTxHistoryRecord struct for IndexerTxHistoryRecord
 type IndexerTxHistoryRecord struct {
-	Amount *int32 `json:"amount,omitempty"`
-	CommitmentTxid *string `json:"commitmentTxid,omitempty"`
-	CreatedAt *int64 `json:"createdAt,omitempty"`
-	IsSettled *bool `json:"isSettled,omitempty"`
-	SettledBy *string `json:"settledBy,omitempty"`
-	Type *IndexerTxType `json:"type,omitempty"`
-	VirtualTxid *string `json:"virtualTxid,omitempty"`
+		Amount *int32 `json:"amount,omitempty"`
+		CommitmentTxid *string `json:"commitmentTxid,omitempty"`
+		CreatedAt *int64 `json:"createdAt,omitempty"`
+		IsSettled *bool `json:"isSettled,omitempty"`
+		SettledBy *string `json:"settledBy,omitempty"`
+		Type *IndexerTxType `json:"type,omitempty"`
+		VirtualTxid *string `json:"virtualTxid,omitempty"`
 }
 
 // NewIndexerTxHistoryRecord instantiates a new IndexerTxHistoryRecord object

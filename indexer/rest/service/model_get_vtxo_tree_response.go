@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoTreeResponse{}
 
 // GetVtxoTreeResponse struct for GetVtxoTreeResponse
 type GetVtxoTreeResponse struct {
-	Page *IndexerPageResponse `json:"page,omitempty"`
-	VtxoTree []IndexerNode `json:"vtxoTree,omitempty"`
+		Page *IndexerPageResponse `json:"page,omitempty"`
+		VtxoTree []IndexerNode `json:"vtxoTree,omitempty"`
 }
 
 // NewGetVtxoTreeResponse instantiates a new GetVtxoTreeResponse object

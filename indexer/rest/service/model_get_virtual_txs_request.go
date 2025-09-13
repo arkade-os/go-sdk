@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVirtualTxsRequest{}
 
 // GetVirtualTxsRequest struct for GetVirtualTxsRequest
 type GetVirtualTxsRequest struct {
-	Page *IndexerPageRequest `json:"page,omitempty"`
-	Txids []string `json:"txids,omitempty"`
+		Page *IndexerPageRequest `json:"page,omitempty"`
+		Txids []string `json:"txids,omitempty"`
 }
 
 // NewGetVirtualTxsRequest instantiates a new GetVirtualTxsRequest object

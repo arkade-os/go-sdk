@@ -19,13 +19,13 @@ var _ MappedNullable = &IndexerSubscriptionEvent{}
 
 // IndexerSubscriptionEvent struct for IndexerSubscriptionEvent
 type IndexerSubscriptionEvent struct {
-	CheckpointTxs map[string]IndexerTxData `json:"checkpointTxs,omitempty"`
-	NewVtxos []IndexerVtxo `json:"newVtxos,omitempty"`
-	Scripts []string `json:"scripts,omitempty"`
-	SpentVtxos []IndexerVtxo `json:"spentVtxos,omitempty"`
-	SweptVtxos []IndexerVtxo `json:"sweptVtxos,omitempty"`
-	Tx *string `json:"tx,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		CheckpointTxs map[string]IndexerTxData `json:"checkpointTxs,omitempty"`
+		NewVtxos []IndexerVtxo `json:"newVtxos,omitempty"`
+		Scripts []string `json:"scripts,omitempty"`
+		SpentVtxos []IndexerVtxo `json:"spentVtxos,omitempty"`
+		SweptVtxos []IndexerVtxo `json:"sweptVtxos,omitempty"`
+		Tx *string `json:"tx,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewIndexerSubscriptionEvent instantiates a new IndexerSubscriptionEvent object

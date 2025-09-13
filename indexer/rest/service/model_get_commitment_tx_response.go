@@ -19,13 +19,13 @@ var _ MappedNullable = &GetCommitmentTxResponse{}
 
 // GetCommitmentTxResponse struct for GetCommitmentTxResponse
 type GetCommitmentTxResponse struct {
-	Batches map[string]IndexerBatch `json:"batches,omitempty"`
-	EndedAt *int64 `json:"endedAt,omitempty"`
-	StartedAt *int64 `json:"startedAt,omitempty"`
-	TotalInputAmount *int32 `json:"totalInputAmount,omitempty"`
-	TotalInputVtxos *int32 `json:"totalInputVtxos,omitempty"`
-	TotalOutputAmount *int32 `json:"totalOutputAmount,omitempty"`
-	TotalOutputVtxos *int32 `json:"totalOutputVtxos,omitempty"`
+		Batches map[string]IndexerBatch `json:"batches,omitempty"`
+		EndedAt *int64 `json:"endedAt,omitempty"`
+		StartedAt *int64 `json:"startedAt,omitempty"`
+		TotalInputAmount *int32 `json:"totalInputAmount,omitempty"`
+		TotalInputVtxos *int32 `json:"totalInputVtxos,omitempty"`
+		TotalOutputAmount *int32 `json:"totalOutputAmount,omitempty"`
+		TotalOutputVtxos *int32 `json:"totalOutputVtxos,omitempty"`
 }
 
 // NewGetCommitmentTxResponse instantiates a new GetCommitmentTxResponse object

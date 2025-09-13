@@ -19,8 +19,8 @@ var _ MappedNullable = &IndexerOutpoint{}
 
 // IndexerOutpoint struct for IndexerOutpoint
 type IndexerOutpoint struct {
-	Txid *string `json:"txid,omitempty"`
-	Vout *int32 `json:"vout,omitempty"`
+		Txid *string `json:"txid,omitempty"`
+		Vout *int32 `json:"vout,omitempty"`
 }
 
 // NewIndexerOutpoint instantiates a new IndexerOutpoint object

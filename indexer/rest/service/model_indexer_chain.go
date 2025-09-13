@@ -19,11 +19,11 @@ var _ MappedNullable = &IndexerChain{}
 
 // IndexerChain struct for IndexerChain
 type IndexerChain struct {
-	ExpiresAt *int64 `json:"expiresAt,omitempty"`
+		ExpiresAt *int64 `json:"expiresAt,omitempty"`
 	// txids of the transactions in the chain used as input of the current tx
-	Spends []string `json:"spends,omitempty"`
-	Txid *string `json:"txid,omitempty"`
-	Type *IndexerChainedTxType `json:"type,omitempty"`
+		Spends []string `json:"spends,omitempty"`
+		Txid *string `json:"txid,omitempty"`
+		Type *IndexerChainedTxType `json:"type,omitempty"`
 }
 
 // NewIndexerChain instantiates a new IndexerChain object

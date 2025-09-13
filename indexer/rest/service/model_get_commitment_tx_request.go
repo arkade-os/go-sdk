@@ -19,7 +19,7 @@ var _ MappedNullable = &GetCommitmentTxRequest{}
 
 // GetCommitmentTxRequest struct for GetCommitmentTxRequest
 type GetCommitmentTxRequest struct {
-	Txid *string `json:"txid,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewGetCommitmentTxRequest instantiates a new GetCommitmentTxRequest object

@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoTreeLeavesResponse{}
 
 // GetVtxoTreeLeavesResponse struct for GetVtxoTreeLeavesResponse
 type GetVtxoTreeLeavesResponse struct {
-	Leaves []IndexerOutpoint `json:"leaves,omitempty"`
-	Page *IndexerPageResponse `json:"page,omitempty"`
+		Leaves []IndexerOutpoint `json:"leaves,omitempty"`
+		Page *IndexerPageResponse `json:"page,omitempty"`
 }
 
 // NewGetVtxoTreeLeavesResponse instantiates a new GetVtxoTreeLeavesResponse object

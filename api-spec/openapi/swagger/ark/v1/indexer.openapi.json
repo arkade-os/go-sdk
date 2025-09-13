@@ -1227,7 +1227,8 @@
         "properties": {
           "amount": {
             "type": "integer",
-            "format": "uint64"
+            "format": "uint64",
+            "x-go-json-string": true
           },
           "arkTxid": {
             "type": "string"
@@ -1240,11 +1241,13 @@
           },
           "createdAt": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "x-go-json-string": true
           },
           "expiresAt": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "x-go-json-string": true
           },
           "isPreconfirmed": {
             "type": "boolean"

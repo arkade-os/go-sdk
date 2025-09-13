@@ -20,16 +20,16 @@ var _ MappedNullable = &GetVtxosRequest{}
 // GetVtxosRequest struct for GetVtxosRequest
 type GetVtxosRequest struct {
 	// Or specify a list of vtxo outpoints. The 2 filters are mutually exclusive.
-	Outpoints []string `json:"outpoints,omitempty"`
-	Page *IndexerPageRequest `json:"page,omitempty"`
+		Outpoints []string `json:"outpoints,omitempty"`
+		Page *IndexerPageRequest `json:"page,omitempty"`
 	// Retrieve only recoverable vtxos (notes, subdust or swept vtxos). The 3 filters are mutually exclusive,
-	RecoverableOnly *bool `json:"recoverableOnly,omitempty"`
+		RecoverableOnly *bool `json:"recoverableOnly,omitempty"`
 	// Either specify a list of vtxo scripts.
-	Scripts []string `json:"scripts,omitempty"`
+		Scripts []string `json:"scripts,omitempty"`
 	// Retrieve only spendable vtxos
-	SpendableOnly *bool `json:"spendableOnly,omitempty"`
+		SpendableOnly *bool `json:"spendableOnly,omitempty"`
 	// Retrieve only spent vtxos.
-	SpentOnly *bool `json:"spentOnly,omitempty"`
+		SpentOnly *bool `json:"spentOnly,omitempty"`
 }
 
 // NewGetVtxosRequest instantiates a new GetVtxosRequest object

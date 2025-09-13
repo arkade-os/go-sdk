@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoTreeRequest{}
 
 // GetVtxoTreeRequest struct for GetVtxoTreeRequest
 type GetVtxoTreeRequest struct {
-	BatchOutpoint *IndexerOutpoint `json:"batchOutpoint,omitempty"`
-	Page *IndexerPageRequest `json:"page,omitempty"`
+		BatchOutpoint *IndexerOutpoint `json:"batchOutpoint,omitempty"`
+		Page *IndexerPageRequest `json:"page,omitempty"`
 }
 
 // NewGetVtxoTreeRequest instantiates a new GetVtxoTreeRequest object

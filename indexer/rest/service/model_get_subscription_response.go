@@ -19,8 +19,8 @@ var _ MappedNullable = &GetSubscriptionResponse{}
 
 // GetSubscriptionResponse struct for GetSubscriptionResponse
 type GetSubscriptionResponse struct {
-	Event *IndexerSubscriptionEvent `json:"event,omitempty"`
-	Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
+		Event *IndexerSubscriptionEvent `json:"event,omitempty"`
+		Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
 }
 
 // NewGetSubscriptionResponse instantiates a new GetSubscriptionResponse object

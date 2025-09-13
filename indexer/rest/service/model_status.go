@@ -19,9 +19,9 @@ var _ MappedNullable = &Status{}
 
 // Status struct for Status
 type Status struct {
-	Code *int32 `json:"code,omitempty"`
-	Details []Any `json:"details,omitempty"`
-	Message *string `json:"message,omitempty"`
+		Code *int32 `json:"code,omitempty"`
+		Details []Any `json:"details,omitempty"`
+		Message *string `json:"message,omitempty"`
 }
 
 // NewStatus instantiates a new Status object

@@ -19,7 +19,7 @@ var _ MappedNullable = &GetSubscriptionRequest{}
 
 // GetSubscriptionRequest struct for GetSubscriptionRequest
 type GetSubscriptionRequest struct {
-	SubscriptionId *string `json:"subscriptionId,omitempty"`
+		SubscriptionId *string `json:"subscriptionId,omitempty"`
 }
 
 // NewGetSubscriptionRequest instantiates a new GetSubscriptionRequest object

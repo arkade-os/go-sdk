@@ -19,9 +19,9 @@ var _ MappedNullable = &IndexerPageResponse{}
 
 // IndexerPageResponse struct for IndexerPageResponse
 type IndexerPageResponse struct {
-	Current *int32 `json:"current,omitempty"`
-	Next *int32 `json:"next,omitempty"`
-	Total *int32 `json:"total,omitempty"`
+		Current *int32 `json:"current,omitempty"`
+		Next *int32 `json:"next,omitempty"`
+		Total *int32 `json:"total,omitempty"`
 }
 
 // NewIndexerPageResponse instantiates a new IndexerPageResponse object

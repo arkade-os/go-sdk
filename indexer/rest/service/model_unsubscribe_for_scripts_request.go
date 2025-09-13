@@ -20,8 +20,8 @@ var _ MappedNullable = &UnsubscribeForScriptsRequest{}
 // UnsubscribeForScriptsRequest struct for UnsubscribeForScriptsRequest
 type UnsubscribeForScriptsRequest struct {
 	// If empty, unsubscribe all scripts
-	Scripts []string `json:"scripts,omitempty"`
-	SubscriptionId *string `json:"subscriptionId,omitempty"`
+		Scripts []string `json:"scripts,omitempty"`
+		SubscriptionId *string `json:"subscriptionId,omitempty"`
 }
 
 // NewUnsubscribeForScriptsRequest instantiates a new UnsubscribeForScriptsRequest object

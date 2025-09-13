@@ -19,8 +19,8 @@ var _ MappedNullable = &GetConnectorsResponse{}
 
 // GetConnectorsResponse struct for GetConnectorsResponse
 type GetConnectorsResponse struct {
-	Connectors []IndexerNode `json:"connectors,omitempty"`
-	Page *IndexerPageResponse `json:"page,omitempty"`
+		Connectors []IndexerNode `json:"connectors,omitempty"`
+		Page *IndexerPageResponse `json:"page,omitempty"`
 }
 
 // NewGetConnectorsResponse instantiates a new GetConnectorsResponse object

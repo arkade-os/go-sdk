@@ -19,8 +19,8 @@ var _ MappedNullable = &GetForfeitTxsRequest{}
 
 // GetForfeitTxsRequest struct for GetForfeitTxsRequest
 type GetForfeitTxsRequest struct {
-	Page *IndexerPageRequest `json:"page,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		Page *IndexerPageRequest `json:"page,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewGetForfeitTxsRequest instantiates a new GetForfeitTxsRequest object

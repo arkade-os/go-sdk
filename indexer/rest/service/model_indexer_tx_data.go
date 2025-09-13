@@ -19,8 +19,8 @@ var _ MappedNullable = &IndexerTxData{}
 
 // IndexerTxData struct for IndexerTxData
 type IndexerTxData struct {
-	Tx *string `json:"tx,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		Tx *string `json:"tx,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewIndexerTxData instantiates a new IndexerTxData object

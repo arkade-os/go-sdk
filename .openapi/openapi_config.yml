@@ -16,3 +16,8 @@ openapi:
         amount: { extra: { x-go-json-string: true } }
         created_at: { extra: { x-go-json-string: true } }
         expires_at: { extra: { x-go-json-string: true } }
+    - selector: "ark.v1.IndexerVtxo"
+      fields:
+        amount: { extra: { x-go-json-string: true } }
+        created_at: { extra: { x-go-json-string: true } }
+        expires_at: { extra: { x-go-json-string: true } }

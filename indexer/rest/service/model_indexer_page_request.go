@@ -19,8 +19,8 @@ var _ MappedNullable = &IndexerPageRequest{}
 
 // IndexerPageRequest struct for IndexerPageRequest
 type IndexerPageRequest struct {
-	Index *int32 `json:"index,omitempty"`
-	Size *int32 `json:"size,omitempty"`
+		Index *int32 `json:"index,omitempty"`
+		Size *int32 `json:"size,omitempty"`
 }
 
 // NewIndexerPageRequest instantiates a new IndexerPageRequest object

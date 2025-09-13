@@ -19,8 +19,8 @@ var _ MappedNullable = &GetConnectorsRequest{}
 
 // GetConnectorsRequest struct for GetConnectorsRequest
 type GetConnectorsRequest struct {
-	Page *IndexerPageRequest `json:"page,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		Page *IndexerPageRequest `json:"page,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewGetConnectorsRequest instantiates a new GetConnectorsRequest object

@@ -19,7 +19,7 @@ var _ MappedNullable = &GetBatchSweepTransactionsResponse{}
 
 // GetBatchSweepTransactionsResponse struct for GetBatchSweepTransactionsResponse
 type GetBatchSweepTransactionsResponse struct {
-	SweptBy []string `json:"sweptBy,omitempty"`
+		SweptBy []string `json:"sweptBy,omitempty"`
 }
 
 // NewGetBatchSweepTransactionsResponse instantiates a new GetBatchSweepTransactionsResponse object

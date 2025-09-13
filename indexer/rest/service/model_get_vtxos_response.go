@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxosResponse{}
 
 // GetVtxosResponse struct for GetVtxosResponse
 type GetVtxosResponse struct {
-	Page *IndexerPageResponse `json:"page,omitempty"`
-	Vtxos []IndexerVtxo `json:"vtxos,omitempty"`
+		Page *IndexerPageResponse `json:"page,omitempty"`
+		Vtxos []IndexerVtxo `json:"vtxos,omitempty"`
 }
 
 // NewGetVtxosResponse instantiates a new GetVtxosResponse object

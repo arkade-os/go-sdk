@@ -20,8 +20,8 @@ var _ MappedNullable = &IndexerNode{}
 // IndexerNode struct for IndexerNode
 type IndexerNode struct {
 	// vout -> txid
-	Children map[string]string `json:"children,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		Children map[string]string `json:"children,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewIndexerNode instantiates a new IndexerNode object

@@ -19,10 +19,10 @@ var _ MappedNullable = &IndexerBatch{}
 
 // IndexerBatch struct for IndexerBatch
 type IndexerBatch struct {
-	ExpiresAt *int64 `json:"expiresAt,omitempty"`
-	Swept *bool `json:"swept,omitempty"`
-	TotalOutputAmount *int32 `json:"totalOutputAmount,omitempty"`
-	TotalOutputVtxos *int32 `json:"totalOutputVtxos,omitempty"`
+		ExpiresAt *int64 `json:"expiresAt,omitempty"`
+		Swept *bool `json:"swept,omitempty"`
+		TotalOutputAmount *int32 `json:"totalOutputAmount,omitempty"`
+		TotalOutputVtxos *int32 `json:"totalOutputVtxos,omitempty"`
 }
 
 // NewIndexerBatch instantiates a new IndexerBatch object
