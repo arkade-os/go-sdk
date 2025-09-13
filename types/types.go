@@ -45,7 +45,13 @@ type Config struct {
 	UtxoMaxAmount           int64
 	VtxoMinAmount           int64
 	VtxoMaxAmount           int64
-	// CheckpointTapscript     string
+	CheckpointTapscript     string
+}
+
+func (c Config) CheckpointExitPath() []byte {
+	// nolint
+	buf, _ := hex.DecodeString(c.CheckpointTapscript)
+	return buf
 }
 
 type Outpoint struct {

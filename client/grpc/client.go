@@ -142,6 +142,7 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
 		VtxoMinAmount:           resp.GetVtxoMinAmount(),
 		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
+		CheckpointTapscript:     resp.GetCheckpointTapscript(),
 	}, nil
 }
 

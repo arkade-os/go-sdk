@@ -110,7 +110,7 @@ func (d storeData) decode() types.Config {
 		UtxoMaxAmount:           int64(utxoMaxAmount),
 		VtxoMinAmount:           int64(vtxoMinAmount),
 		VtxoMaxAmount:           int64(vtxoMaxAmount),
-		// CheckpointTapscript:     d.CheckpointTapscript,
+		CheckpointTapscript:     d.CheckpointTapscript,
 	}
 }
 

@@ -121,8 +121,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 }
 
 func buildOffchainTx(
-	vtxos []arkTxInput, receivers []types.Receiver,
-	serverUnrollScript *script.CSVMultisigClosure, dustLimit uint64,
+	vtxos []arkTxInput, receivers []types.Receiver, serverUnrollScript []byte, dustLimit uint64,
 ) (string, []string, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, fmt.Errorf("missing vtxos")
