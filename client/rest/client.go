@@ -76,13 +76,13 @@ func (a *restClient) GetInfo(
 func (a *restClient) RegisterIntent(
 	ctx context.Context, signature, message string,
 ) (string, error) {
-	req := a.svc.ArkServiceAPI.ArkServiceRegisterIntent(ctx)
-	req.RegisterIntentRequest(ark_service.RegisterIntentRequest{
-		Intent: &ark_service.Bip322Signature{
-			Message:   &message,
-			Signature: &signature,
-		},
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceRegisterIntent(ctx).
+		RegisterIntentRequest(ark_service.RegisterIntentRequest{
+			Intent: &ark_service.Bip322Signature{
+				Message:   &message,
+				Signature: &signature,
+			},
+		})
 
 	resp, _, err := req.Execute()
 	if err != nil {
@@ -93,23 +93,23 @@ func (a *restClient) RegisterIntent(
 }
 
 func (a *restClient) DeleteIntent(ctx context.Context, signature, message string) error {
-	req := a.svc.ArkServiceAPI.ArkServiceDeleteIntent(ctx)
-	req.DeleteIntentRequest(ark_service.DeleteIntentRequest{
-		Proof: &ark_service.Bip322Signature{
-			Message:   &message,
-			Signature: &signature,
-		},
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceDeleteIntent(ctx).
+		DeleteIntentRequest(ark_service.DeleteIntentRequest{
+			Proof: &ark_service.Bip322Signature{
+				Message:   &message,
+				Signature: &signature,
+			},
+		})
 
 	_, _, err := req.Execute()
 	return err
 }
 
 func (a *restClient) ConfirmRegistration(ctx context.Context, intentId string) error {
-	req := a.svc.ArkServiceAPI.ArkServiceConfirmRegistration(ctx)
-	req.ConfirmRegistrationRequest(ark_service.ConfirmRegistrationRequest{
-		IntentId: &intentId,
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceConfirmRegistration(ctx).
+		ConfirmRegistrationRequest(ark_service.ConfirmRegistrationRequest{
+			IntentId: &intentId,
+		})
 
 	_, _, err := req.Execute()
 	return err
@@ -124,12 +124,12 @@ func (a *restClient) SubmitTreeNonces(
 	}
 	serializedNonces := string(buf)
 
-	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeNonces(ctx)
-	req.SubmitTreeNoncesRequest(ark_service.SubmitTreeNoncesRequest{
-		BatchId:    &batchId,
-		Pubkey:     &cosignerPubkey,
-		TreeNonces: &serializedNonces,
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeNonces(ctx).
+		SubmitTreeNoncesRequest(ark_service.SubmitTreeNoncesRequest{
+			BatchId:    &batchId,
+			Pubkey:     &cosignerPubkey,
+			TreeNonces: &serializedNonces,
+		})
 
 	_, _, err = req.Execute()
 	return err
@@ -144,12 +144,12 @@ func (a *restClient) SubmitTreeSignatures(
 	}
 	serializedSignatures := string(buf)
 
-	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeSignatures(ctx)
-	req.SubmitTreeSignaturesRequest(ark_service.SubmitTreeSignaturesRequest{
-		BatchId:        &batchId,
-		Pubkey:         &cosignerPubkey,
-		TreeSignatures: &serializedSignatures,
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeSignatures(ctx).
+		SubmitTreeSignaturesRequest(ark_service.SubmitTreeSignaturesRequest{
+			BatchId:        &batchId,
+			Pubkey:         &cosignerPubkey,
+			TreeSignatures: &serializedSignatures,
+		})
 
 	_, _, err = req.Execute()
 	return err
@@ -158,11 +158,11 @@ func (a *restClient) SubmitTreeSignatures(
 func (a *restClient) SubmitSignedForfeitTxs(
 	ctx context.Context, signedForfeitTxs []string, signedCommitmentTx string,
 ) error {
-	req := a.svc.ArkServiceAPI.ArkServiceSubmitSignedForfeitTxs(ctx)
-	req.SubmitSignedForfeitTxsRequest(ark_service.SubmitSignedForfeitTxsRequest{
-		SignedForfeitTxs:   signedForfeitTxs,
-		SignedCommitmentTx: &signedCommitmentTx,
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitSignedForfeitTxs(ctx).
+		SubmitSignedForfeitTxsRequest(ark_service.SubmitSignedForfeitTxsRequest{
+			SignedForfeitTxs:   signedForfeitTxs,
+			SignedCommitmentTx: &signedCommitmentTx,
+		})
 
 	_, _, err := req.Execute()
 	return err
@@ -294,11 +294,11 @@ func (c *restClient) GetEventStream(
 func (a *restClient) SubmitTx(
 	ctx context.Context, signedArkTx string, checkpointTxs []string,
 ) (string, string, []string, error) {
-	req := a.svc.ArkServiceAPI.ArkServiceSubmitTx(ctx)
-	req.SubmitTxRequest(ark_service.SubmitTxRequest{
-		SignedArkTx:   &signedArkTx,
-		CheckpointTxs: checkpointTxs,
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitTx(ctx).
+		SubmitTxRequest(ark_service.SubmitTxRequest{
+			SignedArkTx:   &signedArkTx,
+			CheckpointTxs: checkpointTxs,
+		})
 
 	resp, _, err := a.svc.ArkServiceAPI.ArkServiceSubmitTxExecute(req)
 	if err != nil {
@@ -310,11 +310,11 @@ func (a *restClient) SubmitTx(
 func (a *restClient) FinalizeTx(
 	ctx context.Context, arkTxid string, finalCheckpointTxs []string,
 ) error {
-	req := a.svc.ArkServiceAPI.ArkServiceFinalizeTx(ctx)
-	req.FinalizeTxRequest(ark_service.FinalizeTxRequest{
-		ArkTxid:            &arkTxid,
-		FinalCheckpointTxs: finalCheckpointTxs,
-	})
+	req := a.svc.ArkServiceAPI.ArkServiceFinalizeTx(ctx).
+		FinalizeTxRequest(ark_service.FinalizeTxRequest{
+			ArkTxid:            &arkTxid,
+			FinalCheckpointTxs: finalCheckpointTxs,
+		})
 
 	_, _, err := a.svc.ArkServiceAPI.ArkServiceFinalizeTxExecute(req)
 	return err
