@@ -80,8 +80,7 @@ func (a *restClient) GetVtxoTree(
 	if len(opts) > 0 {
 		opt := opts[0]
 		if opt.GetPage() != nil {
-			req.PageIndex(opt.GetPage().Index)
-			req.PageSize(opt.GetPage().Size)
+			req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 		}
 	}
 
@@ -154,8 +153,7 @@ func (a *restClient) GetVtxoTreeLeaves(
 	if len(opts) > 0 {
 		opt := opts[0]
 		if opt.GetPage() != nil {
-			req.PageIndex(opt.GetPage().Index)
-			req.PageSize(opt.GetPage().Size)
+			req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 		}
 	}
 
@@ -185,8 +183,7 @@ func (a *restClient) GetForfeitTxs(
 	if len(opts) > 0 {
 		opt := opts[0]
 		if opt.GetPage() != nil {
-			req.PageIndex(opt.GetPage().Index)
-			req.PageSize(opt.GetPage().Size)
+			req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 		}
 	}
 
@@ -208,8 +205,7 @@ func (a *restClient) GetConnectors(
 	if len(opts) > 0 {
 		opt := opts[0]
 		if opt.GetPage() != nil {
-			req.PageIndex(opt.GetPage().Index)
-			req.PageSize(opt.GetPage().Size)
+			req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 		}
 	}
 
@@ -249,19 +245,18 @@ func (a *restClient) GetVtxos(
 	}
 	opt := opts[0]
 
-	req := a.svc.IndexerServiceAPI.IndexerServiceGetVtxos(ctx)
-	req.SpendableOnly(opt.GetSpendableOnly())
-	req.SpentOnly(opt.GetSpentOnly())
-	req.RecoverableOnly(opt.GetRecoverableOnly())
+	req := a.svc.IndexerServiceAPI.IndexerServiceGetVtxos(ctx).
+		SpendableOnly(opt.GetSpendableOnly()).
+		SpentOnly(opt.GetSpentOnly()).
+		RecoverableOnly(opt.GetRecoverableOnly())
 	if len(opt.GetOutpoints()) > 0 {
-		req.Outpoints(opt.GetOutpoints())
+		req = req.Outpoints(opt.GetOutpoints())
 	}
 	if len(opt.GetScripts()) > 0 {
-		req.Scripts(opt.GetScripts())
+		req = req.Scripts(opt.GetScripts())
 	}
 	if opt.GetPage() != nil {
-		req.PageIndex(opt.GetPage().Index)
-		req.PageSize(opt.GetPage().Size)
+		req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 	}
 
 	resp, _, err := req.Execute()
@@ -284,8 +279,7 @@ func (a *restClient) GetVtxoChain(
 	if len(opts) > 0 {
 		opt := opts[0]
 		if opt.GetPage() != nil {
-			req.PageIndex(opt.GetPage().Index)
-			req.PageSize(opt.GetPage().Size)
+			req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 		}
 	}
 
@@ -330,8 +324,7 @@ func (a *restClient) GetVirtualTxs(
 	if len(opts) > 0 {
 		opt := opts[0]
 		if opt.GetPage() != nil {
-			req.PageIndex(opt.GetPage().Index)
-			req.PageSize(opt.GetPage().Size)
+			req = req.PageIndex(opt.GetPage().Index).PageSize(opt.GetPage().Size)
 		}
 	}
 
