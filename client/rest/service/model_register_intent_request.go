@@ -20,7 +20,7 @@ var _ MappedNullable = &RegisterIntentRequest{}
 // RegisterIntentRequest struct for RegisterIntentRequest
 type RegisterIntentRequest struct {
 	// BIP322 signature embeds the outpoints to be spent and new ones to be created, as well as the the proof of funds.
-	Intent *Bip322Signature `json:"intent,omitempty"`
+		Intent *Bip322Signature `json:"intent,omitempty"`
 }
 
 // NewRegisterIntentRequest instantiates a new RegisterIntentRequest object

@@ -19,8 +19,8 @@ var _ MappedNullable = &BatchFinalizationEvent{}
 
 // BatchFinalizationEvent struct for BatchFinalizationEvent
 type BatchFinalizationEvent struct {
-	CommitmentTx *string `json:"commitmentTx,omitempty"`
-	Id *string `json:"id,omitempty"`
+		CommitmentTx *string `json:"commitmentTx,omitempty"`
+		Id *string `json:"id,omitempty"`
 }
 
 // NewBatchFinalizationEvent instantiates a new BatchFinalizationEvent object

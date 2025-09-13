@@ -19,8 +19,8 @@ var _ MappedNullable = &Outpoint{}
 
 // Outpoint struct for Outpoint
 type Outpoint struct {
-	Txid *string `json:"txid,omitempty"`
-	Vout *int32 `json:"vout,omitempty"`
+		Txid *string `json:"txid,omitempty"`
+		Vout *int32 `json:"vout,omitempty"`
 }
 
 // NewOutpoint instantiates a new Outpoint object

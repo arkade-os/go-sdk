@@ -11,20 +11,16 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/client"
-	"github.com/arkade-os/go-sdk/client/rest/service/arkservice"
-	"github.com/arkade-os/go-sdk/client/rest/service/arkservice/ark_service"
-	"github.com/arkade-os/go-sdk/client/rest/service/models"
-	"github.com/arkade-os/go-sdk/internal/utils"
+	ark_service "github.com/arkade-os/go-sdk/client/rest/service"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
-	httptransport "github.com/go-openapi/runtime/client"
-	"github.com/go-openapi/strfmt"
+	"resty.dev/v3"
 )
 
 // restClient implements the TransportClient interface for REST communication
 type restClient struct {
 	serverURL      string
-	svc            ark_service.ClientService
+	svc            *ark_service.APIClient
 	requestTimeout time.Duration
 }
 
@@ -47,197 +43,135 @@ func NewClient(serverURL string) (client.TransportClient, error) {
 func (a *restClient) GetInfo(
 	ctx context.Context,
 ) (*client.Info, error) {
-	resp, err := a.svc.ArkServiceGetInfo(ark_service.NewArkServiceGetInfoParams())
+	req := a.svc.ArkServiceAPI.ArkServiceGetInfo(ctx)
+
+	resp, _, err := req.Execute()
 	if err != nil {
 		return nil, err
 	}
 
-	vtxoTreeExpiry, err := strconv.Atoi(resp.Payload.VtxoTreeExpiry)
-	if err != nil {
-		return nil, err
-	}
-	unilateralExitDelay, err := strconv.Atoi(resp.Payload.UnilateralExitDelay)
-	if err != nil {
-		return nil, err
-	}
-	boardingExitDelay, err := strconv.Atoi(resp.Payload.BoardingExitDelay)
-	if err != nil {
-		return nil, err
-	}
-	roundInterval, err := strconv.Atoi(resp.Payload.RoundInterval)
-	if err != nil {
-		return nil, err
-	}
-	dust, err := strconv.Atoi(resp.Payload.Dust)
-	if err != nil {
-		return nil, err
-	}
-	utxoMinAmount, err := strconv.Atoi(resp.Payload.UtxoMinAmount)
-	if err != nil {
-		return nil, err
-	}
-	utxoMaxAmount, err := strconv.Atoi(resp.Payload.UtxoMaxAmount)
-	if err != nil {
-		return nil, err
-	}
-	vtxoMinAmount, err := strconv.Atoi(resp.Payload.VtxoMinAmount)
-	if err != nil {
-		return nil, err
-	}
-	vtxoMaxAmount, err := strconv.Atoi(resp.Payload.VtxoMaxAmount)
-	if err != nil {
-		return nil, err
-	}
-	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
-	if mktHour := resp.Payload.MarketHour; mktHour != nil {
-		nextStartTime, err := strconv.Atoi(mktHour.NextStartTime)
-		if err != nil {
-			return nil, err
-		}
-		nextEndTime, err := strconv.Atoi(mktHour.NextEndTime)
-		if err != nil {
-			return nil, err
-		}
-		period, err := strconv.Atoi(mktHour.Period)
-		if err != nil {
-			return nil, err
-		}
-		roundInterval, err := strconv.Atoi(mktHour.RoundInterval)
-		if err != nil {
-			return nil, err
-		}
-		marketHourStartTime = int64(nextStartTime)
-		marketHourEndTime = int64(nextEndTime)
-		marketHourPeriod = int64(period)
-		marketHourRoundInterval = int64(roundInterval)
-	}
-
+	mktHour := resp.GetMarketHour()
 	return &client.Info{
-		SignerPubKey:            resp.Payload.SignerPubkey,
-		VtxoTreeExpiry:          int64(vtxoTreeExpiry),
-		UnilateralExitDelay:     int64(unilateralExitDelay),
-		RoundInterval:           int64(roundInterval),
-		Network:                 resp.Payload.Network,
-		Dust:                    uint64(dust),
-		BoardingExitDelay:       int64(boardingExitDelay),
-		ForfeitAddress:          resp.Payload.ForfeitAddress,
-		Version:                 resp.Payload.Version,
-		MarketHourStartTime:     marketHourStartTime,
-		MarketHourEndTime:       marketHourEndTime,
-		MarketHourPeriod:        marketHourPeriod,
-		MarketHourRoundInterval: marketHourRoundInterval,
-		UtxoMinAmount:           int64(utxoMinAmount),
-		UtxoMaxAmount:           int64(utxoMaxAmount),
-		VtxoMinAmount:           int64(vtxoMinAmount),
-		VtxoMaxAmount:           int64(vtxoMaxAmount),
-		// CheckpointTapscript:     resp.Payload.CheckpointTapscript,
+		SignerPubKey:            resp.GetSignerPubkey(),
+		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
+		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
+		RoundInterval:           resp.GetRoundInterval(),
+		Network:                 resp.GetNetwork(),
+		Dust:                    uint64(resp.GetDust()),
+		BoardingExitDelay:       resp.GetBoardingExitDelay(),
+		ForfeitAddress:          resp.GetForfeitAddress(),
+		Version:                 resp.GetVersion(),
+		MarketHourStartTime:     mktHour.GetNextStartTime(),
+		MarketHourEndTime:       mktHour.GetNextEndTime(),
+		MarketHourPeriod:        mktHour.GetPeriod(),
+		MarketHourRoundInterval: mktHour.GetRoundInterval(),
+		UtxoMinAmount:           resp.GetUtxoMinAmount(),
+		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
+		VtxoMinAmount:           resp.GetVtxoMinAmount(),
+		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
+		CheckpointTapscript:     resp.GetCheckpointTapscript(),
 	}, nil
 }
 
 func (a *restClient) RegisterIntent(
-	ctx context.Context,
-	signature, message string,
+	ctx context.Context, signature, message string,
 ) (string, error) {
-	body := &models.V1RegisterIntentRequest{
-		Intent: &models.V1Bip322Signature{
-			Message:   message,
-			Signature: signature,
+	req := a.svc.ArkServiceAPI.ArkServiceRegisterIntent(ctx)
+	req.RegisterIntentRequest(ark_service.RegisterIntentRequest{
+		Intent: &ark_service.Bip322Signature{
+			Message:   &message,
+			Signature: &signature,
 		},
-	}
-	resp, err := a.svc.ArkServiceRegisterIntent(
-		ark_service.NewArkServiceRegisterIntentParams().WithBody(body),
-	)
+	})
+
+	resp, _, err := req.Execute()
 	if err != nil {
 		return "", err
 	}
 
-	return resp.Payload.IntentID, nil
+	return resp.GetIntentId(), nil
 }
 
-func (a *restClient) DeleteIntent(_ context.Context, signature, message string) error {
-	body := &models.V1DeleteIntentRequest{
-		Proof: &models.V1Bip322Signature{
-			Message:   message,
-			Signature: signature,
+func (a *restClient) DeleteIntent(ctx context.Context, signature, message string) error {
+	req := a.svc.ArkServiceAPI.ArkServiceDeleteIntent(ctx)
+	req.DeleteIntentRequest(ark_service.DeleteIntentRequest{
+		Proof: &ark_service.Bip322Signature{
+			Message:   &message,
+			Signature: &signature,
 		},
-	}
+	})
 
-	_, err := a.svc.ArkServiceDeleteIntent(
-		ark_service.NewArkServiceDeleteIntentParams().WithBody(body),
-	)
+	_, _, err := req.Execute()
 	return err
 }
 
-func (a *restClient) ConfirmRegistration(ctx context.Context, intentID string) error {
-	body := &models.V1ConfirmRegistrationRequest{
-		IntentID: intentID,
-	}
-	_, err := a.svc.ArkServiceConfirmRegistration(
-		ark_service.NewArkServiceConfirmRegistrationParams().WithBody(body),
-	)
+func (a *restClient) ConfirmRegistration(ctx context.Context, intentId string) error {
+	req := a.svc.ArkServiceAPI.ArkServiceConfirmRegistration(ctx)
+	req.ConfirmRegistrationRequest(ark_service.ConfirmRegistrationRequest{
+		IntentId: &intentId,
+	})
+
+	_, _, err := req.Execute()
 	return err
 }
 
 func (a *restClient) SubmitTreeNonces(
 	ctx context.Context, batchId, cosignerPubkey string, nonces tree.TreeNonces,
 ) error {
-	noncesJSON, err := json.Marshal(nonces)
+	buf, err := json.Marshal(nonces)
 	if err != nil {
 		return err
 	}
+	serializedNonces := string(buf)
 
-	body := &models.V1SubmitTreeNoncesRequest{
-		BatchID:    batchId,
-		Pubkey:     cosignerPubkey,
-		TreeNonces: string(noncesJSON),
-	}
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeNonces(ctx)
+	req.SubmitTreeNoncesRequest(ark_service.SubmitTreeNoncesRequest{
+		BatchId:    &batchId,
+		Pubkey:     &cosignerPubkey,
+		TreeNonces: &serializedNonces,
+	})
 
-	_, err = a.svc.ArkServiceSubmitTreeNonces(
-		ark_service.NewArkServiceSubmitTreeNoncesParams().WithBody(body),
-	)
+	_, _, err = req.Execute()
 	return err
 }
 
 func (a *restClient) SubmitTreeSignatures(
 	ctx context.Context, batchId, cosignerPubkey string, signatures tree.TreePartialSigs,
 ) error {
-	signaturesJSON, err := json.Marshal(signatures)
+	buf, err := json.Marshal(signatures)
 	if err != nil {
 		return err
 	}
+	serializedSignatures := string(buf)
 
-	body := &models.V1SubmitTreeSignaturesRequest{
-		BatchID:        batchId,
-		Pubkey:         cosignerPubkey,
-		TreeSignatures: string(signaturesJSON),
-	}
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeSignatures(ctx)
+	req.SubmitTreeSignaturesRequest(ark_service.SubmitTreeSignaturesRequest{
+		BatchId:        &batchId,
+		Pubkey:         &cosignerPubkey,
+		TreeSignatures: &serializedSignatures,
+	})
 
-	_, err = a.svc.ArkServiceSubmitTreeSignatures(
-		ark_service.NewArkServiceSubmitTreeSignaturesParams().WithBody(body),
-	)
+	_, _, err = req.Execute()
 	return err
 }
 
 func (a *restClient) SubmitSignedForfeitTxs(
 	ctx context.Context, signedForfeitTxs []string, signedCommitmentTx string,
 ) error {
-	body := models.V1SubmitSignedForfeitTxsRequest{
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitSignedForfeitTxs(ctx)
+	req.SubmitSignedForfeitTxsRequest(ark_service.SubmitSignedForfeitTxsRequest{
 		SignedForfeitTxs:   signedForfeitTxs,
-		SignedCommitmentTx: signedCommitmentTx,
-	}
-	_, err := a.svc.ArkServiceSubmitSignedForfeitTxs(
-		ark_service.NewArkServiceSubmitSignedForfeitTxsParams().WithBody(&body),
-	)
+		SignedCommitmentTx: &signedCommitmentTx,
+	})
+
+	_, _, err := req.Execute()
 	return err
 }
 
 func (c *restClient) GetEventStream(
-	ctx context.Context,
-	topics []string,
+	ctx context.Context, topics []string,
 ) (<-chan client.BatchEventChannel, func(), error) {
-	ctx, cancel := context.WithCancel(ctx)
 	eventsCh := make(chan client.BatchEventChannel)
-	chunkCh := make(chan utils.ChunkJSONStream)
 
 	// Construct the URL with proper multi-format topics parameter
 	url := fmt.Sprintf("%s/v1/batch/events", c.serverURL)
@@ -249,342 +183,260 @@ func (c *restClient) GetEventStream(
 		url += "?" + strings.Join(queryParams, "&")
 	}
 
-	go utils.ListenToJSONStream(url, chunkCh)
-
-	go func(ctx context.Context, eventsCh chan client.BatchEventChannel, chunkCh chan utils.ChunkJSONStream) {
-		defer close(eventsCh)
-
-		for {
-			select {
-			case <-ctx.Done():
+	sseClient := resty.NewEventSource().
+		SetURL(url).
+		SetHeader("Accept", "text/event-stream").
+		OnMessage(func(e any) {
+			ev := e.(*resty.Event)
+			event := ark_service.GetEventStreamResponse{}
+			if err := json.Unmarshal([]byte(ev.Data), &event); err != nil {
+				eventsCh <- client.BatchEventChannel{Err: err}
 				return
-			case chunk := <-chunkCh:
-				if chunk.Err == nil && len(chunk.Msg) == 0 {
-					continue
-				}
+			}
 
-				if chunk.Err != nil {
-					eventsCh <- client.BatchEventChannel{Err: chunk.Err}
-					return
-				}
-				// TODO: handle receival of partial chunks
-				resp := ark_service.ArkServiceGetEventStreamOKBody{}
-				if err := json.Unmarshal(chunk.Msg, &resp); err != nil {
-					eventsCh <- client.BatchEventChannel{
-						Err: fmt.Errorf("failed to parse message from batch event stream: %s, %s", err, string(chunk.Msg)),
-					}
-					return
-				}
+			if event.GetHeartbeat() != nil {
+				return
+			}
 
-				emptyResp := ark_service.ArkServiceGetEventStreamOKBody{}
-				if resp == emptyResp {
-					continue
+			var batchEvent any
+			var err error
+			switch {
+			case !ark_service.IsNil(event.GetBatchFailed()):
+				e := event.GetBatchFailed()
+				batchEvent = client.BatchFailedEvent{
+					Id:     e.GetId(),
+					Reason: e.GetReason(),
 				}
-
-				if resp.Error != nil {
-					eventsCh <- client.BatchEventChannel{
-						Err: fmt.Errorf("received error %d: %s", resp.Error.Code, resp.Error.Message),
-					}
-					return
+			case !ark_service.IsNil(event.GetBatchStarted()):
+				e := event.GetBatchStarted()
+				batchEvent = client.BatchStartedEvent{
+					Id:              e.GetId(),
+					HashedIntentIds: e.GetIntentIdHashes(),
+					BatchExpiry:     e.GetBatchExpiry(),
 				}
+			case !ark_service.IsNil(event.GetBatchFinalization()):
+				e := event.GetBatchFinalization()
 
-				// Handle different event types
-				var event any
-				var _err error
-				switch {
-				case resp.Result.BatchFailed != nil:
-					e := resp.Result.BatchFailed
-					event = client.BatchFailedEvent{
-						Id:     e.ID,
-						Reason: e.Reason,
-					}
-				case resp.Result.BatchStarted != nil:
-					e := resp.Result.BatchStarted
-					batchExpiry, err := strconv.ParseUint(e.BatchExpiry, 10, 32)
+				batchEvent = client.BatchFinalizationEvent{
+					Id: e.GetId(),
+					Tx: e.GetCommitmentTx(),
+				}
+			case !ark_service.IsNil(event.GetBatchFinalized()):
+				e := event.GetBatchFinalized()
+				batchEvent = client.BatchFinalizedEvent{
+					Id:   e.GetId(),
+					Txid: e.GetCommitmentTxid(),
+				}
+			case !ark_service.IsNil(event.GetTreeSigningStarted()):
+				e := event.GetTreeSigningStarted()
+				batchEvent = client.TreeSigningStartedEvent{
+					Id:                   e.GetId(),
+					UnsignedCommitmentTx: e.GetUnsignedCommitmentTx(),
+					CosignersPubkeys:     e.GetCosignersPubkeys(),
+				}
+			case !ark_service.IsNil(event.GetTreeNoncesAggregated()):
+				e := event.GetTreeNoncesAggregated()
+				nonces := make(tree.TreeNonces)
+				err = json.Unmarshal([]byte(e.GetTreeNonces()), &nonces)
+				if err != nil {
+					break
+				}
+				batchEvent = client.TreeNoncesAggregatedEvent{
+					Id:     e.GetId(),
+					Nonces: nonces,
+				}
+			case !ark_service.IsNil(event.GetTreeTx()):
+				e := event.GetTreeTx()
+				children := make(map[uint32]string)
+				for k, v := range e.GetChildren() {
+					var kInt uint64
+					kInt, err = strconv.ParseUint(k, 10, 32)
 					if err != nil {
-						_err = err
 						break
 					}
-					event = client.BatchStartedEvent{
-						Id:              e.ID,
-						HashedIntentIds: e.IntentIDHashes,
-						BatchExpiry:     int64(batchExpiry),
-					}
-				case resp.Result.BatchFinalization != nil:
-					e := resp.Result.BatchFinalization
-
-					event = client.BatchFinalizationEvent{
-						Id: e.ID,
-						Tx: e.CommitmentTx,
-					}
-				case resp.Result.BatchFinalized != nil:
-					e := resp.Result.BatchFinalized
-					event = client.BatchFinalizedEvent{
-						Id:   e.ID,
-						Txid: e.CommitmentTxid,
-					}
-				case resp.Result.TreeSigningStarted != nil:
-					e := resp.Result.TreeSigningStarted
-					event = client.TreeSigningStartedEvent{
-						Id:                   e.ID,
-						UnsignedCommitmentTx: e.UnsignedCommitmentTx,
-						CosignersPubkeys:     e.CosignersPubkeys,
-					}
-				case resp.Result.TreeNoncesAggregated != nil:
-					e := resp.Result.TreeNoncesAggregated
-					nonces := make(tree.TreeNonces)
-					if err := json.Unmarshal([]byte(e.TreeNonces), &nonces); err != nil {
-						_err = err
-						break
-					}
-					event = client.TreeNoncesAggregatedEvent{
-						Id:     e.ID,
-						Nonces: nonces,
-					}
-				case resp.Result.TreeTx != nil:
-					e := resp.Result.TreeTx
-					children := make(map[uint32]string)
-					for k, v := range e.Children {
-						kInt, err := strconv.ParseUint(k, 10, 32)
-						if err != nil {
-							_err = err
-							break
-						}
-						children[uint32(kInt)] = v
-					}
-					event = client.TreeTxEvent{
-						Id:         e.ID,
-						Topic:      e.Topic,
-						BatchIndex: e.BatchIndex,
-						Node: tree.TxTreeNode{
-							Txid:     e.Txid,
-							Tx:       e.Tx,
-							Children: children,
-						},
-					}
-				case resp.Result.TreeSignature != nil:
-					e := resp.Result.TreeSignature
-					event = client.TreeSignatureEvent{
-						Id:         e.ID,
-						Topic:      e.Topic,
-						BatchIndex: e.BatchIndex,
-						Txid:       e.Txid,
-						Signature:  e.Signature,
-					}
+					children[uint32(kInt)] = v
 				}
-
-				eventsCh <- client.BatchEventChannel{
-					Event: event,
-					Err:   _err,
+				batchEvent = client.TreeTxEvent{
+					Id:         e.GetId(),
+					Topic:      e.GetTopic(),
+					BatchIndex: e.GetBatchIndex(),
+					Node: tree.TxTreeNode{
+						Txid:     e.GetTxid(),
+						Tx:       e.GetTx(),
+						Children: children,
+					},
+				}
+			case !ark_service.IsNil(event.GetTreeSignature()):
+				e := event.GetTreeSignature()
+				batchEvent = client.TreeSignatureEvent{
+					Id:         e.GetId(),
+					Topic:      e.GetTopic(),
+					BatchIndex: e.GetBatchIndex(),
+					Txid:       e.GetTxid(),
+					Signature:  e.GetSignature(),
 				}
 			}
-		}
-	}(
-		ctx,
-		eventsCh,
-		chunkCh,
-	)
 
-	return eventsCh, cancel, nil
+			eventsCh <- client.BatchEventChannel{
+				Event: batchEvent,
+				Err:   err,
+			}
+
+		}, nil)
+
+	if err := sseClient.Get(); err != nil {
+		return nil, nil, err
+	}
+
+	return eventsCh, sseClient.Close, nil
 }
 
 func (a *restClient) SubmitTx(
 	ctx context.Context, signedArkTx string, checkpointTxs []string,
 ) (string, string, []string, error) {
-	req := &models.V1SubmitTxRequest{
-		SignedArkTx:   signedArkTx,
+	req := a.svc.ArkServiceAPI.ArkServiceSubmitTx(ctx)
+	req.SubmitTxRequest(ark_service.SubmitTxRequest{
+		SignedArkTx:   &signedArkTx,
 		CheckpointTxs: checkpointTxs,
-	}
-	resp, err := a.svc.ArkServiceSubmitTx(
-		ark_service.NewArkServiceSubmitTxParams().WithBody(req),
-	)
+	})
+
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceSubmitTxExecute(req)
 	if err != nil {
 		return "", "", nil, err
 	}
-	return resp.Payload.ArkTxid, resp.Payload.FinalArkTx, resp.Payload.SignedCheckpointTxs, nil
+	return resp.GetArkTxid(), resp.GetFinalArkTx(), resp.GetSignedCheckpointTxs(), nil
 }
 
 func (a *restClient) FinalizeTx(
 	ctx context.Context, arkTxid string, finalCheckpointTxs []string,
 ) error {
-	req := &models.V1FinalizeTxRequest{
-		ArkTxid:            arkTxid,
+	req := a.svc.ArkServiceAPI.ArkServiceFinalizeTx(ctx)
+	req.FinalizeTxRequest(ark_service.FinalizeTxRequest{
+		ArkTxid:            &arkTxid,
 		FinalCheckpointTxs: finalCheckpointTxs,
-	}
-	_, err := a.svc.ArkServiceFinalizeTx(
-		ark_service.NewArkServiceFinalizeTxParams().WithBody(req),
-	)
+	})
+
+	_, _, err := a.svc.ArkServiceAPI.ArkServiceFinalizeTxExecute(req)
 	return err
 }
 
 func (c *restClient) GetTransactionsStream(
 	ctx context.Context,
 ) (<-chan client.TransactionEvent, func(), error) {
-	ctx, cancel := context.WithCancel(ctx)
 	eventsCh := make(chan client.TransactionEvent)
-	chunkCh := make(chan utils.ChunkJSONStream)
 	url := fmt.Sprintf("%s/v1/txs", c.serverURL)
-
-	go utils.ListenToJSONStream(url, chunkCh)
-
-	go func(ctx context.Context, eventsCh chan client.TransactionEvent, chunkCh chan utils.ChunkJSONStream) {
-		defer close(eventsCh)
-
-		for {
-			select {
-			case <-ctx.Done():
+	sseClient := resty.NewEventSource().
+		SetURL(url).
+		SetHeader("Accept", "text/event-stream").
+		OnMessage(func(e any) {
+			ev := e.(*resty.Event)
+			event := ark_service.GetTransactionsStreamResponse{}
+			if err := json.Unmarshal([]byte(ev.Data), &event); err != nil {
+				eventsCh <- client.TransactionEvent{Err: err}
 				return
-			case chunk := <-chunkCh:
-				if chunk.Err == nil && len(chunk.Msg) == 0 {
-					continue
-				}
-
-				if chunk.Err != nil {
-					eventsCh <- client.TransactionEvent{Err: chunk.Err}
-					return
-				}
-
-				resp := ark_service.ArkServiceGetTransactionsStreamOKBody{}
-				if err := json.Unmarshal(chunk.Msg, &resp); err != nil {
-					eventsCh <- client.TransactionEvent{
-						Err: fmt.Errorf("failed to parse message from transaction stream: %s", err),
-					}
-					return
-				}
-
-				emptyResp := ark_service.ArkServiceGetTransactionsStreamOKBody{}
-				if resp == emptyResp {
-					continue
-				}
-
-				if resp.Error != nil {
-					eventsCh <- client.TransactionEvent{
-						Err: fmt.Errorf("received error from transaction stream: %s", resp.Error.Message),
-					}
-					return
-				}
-
-				var event client.TransactionEvent
-				if resp.Result.CommitmentTx != nil {
-					event = client.TransactionEvent{
-						CommitmentTx: &client.TxNotification{
-							TxData: client.TxData{
-								Txid: resp.Result.CommitmentTx.Txid,
-								Tx:   resp.Result.CommitmentTx.Tx,
-							},
-							SpentVtxos:     vtxosFromRest(resp.Result.CommitmentTx.SpentVtxos),
-							SpendableVtxos: vtxosFromRest(resp.Result.CommitmentTx.SpendableVtxos),
-						},
-					}
-				} else if resp.Result.ArkTx != nil {
-					checkpointTxs := make(map[types.Outpoint]client.TxData)
-					for k, v := range resp.Result.ArkTx.CheckpointTxs {
-						// nolint
-						out, _ := wire.NewOutPointFromString(k)
-						checkpointTxs[types.Outpoint{
-							Txid: out.Hash.String(),
-							VOut: out.Index,
-						}] = client.TxData{
-							Txid: v.Txid,
-							Tx:   v.Tx,
-						}
-					}
-					event = client.TransactionEvent{
-						ArkTx: &client.TxNotification{
-							TxData: client.TxData{
-								Txid: resp.Result.ArkTx.Txid,
-								Tx:   resp.Result.ArkTx.Tx,
-							},
-							SpentVtxos:     vtxosFromRest(resp.Result.ArkTx.SpentVtxos),
-							SpendableVtxos: vtxosFromRest(resp.Result.ArkTx.SpendableVtxos),
-							CheckpointTxs:  checkpointTxs,
-						},
-					}
-				}
-
-				eventsCh <- event
 			}
-		}
-	}(
-		ctx,
-		eventsCh,
-		chunkCh,
-	)
 
-	return eventsCh, cancel, nil
+			if event.GetHeartbeat() != nil {
+				return
+			}
+
+			var txEvent client.TransactionEvent
+			if commitmentTx := event.GetCommitmentTx(); !ark_service.IsNil(event.CommitmentTx) {
+				txEvent = client.TransactionEvent{
+					CommitmentTx: &client.TxNotification{
+						TxData: client.TxData{
+							Txid: commitmentTx.GetTxid(),
+							Tx:   commitmentTx.GetTx(),
+						},
+						SpentVtxos:     vtxosFromRest(commitmentTx.GetSpentVtxos()),
+						SpendableVtxos: vtxosFromRest(commitmentTx.GetSpendableVtxos()),
+					},
+				}
+			} else if arkTx := event.GetArkTx(); !ark_service.IsNil(event.ArkTx) {
+				checkpointTxs := make(map[types.Outpoint]client.TxData)
+				for k, v := range arkTx.GetCheckpointTxs() {
+					// nolint
+					out, _ := wire.NewOutPointFromString(k)
+					checkpointTxs[types.Outpoint{
+						Txid: out.Hash.String(),
+						VOut: out.Index,
+					}] = client.TxData{
+						Txid: v.GetTxid(),
+						Tx:   v.GetTx(),
+					}
+				}
+				txEvent = client.TransactionEvent{
+					ArkTx: &client.TxNotification{
+						TxData: client.TxData{
+							Txid: arkTx.GetTxid(),
+							Tx:   arkTx.GetTx(),
+						},
+						SpentVtxos:     vtxosFromRest(arkTx.GetSpentVtxos()),
+						SpendableVtxos: vtxosFromRest(arkTx.GetSpendableVtxos()),
+						CheckpointTxs:  checkpointTxs,
+					},
+				}
+			}
+
+			eventsCh <- txEvent
+		}, nil)
+
+	if err := sseClient.Get(); err != nil {
+		return nil, nil, err
+	}
+
+	return eventsCh, sseClient.Close, nil
 }
 
 func (c *restClient) Close() {}
 
-func newRestArkClient(
-	serviceURL string,
-) (ark_service.ClientService, error) {
+func newRestArkClient(serviceURL string) (*ark_service.APIClient, error) {
 	parsedURL, err := url.Parse(serviceURL)
 	if err != nil {
 		return nil, err
 	}
 
-	schemes := []string{parsedURL.Scheme}
-	host := parsedURL.Host
-	basePath := parsedURL.Path
-
-	if basePath == "" {
-		basePath = arkservice.DefaultBasePath
+	defaultHeaders := map[string]string{
+		"Content-Type": "application/json",
 	}
 
-	cfg := &arkservice.TransportConfig{
-		Host:     host,
-		BasePath: basePath,
-		Schemes:  schemes,
+	cfg := &ark_service.Configuration{
+		Host:          parsedURL.Host,
+		DefaultHeader: defaultHeaders,
+		Scheme:        parsedURL.Scheme,
+		Servers:       ark_service.ServerConfigurations{{URL: serviceURL}},
 	}
-
-	transport := httptransport.New(cfg.Host, cfg.BasePath, cfg.Schemes)
-	svc := arkservice.New(transport, strfmt.Default)
-	return svc.ArkService, nil
+	return ark_service.NewAPIClient(cfg), nil
 }
 
-func vtxosFromRest(restVtxos []*models.V1Vtxo) []types.Vtxo {
+func vtxosFromRest(restVtxos []ark_service.Vtxo) []types.Vtxo {
 	vtxos := make([]types.Vtxo, len(restVtxos))
 	for i, v := range restVtxos {
 		var expiresAt, createdAt time.Time
-		if v.ExpiresAt != "" && v.ExpiresAt != "0" {
-			expAt, err := strconv.Atoi(v.ExpiresAt)
-			if err != nil {
-				return nil
-			}
-			expiresAt = time.Unix(int64(expAt), 0)
+		if v.GetExpiresAt() > 0 {
+			expiresAt = time.Unix(v.GetExpiresAt(), 0)
 		}
 
-		if v.CreatedAt != "" && v.CreatedAt != "0" {
-			creaAt, err := strconv.Atoi(v.CreatedAt)
-			if err != nil {
-				return nil
-			}
-			createdAt = time.Unix(int64(creaAt), 0)
+		if v.GetCreatedAt() > 0 {
+			createdAt = time.Unix(v.GetCreatedAt(), 0)
 		}
-
-		amount, err := strconv.Atoi(v.Amount)
-		if err != nil {
-			return nil
-		}
-
 		vtxos[i] = types.Vtxo{
 			Outpoint: types.Outpoint{
-				Txid: v.Outpoint.Txid,
-				VOut: uint32(v.Outpoint.Vout),
+				Txid: *v.GetOutpoint().Txid,
+				VOut: uint32(*v.GetOutpoint().Vout),
 			},
-			Script:          v.Script,
-			Amount:          uint64(amount),
-			CommitmentTxids: v.CommitmentTxids,
+			Script:          v.GetScript(),
+			Amount:          uint64(v.GetAmount()),
+			CommitmentTxids: v.GetCommitmentTxids(),
 			ExpiresAt:       expiresAt,
 			CreatedAt:       createdAt,
-			Preconfirmed:    v.IsPreconfirmed,
-			Swept:           v.IsSwept,
-			Unrolled:        v.IsUnrolled,
-			Spent:           v.IsSpent,
-			SpentBy:         v.SpentBy,
-			SettledBy:       v.SettledBy,
-			ArkTxid:         v.ArkTxid,
+			Preconfirmed:    v.GetIsPreconfirmed(),
+			Swept:           v.GetIsSwept(),
+			Unrolled:        v.GetIsUnrolled(),
+			Spent:           v.GetIsSpent(),
+			SpentBy:         v.GetSpentBy(),
+			SettledBy:       v.GetSettledBy(),
+			ArkTxid:         v.GetArkTxid(),
 		}
 	}
 	return vtxos

@@ -19,11 +19,11 @@ var _ MappedNullable = &TreeSignatureEvent{}
 
 // TreeSignatureEvent struct for TreeSignatureEvent
 type TreeSignatureEvent struct {
-	BatchIndex *int32 `json:"batchIndex,omitempty"`
-	Id *string `json:"id,omitempty"`
-	Signature *string `json:"signature,omitempty"`
-	Topic []string `json:"topic,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		BatchIndex *int32 `json:"batchIndex,omitempty"`
+		Id *string `json:"id,omitempty"`
+		Signature *string `json:"signature,omitempty"`
+		Topic []string `json:"topic,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewTreeSignatureEvent instantiates a new TreeSignatureEvent object

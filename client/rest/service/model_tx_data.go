@@ -19,8 +19,8 @@ var _ MappedNullable = &TxData{}
 
 // TxData struct for TxData
 type TxData struct {
-	Tx *string `json:"tx,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		Tx *string `json:"tx,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewTxData instantiates a new TxData object

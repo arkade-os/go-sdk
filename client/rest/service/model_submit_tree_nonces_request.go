@@ -19,9 +19,9 @@ var _ MappedNullable = &SubmitTreeNoncesRequest{}
 
 // SubmitTreeNoncesRequest struct for SubmitTreeNoncesRequest
 type SubmitTreeNoncesRequest struct {
-	BatchId *string `json:"batchId,omitempty"`
-	Pubkey *string `json:"pubkey,omitempty"`
-	TreeNonces *string `json:"treeNonces,omitempty"`
+		BatchId *string `json:"batchId,omitempty"`
+		Pubkey *string `json:"pubkey,omitempty"`
+		TreeNonces *string `json:"treeNonces,omitempty"`
 }
 
 // NewSubmitTreeNoncesRequest instantiates a new SubmitTreeNoncesRequest object

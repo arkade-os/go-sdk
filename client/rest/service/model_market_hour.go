@@ -19,10 +19,10 @@ var _ MappedNullable = &MarketHour{}
 
 // MarketHour struct for MarketHour
 type MarketHour struct {
-	NextEndTime *int64 `json:"nextEndTime,omitempty"`
-	NextStartTime *int64 `json:"nextStartTime,omitempty"`
-	Period *int64 `json:"period,omitempty"`
-	RoundInterval *int64 `json:"roundInterval,omitempty"`
+		NextEndTime *int64 `json:"nextEndTime,omitempty"`
+		NextStartTime *int64 `json:"nextStartTime,omitempty"`
+		Period *int64 `json:"period,omitempty"`
+		RoundInterval *int64 `json:"roundInterval,omitempty"`
 }
 
 // NewMarketHour instantiates a new MarketHour object

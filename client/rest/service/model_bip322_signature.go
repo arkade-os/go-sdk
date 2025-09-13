@@ -19,8 +19,8 @@ var _ MappedNullable = &Bip322Signature{}
 
 // Bip322Signature struct for Bip322Signature
 type Bip322Signature struct {
-	Message *string `json:"message,omitempty"`
-	Signature *string `json:"signature,omitempty"`
+		Message *string `json:"message,omitempty"`
+		Signature *string `json:"signature,omitempty"`
 }
 
 // NewBip322Signature instantiates a new Bip322Signature object

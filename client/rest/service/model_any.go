@@ -20,7 +20,7 @@ var _ MappedNullable = &Any{}
 // Any Any contains an arbitrary schema along with a URL to help identify the type of the schema.
 type Any struct {
 	// A URL/resource name that uniquely identifies the type of the schema.
-	Type *string `json:"@type,omitempty"`
+		Type *string `json:"@type,omitempty"`
 }
 
 // NewAny instantiates a new Any object

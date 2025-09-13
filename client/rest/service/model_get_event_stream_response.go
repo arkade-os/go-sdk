@@ -19,15 +19,15 @@ var _ MappedNullable = &GetEventStreamResponse{}
 
 // GetEventStreamResponse struct for GetEventStreamResponse
 type GetEventStreamResponse struct {
-	BatchFailed *BatchFailedEvent `json:"batchFailed,omitempty"`
-	BatchFinalization *BatchFinalizationEvent `json:"batchFinalization,omitempty"`
-	BatchFinalized *BatchFinalizedEvent `json:"batchFinalized,omitempty"`
-	BatchStarted *BatchStartedEvent `json:"batchStarted,omitempty"`
-	Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
-	TreeNoncesAggregated *TreeNoncesAggregatedEvent `json:"treeNoncesAggregated,omitempty"`
-	TreeSignature *TreeSignatureEvent `json:"treeSignature,omitempty"`
-	TreeSigningStarted *TreeSigningStartedEvent `json:"treeSigningStarted,omitempty"`
-	TreeTx *TreeTxEvent `json:"treeTx,omitempty"`
+		BatchFailed *BatchFailedEvent `json:"batchFailed,omitempty"`
+		BatchFinalization *BatchFinalizationEvent `json:"batchFinalization,omitempty"`
+		BatchFinalized *BatchFinalizedEvent `json:"batchFinalized,omitempty"`
+		BatchStarted *BatchStartedEvent `json:"batchStarted,omitempty"`
+		Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
+		TreeNoncesAggregated *TreeNoncesAggregatedEvent `json:"treeNoncesAggregated,omitempty"`
+		TreeSignature *TreeSignatureEvent `json:"treeSignature,omitempty"`
+		TreeSigningStarted *TreeSigningStartedEvent `json:"treeSigningStarted,omitempty"`
+		TreeTx *TreeTxEvent `json:"treeTx,omitempty"`
 }
 
 // NewGetEventStreamResponse instantiates a new GetEventStreamResponse object

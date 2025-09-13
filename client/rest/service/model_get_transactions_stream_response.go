@@ -19,9 +19,9 @@ var _ MappedNullable = &GetTransactionsStreamResponse{}
 
 // GetTransactionsStreamResponse struct for GetTransactionsStreamResponse
 type GetTransactionsStreamResponse struct {
-	ArkTx *TxNotification `json:"arkTx,omitempty"`
-	CommitmentTx *TxNotification `json:"commitmentTx,omitempty"`
-	Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
+		ArkTx *TxNotification `json:"arkTx,omitempty"`
+		CommitmentTx *TxNotification `json:"commitmentTx,omitempty"`
+		Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
 }
 
 // NewGetTransactionsStreamResponse instantiates a new GetTransactionsStreamResponse object

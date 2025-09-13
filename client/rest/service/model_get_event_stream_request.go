@@ -19,7 +19,7 @@ var _ MappedNullable = &GetEventStreamRequest{}
 
 // GetEventStreamRequest struct for GetEventStreamRequest
 type GetEventStreamRequest struct {
-	Topics []string `json:"topics,omitempty"`
+		Topics []string `json:"topics,omitempty"`
 }
 
 // NewGetEventStreamRequest instantiates a new GetEventStreamRequest object

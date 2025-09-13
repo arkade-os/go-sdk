@@ -19,8 +19,8 @@ var _ MappedNullable = &SubmitTxRequest{}
 
 // SubmitTxRequest struct for SubmitTxRequest
 type SubmitTxRequest struct {
-	CheckpointTxs []string `json:"checkpointTxs,omitempty"`
-	SignedArkTx *string `json:"signedArkTx,omitempty"`
+		CheckpointTxs []string `json:"checkpointTxs,omitempty"`
+		SignedArkTx *string `json:"signedArkTx,omitempty"`
 }
 
 // NewSubmitTxRequest instantiates a new SubmitTxRequest object

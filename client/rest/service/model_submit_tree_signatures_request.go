@@ -19,9 +19,9 @@ var _ MappedNullable = &SubmitTreeSignaturesRequest{}
 
 // SubmitTreeSignaturesRequest struct for SubmitTreeSignaturesRequest
 type SubmitTreeSignaturesRequest struct {
-	BatchId *string `json:"batchId,omitempty"`
-	Pubkey *string `json:"pubkey,omitempty"`
-	TreeSignatures *string `json:"treeSignatures,omitempty"`
+		BatchId *string `json:"batchId,omitempty"`
+		Pubkey *string `json:"pubkey,omitempty"`
+		TreeSignatures *string `json:"treeSignatures,omitempty"`
 }
 
 // NewSubmitTreeSignaturesRequest instantiates a new SubmitTreeSignaturesRequest object

@@ -19,9 +19,9 @@ var _ MappedNullable = &SubmitTxResponse{}
 
 // SubmitTxResponse struct for SubmitTxResponse
 type SubmitTxResponse struct {
-	ArkTxid *string `json:"arkTxid,omitempty"`
-	FinalArkTx *string `json:"finalArkTx,omitempty"`
-	SignedCheckpointTxs []string `json:"signedCheckpointTxs,omitempty"`
+		ArkTxid *string `json:"arkTxid,omitempty"`
+		FinalArkTx *string `json:"finalArkTx,omitempty"`
+		SignedCheckpointTxs []string `json:"signedCheckpointTxs,omitempty"`
 }
 
 // NewSubmitTxResponse instantiates a new SubmitTxResponse object

@@ -19,9 +19,9 @@ var _ MappedNullable = &BatchStartedEvent{}
 
 // BatchStartedEvent struct for BatchStartedEvent
 type BatchStartedEvent struct {
-	BatchExpiry *int64 `json:"batchExpiry,omitempty"`
-	Id *string `json:"id,omitempty"`
-	IntentIdHashes []string `json:"intentIdHashes,omitempty"`
+		BatchExpiry *int64 `json:"batchExpiry,omitempty"`
+		Id *string `json:"id,omitempty"`
+		IntentIdHashes []string `json:"intentIdHashes,omitempty"`
 }
 
 // NewBatchStartedEvent instantiates a new BatchStartedEvent object

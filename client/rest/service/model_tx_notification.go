@@ -20,11 +20,11 @@ var _ MappedNullable = &TxNotification{}
 // TxNotification struct for TxNotification
 type TxNotification struct {
 	// This field is set only in case of offchain tx.  key: outpoint, value: checkpoint txid
-	CheckpointTxs map[string]TxData `json:"checkpointTxs,omitempty"`
-	SpendableVtxos []Vtxo `json:"spendableVtxos,omitempty"`
-	SpentVtxos []Vtxo `json:"spentVtxos,omitempty"`
-	Tx *string `json:"tx,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		CheckpointTxs map[string]TxData `json:"checkpointTxs,omitempty"`
+		SpendableVtxos []Vtxo `json:"spendableVtxos,omitempty"`
+		SpentVtxos []Vtxo `json:"spentVtxos,omitempty"`
+		Tx *string `json:"tx,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewTxNotification instantiates a new TxNotification object

@@ -19,23 +19,23 @@ var _ MappedNullable = &GetInfoResponse{}
 
 // GetInfoResponse struct for GetInfoResponse
 type GetInfoResponse struct {
-	BoardingExitDelay *int64 `json:"boardingExitDelay,omitempty"`
-	CheckpointTapscript *string `json:"checkpointTapscript,omitempty"`
-	Dust *int64 `json:"dust,omitempty"`
-	ForfeitAddress *string `json:"forfeitAddress,omitempty"`
-	MarketHour *MarketHour `json:"marketHour,omitempty"`
-	Network *string `json:"network,omitempty"`
-	RoundInterval *int64 `json:"roundInterval,omitempty"`
-	SignerPubkey *string `json:"signerPubkey,omitempty"`
-	UnilateralExitDelay *int64 `json:"unilateralExitDelay,omitempty"`
+		BoardingExitDelay *int64 `json:"boardingExitDelay,string,omitempty"`
+		CheckpointTapscript *string `json:"checkpointTapscript,omitempty"`
+		Dust *int64 `json:"dust,string,omitempty"`
+		ForfeitAddress *string `json:"forfeitAddress,omitempty"`
+		MarketHour *MarketHour `json:"marketHour,omitempty"`
+		Network *string `json:"network,omitempty"`
+		RoundInterval *int64 `json:"roundInterval,string,omitempty"`
+		SignerPubkey *string `json:"signerPubkey,omitempty"`
+		UnilateralExitDelay *int64 `json:"unilateralExitDelay,string,omitempty"`
 	// -1 means no limit (default), 0 means boarding not allowed
-	UtxoMaxAmount *int64 `json:"utxoMaxAmount,omitempty"`
-	UtxoMinAmount *int64 `json:"utxoMinAmount,omitempty"`
-	Version *string `json:"version,omitempty"`
+		UtxoMaxAmount *int64 `json:"utxoMaxAmount,string,omitempty"`
+		UtxoMinAmount *int64 `json:"utxoMinAmount,string,omitempty"`
+		Version *string `json:"version,omitempty"`
 	// -1 means no limit (default)
-	VtxoMaxAmount *int64 `json:"vtxoMaxAmount,omitempty"`
-	VtxoMinAmount *int64 `json:"vtxoMinAmount,omitempty"`
-	VtxoTreeExpiry *int64 `json:"vtxoTreeExpiry,omitempty"`
+		VtxoMaxAmount *int64 `json:"vtxoMaxAmount,string,omitempty"`
+		VtxoMinAmount *int64 `json:"vtxoMinAmount,string,omitempty"`
+		VtxoTreeExpiry *int64 `json:"vtxoTreeExpiry,string,omitempty"`
 }
 
 // NewGetInfoResponse instantiates a new GetInfoResponse object

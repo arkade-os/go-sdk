@@ -19,7 +19,7 @@ var _ MappedNullable = &ConfirmRegistrationRequest{}
 
 // ConfirmRegistrationRequest struct for ConfirmRegistrationRequest
 type ConfirmRegistrationRequest struct {
-	IntentId *string `json:"intentId,omitempty"`
+		IntentId *string `json:"intentId,omitempty"`
 }
 
 // NewConfirmRegistrationRequest instantiates a new ConfirmRegistrationRequest object

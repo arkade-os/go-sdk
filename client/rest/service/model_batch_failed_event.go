@@ -19,8 +19,8 @@ var _ MappedNullable = &BatchFailedEvent{}
 
 // BatchFailedEvent struct for BatchFailedEvent
 type BatchFailedEvent struct {
-	Id *string `json:"id,omitempty"`
-	Reason *string `json:"reason,omitempty"`
+		Id *string `json:"id,omitempty"`
+		Reason *string `json:"reason,omitempty"`
 }
 
 // NewBatchFailedEvent instantiates a new BatchFailedEvent object

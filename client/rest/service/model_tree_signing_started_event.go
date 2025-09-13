@@ -19,9 +19,9 @@ var _ MappedNullable = &TreeSigningStartedEvent{}
 
 // TreeSigningStartedEvent struct for TreeSigningStartedEvent
 type TreeSigningStartedEvent struct {
-	CosignersPubkeys []string `json:"cosignersPubkeys,omitempty"`
-	Id *string `json:"id,omitempty"`
-	UnsignedCommitmentTx *string `json:"unsignedCommitmentTx,omitempty"`
+		CosignersPubkeys []string `json:"cosignersPubkeys,omitempty"`
+		Id *string `json:"id,omitempty"`
+		UnsignedCommitmentTx *string `json:"unsignedCommitmentTx,omitempty"`
 }
 
 // NewTreeSigningStartedEvent instantiates a new TreeSigningStartedEvent object

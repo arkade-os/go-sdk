@@ -20,7 +20,7 @@ var _ MappedNullable = &DeleteIntentRequest{}
 // DeleteIntentRequest struct for DeleteIntentRequest
 type DeleteIntentRequest struct {
 	// A BIP322 signature that includes any of the inputs of the intent to be deleted to prove the ownership of that intent.
-	Proof *Bip322Signature `json:"proof,omitempty"`
+		Proof *Bip322Signature `json:"proof,omitempty"`
 }
 
 // NewDeleteIntentRequest instantiates a new DeleteIntentRequest object

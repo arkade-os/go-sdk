@@ -394,7 +394,7 @@ func (c *grpcClient) GetTransactionsStream(
 				return
 			}
 
-			switch tx := resp.Tx.(type) {
+			switch tx := resp.GetData().(type) {
 			case *arkv1.GetTransactionsStreamResponse_CommitmentTx:
 				eventsCh <- client.TransactionEvent{
 					CommitmentTx: &client.TxNotification{

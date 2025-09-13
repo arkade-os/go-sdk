@@ -19,7 +19,7 @@ var _ MappedNullable = &RegisterIntentResponse{}
 
 // RegisterIntentResponse struct for RegisterIntentResponse
 type RegisterIntentResponse struct {
-	IntentId *string `json:"intentId,omitempty"`
+		IntentId *string `json:"intentId,omitempty"`
 }
 
 // NewRegisterIntentResponse instantiates a new RegisterIntentResponse object

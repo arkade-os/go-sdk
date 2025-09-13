@@ -19,8 +19,8 @@ var _ MappedNullable = &FinalizeTxRequest{}
 
 // FinalizeTxRequest struct for FinalizeTxRequest
 type FinalizeTxRequest struct {
-	ArkTxid *string `json:"arkTxid,omitempty"`
-	FinalCheckpointTxs []string `json:"finalCheckpointTxs,omitempty"`
+		ArkTxid *string `json:"arkTxid,omitempty"`
+		FinalCheckpointTxs []string `json:"finalCheckpointTxs,omitempty"`
 }
 
 // NewFinalizeTxRequest instantiates a new FinalizeTxRequest object

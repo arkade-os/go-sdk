@@ -19,8 +19,8 @@ var _ MappedNullable = &TreeNoncesAggregatedEvent{}
 
 // TreeNoncesAggregatedEvent struct for TreeNoncesAggregatedEvent
 type TreeNoncesAggregatedEvent struct {
-	Id *string `json:"id,omitempty"`
-	TreeNonces *string `json:"treeNonces,omitempty"`
+		Id *string `json:"id,omitempty"`
+		TreeNonces *string `json:"treeNonces,omitempty"`
 }
 
 // NewTreeNoncesAggregatedEvent instantiates a new TreeNoncesAggregatedEvent object

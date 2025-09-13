@@ -20,9 +20,9 @@ var _ MappedNullable = &SubmitSignedForfeitTxsRequest{}
 // SubmitSignedForfeitTxsRequest struct for SubmitSignedForfeitTxsRequest
 type SubmitSignedForfeitTxsRequest struct {
 	// The user has to sign also the commitment tx if he registered a boarding UTXO.
-	SignedCommitmentTx *string `json:"signedCommitmentTx,omitempty"`
+		SignedCommitmentTx *string `json:"signedCommitmentTx,omitempty"`
 	// Forfeit txs signed by the user.
-	SignedForfeitTxs []string `json:"signedForfeitTxs,omitempty"`
+		SignedForfeitTxs []string `json:"signedForfeitTxs,omitempty"`
 }
 
 // NewSubmitSignedForfeitTxsRequest instantiates a new SubmitSignedForfeitTxsRequest object

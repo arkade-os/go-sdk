@@ -464,8 +464,7 @@ func (a *grpcClient) GetBatchSweepTxs(
 }
 
 func (a *grpcClient) GetSubscription(
-	ctx context.Context,
-	subscriptionId string,
+	ctx context.Context, subscriptionId string,
 ) (<-chan *indexer.ScriptEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -516,24 +515,31 @@ func (a *grpcClient) GetSubscription(
 			}
 
 			var checkpointTxs map[string]indexer.TxData
-			if len(resp.GetCheckpointTxs()) > 0 {
-				checkpointTxs = make(map[string]indexer.TxData)
-				for k, v := range resp.GetCheckpointTxs() {
-					checkpointTxs[k] = indexer.TxData{
-						Txid: v.GetTxid(),
-						Tx:   v.GetTx(),
+			var event *arkv1.IndexerSubscriptionEvent
+			switch data := resp.GetData().(type) {
+			case *arkv1.GetSubscriptionResponse_Event:
+				event = data.Event
+				if len(event.GetCheckpointTxs()) > 0 {
+					checkpointTxs = make(map[string]indexer.TxData)
+					for k, v := range event.GetCheckpointTxs() {
+						checkpointTxs[k] = indexer.TxData{
+							Txid: v.GetTxid(),
+							Tx:   v.GetTx(),
+						}
 					}
 				}
 			}
-
-			eventsCh <- &indexer.ScriptEvent{
-				Txid:          resp.GetTxid(),
-				Tx:            resp.GetTx(),
-				Scripts:       resp.GetScripts(),
-				NewVtxos:      newIndexerVtxos(resp.GetNewVtxos()),
-				SpentVtxos:    newIndexerVtxos(resp.GetSpentVtxos()),
-				CheckpointTxs: checkpointTxs,
+			if event != nil {
+				eventsCh <- &indexer.ScriptEvent{
+					Txid:          event.GetTxid(),
+					Tx:            event.GetTx(),
+					Scripts:       event.GetScripts(),
+					NewVtxos:      newIndexerVtxos(event.GetNewVtxos()),
+					SpentVtxos:    newIndexerVtxos(event.GetSpentVtxos()),
+					CheckpointTxs: checkpointTxs,
+				}
 			}
+
 		}
 	}()
 

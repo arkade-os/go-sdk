@@ -19,13 +19,13 @@ var _ MappedNullable = &TreeTxEvent{}
 
 // TreeTxEvent struct for TreeTxEvent
 type TreeTxEvent struct {
-	BatchIndex *int32 `json:"batchIndex,omitempty"`
+		BatchIndex *int32 `json:"batchIndex,omitempty"`
 	// output index -> child txid
-	Children map[string]string `json:"children,omitempty"`
-	Id *string `json:"id,omitempty"`
-	Topic []string `json:"topic,omitempty"`
-	Tx *string `json:"tx,omitempty"`
-	Txid *string `json:"txid,omitempty"`
+		Children map[string]string `json:"children,omitempty"`
+		Id *string `json:"id,omitempty"`
+		Topic []string `json:"topic,omitempty"`
+		Tx *string `json:"tx,omitempty"`
+		Txid *string `json:"txid,omitempty"`
 }
 
 // NewTreeTxEvent instantiates a new TreeTxEvent object
