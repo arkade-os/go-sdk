@@ -16,7 +16,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConfirmRegistrationRequest"
+                "$ref": "#/components/schemas/ark.v1.ConfirmRegistrationRequest"
               }
             }
           },
@@ -28,7 +28,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConfirmRegistrationResponse"
+                  "$ref": "#/components/schemas/ark.v1.ConfirmRegistrationResponse"
                 }
               }
             }
@@ -38,7 +38,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -57,7 +57,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DeleteIntentRequest"
+                "$ref": "#/components/schemas/ark.v1.DeleteIntentRequest"
               }
             }
           },
@@ -69,7 +69,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeleteIntentResponse"
+                  "$ref": "#/components/schemas/ark.v1.DeleteIntentResponse"
                 }
               }
             }
@@ -79,7 +79,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -114,7 +114,7 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetEventStreamResponse"
+                  "$ref": "#/components/schemas/ark.v1.GetEventStreamResponse"
                 }
               }
             }
@@ -124,7 +124,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -143,7 +143,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RegisterIntentRequest"
+                "$ref": "#/components/schemas/ark.v1.RegisterIntentRequest"
               }
             }
           },
@@ -155,7 +155,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegisterIntentResponse"
+                  "$ref": "#/components/schemas/ark.v1.RegisterIntentResponse"
                 }
               }
             }
@@ -165,7 +165,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -184,7 +184,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitSignedForfeitTxsRequest"
+                "$ref": "#/components/schemas/ark.v1.SubmitSignedForfeitTxsRequest"
               }
             }
           },
@@ -196,7 +196,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubmitSignedForfeitTxsResponse"
+                  "$ref": "#/components/schemas/ark.v1.SubmitSignedForfeitTxsResponse"
                 }
               }
             }
@@ -206,7 +206,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -225,7 +225,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitTreeNoncesRequest"
+                "$ref": "#/components/schemas/ark.v1.SubmitTreeNoncesRequest"
               }
             }
           },
@@ -237,7 +237,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubmitTreeNoncesResponse"
+                  "$ref": "#/components/schemas/ark.v1.SubmitTreeNoncesResponse"
                 }
               }
             }
@@ -247,7 +247,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -266,7 +266,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitTreeSignaturesRequest"
+                "$ref": "#/components/schemas/ark.v1.SubmitTreeSignaturesRequest"
               }
             }
           },
@@ -278,7 +278,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubmitTreeSignaturesResponse"
+                  "$ref": "#/components/schemas/ark.v1.SubmitTreeSignaturesResponse"
                 }
               }
             }
@@ -288,7 +288,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -309,7 +309,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetInfoResponse"
+                  "$ref": "#/components/schemas/ark.v1.GetInfoResponse"
                 }
               }
             }
@@ -319,7 +319,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -338,7 +338,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FinalizeTxRequest"
+                "$ref": "#/components/schemas/ark.v1.FinalizeTxRequest"
               }
             }
           },
@@ -350,7 +350,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FinalizeTxResponse"
+                  "$ref": "#/components/schemas/ark.v1.FinalizeTxResponse"
                 }
               }
             }
@@ -360,7 +360,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -379,7 +379,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitTxRequest"
+                "$ref": "#/components/schemas/ark.v1.SubmitTxRequest"
               }
             }
           },
@@ -391,7 +391,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubmitTxResponse"
+                  "$ref": "#/components/schemas/ark.v1.SubmitTxResponse"
                 }
               }
             }
@@ -401,7 +401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -422,7 +422,7 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetTransactionsStreamResponse"
+                  "$ref": "#/components/schemas/ark.v1.GetTransactionsStreamResponse"
                 }
               }
             }
@@ -432,7 +432,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -443,17 +443,7 @@
   },
   "components": {
     "schemas": {
-      "Any": {
-        "type": "object",
-        "description": "Any contains an arbitrary schema along with a URL to help identify the type of the schema.",
-        "properties": {
-          "@type": {
-            "type": "string",
-            "description": "A URL/resource name that uniquely identifies the type of the schema."
-          }
-        }
-      },
-      "BatchFailedEvent": {
+      "ark.v1.BatchFailedEvent": {
         "title": "BatchFailedEvent",
         "type": "object",
         "properties": {
@@ -465,7 +455,7 @@
           }
         }
       },
-      "BatchFinalizationEvent": {
+      "ark.v1.BatchFinalizationEvent": {
         "title": "BatchFinalizationEvent",
         "type": "object",
         "properties": {
@@ -477,7 +467,7 @@
           }
         }
       },
-      "BatchFinalizedEvent": {
+      "ark.v1.BatchFinalizedEvent": {
         "title": "BatchFinalizedEvent",
         "type": "object",
         "properties": {
@@ -489,7 +479,7 @@
           }
         }
       },
-      "BatchStartedEvent": {
+      "ark.v1.BatchStartedEvent": {
         "title": "BatchStartedEvent",
         "type": "object",
         "properties": {
@@ -508,7 +498,7 @@
           }
         }
       },
-      "Bip322Signature": {
+      "ark.v1.Bip322Signature": {
         "title": "Bip322Signature",
         "type": "object",
         "properties": {
@@ -520,7 +510,7 @@
           }
         }
       },
-      "ConfirmRegistrationRequest": {
+      "ark.v1.ConfirmRegistrationRequest": {
         "title": "ConfirmRegistrationRequest",
         "type": "object",
         "properties": {
@@ -529,25 +519,25 @@
           }
         }
       },
-      "ConfirmRegistrationResponse": {
+      "ark.v1.ConfirmRegistrationResponse": {
         "title": "ConfirmRegistrationResponse",
         "type": "object"
       },
-      "DeleteIntentRequest": {
+      "ark.v1.DeleteIntentRequest": {
         "title": "DeleteIntentRequest",
         "type": "object",
         "properties": {
           "proof": {
-            "$ref": "#/components/schemas/Bip322Signature",
+            "$ref": "#/components/schemas/ark.v1.Bip322Signature",
             "description": "A BIP322 signature that includes any of the inputs of the intent to be deleted to prove the\nownership of that intent."
           }
         }
       },
-      "DeleteIntentResponse": {
+      "ark.v1.DeleteIntentResponse": {
         "title": "DeleteIntentResponse",
         "type": "object"
       },
-      "FinalizeTxRequest": {
+      "ark.v1.FinalizeTxRequest": {
         "title": "FinalizeTxRequest",
         "type": "object",
         "properties": {
@@ -562,11 +552,11 @@
           }
         }
       },
-      "FinalizeTxResponse": {
+      "ark.v1.FinalizeTxResponse": {
         "title": "FinalizeTxResponse",
         "type": "object"
       },
-      "GetEventStreamRequest": {
+      "ark.v1.GetEventStreamRequest": {
         "title": "GetEventStreamRequest",
         "type": "object",
         "properties": {
@@ -578,92 +568,86 @@
           }
         }
       },
-      "GetEventStreamResponse": {
+      "ark.v1.GetEventStreamResponse": {
         "title": "GetEventStreamResponse",
         "type": "object",
         "properties": {
           "batchFailed": {
-            "$ref": "#/components/schemas/BatchFailedEvent"
+            "$ref": "#/components/schemas/ark.v1.BatchFailedEvent"
           },
           "batchFinalization": {
-            "$ref": "#/components/schemas/BatchFinalizationEvent"
+            "$ref": "#/components/schemas/ark.v1.BatchFinalizationEvent"
           },
           "batchFinalized": {
-            "$ref": "#/components/schemas/BatchFinalizedEvent"
+            "$ref": "#/components/schemas/ark.v1.BatchFinalizedEvent"
           },
           "batchStarted": {
-            "$ref": "#/components/schemas/BatchStartedEvent"
+            "$ref": "#/components/schemas/ark.v1.BatchStartedEvent"
           },
           "heartbeat": {
-            "$ref": "#/components/schemas/Heartbeat"
+            "$ref": "#/components/schemas/ark.v1.Heartbeat"
           },
           "treeNoncesAggregated": {
-            "$ref": "#/components/schemas/TreeNoncesAggregatedEvent"
+            "$ref": "#/components/schemas/ark.v1.TreeNoncesAggregatedEvent"
           },
           "treeSignature": {
-            "$ref": "#/components/schemas/TreeSignatureEvent"
+            "$ref": "#/components/schemas/ark.v1.TreeSignatureEvent"
           },
           "treeSigningStarted": {
-            "$ref": "#/components/schemas/TreeSigningStartedEvent"
+            "$ref": "#/components/schemas/ark.v1.TreeSigningStartedEvent"
           },
           "treeTx": {
-            "$ref": "#/components/schemas/TreeTxEvent"
+            "$ref": "#/components/schemas/ark.v1.TreeTxEvent"
           }
         }
       },
-      "GetInfoRequest": {
+      "ark.v1.GetInfoRequest": {
         "title": "GetInfoRequest",
         "type": "object"
       },
-      "GetInfoResponse": {
+      "ark.v1.GetInfoResponse": {
         "title": "GetInfoResponse",
         "type": "object",
         "properties": {
           "boardingExitDelay": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "checkpointTapscript": {
             "type": "string"
           },
           "dust": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "forfeitAddress": {
             "type": "string"
           },
           "marketHour": {
-            "$ref": "#/components/schemas/MarketHour"
+            "$ref": "#/components/schemas/ark.v1.MarketHour"
           },
           "network": {
             "type": "string"
           },
           "roundInterval": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "signerPubkey": {
             "type": "string"
           },
           "unilateralExitDelay": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "utxoMaxAmount": {
             "type": "integer",
             "description": "-1 means no limit (default), 0 means boarding not allowed",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "utxoMinAmount": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "version": {
             "type": "string"
@@ -671,45 +655,42 @@
           "vtxoMaxAmount": {
             "type": "integer",
             "description": "-1 means no limit (default)",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "vtxoMinAmount": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "vtxoTreeExpiry": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           }
         }
       },
-      "GetTransactionsStreamRequest": {
+      "ark.v1.GetTransactionsStreamRequest": {
         "title": "GetTransactionsStreamRequest",
         "type": "object"
       },
-      "GetTransactionsStreamResponse": {
+      "ark.v1.GetTransactionsStreamResponse": {
         "title": "GetTransactionsStreamResponse",
         "type": "object",
         "properties": {
           "arkTx": {
-            "$ref": "#/components/schemas/TxNotification"
+            "$ref": "#/components/schemas/ark.v1.TxNotification"
           },
           "commitmentTx": {
-            "$ref": "#/components/schemas/TxNotification"
+            "$ref": "#/components/schemas/ark.v1.TxNotification"
           },
           "heartbeat": {
-            "$ref": "#/components/schemas/Heartbeat"
+            "$ref": "#/components/schemas/ark.v1.Heartbeat"
           }
         }
       },
-      "Heartbeat": {
+      "ark.v1.Heartbeat": {
         "title": "Heartbeat",
         "type": "object"
       },
-      "MarketHour": {
+      "ark.v1.MarketHour": {
         "title": "MarketHour",
         "type": "object",
         "properties": {
@@ -731,7 +712,7 @@
           }
         }
       },
-      "Outpoint": {
+      "ark.v1.Outpoint": {
         "title": "Outpoint",
         "type": "object",
         "properties": {
@@ -744,17 +725,17 @@
           }
         }
       },
-      "RegisterIntentRequest": {
+      "ark.v1.RegisterIntentRequest": {
         "title": "RegisterIntentRequest",
         "type": "object",
         "properties": {
           "intent": {
-            "$ref": "#/components/schemas/Bip322Signature",
+            "$ref": "#/components/schemas/ark.v1.Bip322Signature",
             "description": "BIP322 signature embeds the outpoints to be spent and new ones to be created, as well as the\nthe proof of funds."
           }
         }
       },
-      "RegisterIntentResponse": {
+      "ark.v1.RegisterIntentResponse": {
         "title": "RegisterIntentResponse",
         "type": "object",
         "properties": {
@@ -763,26 +744,7 @@
           }
         }
       },
-      "Status": {
-        "title": "Status",
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "details": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Any"
-            }
-          },
-          "message": {
-            "type": "string"
-          }
-        }
-      },
-      "SubmitSignedForfeitTxsRequest": {
+      "ark.v1.SubmitSignedForfeitTxsRequest": {
         "title": "SubmitSignedForfeitTxsRequest",
         "type": "object",
         "properties": {
@@ -799,11 +761,11 @@
           }
         }
       },
-      "SubmitSignedForfeitTxsResponse": {
+      "ark.v1.SubmitSignedForfeitTxsResponse": {
         "title": "SubmitSignedForfeitTxsResponse",
         "type": "object"
       },
-      "SubmitTreeNoncesRequest": {
+      "ark.v1.SubmitTreeNoncesRequest": {
         "title": "SubmitTreeNoncesRequest",
         "type": "object",
         "properties": {
@@ -818,11 +780,11 @@
           }
         }
       },
-      "SubmitTreeNoncesResponse": {
+      "ark.v1.SubmitTreeNoncesResponse": {
         "title": "SubmitTreeNoncesResponse",
         "type": "object"
       },
-      "SubmitTreeSignaturesRequest": {
+      "ark.v1.SubmitTreeSignaturesRequest": {
         "title": "SubmitTreeSignaturesRequest",
         "type": "object",
         "properties": {
@@ -837,11 +799,11 @@
           }
         }
       },
-      "SubmitTreeSignaturesResponse": {
+      "ark.v1.SubmitTreeSignaturesResponse": {
         "title": "SubmitTreeSignaturesResponse",
         "type": "object"
       },
-      "SubmitTxRequest": {
+      "ark.v1.SubmitTxRequest": {
         "title": "SubmitTxRequest",
         "type": "object",
         "properties": {
@@ -856,7 +818,7 @@
           }
         }
       },
-      "SubmitTxResponse": {
+      "ark.v1.SubmitTxResponse": {
         "title": "SubmitTxResponse",
         "type": "object",
         "properties": {
@@ -874,7 +836,7 @@
           }
         }
       },
-      "TreeNoncesAggregatedEvent": {
+      "ark.v1.TreeNoncesAggregatedEvent": {
         "title": "TreeNoncesAggregatedEvent",
         "type": "object",
         "properties": {
@@ -886,7 +848,7 @@
           }
         }
       },
-      "TreeSignatureEvent": {
+      "ark.v1.TreeSignatureEvent": {
         "title": "TreeSignatureEvent",
         "type": "object",
         "properties": {
@@ -911,7 +873,7 @@
           }
         }
       },
-      "TreeSigningStartedEvent": {
+      "ark.v1.TreeSigningStartedEvent": {
         "title": "TreeSigningStartedEvent",
         "type": "object",
         "properties": {
@@ -929,7 +891,7 @@
           }
         }
       },
-      "TreeTxEvent": {
+      "ark.v1.TreeTxEvent": {
         "title": "TreeTxEvent",
         "type": "object",
         "properties": {
@@ -961,7 +923,7 @@
           }
         }
       },
-      "TxData": {
+      "ark.v1.TxData": {
         "title": "TxData",
         "type": "object",
         "properties": {
@@ -973,7 +935,7 @@
           }
         }
       },
-      "TxNotification": {
+      "ark.v1.TxNotification": {
         "title": "TxNotification",
         "type": "object",
         "properties": {
@@ -981,19 +943,19 @@
             "type": "object",
             "description": "This field is set only in case of offchain tx.\n\nkey: outpoint, value: checkpoint txid",
             "additionalProperties": {
-              "$ref": "#/components/schemas/TxData"
+              "$ref": "#/components/schemas/ark.v1.TxData"
             }
           },
           "spendableVtxos": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Vtxo"
+              "$ref": "#/components/schemas/ark.v1.Vtxo"
             }
           },
           "spentVtxos": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Vtxo"
+              "$ref": "#/components/schemas/ark.v1.Vtxo"
             }
           },
           "tx": {
@@ -1004,14 +966,13 @@
           }
         }
       },
-      "Vtxo": {
+      "ark.v1.Vtxo": {
         "title": "Vtxo",
         "type": "object",
         "properties": {
           "amount": {
             "type": "integer",
-            "format": "uint64",
-            "x-go-json-string": true
+            "format": "uint64"
           },
           "arkTxid": {
             "type": "string"
@@ -1024,13 +985,11 @@
           },
           "createdAt": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "expiresAt": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "isPreconfirmed": {
             "type": "boolean"
@@ -1045,7 +1004,7 @@
             "type": "boolean"
           },
           "outpoint": {
-            "$ref": "#/components/schemas/Outpoint"
+            "$ref": "#/components/schemas/ark.v1.Outpoint"
           },
           "script": {
             "type": "string"
@@ -1054,6 +1013,35 @@
             "type": "string"
           },
           "spentBy": {
+            "type": "string"
+          }
+        }
+      },
+      "google.protobuf.Any": {
+        "type": "object",
+        "description": "Any contains an arbitrary schema along with a URL to help identify the type of the schema.",
+        "properties": {
+          "@type": {
+            "type": "string",
+            "description": "A URL/resource name that uniquely identifies the type of the schema."
+          }
+        }
+      },
+      "google.rpc.Status": {
+        "title": "Status",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/google.protobuf.Any"
+            }
+          },
+          "message": {
             "type": "string"
           }
         }

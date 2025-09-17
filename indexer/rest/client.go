@@ -292,13 +292,13 @@ func (a *restClient) GetVtxoChain(
 	for _, v := range resp.GetChain() {
 		var txType indexer.IndexerChainedTxType
 		switch v.GetType() {
-		case indexer_service.INDEXER_CHAINED_TX_TYPE_COMMITMENT:
+		case indexer_service.CHAINED_TX_TYPE_COMMITMENT:
 			txType = indexer.IndexerChainedTxTypeCommitment
-		case indexer_service.INDEXER_CHAINED_TX_TYPE_ARK:
+		case indexer_service.CHAINED_TX_TYPE_ARK:
 			txType = indexer.IndexerChainedTxTypeArk
-		case indexer_service.INDEXER_CHAINED_TX_TYPE_TREE:
+		case indexer_service.CHAINED_TX_TYPE_TREE:
 			txType = indexer.IndexerChainedTxTypeTree
-		case indexer_service.INDEXER_CHAINED_TX_TYPE_CHECKPOINT:
+		case indexer_service.CHAINED_TX_TYPE_CHECKPOINT:
 			txType = indexer.IndexerChainedTxTypeCheckpoint
 		default:
 			txType = indexer.IndexerChainedTxTypeUnspecified
@@ -455,7 +455,7 @@ func newRestClient(serviceURL string) (*indexer_service.APIClient, error) {
 	return indexer_service.NewAPIClient(cfg), nil
 }
 
-func parsePage(page indexer_service.IndexerPageResponse) *indexer.PageResponse {
+func parsePage(page indexer_service.PageResponse) *indexer.PageResponse {
 	if indexer_service.IsNil(page) {
 		return nil
 	}
@@ -466,7 +466,7 @@ func parsePage(page indexer_service.IndexerPageResponse) *indexer.PageResponse {
 	}
 }
 
-func newIndexerVtxos(restVtxos []indexer_service.IndexerVtxo) []types.Vtxo {
+func newIndexerVtxos(restVtxos []indexer_service.Vtxo) []types.Vtxo {
 	vtxos := make([]types.Vtxo, 0, len(restVtxos))
 	for _, vtxo := range restVtxos {
 		vtxos = append(vtxos, newIndexerVtxo(vtxo))
@@ -474,7 +474,7 @@ func newIndexerVtxos(restVtxos []indexer_service.IndexerVtxo) []types.Vtxo {
 	return vtxos
 }
 
-func newIndexerVtxo(vtxo indexer_service.IndexerVtxo) types.Vtxo {
+func newIndexerVtxo(vtxo indexer_service.Vtxo) types.Vtxo {
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: *vtxo.GetOutpoint().Txid,

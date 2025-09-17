@@ -19,7 +19,7 @@ var _ MappedNullable = &GetSubscriptionResponse{}
 
 // GetSubscriptionResponse struct for GetSubscriptionResponse
 type GetSubscriptionResponse struct {
-		Event *IndexerSubscriptionEvent `json:"event,omitempty"`
+		Event *SubscriptionEvent `json:"event,omitempty"`
 		Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
 }
 
@@ -41,9 +41,9 @@ func NewGetSubscriptionResponseWithDefaults() *GetSubscriptionResponse {
 }
 
 // GetEvent returns the Event field value if set, zero value otherwise.
-func (o *GetSubscriptionResponse) GetEvent() IndexerSubscriptionEvent {
+func (o *GetSubscriptionResponse) GetEvent() SubscriptionEvent {
 	if o == nil || IsNil(o.Event) {
-		var ret IndexerSubscriptionEvent
+		var ret SubscriptionEvent
 		return ret
 	}
 	return *o.Event
@@ -51,7 +51,7 @@ func (o *GetSubscriptionResponse) GetEvent() IndexerSubscriptionEvent {
 
 // GetEventOk returns a tuple with the Event field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetSubscriptionResponse) GetEventOk() (*IndexerSubscriptionEvent, bool) {
+func (o *GetSubscriptionResponse) GetEventOk() (*SubscriptionEvent, bool) {
 	if o == nil || IsNil(o.Event) {
 		return nil, false
 	}
@@ -67,8 +67,8 @@ func (o *GetSubscriptionResponse) HasEvent() bool {
 	return false
 }
 
-// SetEvent gets a reference to the given IndexerSubscriptionEvent and assigns it to the Event field.
-func (o *GetSubscriptionResponse) SetEvent(v IndexerSubscriptionEvent) {
+// SetEvent gets a reference to the given SubscriptionEvent and assigns it to the Event field.
+func (o *GetSubscriptionResponse) SetEvent(v SubscriptionEvent) {
 	o.Event = &v
 }
 

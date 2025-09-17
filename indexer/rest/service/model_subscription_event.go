@@ -14,41 +14,41 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerSubscriptionEvent type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerSubscriptionEvent{}
+// checks if the SubscriptionEvent type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &SubscriptionEvent{}
 
-// IndexerSubscriptionEvent struct for IndexerSubscriptionEvent
-type IndexerSubscriptionEvent struct {
-		CheckpointTxs map[string]IndexerTxData `json:"checkpointTxs,omitempty"`
-		NewVtxos []IndexerVtxo `json:"newVtxos,omitempty"`
+// SubscriptionEvent struct for SubscriptionEvent
+type SubscriptionEvent struct {
+		CheckpointTxs map[string]TxData `json:"checkpointTxs,omitempty"`
+		NewVtxos []Vtxo `json:"newVtxos,omitempty"`
 		Scripts []string `json:"scripts,omitempty"`
-		SpentVtxos []IndexerVtxo `json:"spentVtxos,omitempty"`
-		SweptVtxos []IndexerVtxo `json:"sweptVtxos,omitempty"`
+		SpentVtxos []Vtxo `json:"spentVtxos,omitempty"`
+		SweptVtxos []Vtxo `json:"sweptVtxos,omitempty"`
 		Tx *string `json:"tx,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
 
-// NewIndexerSubscriptionEvent instantiates a new IndexerSubscriptionEvent object
+// NewSubscriptionEvent instantiates a new SubscriptionEvent object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerSubscriptionEvent() *IndexerSubscriptionEvent {
-	this := IndexerSubscriptionEvent{}
+func NewSubscriptionEvent() *SubscriptionEvent {
+	this := SubscriptionEvent{}
 	return &this
 }
 
-// NewIndexerSubscriptionEventWithDefaults instantiates a new IndexerSubscriptionEvent object
+// NewSubscriptionEventWithDefaults instantiates a new SubscriptionEvent object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerSubscriptionEventWithDefaults() *IndexerSubscriptionEvent {
-	this := IndexerSubscriptionEvent{}
+func NewSubscriptionEventWithDefaults() *SubscriptionEvent {
+	this := SubscriptionEvent{}
 	return &this
 }
 
 // GetCheckpointTxs returns the CheckpointTxs field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetCheckpointTxs() map[string]IndexerTxData {
+func (o *SubscriptionEvent) GetCheckpointTxs() map[string]TxData {
 	if o == nil || IsNil(o.CheckpointTxs) {
-		var ret map[string]IndexerTxData
+		var ret map[string]TxData
 		return ret
 	}
 	return o.CheckpointTxs
@@ -56,15 +56,15 @@ func (o *IndexerSubscriptionEvent) GetCheckpointTxs() map[string]IndexerTxData {
 
 // GetCheckpointTxsOk returns a tuple with the CheckpointTxs field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetCheckpointTxsOk() (map[string]IndexerTxData, bool) {
+func (o *SubscriptionEvent) GetCheckpointTxsOk() (map[string]TxData, bool) {
 	if o == nil || IsNil(o.CheckpointTxs) {
-		return map[string]IndexerTxData{}, false
+		return map[string]TxData{}, false
 	}
 	return o.CheckpointTxs, true
 }
 
 // HasCheckpointTxs returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasCheckpointTxs() bool {
+func (o *SubscriptionEvent) HasCheckpointTxs() bool {
 	if o != nil && !IsNil(o.CheckpointTxs) {
 		return true
 	}
@@ -72,15 +72,15 @@ func (o *IndexerSubscriptionEvent) HasCheckpointTxs() bool {
 	return false
 }
 
-// SetCheckpointTxs gets a reference to the given map[string]IndexerTxData and assigns it to the CheckpointTxs field.
-func (o *IndexerSubscriptionEvent) SetCheckpointTxs(v map[string]IndexerTxData) {
+// SetCheckpointTxs gets a reference to the given map[string]TxData and assigns it to the CheckpointTxs field.
+func (o *SubscriptionEvent) SetCheckpointTxs(v map[string]TxData) {
 	o.CheckpointTxs = v
 }
 
 // GetNewVtxos returns the NewVtxos field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetNewVtxos() []IndexerVtxo {
+func (o *SubscriptionEvent) GetNewVtxos() []Vtxo {
 	if o == nil || IsNil(o.NewVtxos) {
-		var ret []IndexerVtxo
+		var ret []Vtxo
 		return ret
 	}
 	return o.NewVtxos
@@ -88,7 +88,7 @@ func (o *IndexerSubscriptionEvent) GetNewVtxos() []IndexerVtxo {
 
 // GetNewVtxosOk returns a tuple with the NewVtxos field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetNewVtxosOk() ([]IndexerVtxo, bool) {
+func (o *SubscriptionEvent) GetNewVtxosOk() ([]Vtxo, bool) {
 	if o == nil || IsNil(o.NewVtxos) {
 		return nil, false
 	}
@@ -96,7 +96,7 @@ func (o *IndexerSubscriptionEvent) GetNewVtxosOk() ([]IndexerVtxo, bool) {
 }
 
 // HasNewVtxos returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasNewVtxos() bool {
+func (o *SubscriptionEvent) HasNewVtxos() bool {
 	if o != nil && !IsNil(o.NewVtxos) {
 		return true
 	}
@@ -104,13 +104,13 @@ func (o *IndexerSubscriptionEvent) HasNewVtxos() bool {
 	return false
 }
 
-// SetNewVtxos gets a reference to the given []IndexerVtxo and assigns it to the NewVtxos field.
-func (o *IndexerSubscriptionEvent) SetNewVtxos(v []IndexerVtxo) {
+// SetNewVtxos gets a reference to the given []Vtxo and assigns it to the NewVtxos field.
+func (o *SubscriptionEvent) SetNewVtxos(v []Vtxo) {
 	o.NewVtxos = v
 }
 
 // GetScripts returns the Scripts field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetScripts() []string {
+func (o *SubscriptionEvent) GetScripts() []string {
 	if o == nil || IsNil(o.Scripts) {
 		var ret []string
 		return ret
@@ -120,7 +120,7 @@ func (o *IndexerSubscriptionEvent) GetScripts() []string {
 
 // GetScriptsOk returns a tuple with the Scripts field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetScriptsOk() ([]string, bool) {
+func (o *SubscriptionEvent) GetScriptsOk() ([]string, bool) {
 	if o == nil || IsNil(o.Scripts) {
 		return nil, false
 	}
@@ -128,7 +128,7 @@ func (o *IndexerSubscriptionEvent) GetScriptsOk() ([]string, bool) {
 }
 
 // HasScripts returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasScripts() bool {
+func (o *SubscriptionEvent) HasScripts() bool {
 	if o != nil && !IsNil(o.Scripts) {
 		return true
 	}
@@ -137,14 +137,14 @@ func (o *IndexerSubscriptionEvent) HasScripts() bool {
 }
 
 // SetScripts gets a reference to the given []string and assigns it to the Scripts field.
-func (o *IndexerSubscriptionEvent) SetScripts(v []string) {
+func (o *SubscriptionEvent) SetScripts(v []string) {
 	o.Scripts = v
 }
 
 // GetSpentVtxos returns the SpentVtxos field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetSpentVtxos() []IndexerVtxo {
+func (o *SubscriptionEvent) GetSpentVtxos() []Vtxo {
 	if o == nil || IsNil(o.SpentVtxos) {
-		var ret []IndexerVtxo
+		var ret []Vtxo
 		return ret
 	}
 	return o.SpentVtxos
@@ -152,7 +152,7 @@ func (o *IndexerSubscriptionEvent) GetSpentVtxos() []IndexerVtxo {
 
 // GetSpentVtxosOk returns a tuple with the SpentVtxos field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetSpentVtxosOk() ([]IndexerVtxo, bool) {
+func (o *SubscriptionEvent) GetSpentVtxosOk() ([]Vtxo, bool) {
 	if o == nil || IsNil(o.SpentVtxos) {
 		return nil, false
 	}
@@ -160,7 +160,7 @@ func (o *IndexerSubscriptionEvent) GetSpentVtxosOk() ([]IndexerVtxo, bool) {
 }
 
 // HasSpentVtxos returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasSpentVtxos() bool {
+func (o *SubscriptionEvent) HasSpentVtxos() bool {
 	if o != nil && !IsNil(o.SpentVtxos) {
 		return true
 	}
@@ -168,15 +168,15 @@ func (o *IndexerSubscriptionEvent) HasSpentVtxos() bool {
 	return false
 }
 
-// SetSpentVtxos gets a reference to the given []IndexerVtxo and assigns it to the SpentVtxos field.
-func (o *IndexerSubscriptionEvent) SetSpentVtxos(v []IndexerVtxo) {
+// SetSpentVtxos gets a reference to the given []Vtxo and assigns it to the SpentVtxos field.
+func (o *SubscriptionEvent) SetSpentVtxos(v []Vtxo) {
 	o.SpentVtxos = v
 }
 
 // GetSweptVtxos returns the SweptVtxos field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetSweptVtxos() []IndexerVtxo {
+func (o *SubscriptionEvent) GetSweptVtxos() []Vtxo {
 	if o == nil || IsNil(o.SweptVtxos) {
-		var ret []IndexerVtxo
+		var ret []Vtxo
 		return ret
 	}
 	return o.SweptVtxos
@@ -184,7 +184,7 @@ func (o *IndexerSubscriptionEvent) GetSweptVtxos() []IndexerVtxo {
 
 // GetSweptVtxosOk returns a tuple with the SweptVtxos field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetSweptVtxosOk() ([]IndexerVtxo, bool) {
+func (o *SubscriptionEvent) GetSweptVtxosOk() ([]Vtxo, bool) {
 	if o == nil || IsNil(o.SweptVtxos) {
 		return nil, false
 	}
@@ -192,7 +192,7 @@ func (o *IndexerSubscriptionEvent) GetSweptVtxosOk() ([]IndexerVtxo, bool) {
 }
 
 // HasSweptVtxos returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasSweptVtxos() bool {
+func (o *SubscriptionEvent) HasSweptVtxos() bool {
 	if o != nil && !IsNil(o.SweptVtxos) {
 		return true
 	}
@@ -200,13 +200,13 @@ func (o *IndexerSubscriptionEvent) HasSweptVtxos() bool {
 	return false
 }
 
-// SetSweptVtxos gets a reference to the given []IndexerVtxo and assigns it to the SweptVtxos field.
-func (o *IndexerSubscriptionEvent) SetSweptVtxos(v []IndexerVtxo) {
+// SetSweptVtxos gets a reference to the given []Vtxo and assigns it to the SweptVtxos field.
+func (o *SubscriptionEvent) SetSweptVtxos(v []Vtxo) {
 	o.SweptVtxos = v
 }
 
 // GetTx returns the Tx field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetTx() string {
+func (o *SubscriptionEvent) GetTx() string {
 	if o == nil || IsNil(o.Tx) {
 		var ret string
 		return ret
@@ -216,7 +216,7 @@ func (o *IndexerSubscriptionEvent) GetTx() string {
 
 // GetTxOk returns a tuple with the Tx field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetTxOk() (*string, bool) {
+func (o *SubscriptionEvent) GetTxOk() (*string, bool) {
 	if o == nil || IsNil(o.Tx) {
 		return nil, false
 	}
@@ -224,7 +224,7 @@ func (o *IndexerSubscriptionEvent) GetTxOk() (*string, bool) {
 }
 
 // HasTx returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasTx() bool {
+func (o *SubscriptionEvent) HasTx() bool {
 	if o != nil && !IsNil(o.Tx) {
 		return true
 	}
@@ -233,12 +233,12 @@ func (o *IndexerSubscriptionEvent) HasTx() bool {
 }
 
 // SetTx gets a reference to the given string and assigns it to the Tx field.
-func (o *IndexerSubscriptionEvent) SetTx(v string) {
+func (o *SubscriptionEvent) SetTx(v string) {
 	o.Tx = &v
 }
 
 // GetTxid returns the Txid field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetTxid() string {
+func (o *SubscriptionEvent) GetTxid() string {
 	if o == nil || IsNil(o.Txid) {
 		var ret string
 		return ret
@@ -248,7 +248,7 @@ func (o *IndexerSubscriptionEvent) GetTxid() string {
 
 // GetTxidOk returns a tuple with the Txid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetTxidOk() (*string, bool) {
+func (o *SubscriptionEvent) GetTxidOk() (*string, bool) {
 	if o == nil || IsNil(o.Txid) {
 		return nil, false
 	}
@@ -256,7 +256,7 @@ func (o *IndexerSubscriptionEvent) GetTxidOk() (*string, bool) {
 }
 
 // HasTxid returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasTxid() bool {
+func (o *SubscriptionEvent) HasTxid() bool {
 	if o != nil && !IsNil(o.Txid) {
 		return true
 	}
@@ -265,11 +265,11 @@ func (o *IndexerSubscriptionEvent) HasTxid() bool {
 }
 
 // SetTxid gets a reference to the given string and assigns it to the Txid field.
-func (o *IndexerSubscriptionEvent) SetTxid(v string) {
+func (o *SubscriptionEvent) SetTxid(v string) {
 	o.Txid = &v
 }
 
-func (o IndexerSubscriptionEvent) MarshalJSON() ([]byte, error) {
+func (o SubscriptionEvent) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -277,7 +277,7 @@ func (o IndexerSubscriptionEvent) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerSubscriptionEvent) ToMap() (map[string]interface{}, error) {
+func (o SubscriptionEvent) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.CheckpointTxs) {
 		toSerialize["checkpointTxs"] = o.CheckpointTxs
@@ -303,38 +303,38 @@ func (o IndexerSubscriptionEvent) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerSubscriptionEvent struct {
-	value *IndexerSubscriptionEvent
+type NullableSubscriptionEvent struct {
+	value *SubscriptionEvent
 	isSet bool
 }
 
-func (v NullableIndexerSubscriptionEvent) Get() *IndexerSubscriptionEvent {
+func (v NullableSubscriptionEvent) Get() *SubscriptionEvent {
 	return v.value
 }
 
-func (v *NullableIndexerSubscriptionEvent) Set(val *IndexerSubscriptionEvent) {
+func (v *NullableSubscriptionEvent) Set(val *SubscriptionEvent) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerSubscriptionEvent) IsSet() bool {
+func (v NullableSubscriptionEvent) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerSubscriptionEvent) Unset() {
+func (v *NullableSubscriptionEvent) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerSubscriptionEvent(val *IndexerSubscriptionEvent) *NullableIndexerSubscriptionEvent {
-	return &NullableIndexerSubscriptionEvent{value: val, isSet: true}
+func NewNullableSubscriptionEvent(val *SubscriptionEvent) *NullableSubscriptionEvent {
+	return &NullableSubscriptionEvent{value: val, isSet: true}
 }
 
-func (v NullableIndexerSubscriptionEvent) MarshalJSON() ([]byte, error) {
+func (v NullableSubscriptionEvent) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerSubscriptionEvent) UnmarshalJSON(src []byte) error {
+func (v *NullableSubscriptionEvent) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

@@ -21,7 +21,7 @@ var _ MappedNullable = &GetVtxosRequest{}
 type GetVtxosRequest struct {
 	// Or specify a list of vtxo outpoints. The 2 filters are mutually exclusive.
 		Outpoints []string `json:"outpoints,omitempty"`
-		Page *IndexerPageRequest `json:"page,omitempty"`
+		Page *PageRequest `json:"page,omitempty"`
 	// Retrieve only recoverable vtxos (notes, subdust or swept vtxos). The 3 filters are mutually exclusive,
 		RecoverableOnly *bool `json:"recoverableOnly,omitempty"`
 	// Either specify a list of vtxo scripts.
@@ -82,9 +82,9 @@ func (o *GetVtxosRequest) SetOutpoints(v []string) {
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetVtxosRequest) GetPage() IndexerPageRequest {
+func (o *GetVtxosRequest) GetPage() PageRequest {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageRequest
+		var ret PageRequest
 		return ret
 	}
 	return *o.Page
@@ -92,7 +92,7 @@ func (o *GetVtxosRequest) GetPage() IndexerPageRequest {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxosRequest) GetPageOk() (*IndexerPageRequest, bool) {
+func (o *GetVtxosRequest) GetPageOk() (*PageRequest, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -108,8 +108,8 @@ func (o *GetVtxosRequest) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageRequest and assigns it to the Page field.
-func (o *GetVtxosRequest) SetPage(v IndexerPageRequest) {
+// SetPage gets a reference to the given PageRequest and assigns it to the Page field.
+func (o *GetVtxosRequest) SetPage(v PageRequest) {
 	o.Page = &v
 }
 

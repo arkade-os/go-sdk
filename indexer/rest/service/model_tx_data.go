@@ -14,34 +14,34 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerTxData type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerTxData{}
+// checks if the TxData type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TxData{}
 
-// IndexerTxData struct for IndexerTxData
-type IndexerTxData struct {
+// TxData struct for TxData
+type TxData struct {
 		Tx *string `json:"tx,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
 
-// NewIndexerTxData instantiates a new IndexerTxData object
+// NewTxData instantiates a new TxData object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerTxData() *IndexerTxData {
-	this := IndexerTxData{}
+func NewTxData() *TxData {
+	this := TxData{}
 	return &this
 }
 
-// NewIndexerTxDataWithDefaults instantiates a new IndexerTxData object
+// NewTxDataWithDefaults instantiates a new TxData object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerTxDataWithDefaults() *IndexerTxData {
-	this := IndexerTxData{}
+func NewTxDataWithDefaults() *TxData {
+	this := TxData{}
 	return &this
 }
 
 // GetTx returns the Tx field value if set, zero value otherwise.
-func (o *IndexerTxData) GetTx() string {
+func (o *TxData) GetTx() string {
 	if o == nil || IsNil(o.Tx) {
 		var ret string
 		return ret
@@ -51,7 +51,7 @@ func (o *IndexerTxData) GetTx() string {
 
 // GetTxOk returns a tuple with the Tx field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerTxData) GetTxOk() (*string, bool) {
+func (o *TxData) GetTxOk() (*string, bool) {
 	if o == nil || IsNil(o.Tx) {
 		return nil, false
 	}
@@ -59,7 +59,7 @@ func (o *IndexerTxData) GetTxOk() (*string, bool) {
 }
 
 // HasTx returns a boolean if a field has been set.
-func (o *IndexerTxData) HasTx() bool {
+func (o *TxData) HasTx() bool {
 	if o != nil && !IsNil(o.Tx) {
 		return true
 	}
@@ -68,12 +68,12 @@ func (o *IndexerTxData) HasTx() bool {
 }
 
 // SetTx gets a reference to the given string and assigns it to the Tx field.
-func (o *IndexerTxData) SetTx(v string) {
+func (o *TxData) SetTx(v string) {
 	o.Tx = &v
 }
 
 // GetTxid returns the Txid field value if set, zero value otherwise.
-func (o *IndexerTxData) GetTxid() string {
+func (o *TxData) GetTxid() string {
 	if o == nil || IsNil(o.Txid) {
 		var ret string
 		return ret
@@ -83,7 +83,7 @@ func (o *IndexerTxData) GetTxid() string {
 
 // GetTxidOk returns a tuple with the Txid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerTxData) GetTxidOk() (*string, bool) {
+func (o *TxData) GetTxidOk() (*string, bool) {
 	if o == nil || IsNil(o.Txid) {
 		return nil, false
 	}
@@ -91,7 +91,7 @@ func (o *IndexerTxData) GetTxidOk() (*string, bool) {
 }
 
 // HasTxid returns a boolean if a field has been set.
-func (o *IndexerTxData) HasTxid() bool {
+func (o *TxData) HasTxid() bool {
 	if o != nil && !IsNil(o.Txid) {
 		return true
 	}
@@ -100,11 +100,11 @@ func (o *IndexerTxData) HasTxid() bool {
 }
 
 // SetTxid gets a reference to the given string and assigns it to the Txid field.
-func (o *IndexerTxData) SetTxid(v string) {
+func (o *TxData) SetTxid(v string) {
 	o.Txid = &v
 }
 
-func (o IndexerTxData) MarshalJSON() ([]byte, error) {
+func (o TxData) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -112,7 +112,7 @@ func (o IndexerTxData) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerTxData) ToMap() (map[string]interface{}, error) {
+func (o TxData) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Tx) {
 		toSerialize["tx"] = o.Tx
@@ -123,38 +123,38 @@ func (o IndexerTxData) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerTxData struct {
-	value *IndexerTxData
+type NullableTxData struct {
+	value *TxData
 	isSet bool
 }
 
-func (v NullableIndexerTxData) Get() *IndexerTxData {
+func (v NullableTxData) Get() *TxData {
 	return v.value
 }
 
-func (v *NullableIndexerTxData) Set(val *IndexerTxData) {
+func (v *NullableTxData) Set(val *TxData) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerTxData) IsSet() bool {
+func (v NullableTxData) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerTxData) Unset() {
+func (v *NullableTxData) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerTxData(val *IndexerTxData) *NullableIndexerTxData {
-	return &NullableIndexerTxData{value: val, isSet: true}
+func NewNullableTxData(val *TxData) *NullableTxData {
+	return &NullableTxData{value: val, isSet: true}
 }
 
-func (v NullableIndexerTxData) MarshalJSON() ([]byte, error) {
+func (v NullableTxData) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerTxData) UnmarshalJSON(src []byte) error {
+func (v *NullableTxData) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

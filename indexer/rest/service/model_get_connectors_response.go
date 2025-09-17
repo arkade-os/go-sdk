@@ -19,8 +19,8 @@ var _ MappedNullable = &GetConnectorsResponse{}
 
 // GetConnectorsResponse struct for GetConnectorsResponse
 type GetConnectorsResponse struct {
-		Connectors []IndexerNode `json:"connectors,omitempty"`
-		Page *IndexerPageResponse `json:"page,omitempty"`
+		Connectors []Node `json:"connectors,omitempty"`
+		Page *PageResponse `json:"page,omitempty"`
 }
 
 // NewGetConnectorsResponse instantiates a new GetConnectorsResponse object
@@ -41,9 +41,9 @@ func NewGetConnectorsResponseWithDefaults() *GetConnectorsResponse {
 }
 
 // GetConnectors returns the Connectors field value if set, zero value otherwise.
-func (o *GetConnectorsResponse) GetConnectors() []IndexerNode {
+func (o *GetConnectorsResponse) GetConnectors() []Node {
 	if o == nil || IsNil(o.Connectors) {
-		var ret []IndexerNode
+		var ret []Node
 		return ret
 	}
 	return o.Connectors
@@ -51,7 +51,7 @@ func (o *GetConnectorsResponse) GetConnectors() []IndexerNode {
 
 // GetConnectorsOk returns a tuple with the Connectors field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetConnectorsResponse) GetConnectorsOk() ([]IndexerNode, bool) {
+func (o *GetConnectorsResponse) GetConnectorsOk() ([]Node, bool) {
 	if o == nil || IsNil(o.Connectors) {
 		return nil, false
 	}
@@ -67,15 +67,15 @@ func (o *GetConnectorsResponse) HasConnectors() bool {
 	return false
 }
 
-// SetConnectors gets a reference to the given []IndexerNode and assigns it to the Connectors field.
-func (o *GetConnectorsResponse) SetConnectors(v []IndexerNode) {
+// SetConnectors gets a reference to the given []Node and assigns it to the Connectors field.
+func (o *GetConnectorsResponse) SetConnectors(v []Node) {
 	o.Connectors = v
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetConnectorsResponse) GetPage() IndexerPageResponse {
+func (o *GetConnectorsResponse) GetPage() PageResponse {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageResponse
+		var ret PageResponse
 		return ret
 	}
 	return *o.Page
@@ -83,7 +83,7 @@ func (o *GetConnectorsResponse) GetPage() IndexerPageResponse {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetConnectorsResponse) GetPageOk() (*IndexerPageResponse, bool) {
+func (o *GetConnectorsResponse) GetPageOk() (*PageResponse, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -99,8 +99,8 @@ func (o *GetConnectorsResponse) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageResponse and assigns it to the Page field.
-func (o *GetConnectorsResponse) SetPage(v IndexerPageResponse) {
+// SetPage gets a reference to the given PageResponse and assigns it to the Page field.
+func (o *GetConnectorsResponse) SetPage(v PageResponse) {
 	o.Page = &v
 }
 

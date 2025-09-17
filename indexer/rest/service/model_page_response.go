@@ -14,35 +14,35 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerPageResponse type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerPageResponse{}
+// checks if the PageResponse type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &PageResponse{}
 
-// IndexerPageResponse struct for IndexerPageResponse
-type IndexerPageResponse struct {
+// PageResponse struct for PageResponse
+type PageResponse struct {
 		Current *int32 `json:"current,omitempty"`
 		Next *int32 `json:"next,omitempty"`
 		Total *int32 `json:"total,omitempty"`
 }
 
-// NewIndexerPageResponse instantiates a new IndexerPageResponse object
+// NewPageResponse instantiates a new PageResponse object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerPageResponse() *IndexerPageResponse {
-	this := IndexerPageResponse{}
+func NewPageResponse() *PageResponse {
+	this := PageResponse{}
 	return &this
 }
 
-// NewIndexerPageResponseWithDefaults instantiates a new IndexerPageResponse object
+// NewPageResponseWithDefaults instantiates a new PageResponse object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerPageResponseWithDefaults() *IndexerPageResponse {
-	this := IndexerPageResponse{}
+func NewPageResponseWithDefaults() *PageResponse {
+	this := PageResponse{}
 	return &this
 }
 
 // GetCurrent returns the Current field value if set, zero value otherwise.
-func (o *IndexerPageResponse) GetCurrent() int32 {
+func (o *PageResponse) GetCurrent() int32 {
 	if o == nil || IsNil(o.Current) {
 		var ret int32
 		return ret
@@ -52,7 +52,7 @@ func (o *IndexerPageResponse) GetCurrent() int32 {
 
 // GetCurrentOk returns a tuple with the Current field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerPageResponse) GetCurrentOk() (*int32, bool) {
+func (o *PageResponse) GetCurrentOk() (*int32, bool) {
 	if o == nil || IsNil(o.Current) {
 		return nil, false
 	}
@@ -60,7 +60,7 @@ func (o *IndexerPageResponse) GetCurrentOk() (*int32, bool) {
 }
 
 // HasCurrent returns a boolean if a field has been set.
-func (o *IndexerPageResponse) HasCurrent() bool {
+func (o *PageResponse) HasCurrent() bool {
 	if o != nil && !IsNil(o.Current) {
 		return true
 	}
@@ -69,12 +69,12 @@ func (o *IndexerPageResponse) HasCurrent() bool {
 }
 
 // SetCurrent gets a reference to the given int32 and assigns it to the Current field.
-func (o *IndexerPageResponse) SetCurrent(v int32) {
+func (o *PageResponse) SetCurrent(v int32) {
 	o.Current = &v
 }
 
 // GetNext returns the Next field value if set, zero value otherwise.
-func (o *IndexerPageResponse) GetNext() int32 {
+func (o *PageResponse) GetNext() int32 {
 	if o == nil || IsNil(o.Next) {
 		var ret int32
 		return ret
@@ -84,7 +84,7 @@ func (o *IndexerPageResponse) GetNext() int32 {
 
 // GetNextOk returns a tuple with the Next field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerPageResponse) GetNextOk() (*int32, bool) {
+func (o *PageResponse) GetNextOk() (*int32, bool) {
 	if o == nil || IsNil(o.Next) {
 		return nil, false
 	}
@@ -92,7 +92,7 @@ func (o *IndexerPageResponse) GetNextOk() (*int32, bool) {
 }
 
 // HasNext returns a boolean if a field has been set.
-func (o *IndexerPageResponse) HasNext() bool {
+func (o *PageResponse) HasNext() bool {
 	if o != nil && !IsNil(o.Next) {
 		return true
 	}
@@ -101,12 +101,12 @@ func (o *IndexerPageResponse) HasNext() bool {
 }
 
 // SetNext gets a reference to the given int32 and assigns it to the Next field.
-func (o *IndexerPageResponse) SetNext(v int32) {
+func (o *PageResponse) SetNext(v int32) {
 	o.Next = &v
 }
 
 // GetTotal returns the Total field value if set, zero value otherwise.
-func (o *IndexerPageResponse) GetTotal() int32 {
+func (o *PageResponse) GetTotal() int32 {
 	if o == nil || IsNil(o.Total) {
 		var ret int32
 		return ret
@@ -116,7 +116,7 @@ func (o *IndexerPageResponse) GetTotal() int32 {
 
 // GetTotalOk returns a tuple with the Total field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerPageResponse) GetTotalOk() (*int32, bool) {
+func (o *PageResponse) GetTotalOk() (*int32, bool) {
 	if o == nil || IsNil(o.Total) {
 		return nil, false
 	}
@@ -124,7 +124,7 @@ func (o *IndexerPageResponse) GetTotalOk() (*int32, bool) {
 }
 
 // HasTotal returns a boolean if a field has been set.
-func (o *IndexerPageResponse) HasTotal() bool {
+func (o *PageResponse) HasTotal() bool {
 	if o != nil && !IsNil(o.Total) {
 		return true
 	}
@@ -133,11 +133,11 @@ func (o *IndexerPageResponse) HasTotal() bool {
 }
 
 // SetTotal gets a reference to the given int32 and assigns it to the Total field.
-func (o *IndexerPageResponse) SetTotal(v int32) {
+func (o *PageResponse) SetTotal(v int32) {
 	o.Total = &v
 }
 
-func (o IndexerPageResponse) MarshalJSON() ([]byte, error) {
+func (o PageResponse) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -145,7 +145,7 @@ func (o IndexerPageResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerPageResponse) ToMap() (map[string]interface{}, error) {
+func (o PageResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Current) {
 		toSerialize["current"] = o.Current
@@ -159,38 +159,38 @@ func (o IndexerPageResponse) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerPageResponse struct {
-	value *IndexerPageResponse
+type NullablePageResponse struct {
+	value *PageResponse
 	isSet bool
 }
 
-func (v NullableIndexerPageResponse) Get() *IndexerPageResponse {
+func (v NullablePageResponse) Get() *PageResponse {
 	return v.value
 }
 
-func (v *NullableIndexerPageResponse) Set(val *IndexerPageResponse) {
+func (v *NullablePageResponse) Set(val *PageResponse) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerPageResponse) IsSet() bool {
+func (v NullablePageResponse) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerPageResponse) Unset() {
+func (v *NullablePageResponse) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerPageResponse(val *IndexerPageResponse) *NullableIndexerPageResponse {
-	return &NullableIndexerPageResponse{value: val, isSet: true}
+func NewNullablePageResponse(val *PageResponse) *NullablePageResponse {
+	return &NullablePageResponse{value: val, isSet: true}
 }
 
-func (v NullableIndexerPageResponse) MarshalJSON() ([]byte, error) {
+func (v NullablePageResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerPageResponse) UnmarshalJSON(src []byte) error {
+func (v *NullablePageResponse) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

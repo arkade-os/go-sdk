@@ -5,7 +5,7 @@
     "version": "version not set"
   },
   "paths": {
-    "/v1/indexer/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/sweepTxs": {
+    "/v1/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/sweepTxs": {
       "get": {
         "tags": [
           "IndexerService"
@@ -37,7 +37,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetBatchSweepTransactionsResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetBatchSweepTransactionsResponse"
                 }
               }
             }
@@ -47,7 +47,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -55,7 +55,7 @@
         }
       }
     },
-    "/v1/indexer/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree": {
+    "/v1/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree": {
       "get": {
         "tags": [
           "IndexerService"
@@ -103,7 +103,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetVtxoTreeResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetVtxoTreeResponse"
                 }
               }
             }
@@ -113,7 +113,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -121,7 +121,7 @@
         }
       }
     },
-    "/v1/indexer/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree/leaves": {
+    "/v1/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree/leaves": {
       "get": {
         "tags": [
           "IndexerService"
@@ -169,7 +169,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetVtxoTreeLeavesResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetVtxoTreeLeavesResponse"
                 }
               }
             }
@@ -179,7 +179,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -187,7 +187,7 @@
         }
       }
     },
-    "/v1/indexer/commitmentTx/{txid}": {
+    "/v1/commitmentTx/{txid}": {
       "get": {
         "tags": [
           "IndexerService"
@@ -210,7 +210,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetCommitmentTxResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetCommitmentTxResponse"
                 }
               }
             }
@@ -220,7 +220,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -228,7 +228,7 @@
         }
       }
     },
-    "/v1/indexer/commitmentTx/{txid}/connectors": {
+    "/v1/commitmentTx/{txid}/connectors": {
       "get": {
         "tags": [
           "IndexerService"
@@ -267,7 +267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetConnectorsResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetConnectorsResponse"
                 }
               }
             }
@@ -277,7 +277,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -285,7 +285,7 @@
         }
       }
     },
-    "/v1/indexer/commitmentTx/{txid}/forfeitTxs": {
+    "/v1/commitmentTx/{txid}/forfeitTxs": {
       "get": {
         "tags": [
           "IndexerService"
@@ -324,7 +324,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetForfeitTxsResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetForfeitTxsResponse"
                 }
               }
             }
@@ -334,7 +334,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -342,7 +342,7 @@
         }
       }
     },
-    "/v1/indexer/script/subscribe": {
+    "/v1/script/subscribe": {
       "post": {
         "tags": [
           "IndexerService"
@@ -353,7 +353,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubscribeForScriptsRequest"
+                "$ref": "#/components/schemas/indexer.v1.SubscribeForScriptsRequest"
               }
             }
           },
@@ -365,7 +365,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubscribeForScriptsResponse"
+                  "$ref": "#/components/schemas/indexer.v1.SubscribeForScriptsResponse"
                 }
               }
             }
@@ -375,7 +375,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -383,7 +383,7 @@
         }
       }
     },
-    "/v1/indexer/script/subscription/{subscription_id}": {
+    "/v1/script/subscription/{subscription_id}": {
       "get": {
         "tags": [
           "IndexerService"
@@ -406,7 +406,7 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetSubscriptionResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetSubscriptionResponse"
                 }
               }
             }
@@ -416,7 +416,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -424,7 +424,7 @@
         }
       }
     },
-    "/v1/indexer/script/unsubscribe": {
+    "/v1/script/unsubscribe": {
       "post": {
         "tags": [
           "IndexerService"
@@ -435,7 +435,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UnsubscribeForScriptsRequest"
+                "$ref": "#/components/schemas/indexer.v1.UnsubscribeForScriptsRequest"
               }
             }
           },
@@ -447,7 +447,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UnsubscribeForScriptsResponse"
+                  "$ref": "#/components/schemas/indexer.v1.UnsubscribeForScriptsResponse"
                 }
               }
             }
@@ -457,7 +457,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -465,7 +465,7 @@
         }
       }
     },
-    "/v1/indexer/virtualTx/{txids}": {
+    "/v1/virtualTx/{txids}": {
       "get": {
         "tags": [
           "IndexerService"
@@ -509,7 +509,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetVirtualTxsResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetVirtualTxsResponse"
                 }
               }
             }
@@ -519,7 +519,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -527,7 +527,7 @@
         }
       }
     },
-    "/v1/indexer/vtxo/{outpoint.txid}/{outpoint.vout}/chain": {
+    "/v1/vtxo/{outpoint.txid}/{outpoint.vout}/chain": {
       "get": {
         "tags": [
           "IndexerService"
@@ -575,7 +575,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetVtxoChainResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetVtxoChainResponse"
                 }
               }
             }
@@ -585,7 +585,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -593,7 +593,7 @@
         }
       }
     },
-    "/v1/indexer/vtxos": {
+    "/v1/vtxos": {
       "get": {
         "tags": [
           "IndexerService"
@@ -674,7 +674,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetVtxosResponse"
+                  "$ref": "#/components/schemas/indexer.v1.GetVtxosResponse"
                 }
               }
             }
@@ -684,7 +684,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Status"
+                  "$ref": "#/components/schemas/google.rpc.Status"
                 }
               }
             }
@@ -695,7 +695,7 @@
   },
   "components": {
     "schemas": {
-      "Any": {
+      "google.protobuf.Any": {
         "type": "object",
         "description": "Any contains an arbitrary schema along with a URL to help identify the type of the schema.",
         "properties": {
@@ -705,16 +705,91 @@
           }
         }
       },
-      "GetBatchSweepTransactionsRequest": {
+      "google.rpc.Status": {
+        "title": "Status",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/google.protobuf.Any"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "indexer.v1.Batch": {
+        "title": "Batch",
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "swept": {
+            "type": "boolean"
+          },
+          "totalOutputAmount": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "totalOutputVtxos": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "indexer.v1.Chain": {
+        "title": "Chain",
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spends": {
+            "type": "array",
+            "description": "txids of the transactions in the chain used as input of the current tx",
+            "items": {
+              "type": "string"
+            }
+          },
+          "txid": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/indexer.v1.ChainedTxType"
+          }
+        }
+      },
+      "indexer.v1.ChainedTxType": {
+        "title": "ChainedTxType",
+        "enum": [
+          "CHAINED_TX_TYPE_UNSPECIFIED",
+          "CHAINED_TX_TYPE_COMMITMENT",
+          "CHAINED_TX_TYPE_ARK",
+          "CHAINED_TX_TYPE_TREE",
+          "CHAINED_TX_TYPE_CHECKPOINT"
+        ],
+        "type": "string",
+        "default": "CHAINED_TX_TYPE_UNSPECIFIED"
+      },
+      "indexer.v1.GetBatchSweepTransactionsRequest": {
         "title": "GetBatchSweepTransactionsRequest",
         "type": "object",
         "properties": {
           "batchOutpoint": {
-            "$ref": "#/components/schemas/IndexerOutpoint"
+            "$ref": "#/components/schemas/indexer.v1.Outpoint"
           }
         }
       },
-      "GetBatchSweepTransactionsResponse": {
+      "indexer.v1.GetBatchSweepTransactionsResponse": {
         "title": "GetBatchSweepTransactionsResponse",
         "type": "object",
         "properties": {
@@ -726,7 +801,7 @@
           }
         }
       },
-      "GetCommitmentTxRequest": {
+      "indexer.v1.GetCommitmentTxRequest": {
         "title": "GetCommitmentTxRequest",
         "type": "object",
         "properties": {
@@ -735,14 +810,14 @@
           }
         }
       },
-      "GetCommitmentTxResponse": {
+      "indexer.v1.GetCommitmentTxResponse": {
         "title": "GetCommitmentTxResponse",
         "type": "object",
         "properties": {
           "batches": {
             "type": "object",
             "additionalProperties": {
-              "$ref": "#/components/schemas/IndexerBatch"
+              "$ref": "#/components/schemas/indexer.v1.Batch"
             }
           },
           "endedAt": {
@@ -771,51 +846,51 @@
           }
         }
       },
-      "GetConnectorsRequest": {
+      "indexer.v1.GetConnectorsRequest": {
         "title": "GetConnectorsRequest",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           },
           "txid": {
             "type": "string"
           }
         }
       },
-      "GetConnectorsResponse": {
+      "indexer.v1.GetConnectorsResponse": {
         "title": "GetConnectorsResponse",
         "type": "object",
         "properties": {
           "connectors": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IndexerNode"
+              "$ref": "#/components/schemas/indexer.v1.Node"
             }
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           }
         }
       },
-      "GetForfeitTxsRequest": {
+      "indexer.v1.GetForfeitTxsRequest": {
         "title": "GetForfeitTxsRequest",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           },
           "txid": {
             "type": "string"
           }
         }
       },
-      "GetForfeitTxsResponse": {
+      "indexer.v1.GetForfeitTxsResponse": {
         "title": "GetForfeitTxsResponse",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           },
           "txids": {
             "type": "array",
@@ -825,7 +900,7 @@
           }
         }
       },
-      "GetSubscriptionRequest": {
+      "indexer.v1.GetSubscriptionRequest": {
         "title": "GetSubscriptionRequest",
         "type": "object",
         "properties": {
@@ -834,24 +909,24 @@
           }
         }
       },
-      "GetSubscriptionResponse": {
+      "indexer.v1.GetSubscriptionResponse": {
         "title": "GetSubscriptionResponse",
         "type": "object",
         "properties": {
           "event": {
-            "$ref": "#/components/schemas/IndexerSubscriptionEvent"
+            "$ref": "#/components/schemas/indexer.v1.SubscriptionEvent"
           },
           "heartbeat": {
-            "$ref": "#/components/schemas/IndexerHeartbeat"
+            "$ref": "#/components/schemas/indexer.v1.Heartbeat"
           }
         }
       },
-      "GetVirtualTxsRequest": {
+      "indexer.v1.GetVirtualTxsRequest": {
         "title": "GetVirtualTxsRequest",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           },
           "txids": {
             "type": "array",
@@ -861,12 +936,12 @@
           }
         }
       },
-      "GetVirtualTxsResponse": {
+      "indexer.v1.GetVirtualTxsResponse": {
         "title": "GetVirtualTxsResponse",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           },
           "txs": {
             "type": "array",
@@ -876,88 +951,88 @@
           }
         }
       },
-      "GetVtxoChainRequest": {
+      "indexer.v1.GetVtxoChainRequest": {
         "title": "GetVtxoChainRequest",
         "type": "object",
         "properties": {
           "outpoint": {
-            "$ref": "#/components/schemas/IndexerOutpoint"
+            "$ref": "#/components/schemas/indexer.v1.Outpoint"
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           }
         }
       },
-      "GetVtxoChainResponse": {
+      "indexer.v1.GetVtxoChainResponse": {
         "title": "GetVtxoChainResponse",
         "type": "object",
         "properties": {
           "chain": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IndexerChain"
+              "$ref": "#/components/schemas/indexer.v1.Chain"
             }
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           }
         }
       },
-      "GetVtxoTreeLeavesRequest": {
+      "indexer.v1.GetVtxoTreeLeavesRequest": {
         "title": "GetVtxoTreeLeavesRequest",
         "type": "object",
         "properties": {
           "batchOutpoint": {
-            "$ref": "#/components/schemas/IndexerOutpoint"
+            "$ref": "#/components/schemas/indexer.v1.Outpoint"
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           }
         }
       },
-      "GetVtxoTreeLeavesResponse": {
+      "indexer.v1.GetVtxoTreeLeavesResponse": {
         "title": "GetVtxoTreeLeavesResponse",
         "type": "object",
         "properties": {
           "leaves": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IndexerOutpoint"
+              "$ref": "#/components/schemas/indexer.v1.Outpoint"
             }
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           }
         }
       },
-      "GetVtxoTreeRequest": {
+      "indexer.v1.GetVtxoTreeRequest": {
         "title": "GetVtxoTreeRequest",
         "type": "object",
         "properties": {
           "batchOutpoint": {
-            "$ref": "#/components/schemas/IndexerOutpoint"
+            "$ref": "#/components/schemas/indexer.v1.Outpoint"
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           }
         }
       },
-      "GetVtxoTreeResponse": {
+      "indexer.v1.GetVtxoTreeResponse": {
         "title": "GetVtxoTreeResponse",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           },
           "vtxoTree": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IndexerNode"
+              "$ref": "#/components/schemas/indexer.v1.Node"
             }
           }
         }
       },
-      "GetVtxosRequest": {
+      "indexer.v1.GetVtxosRequest": {
         "title": "GetVtxosRequest",
         "type": "object",
         "properties": {
@@ -969,7 +1044,7 @@
             }
           },
           "page": {
-            "$ref": "#/components/schemas/IndexerPageRequest"
+            "$ref": "#/components/schemas/indexer.v1.PageRequest"
           },
           "recoverableOnly": {
             "type": "boolean",
@@ -992,83 +1067,27 @@
           }
         }
       },
-      "GetVtxosResponse": {
+      "indexer.v1.GetVtxosResponse": {
         "title": "GetVtxosResponse",
         "type": "object",
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/IndexerPageResponse"
+            "$ref": "#/components/schemas/indexer.v1.PageResponse"
           },
           "vtxos": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IndexerVtxo"
+              "$ref": "#/components/schemas/indexer.v1.Vtxo"
             }
           }
         }
       },
-      "IndexerBatch": {
-        "title": "IndexerBatch",
-        "type": "object",
-        "properties": {
-          "expiresAt": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "swept": {
-            "type": "boolean"
-          },
-          "totalOutputAmount": {
-            "type": "integer",
-            "format": "uint64"
-          },
-          "totalOutputVtxos": {
-            "type": "integer",
-            "format": "int32"
-          }
-        }
-      },
-      "IndexerChain": {
-        "title": "IndexerChain",
-        "type": "object",
-        "properties": {
-          "expiresAt": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "spends": {
-            "type": "array",
-            "description": "txids of the transactions in the chain used as input of the current tx",
-            "items": {
-              "type": "string"
-            }
-          },
-          "txid": {
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/IndexerChainedTxType"
-          }
-        }
-      },
-      "IndexerChainedTxType": {
-        "title": "IndexerChainedTxType",
-        "enum": [
-          "INDEXER_CHAINED_TX_TYPE_UNSPECIFIED",
-          "INDEXER_CHAINED_TX_TYPE_COMMITMENT",
-          "INDEXER_CHAINED_TX_TYPE_ARK",
-          "INDEXER_CHAINED_TX_TYPE_TREE",
-          "INDEXER_CHAINED_TX_TYPE_CHECKPOINT"
-        ],
-        "type": "string",
-        "default": "INDEXER_CHAINED_TX_TYPE_UNSPECIFIED"
-      },
-      "IndexerHeartbeat": {
-        "title": "IndexerHeartbeat",
+      "indexer.v1.Heartbeat": {
+        "title": "Heartbeat",
         "type": "object"
       },
-      "IndexerNode": {
-        "title": "IndexerNode",
+      "indexer.v1.Node": {
+        "title": "Node",
         "type": "object",
         "properties": {
           "children": {
@@ -1083,8 +1102,8 @@
           }
         }
       },
-      "IndexerOutpoint": {
-        "title": "IndexerOutpoint",
+      "indexer.v1.Outpoint": {
+        "title": "Outpoint",
         "type": "object",
         "properties": {
           "txid": {
@@ -1096,8 +1115,8 @@
           }
         }
       },
-      "IndexerPageRequest": {
-        "title": "IndexerPageRequest",
+      "indexer.v1.PageRequest": {
+        "title": "PageRequest",
         "type": "object",
         "properties": {
           "index": {
@@ -1110,8 +1129,8 @@
           }
         }
       },
-      "IndexerPageResponse": {
-        "title": "IndexerPageResponse",
+      "indexer.v1.PageResponse": {
+        "title": "PageResponse",
         "type": "object",
         "properties": {
           "current": {
@@ -1128,173 +1147,7 @@
           }
         }
       },
-      "IndexerSubscriptionEvent": {
-        "title": "IndexerSubscriptionEvent",
-        "type": "object",
-        "properties": {
-          "checkpointTxs": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/IndexerTxData"
-            }
-          },
-          "newVtxos": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/IndexerVtxo"
-            }
-          },
-          "scripts": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "spentVtxos": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/IndexerVtxo"
-            }
-          },
-          "sweptVtxos": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/IndexerVtxo"
-            }
-          },
-          "tx": {
-            "type": "string"
-          },
-          "txid": {
-            "type": "string"
-          }
-        }
-      },
-      "IndexerTxData": {
-        "title": "IndexerTxData",
-        "type": "object",
-        "properties": {
-          "tx": {
-            "type": "string"
-          },
-          "txid": {
-            "type": "string"
-          }
-        }
-      },
-      "IndexerTxHistoryRecord": {
-        "title": "IndexerTxHistoryRecord",
-        "type": "object",
-        "properties": {
-          "amount": {
-            "type": "integer",
-            "format": "uint64"
-          },
-          "commitmentTxid": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "isSettled": {
-            "type": "boolean"
-          },
-          "settledBy": {
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/IndexerTxType"
-          },
-          "virtualTxid": {
-            "type": "string"
-          }
-        }
-      },
-      "IndexerTxType": {
-        "title": "IndexerTxType",
-        "enum": [
-          "INDEXER_TX_TYPE_UNSPECIFIED",
-          "INDEXER_TX_TYPE_RECEIVED",
-          "INDEXER_TX_TYPE_SENT"
-        ],
-        "type": "string",
-        "default": "INDEXER_TX_TYPE_UNSPECIFIED"
-      },
-      "IndexerVtxo": {
-        "title": "IndexerVtxo",
-        "type": "object",
-        "properties": {
-          "amount": {
-            "type": "integer",
-            "format": "uint64",
-            "x-go-json-string": true
-          },
-          "arkTxid": {
-            "type": "string"
-          },
-          "commitmentTxids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "createdAt": {
-            "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
-          },
-          "expiresAt": {
-            "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
-          },
-          "isPreconfirmed": {
-            "type": "boolean"
-          },
-          "isSpent": {
-            "type": "boolean"
-          },
-          "isSwept": {
-            "type": "boolean"
-          },
-          "isUnrolled": {
-            "type": "boolean"
-          },
-          "outpoint": {
-            "$ref": "#/components/schemas/IndexerOutpoint"
-          },
-          "script": {
-            "type": "string"
-          },
-          "settledBy": {
-            "type": "string"
-          },
-          "spentBy": {
-            "type": "string"
-          }
-        }
-      },
-      "Status": {
-        "title": "Status",
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "details": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Any"
-            }
-          },
-          "message": {
-            "type": "string"
-          }
-        }
-      },
-      "SubscribeForScriptsRequest": {
+      "indexer.v1.SubscribeForScriptsRequest": {
         "title": "SubscribeForScriptsRequest",
         "type": "object",
         "properties": {
@@ -1310,7 +1163,7 @@
           }
         }
       },
-      "SubscribeForScriptsResponse": {
+      "indexer.v1.SubscribeForScriptsResponse": {
         "title": "SubscribeForScriptsResponse",
         "type": "object",
         "properties": {
@@ -1319,7 +1172,61 @@
           }
         }
       },
-      "UnsubscribeForScriptsRequest": {
+      "indexer.v1.SubscriptionEvent": {
+        "title": "SubscriptionEvent",
+        "type": "object",
+        "properties": {
+          "checkpointTxs": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/indexer.v1.TxData"
+            }
+          },
+          "newVtxos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/indexer.v1.Vtxo"
+            }
+          },
+          "scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "spentVtxos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/indexer.v1.Vtxo"
+            }
+          },
+          "sweptVtxos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/indexer.v1.Vtxo"
+            }
+          },
+          "tx": {
+            "type": "string"
+          },
+          "txid": {
+            "type": "string"
+          }
+        }
+      },
+      "indexer.v1.TxData": {
+        "title": "TxData",
+        "type": "object",
+        "properties": {
+          "tx": {
+            "type": "string"
+          },
+          "txid": {
+            "type": "string"
+          }
+        }
+      },
+      "indexer.v1.UnsubscribeForScriptsRequest": {
         "title": "UnsubscribeForScriptsRequest",
         "type": "object",
         "properties": {
@@ -1335,9 +1242,60 @@
           }
         }
       },
-      "UnsubscribeForScriptsResponse": {
+      "indexer.v1.UnsubscribeForScriptsResponse": {
         "title": "UnsubscribeForScriptsResponse",
         "type": "object"
+      },
+      "indexer.v1.Vtxo": {
+        "title": "Vtxo",
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "arkTxid": {
+            "type": "string"
+          },
+          "commitmentTxids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expiresAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "isPreconfirmed": {
+            "type": "boolean"
+          },
+          "isSpent": {
+            "type": "boolean"
+          },
+          "isSwept": {
+            "type": "boolean"
+          },
+          "isUnrolled": {
+            "type": "boolean"
+          },
+          "outpoint": {
+            "$ref": "#/components/schemas/indexer.v1.Outpoint"
+          },
+          "script": {
+            "type": "string"
+          },
+          "settledBy": {
+            "type": "string"
+          },
+          "spentBy": {
+            "type": "string"
+          }
+        }
       }
     }
   },

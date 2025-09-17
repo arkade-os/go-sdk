@@ -14,41 +14,41 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerChain type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerChain{}
+// checks if the Chain type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &Chain{}
 
-// IndexerChain struct for IndexerChain
-type IndexerChain struct {
+// Chain struct for Chain
+type Chain struct {
 		ExpiresAt *int64 `json:"expiresAt,omitempty"`
 	// txids of the transactions in the chain used as input of the current tx
 		Spends []string `json:"spends,omitempty"`
 		Txid *string `json:"txid,omitempty"`
-		Type *IndexerChainedTxType `json:"type,omitempty"`
+		Type *ChainedTxType `json:"type,omitempty"`
 }
 
-// NewIndexerChain instantiates a new IndexerChain object
+// NewChain instantiates a new Chain object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerChain() *IndexerChain {
-	this := IndexerChain{}
-	var type_ IndexerChainedTxType = INDEXER_CHAINED_TX_TYPE_UNSPECIFIED
+func NewChain() *Chain {
+	this := Chain{}
+	var type_ ChainedTxType = CHAINED_TX_TYPE_UNSPECIFIED
 	this.Type = &type_
 	return &this
 }
 
-// NewIndexerChainWithDefaults instantiates a new IndexerChain object
+// NewChainWithDefaults instantiates a new Chain object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerChainWithDefaults() *IndexerChain {
-	this := IndexerChain{}
-	var type_ IndexerChainedTxType = INDEXER_CHAINED_TX_TYPE_UNSPECIFIED
+func NewChainWithDefaults() *Chain {
+	this := Chain{}
+	var type_ ChainedTxType = CHAINED_TX_TYPE_UNSPECIFIED
 	this.Type = &type_
 	return &this
 }
 
 // GetExpiresAt returns the ExpiresAt field value if set, zero value otherwise.
-func (o *IndexerChain) GetExpiresAt() int64 {
+func (o *Chain) GetExpiresAt() int64 {
 	if o == nil || IsNil(o.ExpiresAt) {
 		var ret int64
 		return ret
@@ -58,7 +58,7 @@ func (o *IndexerChain) GetExpiresAt() int64 {
 
 // GetExpiresAtOk returns a tuple with the ExpiresAt field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerChain) GetExpiresAtOk() (*int64, bool) {
+func (o *Chain) GetExpiresAtOk() (*int64, bool) {
 	if o == nil || IsNil(o.ExpiresAt) {
 		return nil, false
 	}
@@ -66,7 +66,7 @@ func (o *IndexerChain) GetExpiresAtOk() (*int64, bool) {
 }
 
 // HasExpiresAt returns a boolean if a field has been set.
-func (o *IndexerChain) HasExpiresAt() bool {
+func (o *Chain) HasExpiresAt() bool {
 	if o != nil && !IsNil(o.ExpiresAt) {
 		return true
 	}
@@ -75,12 +75,12 @@ func (o *IndexerChain) HasExpiresAt() bool {
 }
 
 // SetExpiresAt gets a reference to the given int64 and assigns it to the ExpiresAt field.
-func (o *IndexerChain) SetExpiresAt(v int64) {
+func (o *Chain) SetExpiresAt(v int64) {
 	o.ExpiresAt = &v
 }
 
 // GetSpends returns the Spends field value if set, zero value otherwise.
-func (o *IndexerChain) GetSpends() []string {
+func (o *Chain) GetSpends() []string {
 	if o == nil || IsNil(o.Spends) {
 		var ret []string
 		return ret
@@ -90,7 +90,7 @@ func (o *IndexerChain) GetSpends() []string {
 
 // GetSpendsOk returns a tuple with the Spends field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerChain) GetSpendsOk() ([]string, bool) {
+func (o *Chain) GetSpendsOk() ([]string, bool) {
 	if o == nil || IsNil(o.Spends) {
 		return nil, false
 	}
@@ -98,7 +98,7 @@ func (o *IndexerChain) GetSpendsOk() ([]string, bool) {
 }
 
 // HasSpends returns a boolean if a field has been set.
-func (o *IndexerChain) HasSpends() bool {
+func (o *Chain) HasSpends() bool {
 	if o != nil && !IsNil(o.Spends) {
 		return true
 	}
@@ -107,12 +107,12 @@ func (o *IndexerChain) HasSpends() bool {
 }
 
 // SetSpends gets a reference to the given []string and assigns it to the Spends field.
-func (o *IndexerChain) SetSpends(v []string) {
+func (o *Chain) SetSpends(v []string) {
 	o.Spends = v
 }
 
 // GetTxid returns the Txid field value if set, zero value otherwise.
-func (o *IndexerChain) GetTxid() string {
+func (o *Chain) GetTxid() string {
 	if o == nil || IsNil(o.Txid) {
 		var ret string
 		return ret
@@ -122,7 +122,7 @@ func (o *IndexerChain) GetTxid() string {
 
 // GetTxidOk returns a tuple with the Txid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerChain) GetTxidOk() (*string, bool) {
+func (o *Chain) GetTxidOk() (*string, bool) {
 	if o == nil || IsNil(o.Txid) {
 		return nil, false
 	}
@@ -130,7 +130,7 @@ func (o *IndexerChain) GetTxidOk() (*string, bool) {
 }
 
 // HasTxid returns a boolean if a field has been set.
-func (o *IndexerChain) HasTxid() bool {
+func (o *Chain) HasTxid() bool {
 	if o != nil && !IsNil(o.Txid) {
 		return true
 	}
@@ -139,14 +139,14 @@ func (o *IndexerChain) HasTxid() bool {
 }
 
 // SetTxid gets a reference to the given string and assigns it to the Txid field.
-func (o *IndexerChain) SetTxid(v string) {
+func (o *Chain) SetTxid(v string) {
 	o.Txid = &v
 }
 
 // GetType returns the Type field value if set, zero value otherwise.
-func (o *IndexerChain) GetType() IndexerChainedTxType {
+func (o *Chain) GetType() ChainedTxType {
 	if o == nil || IsNil(o.Type) {
-		var ret IndexerChainedTxType
+		var ret ChainedTxType
 		return ret
 	}
 	return *o.Type
@@ -154,7 +154,7 @@ func (o *IndexerChain) GetType() IndexerChainedTxType {
 
 // GetTypeOk returns a tuple with the Type field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerChain) GetTypeOk() (*IndexerChainedTxType, bool) {
+func (o *Chain) GetTypeOk() (*ChainedTxType, bool) {
 	if o == nil || IsNil(o.Type) {
 		return nil, false
 	}
@@ -162,7 +162,7 @@ func (o *IndexerChain) GetTypeOk() (*IndexerChainedTxType, bool) {
 }
 
 // HasType returns a boolean if a field has been set.
-func (o *IndexerChain) HasType() bool {
+func (o *Chain) HasType() bool {
 	if o != nil && !IsNil(o.Type) {
 		return true
 	}
@@ -170,12 +170,12 @@ func (o *IndexerChain) HasType() bool {
 	return false
 }
 
-// SetType gets a reference to the given IndexerChainedTxType and assigns it to the Type field.
-func (o *IndexerChain) SetType(v IndexerChainedTxType) {
+// SetType gets a reference to the given ChainedTxType and assigns it to the Type field.
+func (o *Chain) SetType(v ChainedTxType) {
 	o.Type = &v
 }
 
-func (o IndexerChain) MarshalJSON() ([]byte, error) {
+func (o Chain) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -183,7 +183,7 @@ func (o IndexerChain) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerChain) ToMap() (map[string]interface{}, error) {
+func (o Chain) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.ExpiresAt) {
 		toSerialize["expiresAt"] = o.ExpiresAt
@@ -200,38 +200,38 @@ func (o IndexerChain) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerChain struct {
-	value *IndexerChain
+type NullableChain struct {
+	value *Chain
 	isSet bool
 }
 
-func (v NullableIndexerChain) Get() *IndexerChain {
+func (v NullableChain) Get() *Chain {
 	return v.value
 }
 
-func (v *NullableIndexerChain) Set(val *IndexerChain) {
+func (v *NullableChain) Set(val *Chain) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerChain) IsSet() bool {
+func (v NullableChain) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerChain) Unset() {
+func (v *NullableChain) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerChain(val *IndexerChain) *NullableIndexerChain {
-	return &NullableIndexerChain{value: val, isSet: true}
+func NewNullableChain(val *Chain) *NullableChain {
+	return &NullableChain{value: val, isSet: true}
 }
 
-func (v NullableIndexerChain) MarshalJSON() ([]byte, error) {
+func (v NullableChain) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerChain) UnmarshalJSON(src []byte) error {
+func (v *NullableChain) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

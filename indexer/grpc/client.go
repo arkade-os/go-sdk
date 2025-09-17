@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
+	indexerv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/indexer/v1"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -76,8 +76,8 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 				}
 				// we use GetVirtualTxs with a dummy txid to check if the server is ready
 				// we know that if this RPC returns an error, the server is not unlocked yet
-				_, err = arkv1.NewIndexerServiceClient(pingConn).
-					GetVirtualTxs(ctx, &arkv1.GetVirtualTxsRequest{
+				_, err = indexerv1.NewIndexerServiceClient(pingConn).
+					GetVirtualTxs(ctx, &indexerv1.GetVirtualTxsRequest{
 						Txids: []string{
 							"0000000000000000000000000000000000000000000000000000000000000000",
 						},
@@ -106,17 +106,17 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	return client, nil
 }
 
-func (a *grpcClient) svc() arkv1.IndexerServiceClient {
+func (a *grpcClient) svc() indexerv1.IndexerServiceClient {
 	a.connMu.RLock()
 	defer a.connMu.RUnlock()
-	return arkv1.NewIndexerServiceClient(a.conn)
+	return indexerv1.NewIndexerServiceClient(a.conn)
 }
 
 func (a *grpcClient) GetCommitmentTx(
 	ctx context.Context,
 	txid string,
 ) (*indexer.CommitmentTx, error) {
-	req := &arkv1.GetCommitmentTxRequest{
+	req := &indexerv1.GetCommitmentTxRequest{
 		Txid: txid,
 	}
 	resp, err := a.svc().GetCommitmentTx(ctx, req)
@@ -148,17 +148,17 @@ func (a *grpcClient) GetCommitmentTx(
 func (a *grpcClient) GetVtxoTree(
 	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeResponse, error) {
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetVtxoTreeRequest{
-		BatchOutpoint: &arkv1.IndexerOutpoint{
+	req := &indexerv1.GetVtxoTreeRequest{
+		BatchOutpoint: &indexerv1.Outpoint{
 			Txid: batchOutpoint.Txid,
 			Vout: batchOutpoint.VOut,
 		},
@@ -220,17 +220,17 @@ func (a *grpcClient) GetFullVtxoTree(
 func (a *grpcClient) GetVtxoTreeLeaves(
 	ctx context.Context, batchOutpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoTreeLeavesResponse, error) {
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetVtxoTreeLeavesRequest{
-		BatchOutpoint: &arkv1.IndexerOutpoint{
+	req := &indexerv1.GetVtxoTreeLeavesRequest{
+		BatchOutpoint: &indexerv1.Outpoint{
 			Txid: batchOutpoint.Txid,
 			Vout: batchOutpoint.VOut,
 		},
@@ -259,16 +259,16 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 func (a *grpcClient) GetForfeitTxs(
 	ctx context.Context, txid string, opts ...indexer.RequestOption,
 ) (*indexer.ForfeitTxsResponse, error) {
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetForfeitTxsRequest{
+	req := &indexerv1.GetForfeitTxsRequest{
 		Txid: txid,
 		Page: page,
 	}
@@ -287,16 +287,16 @@ func (a *grpcClient) GetForfeitTxs(
 func (a *grpcClient) GetConnectors(
 	ctx context.Context, txid string, opts ...indexer.RequestOption,
 ) (*indexer.ConnectorsResponse, error) {
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetConnectorsRequest{
+	req := &indexerv1.GetConnectorsRequest{
 		Txid: txid,
 		Page: page,
 	}
@@ -328,15 +328,15 @@ func (a *grpcClient) GetVtxos(
 	}
 	opt := opts[0]
 
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if opt.GetPage() != nil {
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetVtxosRequest{
+	req := &indexerv1.GetVtxosRequest{
 		Scripts:         opt.GetScripts(),
 		Outpoints:       opt.GetOutpoints(),
 		SpendableOnly:   opt.GetSpendableOnly(),
@@ -364,17 +364,17 @@ func (a *grpcClient) GetVtxos(
 func (a *grpcClient) GetVtxoChain(
 	ctx context.Context, outpoint types.Outpoint, opts ...indexer.RequestOption,
 ) (*indexer.VtxoChainResponse, error) {
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetVtxoChainRequest{
-		Outpoint: &arkv1.IndexerOutpoint{
+	req := &indexerv1.GetVtxoChainRequest{
+		Outpoint: &indexerv1.Outpoint{
 			Txid: outpoint.Txid,
 			Vout: outpoint.VOut,
 		},
@@ -390,13 +390,13 @@ func (a *grpcClient) GetVtxoChain(
 	for _, c := range resp.GetChain() {
 		var txType indexer.IndexerChainedTxType
 		switch c.GetType() {
-		case arkv1.IndexerChainedTxType_INDEXER_CHAINED_TX_TYPE_COMMITMENT:
+		case indexerv1.ChainedTxType_CHAINED_TX_TYPE_COMMITMENT:
 			txType = indexer.IndexerChainedTxTypeCommitment
-		case arkv1.IndexerChainedTxType_INDEXER_CHAINED_TX_TYPE_ARK:
+		case indexerv1.ChainedTxType_CHAINED_TX_TYPE_ARK:
 			txType = indexer.IndexerChainedTxTypeArk
-		case arkv1.IndexerChainedTxType_INDEXER_CHAINED_TX_TYPE_TREE:
+		case indexerv1.ChainedTxType_CHAINED_TX_TYPE_TREE:
 			txType = indexer.IndexerChainedTxTypeTree
-		case arkv1.IndexerChainedTxType_INDEXER_CHAINED_TX_TYPE_CHECKPOINT:
+		case indexerv1.ChainedTxType_CHAINED_TX_TYPE_CHECKPOINT:
 			txType = indexer.IndexerChainedTxTypeCheckpoint
 		default:
 			txType = indexer.IndexerChainedTxTypeUnspecified
@@ -419,16 +419,16 @@ func (a *grpcClient) GetVtxoChain(
 func (a *grpcClient) GetVirtualTxs(
 	ctx context.Context, txids []string, opts ...indexer.RequestOption,
 ) (*indexer.VirtualTxsResponse, error) {
-	var page *arkv1.IndexerPageRequest
+	var page *indexerv1.PageRequest
 	if len(opts) > 0 {
 		opt := opts[0]
-		page = &arkv1.IndexerPageRequest{
+		page = &indexerv1.PageRequest{
 			Size:  opt.GetPage().Size,
 			Index: opt.GetPage().Index,
 		}
 	}
 
-	req := &arkv1.GetVirtualTxsRequest{
+	req := &indexerv1.GetVirtualTxsRequest{
 		Txids: txids,
 		Page:  page,
 	}
@@ -448,8 +448,8 @@ func (a *grpcClient) GetBatchSweepTxs(
 	ctx context.Context,
 	batchOutpoint types.Outpoint,
 ) ([]string, error) {
-	req := &arkv1.GetBatchSweepTransactionsRequest{
-		BatchOutpoint: &arkv1.IndexerOutpoint{
+	req := &indexerv1.GetBatchSweepTransactionsRequest{
+		BatchOutpoint: &indexerv1.Outpoint{
 			Txid: batchOutpoint.Txid,
 			Vout: batchOutpoint.VOut,
 		},
@@ -468,7 +468,7 @@ func (a *grpcClient) GetSubscription(
 ) (<-chan *indexer.ScriptEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	req := &arkv1.GetSubscriptionRequest{
+	req := &indexerv1.GetSubscriptionRequest{
 		SubscriptionId: subscriptionId,
 	}
 
@@ -515,9 +515,9 @@ func (a *grpcClient) GetSubscription(
 			}
 
 			var checkpointTxs map[string]indexer.TxData
-			var event *arkv1.IndexerSubscriptionEvent
+			var event *indexerv1.SubscriptionEvent
 			switch data := resp.GetData().(type) {
-			case *arkv1.GetSubscriptionResponse_Event:
+			case *indexerv1.GetSubscriptionResponse_Event:
 				event = data.Event
 				if len(event.GetCheckpointTxs()) > 0 {
 					checkpointTxs = make(map[string]indexer.TxData)
@@ -557,7 +557,7 @@ func (a *grpcClient) SubscribeForScripts(
 	subscriptionId string,
 	scripts []string,
 ) (string, error) {
-	req := &arkv1.SubscribeForScriptsRequest{
+	req := &indexerv1.SubscribeForScriptsRequest{
 		Scripts: scripts,
 	}
 	if len(subscriptionId) > 0 {
@@ -576,7 +576,7 @@ func (a *grpcClient) UnsubscribeForScripts(
 	subscriptionId string,
 	scripts []string,
 ) error {
-	req := &arkv1.UnsubscribeForScriptsRequest{
+	req := &indexerv1.UnsubscribeForScriptsRequest{
 		Scripts: scripts,
 	}
 	if len(subscriptionId) > 0 {
@@ -597,7 +597,7 @@ func (a *grpcClient) Close() {
 	a.conn.Close()
 }
 
-func parsePage(page *arkv1.IndexerPageResponse) *indexer.PageResponse {
+func parsePage(page *indexerv1.PageResponse) *indexer.PageResponse {
 	if page == nil {
 		return nil
 	}
@@ -608,7 +608,7 @@ func parsePage(page *arkv1.IndexerPageResponse) *indexer.PageResponse {
 	}
 }
 
-func newIndexerVtxos(vtxos []*arkv1.IndexerVtxo) []types.Vtxo {
+func newIndexerVtxos(vtxos []*indexerv1.Vtxo) []types.Vtxo {
 	res := make([]types.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		res = append(res, newIndexerVtxo(vtxo))
@@ -616,7 +616,7 @@ func newIndexerVtxos(vtxos []*arkv1.IndexerVtxo) []types.Vtxo {
 	return res
 }
 
-func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
+func newIndexerVtxo(vtxo *indexerv1.Vtxo) types.Vtxo {
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: vtxo.GetOutpoint().GetTxid(),

@@ -14,45 +14,45 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerVtxo type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerVtxo{}
+// checks if the Vtxo type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &Vtxo{}
 
-// IndexerVtxo struct for IndexerVtxo
-type IndexerVtxo struct {
-		Amount *int32 `json:"amount,string,omitempty"`
+// Vtxo struct for Vtxo
+type Vtxo struct {
+		Amount *int32 `json:"amount,omitempty"`
 		ArkTxid *string `json:"arkTxid,omitempty"`
 		CommitmentTxids []string `json:"commitmentTxids,omitempty"`
-		CreatedAt *int64 `json:"createdAt,string,omitempty"`
-		ExpiresAt *int64 `json:"expiresAt,string,omitempty"`
+		CreatedAt *int64 `json:"createdAt,omitempty"`
+		ExpiresAt *int64 `json:"expiresAt,omitempty"`
 		IsPreconfirmed *bool `json:"isPreconfirmed,omitempty"`
 		IsSpent *bool `json:"isSpent,omitempty"`
 		IsSwept *bool `json:"isSwept,omitempty"`
 		IsUnrolled *bool `json:"isUnrolled,omitempty"`
-		Outpoint *IndexerOutpoint `json:"outpoint,omitempty"`
+		Outpoint *Outpoint `json:"outpoint,omitempty"`
 		Script *string `json:"script,omitempty"`
 		SettledBy *string `json:"settledBy,omitempty"`
 		SpentBy *string `json:"spentBy,omitempty"`
 }
 
-// NewIndexerVtxo instantiates a new IndexerVtxo object
+// NewVtxo instantiates a new Vtxo object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerVtxo() *IndexerVtxo {
-	this := IndexerVtxo{}
+func NewVtxo() *Vtxo {
+	this := Vtxo{}
 	return &this
 }
 
-// NewIndexerVtxoWithDefaults instantiates a new IndexerVtxo object
+// NewVtxoWithDefaults instantiates a new Vtxo object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerVtxoWithDefaults() *IndexerVtxo {
-	this := IndexerVtxo{}
+func NewVtxoWithDefaults() *Vtxo {
+	this := Vtxo{}
 	return &this
 }
 
 // GetAmount returns the Amount field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetAmount() int32 {
+func (o *Vtxo) GetAmount() int32 {
 	if o == nil || IsNil(o.Amount) {
 		var ret int32
 		return ret
@@ -62,7 +62,7 @@ func (o *IndexerVtxo) GetAmount() int32 {
 
 // GetAmountOk returns a tuple with the Amount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetAmountOk() (*int32, bool) {
+func (o *Vtxo) GetAmountOk() (*int32, bool) {
 	if o == nil || IsNil(o.Amount) {
 		return nil, false
 	}
@@ -70,7 +70,7 @@ func (o *IndexerVtxo) GetAmountOk() (*int32, bool) {
 }
 
 // HasAmount returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasAmount() bool {
+func (o *Vtxo) HasAmount() bool {
 	if o != nil && !IsNil(o.Amount) {
 		return true
 	}
@@ -79,12 +79,12 @@ func (o *IndexerVtxo) HasAmount() bool {
 }
 
 // SetAmount gets a reference to the given int32 and assigns it to the Amount field.
-func (o *IndexerVtxo) SetAmount(v int32) {
+func (o *Vtxo) SetAmount(v int32) {
 	o.Amount = &v
 }
 
 // GetArkTxid returns the ArkTxid field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetArkTxid() string {
+func (o *Vtxo) GetArkTxid() string {
 	if o == nil || IsNil(o.ArkTxid) {
 		var ret string
 		return ret
@@ -94,7 +94,7 @@ func (o *IndexerVtxo) GetArkTxid() string {
 
 // GetArkTxidOk returns a tuple with the ArkTxid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetArkTxidOk() (*string, bool) {
+func (o *Vtxo) GetArkTxidOk() (*string, bool) {
 	if o == nil || IsNil(o.ArkTxid) {
 		return nil, false
 	}
@@ -102,7 +102,7 @@ func (o *IndexerVtxo) GetArkTxidOk() (*string, bool) {
 }
 
 // HasArkTxid returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasArkTxid() bool {
+func (o *Vtxo) HasArkTxid() bool {
 	if o != nil && !IsNil(o.ArkTxid) {
 		return true
 	}
@@ -111,12 +111,12 @@ func (o *IndexerVtxo) HasArkTxid() bool {
 }
 
 // SetArkTxid gets a reference to the given string and assigns it to the ArkTxid field.
-func (o *IndexerVtxo) SetArkTxid(v string) {
+func (o *Vtxo) SetArkTxid(v string) {
 	o.ArkTxid = &v
 }
 
 // GetCommitmentTxids returns the CommitmentTxids field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetCommitmentTxids() []string {
+func (o *Vtxo) GetCommitmentTxids() []string {
 	if o == nil || IsNil(o.CommitmentTxids) {
 		var ret []string
 		return ret
@@ -126,7 +126,7 @@ func (o *IndexerVtxo) GetCommitmentTxids() []string {
 
 // GetCommitmentTxidsOk returns a tuple with the CommitmentTxids field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetCommitmentTxidsOk() ([]string, bool) {
+func (o *Vtxo) GetCommitmentTxidsOk() ([]string, bool) {
 	if o == nil || IsNil(o.CommitmentTxids) {
 		return nil, false
 	}
@@ -134,7 +134,7 @@ func (o *IndexerVtxo) GetCommitmentTxidsOk() ([]string, bool) {
 }
 
 // HasCommitmentTxids returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasCommitmentTxids() bool {
+func (o *Vtxo) HasCommitmentTxids() bool {
 	if o != nil && !IsNil(o.CommitmentTxids) {
 		return true
 	}
@@ -143,12 +143,12 @@ func (o *IndexerVtxo) HasCommitmentTxids() bool {
 }
 
 // SetCommitmentTxids gets a reference to the given []string and assigns it to the CommitmentTxids field.
-func (o *IndexerVtxo) SetCommitmentTxids(v []string) {
+func (o *Vtxo) SetCommitmentTxids(v []string) {
 	o.CommitmentTxids = v
 }
 
 // GetCreatedAt returns the CreatedAt field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetCreatedAt() int64 {
+func (o *Vtxo) GetCreatedAt() int64 {
 	if o == nil || IsNil(o.CreatedAt) {
 		var ret int64
 		return ret
@@ -158,7 +158,7 @@ func (o *IndexerVtxo) GetCreatedAt() int64 {
 
 // GetCreatedAtOk returns a tuple with the CreatedAt field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetCreatedAtOk() (*int64, bool) {
+func (o *Vtxo) GetCreatedAtOk() (*int64, bool) {
 	if o == nil || IsNil(o.CreatedAt) {
 		return nil, false
 	}
@@ -166,7 +166,7 @@ func (o *IndexerVtxo) GetCreatedAtOk() (*int64, bool) {
 }
 
 // HasCreatedAt returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasCreatedAt() bool {
+func (o *Vtxo) HasCreatedAt() bool {
 	if o != nil && !IsNil(o.CreatedAt) {
 		return true
 	}
@@ -175,12 +175,12 @@ func (o *IndexerVtxo) HasCreatedAt() bool {
 }
 
 // SetCreatedAt gets a reference to the given int64 and assigns it to the CreatedAt field.
-func (o *IndexerVtxo) SetCreatedAt(v int64) {
+func (o *Vtxo) SetCreatedAt(v int64) {
 	o.CreatedAt = &v
 }
 
 // GetExpiresAt returns the ExpiresAt field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetExpiresAt() int64 {
+func (o *Vtxo) GetExpiresAt() int64 {
 	if o == nil || IsNil(o.ExpiresAt) {
 		var ret int64
 		return ret
@@ -190,7 +190,7 @@ func (o *IndexerVtxo) GetExpiresAt() int64 {
 
 // GetExpiresAtOk returns a tuple with the ExpiresAt field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetExpiresAtOk() (*int64, bool) {
+func (o *Vtxo) GetExpiresAtOk() (*int64, bool) {
 	if o == nil || IsNil(o.ExpiresAt) {
 		return nil, false
 	}
@@ -198,7 +198,7 @@ func (o *IndexerVtxo) GetExpiresAtOk() (*int64, bool) {
 }
 
 // HasExpiresAt returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasExpiresAt() bool {
+func (o *Vtxo) HasExpiresAt() bool {
 	if o != nil && !IsNil(o.ExpiresAt) {
 		return true
 	}
@@ -207,12 +207,12 @@ func (o *IndexerVtxo) HasExpiresAt() bool {
 }
 
 // SetExpiresAt gets a reference to the given int64 and assigns it to the ExpiresAt field.
-func (o *IndexerVtxo) SetExpiresAt(v int64) {
+func (o *Vtxo) SetExpiresAt(v int64) {
 	o.ExpiresAt = &v
 }
 
 // GetIsPreconfirmed returns the IsPreconfirmed field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetIsPreconfirmed() bool {
+func (o *Vtxo) GetIsPreconfirmed() bool {
 	if o == nil || IsNil(o.IsPreconfirmed) {
 		var ret bool
 		return ret
@@ -222,7 +222,7 @@ func (o *IndexerVtxo) GetIsPreconfirmed() bool {
 
 // GetIsPreconfirmedOk returns a tuple with the IsPreconfirmed field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetIsPreconfirmedOk() (*bool, bool) {
+func (o *Vtxo) GetIsPreconfirmedOk() (*bool, bool) {
 	if o == nil || IsNil(o.IsPreconfirmed) {
 		return nil, false
 	}
@@ -230,7 +230,7 @@ func (o *IndexerVtxo) GetIsPreconfirmedOk() (*bool, bool) {
 }
 
 // HasIsPreconfirmed returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasIsPreconfirmed() bool {
+func (o *Vtxo) HasIsPreconfirmed() bool {
 	if o != nil && !IsNil(o.IsPreconfirmed) {
 		return true
 	}
@@ -239,12 +239,12 @@ func (o *IndexerVtxo) HasIsPreconfirmed() bool {
 }
 
 // SetIsPreconfirmed gets a reference to the given bool and assigns it to the IsPreconfirmed field.
-func (o *IndexerVtxo) SetIsPreconfirmed(v bool) {
+func (o *Vtxo) SetIsPreconfirmed(v bool) {
 	o.IsPreconfirmed = &v
 }
 
 // GetIsSpent returns the IsSpent field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetIsSpent() bool {
+func (o *Vtxo) GetIsSpent() bool {
 	if o == nil || IsNil(o.IsSpent) {
 		var ret bool
 		return ret
@@ -254,7 +254,7 @@ func (o *IndexerVtxo) GetIsSpent() bool {
 
 // GetIsSpentOk returns a tuple with the IsSpent field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetIsSpentOk() (*bool, bool) {
+func (o *Vtxo) GetIsSpentOk() (*bool, bool) {
 	if o == nil || IsNil(o.IsSpent) {
 		return nil, false
 	}
@@ -262,7 +262,7 @@ func (o *IndexerVtxo) GetIsSpentOk() (*bool, bool) {
 }
 
 // HasIsSpent returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasIsSpent() bool {
+func (o *Vtxo) HasIsSpent() bool {
 	if o != nil && !IsNil(o.IsSpent) {
 		return true
 	}
@@ -271,12 +271,12 @@ func (o *IndexerVtxo) HasIsSpent() bool {
 }
 
 // SetIsSpent gets a reference to the given bool and assigns it to the IsSpent field.
-func (o *IndexerVtxo) SetIsSpent(v bool) {
+func (o *Vtxo) SetIsSpent(v bool) {
 	o.IsSpent = &v
 }
 
 // GetIsSwept returns the IsSwept field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetIsSwept() bool {
+func (o *Vtxo) GetIsSwept() bool {
 	if o == nil || IsNil(o.IsSwept) {
 		var ret bool
 		return ret
@@ -286,7 +286,7 @@ func (o *IndexerVtxo) GetIsSwept() bool {
 
 // GetIsSweptOk returns a tuple with the IsSwept field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetIsSweptOk() (*bool, bool) {
+func (o *Vtxo) GetIsSweptOk() (*bool, bool) {
 	if o == nil || IsNil(o.IsSwept) {
 		return nil, false
 	}
@@ -294,7 +294,7 @@ func (o *IndexerVtxo) GetIsSweptOk() (*bool, bool) {
 }
 
 // HasIsSwept returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasIsSwept() bool {
+func (o *Vtxo) HasIsSwept() bool {
 	if o != nil && !IsNil(o.IsSwept) {
 		return true
 	}
@@ -303,12 +303,12 @@ func (o *IndexerVtxo) HasIsSwept() bool {
 }
 
 // SetIsSwept gets a reference to the given bool and assigns it to the IsSwept field.
-func (o *IndexerVtxo) SetIsSwept(v bool) {
+func (o *Vtxo) SetIsSwept(v bool) {
 	o.IsSwept = &v
 }
 
 // GetIsUnrolled returns the IsUnrolled field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetIsUnrolled() bool {
+func (o *Vtxo) GetIsUnrolled() bool {
 	if o == nil || IsNil(o.IsUnrolled) {
 		var ret bool
 		return ret
@@ -318,7 +318,7 @@ func (o *IndexerVtxo) GetIsUnrolled() bool {
 
 // GetIsUnrolledOk returns a tuple with the IsUnrolled field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetIsUnrolledOk() (*bool, bool) {
+func (o *Vtxo) GetIsUnrolledOk() (*bool, bool) {
 	if o == nil || IsNil(o.IsUnrolled) {
 		return nil, false
 	}
@@ -326,7 +326,7 @@ func (o *IndexerVtxo) GetIsUnrolledOk() (*bool, bool) {
 }
 
 // HasIsUnrolled returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasIsUnrolled() bool {
+func (o *Vtxo) HasIsUnrolled() bool {
 	if o != nil && !IsNil(o.IsUnrolled) {
 		return true
 	}
@@ -335,14 +335,14 @@ func (o *IndexerVtxo) HasIsUnrolled() bool {
 }
 
 // SetIsUnrolled gets a reference to the given bool and assigns it to the IsUnrolled field.
-func (o *IndexerVtxo) SetIsUnrolled(v bool) {
+func (o *Vtxo) SetIsUnrolled(v bool) {
 	o.IsUnrolled = &v
 }
 
 // GetOutpoint returns the Outpoint field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetOutpoint() IndexerOutpoint {
+func (o *Vtxo) GetOutpoint() Outpoint {
 	if o == nil || IsNil(o.Outpoint) {
-		var ret IndexerOutpoint
+		var ret Outpoint
 		return ret
 	}
 	return *o.Outpoint
@@ -350,7 +350,7 @@ func (o *IndexerVtxo) GetOutpoint() IndexerOutpoint {
 
 // GetOutpointOk returns a tuple with the Outpoint field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetOutpointOk() (*IndexerOutpoint, bool) {
+func (o *Vtxo) GetOutpointOk() (*Outpoint, bool) {
 	if o == nil || IsNil(o.Outpoint) {
 		return nil, false
 	}
@@ -358,7 +358,7 @@ func (o *IndexerVtxo) GetOutpointOk() (*IndexerOutpoint, bool) {
 }
 
 // HasOutpoint returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasOutpoint() bool {
+func (o *Vtxo) HasOutpoint() bool {
 	if o != nil && !IsNil(o.Outpoint) {
 		return true
 	}
@@ -366,13 +366,13 @@ func (o *IndexerVtxo) HasOutpoint() bool {
 	return false
 }
 
-// SetOutpoint gets a reference to the given IndexerOutpoint and assigns it to the Outpoint field.
-func (o *IndexerVtxo) SetOutpoint(v IndexerOutpoint) {
+// SetOutpoint gets a reference to the given Outpoint and assigns it to the Outpoint field.
+func (o *Vtxo) SetOutpoint(v Outpoint) {
 	o.Outpoint = &v
 }
 
 // GetScript returns the Script field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetScript() string {
+func (o *Vtxo) GetScript() string {
 	if o == nil || IsNil(o.Script) {
 		var ret string
 		return ret
@@ -382,7 +382,7 @@ func (o *IndexerVtxo) GetScript() string {
 
 // GetScriptOk returns a tuple with the Script field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetScriptOk() (*string, bool) {
+func (o *Vtxo) GetScriptOk() (*string, bool) {
 	if o == nil || IsNil(o.Script) {
 		return nil, false
 	}
@@ -390,7 +390,7 @@ func (o *IndexerVtxo) GetScriptOk() (*string, bool) {
 }
 
 // HasScript returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasScript() bool {
+func (o *Vtxo) HasScript() bool {
 	if o != nil && !IsNil(o.Script) {
 		return true
 	}
@@ -399,12 +399,12 @@ func (o *IndexerVtxo) HasScript() bool {
 }
 
 // SetScript gets a reference to the given string and assigns it to the Script field.
-func (o *IndexerVtxo) SetScript(v string) {
+func (o *Vtxo) SetScript(v string) {
 	o.Script = &v
 }
 
 // GetSettledBy returns the SettledBy field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetSettledBy() string {
+func (o *Vtxo) GetSettledBy() string {
 	if o == nil || IsNil(o.SettledBy) {
 		var ret string
 		return ret
@@ -414,7 +414,7 @@ func (o *IndexerVtxo) GetSettledBy() string {
 
 // GetSettledByOk returns a tuple with the SettledBy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetSettledByOk() (*string, bool) {
+func (o *Vtxo) GetSettledByOk() (*string, bool) {
 	if o == nil || IsNil(o.SettledBy) {
 		return nil, false
 	}
@@ -422,7 +422,7 @@ func (o *IndexerVtxo) GetSettledByOk() (*string, bool) {
 }
 
 // HasSettledBy returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasSettledBy() bool {
+func (o *Vtxo) HasSettledBy() bool {
 	if o != nil && !IsNil(o.SettledBy) {
 		return true
 	}
@@ -431,12 +431,12 @@ func (o *IndexerVtxo) HasSettledBy() bool {
 }
 
 // SetSettledBy gets a reference to the given string and assigns it to the SettledBy field.
-func (o *IndexerVtxo) SetSettledBy(v string) {
+func (o *Vtxo) SetSettledBy(v string) {
 	o.SettledBy = &v
 }
 
 // GetSpentBy returns the SpentBy field value if set, zero value otherwise.
-func (o *IndexerVtxo) GetSpentBy() string {
+func (o *Vtxo) GetSpentBy() string {
 	if o == nil || IsNil(o.SpentBy) {
 		var ret string
 		return ret
@@ -446,7 +446,7 @@ func (o *IndexerVtxo) GetSpentBy() string {
 
 // GetSpentByOk returns a tuple with the SpentBy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerVtxo) GetSpentByOk() (*string, bool) {
+func (o *Vtxo) GetSpentByOk() (*string, bool) {
 	if o == nil || IsNil(o.SpentBy) {
 		return nil, false
 	}
@@ -454,7 +454,7 @@ func (o *IndexerVtxo) GetSpentByOk() (*string, bool) {
 }
 
 // HasSpentBy returns a boolean if a field has been set.
-func (o *IndexerVtxo) HasSpentBy() bool {
+func (o *Vtxo) HasSpentBy() bool {
 	if o != nil && !IsNil(o.SpentBy) {
 		return true
 	}
@@ -463,11 +463,11 @@ func (o *IndexerVtxo) HasSpentBy() bool {
 }
 
 // SetSpentBy gets a reference to the given string and assigns it to the SpentBy field.
-func (o *IndexerVtxo) SetSpentBy(v string) {
+func (o *Vtxo) SetSpentBy(v string) {
 	o.SpentBy = &v
 }
 
-func (o IndexerVtxo) MarshalJSON() ([]byte, error) {
+func (o Vtxo) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -475,7 +475,7 @@ func (o IndexerVtxo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerVtxo) ToMap() (map[string]interface{}, error) {
+func (o Vtxo) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Amount) {
 		toSerialize["amount"] = o.Amount
@@ -519,38 +519,38 @@ func (o IndexerVtxo) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerVtxo struct {
-	value *IndexerVtxo
+type NullableVtxo struct {
+	value *Vtxo
 	isSet bool
 }
 
-func (v NullableIndexerVtxo) Get() *IndexerVtxo {
+func (v NullableVtxo) Get() *Vtxo {
 	return v.value
 }
 
-func (v *NullableIndexerVtxo) Set(val *IndexerVtxo) {
+func (v *NullableVtxo) Set(val *Vtxo) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerVtxo) IsSet() bool {
+func (v NullableVtxo) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerVtxo) Unset() {
+func (v *NullableVtxo) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerVtxo(val *IndexerVtxo) *NullableIndexerVtxo {
-	return &NullableIndexerVtxo{value: val, isSet: true}
+func NewNullableVtxo(val *Vtxo) *NullableVtxo {
+	return &NullableVtxo{value: val, isSet: true}
 }
 
-func (v NullableIndexerVtxo) MarshalJSON() ([]byte, error) {
+func (v NullableVtxo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerVtxo) UnmarshalJSON(src []byte) error {
+func (v *NullableVtxo) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoChainRequest{}
 
 // GetVtxoChainRequest struct for GetVtxoChainRequest
 type GetVtxoChainRequest struct {
-		Outpoint *IndexerOutpoint `json:"outpoint,omitempty"`
-		Page *IndexerPageRequest `json:"page,omitempty"`
+		Outpoint *Outpoint `json:"outpoint,omitempty"`
+		Page *PageRequest `json:"page,omitempty"`
 }
 
 // NewGetVtxoChainRequest instantiates a new GetVtxoChainRequest object
@@ -41,9 +41,9 @@ func NewGetVtxoChainRequestWithDefaults() *GetVtxoChainRequest {
 }
 
 // GetOutpoint returns the Outpoint field value if set, zero value otherwise.
-func (o *GetVtxoChainRequest) GetOutpoint() IndexerOutpoint {
+func (o *GetVtxoChainRequest) GetOutpoint() Outpoint {
 	if o == nil || IsNil(o.Outpoint) {
-		var ret IndexerOutpoint
+		var ret Outpoint
 		return ret
 	}
 	return *o.Outpoint
@@ -51,7 +51,7 @@ func (o *GetVtxoChainRequest) GetOutpoint() IndexerOutpoint {
 
 // GetOutpointOk returns a tuple with the Outpoint field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxoChainRequest) GetOutpointOk() (*IndexerOutpoint, bool) {
+func (o *GetVtxoChainRequest) GetOutpointOk() (*Outpoint, bool) {
 	if o == nil || IsNil(o.Outpoint) {
 		return nil, false
 	}
@@ -67,15 +67,15 @@ func (o *GetVtxoChainRequest) HasOutpoint() bool {
 	return false
 }
 
-// SetOutpoint gets a reference to the given IndexerOutpoint and assigns it to the Outpoint field.
-func (o *GetVtxoChainRequest) SetOutpoint(v IndexerOutpoint) {
+// SetOutpoint gets a reference to the given Outpoint and assigns it to the Outpoint field.
+func (o *GetVtxoChainRequest) SetOutpoint(v Outpoint) {
 	o.Outpoint = &v
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetVtxoChainRequest) GetPage() IndexerPageRequest {
+func (o *GetVtxoChainRequest) GetPage() PageRequest {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageRequest
+		var ret PageRequest
 		return ret
 	}
 	return *o.Page
@@ -83,7 +83,7 @@ func (o *GetVtxoChainRequest) GetPage() IndexerPageRequest {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxoChainRequest) GetPageOk() (*IndexerPageRequest, bool) {
+func (o *GetVtxoChainRequest) GetPageOk() (*PageRequest, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -99,8 +99,8 @@ func (o *GetVtxoChainRequest) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageRequest and assigns it to the Page field.
-func (o *GetVtxoChainRequest) SetPage(v IndexerPageRequest) {
+// SetPage gets a reference to the given PageRequest and assigns it to the Page field.
+func (o *GetVtxoChainRequest) SetPage(v PageRequest) {
 	o.Page = &v
 }
 

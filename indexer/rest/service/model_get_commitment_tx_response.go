@@ -19,7 +19,7 @@ var _ MappedNullable = &GetCommitmentTxResponse{}
 
 // GetCommitmentTxResponse struct for GetCommitmentTxResponse
 type GetCommitmentTxResponse struct {
-		Batches map[string]IndexerBatch `json:"batches,omitempty"`
+		Batches map[string]Batch `json:"batches,omitempty"`
 		EndedAt *int64 `json:"endedAt,omitempty"`
 		StartedAt *int64 `json:"startedAt,omitempty"`
 		TotalInputAmount *int32 `json:"totalInputAmount,omitempty"`
@@ -46,9 +46,9 @@ func NewGetCommitmentTxResponseWithDefaults() *GetCommitmentTxResponse {
 }
 
 // GetBatches returns the Batches field value if set, zero value otherwise.
-func (o *GetCommitmentTxResponse) GetBatches() map[string]IndexerBatch {
+func (o *GetCommitmentTxResponse) GetBatches() map[string]Batch {
 	if o == nil || IsNil(o.Batches) {
-		var ret map[string]IndexerBatch
+		var ret map[string]Batch
 		return ret
 	}
 	return o.Batches
@@ -56,9 +56,9 @@ func (o *GetCommitmentTxResponse) GetBatches() map[string]IndexerBatch {
 
 // GetBatchesOk returns a tuple with the Batches field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetCommitmentTxResponse) GetBatchesOk() (map[string]IndexerBatch, bool) {
+func (o *GetCommitmentTxResponse) GetBatchesOk() (map[string]Batch, bool) {
 	if o == nil || IsNil(o.Batches) {
-		return map[string]IndexerBatch{}, false
+		return map[string]Batch{}, false
 	}
 	return o.Batches, true
 }
@@ -72,8 +72,8 @@ func (o *GetCommitmentTxResponse) HasBatches() bool {
 	return false
 }
 
-// SetBatches gets a reference to the given map[string]IndexerBatch and assigns it to the Batches field.
-func (o *GetCommitmentTxResponse) SetBatches(v map[string]IndexerBatch) {
+// SetBatches gets a reference to the given map[string]Batch and assigns it to the Batches field.
+func (o *GetCommitmentTxResponse) SetBatches(v map[string]Batch) {
 	o.Batches = v
 }
 

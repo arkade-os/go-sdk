@@ -77,7 +77,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetBatchSweepTransactionsExecut
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/sweepTxs"
+	localVarPath := localBasePath + "/v1/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/sweepTxs"
 	localVarPath = strings.Replace(localVarPath, "{"+"batchOutpoint.txid"+"}", url.PathEscape(parameterValueToString(r.batchOutpointTxid, "batchOutpointTxid")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"batchOutpoint.vout"+"}", url.PathEscape(parameterValueToString(r.batchOutpointVout, "batchOutpointVout")), -1)
 
@@ -190,7 +190,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetCommitmentTxExecute(r ApiInd
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/commitmentTx/{txid}"
+	localVarPath := localBasePath + "/v1/commitmentTx/{txid}"
 	localVarPath = strings.Replace(localVarPath, "{"+"txid"+"}", url.PathEscape(parameterValueToString(r.txid, "txid")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -315,7 +315,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetConnectorsExecute(r ApiIndex
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/commitmentTx/{txid}/connectors"
+	localVarPath := localBasePath + "/v1/commitmentTx/{txid}/connectors"
 	localVarPath = strings.Replace(localVarPath, "{"+"txid"+"}", url.PathEscape(parameterValueToString(r.txid, "txid")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -446,7 +446,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetForfeitTxsExecute(r ApiIndex
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/commitmentTx/{txid}/forfeitTxs"
+	localVarPath := localBasePath + "/v1/commitmentTx/{txid}/forfeitTxs"
 	localVarPath = strings.Replace(localVarPath, "{"+"txid"+"}", url.PathEscape(parameterValueToString(r.txid, "txid")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -566,7 +566,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetSubscriptionExecute(r ApiInd
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/script/subscription/{subscription_id}"
+	localVarPath := localBasePath + "/v1/script/subscription/{subscription_id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"subscriptionId"+"}", url.PathEscape(parameterValueToString(r.subscriptionId, "subscriptionId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -690,7 +690,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVirtualTxsExecute(r ApiIndex
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/virtualTx/{txids}"
+	localVarPath := localBasePath + "/v1/virtualTx/{txids}"
 	localVarPath = strings.Replace(localVarPath, "{"+"txids"+"}", url.PathEscape(parameterValueToString(r.txids, "txids")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -827,7 +827,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVtxoChainExecute(r ApiIndexe
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/vtxo/{outpoint.txid}/{outpoint.vout}/chain"
+	localVarPath := localBasePath + "/v1/vtxo/{outpoint.txid}/{outpoint.vout}/chain"
 	localVarPath = strings.Replace(localVarPath, "{"+"outpoint.txid"+"}", url.PathEscape(parameterValueToString(r.outpointTxid, "outpointTxid")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"outpoint.vout"+"}", url.PathEscape(parameterValueToString(r.outpointVout, "outpointVout")), -1)
 
@@ -962,7 +962,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVtxoTreeExecute(r ApiIndexer
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree"
+	localVarPath := localBasePath + "/v1/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree"
 	localVarPath = strings.Replace(localVarPath, "{"+"batchOutpoint.txid"+"}", url.PathEscape(parameterValueToString(r.batchOutpointTxid, "batchOutpointTxid")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"batchOutpoint.vout"+"}", url.PathEscape(parameterValueToString(r.batchOutpointVout, "batchOutpointVout")), -1)
 
@@ -1097,7 +1097,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVtxoTreeLeavesExecute(r ApiI
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree/leaves"
+	localVarPath := localBasePath + "/v1/batch/{batch_outpoint.txid}/{batch_outpoint.vout}/tree/leaves"
 	localVarPath = strings.Replace(localVarPath, "{"+"batchOutpoint.txid"+"}", url.PathEscape(parameterValueToString(r.batchOutpointTxid, "batchOutpointTxid")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"batchOutpoint.vout"+"}", url.PathEscape(parameterValueToString(r.batchOutpointVout, "batchOutpointVout")), -1)
 
@@ -1261,7 +1261,7 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVtxosExecute(r ApiIndexerSer
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/vtxos"
+	localVarPath := localBasePath + "/v1/vtxos"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1396,7 +1396,7 @@ func (a *IndexerServiceAPIService) IndexerServiceSubscribeForScriptsExecute(r Ap
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/script/subscribe"
+	localVarPath := localBasePath + "/v1/script/subscribe"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1514,7 +1514,7 @@ func (a *IndexerServiceAPIService) IndexerServiceUnsubscribeForScriptsExecute(r 
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/script/unsubscribe"
+	localVarPath := localBasePath + "/v1/script/unsubscribe"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}

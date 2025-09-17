@@ -14,36 +14,36 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerBatch type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerBatch{}
+// checks if the Batch type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &Batch{}
 
-// IndexerBatch struct for IndexerBatch
-type IndexerBatch struct {
+// Batch struct for Batch
+type Batch struct {
 		ExpiresAt *int64 `json:"expiresAt,omitempty"`
 		Swept *bool `json:"swept,omitempty"`
 		TotalOutputAmount *int32 `json:"totalOutputAmount,omitempty"`
 		TotalOutputVtxos *int32 `json:"totalOutputVtxos,omitempty"`
 }
 
-// NewIndexerBatch instantiates a new IndexerBatch object
+// NewBatch instantiates a new Batch object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerBatch() *IndexerBatch {
-	this := IndexerBatch{}
+func NewBatch() *Batch {
+	this := Batch{}
 	return &this
 }
 
-// NewIndexerBatchWithDefaults instantiates a new IndexerBatch object
+// NewBatchWithDefaults instantiates a new Batch object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerBatchWithDefaults() *IndexerBatch {
-	this := IndexerBatch{}
+func NewBatchWithDefaults() *Batch {
+	this := Batch{}
 	return &this
 }
 
 // GetExpiresAt returns the ExpiresAt field value if set, zero value otherwise.
-func (o *IndexerBatch) GetExpiresAt() int64 {
+func (o *Batch) GetExpiresAt() int64 {
 	if o == nil || IsNil(o.ExpiresAt) {
 		var ret int64
 		return ret
@@ -53,7 +53,7 @@ func (o *IndexerBatch) GetExpiresAt() int64 {
 
 // GetExpiresAtOk returns a tuple with the ExpiresAt field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerBatch) GetExpiresAtOk() (*int64, bool) {
+func (o *Batch) GetExpiresAtOk() (*int64, bool) {
 	if o == nil || IsNil(o.ExpiresAt) {
 		return nil, false
 	}
@@ -61,7 +61,7 @@ func (o *IndexerBatch) GetExpiresAtOk() (*int64, bool) {
 }
 
 // HasExpiresAt returns a boolean if a field has been set.
-func (o *IndexerBatch) HasExpiresAt() bool {
+func (o *Batch) HasExpiresAt() bool {
 	if o != nil && !IsNil(o.ExpiresAt) {
 		return true
 	}
@@ -70,12 +70,12 @@ func (o *IndexerBatch) HasExpiresAt() bool {
 }
 
 // SetExpiresAt gets a reference to the given int64 and assigns it to the ExpiresAt field.
-func (o *IndexerBatch) SetExpiresAt(v int64) {
+func (o *Batch) SetExpiresAt(v int64) {
 	o.ExpiresAt = &v
 }
 
 // GetSwept returns the Swept field value if set, zero value otherwise.
-func (o *IndexerBatch) GetSwept() bool {
+func (o *Batch) GetSwept() bool {
 	if o == nil || IsNil(o.Swept) {
 		var ret bool
 		return ret
@@ -85,7 +85,7 @@ func (o *IndexerBatch) GetSwept() bool {
 
 // GetSweptOk returns a tuple with the Swept field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerBatch) GetSweptOk() (*bool, bool) {
+func (o *Batch) GetSweptOk() (*bool, bool) {
 	if o == nil || IsNil(o.Swept) {
 		return nil, false
 	}
@@ -93,7 +93,7 @@ func (o *IndexerBatch) GetSweptOk() (*bool, bool) {
 }
 
 // HasSwept returns a boolean if a field has been set.
-func (o *IndexerBatch) HasSwept() bool {
+func (o *Batch) HasSwept() bool {
 	if o != nil && !IsNil(o.Swept) {
 		return true
 	}
@@ -102,12 +102,12 @@ func (o *IndexerBatch) HasSwept() bool {
 }
 
 // SetSwept gets a reference to the given bool and assigns it to the Swept field.
-func (o *IndexerBatch) SetSwept(v bool) {
+func (o *Batch) SetSwept(v bool) {
 	o.Swept = &v
 }
 
 // GetTotalOutputAmount returns the TotalOutputAmount field value if set, zero value otherwise.
-func (o *IndexerBatch) GetTotalOutputAmount() int32 {
+func (o *Batch) GetTotalOutputAmount() int32 {
 	if o == nil || IsNil(o.TotalOutputAmount) {
 		var ret int32
 		return ret
@@ -117,7 +117,7 @@ func (o *IndexerBatch) GetTotalOutputAmount() int32 {
 
 // GetTotalOutputAmountOk returns a tuple with the TotalOutputAmount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerBatch) GetTotalOutputAmountOk() (*int32, bool) {
+func (o *Batch) GetTotalOutputAmountOk() (*int32, bool) {
 	if o == nil || IsNil(o.TotalOutputAmount) {
 		return nil, false
 	}
@@ -125,7 +125,7 @@ func (o *IndexerBatch) GetTotalOutputAmountOk() (*int32, bool) {
 }
 
 // HasTotalOutputAmount returns a boolean if a field has been set.
-func (o *IndexerBatch) HasTotalOutputAmount() bool {
+func (o *Batch) HasTotalOutputAmount() bool {
 	if o != nil && !IsNil(o.TotalOutputAmount) {
 		return true
 	}
@@ -134,12 +134,12 @@ func (o *IndexerBatch) HasTotalOutputAmount() bool {
 }
 
 // SetTotalOutputAmount gets a reference to the given int32 and assigns it to the TotalOutputAmount field.
-func (o *IndexerBatch) SetTotalOutputAmount(v int32) {
+func (o *Batch) SetTotalOutputAmount(v int32) {
 	o.TotalOutputAmount = &v
 }
 
 // GetTotalOutputVtxos returns the TotalOutputVtxos field value if set, zero value otherwise.
-func (o *IndexerBatch) GetTotalOutputVtxos() int32 {
+func (o *Batch) GetTotalOutputVtxos() int32 {
 	if o == nil || IsNil(o.TotalOutputVtxos) {
 		var ret int32
 		return ret
@@ -149,7 +149,7 @@ func (o *IndexerBatch) GetTotalOutputVtxos() int32 {
 
 // GetTotalOutputVtxosOk returns a tuple with the TotalOutputVtxos field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerBatch) GetTotalOutputVtxosOk() (*int32, bool) {
+func (o *Batch) GetTotalOutputVtxosOk() (*int32, bool) {
 	if o == nil || IsNil(o.TotalOutputVtxos) {
 		return nil, false
 	}
@@ -157,7 +157,7 @@ func (o *IndexerBatch) GetTotalOutputVtxosOk() (*int32, bool) {
 }
 
 // HasTotalOutputVtxos returns a boolean if a field has been set.
-func (o *IndexerBatch) HasTotalOutputVtxos() bool {
+func (o *Batch) HasTotalOutputVtxos() bool {
 	if o != nil && !IsNil(o.TotalOutputVtxos) {
 		return true
 	}
@@ -166,11 +166,11 @@ func (o *IndexerBatch) HasTotalOutputVtxos() bool {
 }
 
 // SetTotalOutputVtxos gets a reference to the given int32 and assigns it to the TotalOutputVtxos field.
-func (o *IndexerBatch) SetTotalOutputVtxos(v int32) {
+func (o *Batch) SetTotalOutputVtxos(v int32) {
 	o.TotalOutputVtxos = &v
 }
 
-func (o IndexerBatch) MarshalJSON() ([]byte, error) {
+func (o Batch) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -178,7 +178,7 @@ func (o IndexerBatch) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerBatch) ToMap() (map[string]interface{}, error) {
+func (o Batch) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.ExpiresAt) {
 		toSerialize["expiresAt"] = o.ExpiresAt
@@ -195,38 +195,38 @@ func (o IndexerBatch) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerBatch struct {
-	value *IndexerBatch
+type NullableBatch struct {
+	value *Batch
 	isSet bool
 }
 
-func (v NullableIndexerBatch) Get() *IndexerBatch {
+func (v NullableBatch) Get() *Batch {
 	return v.value
 }
 
-func (v *NullableIndexerBatch) Set(val *IndexerBatch) {
+func (v *NullableBatch) Set(val *Batch) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerBatch) IsSet() bool {
+func (v NullableBatch) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerBatch) Unset() {
+func (v *NullableBatch) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerBatch(val *IndexerBatch) *NullableIndexerBatch {
-	return &NullableIndexerBatch{value: val, isSet: true}
+func NewNullableBatch(val *Batch) *NullableBatch {
+	return &NullableBatch{value: val, isSet: true}
 }
 
-func (v NullableIndexerBatch) MarshalJSON() ([]byte, error) {
+func (v NullableBatch) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerBatch) UnmarshalJSON(src []byte) error {
+func (v *NullableBatch) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

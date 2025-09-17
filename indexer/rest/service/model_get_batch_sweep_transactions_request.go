@@ -19,7 +19,7 @@ var _ MappedNullable = &GetBatchSweepTransactionsRequest{}
 
 // GetBatchSweepTransactionsRequest struct for GetBatchSweepTransactionsRequest
 type GetBatchSweepTransactionsRequest struct {
-		BatchOutpoint *IndexerOutpoint `json:"batchOutpoint,omitempty"`
+		BatchOutpoint *Outpoint `json:"batchOutpoint,omitempty"`
 }
 
 // NewGetBatchSweepTransactionsRequest instantiates a new GetBatchSweepTransactionsRequest object
@@ -40,9 +40,9 @@ func NewGetBatchSweepTransactionsRequestWithDefaults() *GetBatchSweepTransaction
 }
 
 // GetBatchOutpoint returns the BatchOutpoint field value if set, zero value otherwise.
-func (o *GetBatchSweepTransactionsRequest) GetBatchOutpoint() IndexerOutpoint {
+func (o *GetBatchSweepTransactionsRequest) GetBatchOutpoint() Outpoint {
 	if o == nil || IsNil(o.BatchOutpoint) {
-		var ret IndexerOutpoint
+		var ret Outpoint
 		return ret
 	}
 	return *o.BatchOutpoint
@@ -50,7 +50,7 @@ func (o *GetBatchSweepTransactionsRequest) GetBatchOutpoint() IndexerOutpoint {
 
 // GetBatchOutpointOk returns a tuple with the BatchOutpoint field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetBatchSweepTransactionsRequest) GetBatchOutpointOk() (*IndexerOutpoint, bool) {
+func (o *GetBatchSweepTransactionsRequest) GetBatchOutpointOk() (*Outpoint, bool) {
 	if o == nil || IsNil(o.BatchOutpoint) {
 		return nil, false
 	}
@@ -66,8 +66,8 @@ func (o *GetBatchSweepTransactionsRequest) HasBatchOutpoint() bool {
 	return false
 }
 
-// SetBatchOutpoint gets a reference to the given IndexerOutpoint and assigns it to the BatchOutpoint field.
-func (o *GetBatchSweepTransactionsRequest) SetBatchOutpoint(v IndexerOutpoint) {
+// SetBatchOutpoint gets a reference to the given Outpoint and assigns it to the BatchOutpoint field.
+func (o *GetBatchSweepTransactionsRequest) SetBatchOutpoint(v Outpoint) {
 	o.BatchOutpoint = &v
 }
 

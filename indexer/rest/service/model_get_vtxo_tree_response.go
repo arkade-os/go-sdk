@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoTreeResponse{}
 
 // GetVtxoTreeResponse struct for GetVtxoTreeResponse
 type GetVtxoTreeResponse struct {
-		Page *IndexerPageResponse `json:"page,omitempty"`
-		VtxoTree []IndexerNode `json:"vtxoTree,omitempty"`
+		Page *PageResponse `json:"page,omitempty"`
+		VtxoTree []Node `json:"vtxoTree,omitempty"`
 }
 
 // NewGetVtxoTreeResponse instantiates a new GetVtxoTreeResponse object
@@ -41,9 +41,9 @@ func NewGetVtxoTreeResponseWithDefaults() *GetVtxoTreeResponse {
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetVtxoTreeResponse) GetPage() IndexerPageResponse {
+func (o *GetVtxoTreeResponse) GetPage() PageResponse {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageResponse
+		var ret PageResponse
 		return ret
 	}
 	return *o.Page
@@ -51,7 +51,7 @@ func (o *GetVtxoTreeResponse) GetPage() IndexerPageResponse {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxoTreeResponse) GetPageOk() (*IndexerPageResponse, bool) {
+func (o *GetVtxoTreeResponse) GetPageOk() (*PageResponse, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -67,15 +67,15 @@ func (o *GetVtxoTreeResponse) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageResponse and assigns it to the Page field.
-func (o *GetVtxoTreeResponse) SetPage(v IndexerPageResponse) {
+// SetPage gets a reference to the given PageResponse and assigns it to the Page field.
+func (o *GetVtxoTreeResponse) SetPage(v PageResponse) {
 	o.Page = &v
 }
 
 // GetVtxoTree returns the VtxoTree field value if set, zero value otherwise.
-func (o *GetVtxoTreeResponse) GetVtxoTree() []IndexerNode {
+func (o *GetVtxoTreeResponse) GetVtxoTree() []Node {
 	if o == nil || IsNil(o.VtxoTree) {
-		var ret []IndexerNode
+		var ret []Node
 		return ret
 	}
 	return o.VtxoTree
@@ -83,7 +83,7 @@ func (o *GetVtxoTreeResponse) GetVtxoTree() []IndexerNode {
 
 // GetVtxoTreeOk returns a tuple with the VtxoTree field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxoTreeResponse) GetVtxoTreeOk() ([]IndexerNode, bool) {
+func (o *GetVtxoTreeResponse) GetVtxoTreeOk() ([]Node, bool) {
 	if o == nil || IsNil(o.VtxoTree) {
 		return nil, false
 	}
@@ -99,8 +99,8 @@ func (o *GetVtxoTreeResponse) HasVtxoTree() bool {
 	return false
 }
 
-// SetVtxoTree gets a reference to the given []IndexerNode and assigns it to the VtxoTree field.
-func (o *GetVtxoTreeResponse) SetVtxoTree(v []IndexerNode) {
+// SetVtxoTree gets a reference to the given []Node and assigns it to the VtxoTree field.
+func (o *GetVtxoTreeResponse) SetVtxoTree(v []Node) {
 	o.VtxoTree = v
 }
 

@@ -14,35 +14,35 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerNode type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerNode{}
+// checks if the Node type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &Node{}
 
-// IndexerNode struct for IndexerNode
-type IndexerNode struct {
+// Node struct for Node
+type Node struct {
 	// vout -> txid
 		Children map[string]string `json:"children,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
 
-// NewIndexerNode instantiates a new IndexerNode object
+// NewNode instantiates a new Node object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerNode() *IndexerNode {
-	this := IndexerNode{}
+func NewNode() *Node {
+	this := Node{}
 	return &this
 }
 
-// NewIndexerNodeWithDefaults instantiates a new IndexerNode object
+// NewNodeWithDefaults instantiates a new Node object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerNodeWithDefaults() *IndexerNode {
-	this := IndexerNode{}
+func NewNodeWithDefaults() *Node {
+	this := Node{}
 	return &this
 }
 
 // GetChildren returns the Children field value if set, zero value otherwise.
-func (o *IndexerNode) GetChildren() map[string]string {
+func (o *Node) GetChildren() map[string]string {
 	if o == nil || IsNil(o.Children) {
 		var ret map[string]string
 		return ret
@@ -52,7 +52,7 @@ func (o *IndexerNode) GetChildren() map[string]string {
 
 // GetChildrenOk returns a tuple with the Children field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerNode) GetChildrenOk() (map[string]string, bool) {
+func (o *Node) GetChildrenOk() (map[string]string, bool) {
 	if o == nil || IsNil(o.Children) {
 		return map[string]string{}, false
 	}
@@ -60,7 +60,7 @@ func (o *IndexerNode) GetChildrenOk() (map[string]string, bool) {
 }
 
 // HasChildren returns a boolean if a field has been set.
-func (o *IndexerNode) HasChildren() bool {
+func (o *Node) HasChildren() bool {
 	if o != nil && !IsNil(o.Children) {
 		return true
 	}
@@ -69,12 +69,12 @@ func (o *IndexerNode) HasChildren() bool {
 }
 
 // SetChildren gets a reference to the given map[string]string and assigns it to the Children field.
-func (o *IndexerNode) SetChildren(v map[string]string) {
+func (o *Node) SetChildren(v map[string]string) {
 	o.Children = v
 }
 
 // GetTxid returns the Txid field value if set, zero value otherwise.
-func (o *IndexerNode) GetTxid() string {
+func (o *Node) GetTxid() string {
 	if o == nil || IsNil(o.Txid) {
 		var ret string
 		return ret
@@ -84,7 +84,7 @@ func (o *IndexerNode) GetTxid() string {
 
 // GetTxidOk returns a tuple with the Txid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerNode) GetTxidOk() (*string, bool) {
+func (o *Node) GetTxidOk() (*string, bool) {
 	if o == nil || IsNil(o.Txid) {
 		return nil, false
 	}
@@ -92,7 +92,7 @@ func (o *IndexerNode) GetTxidOk() (*string, bool) {
 }
 
 // HasTxid returns a boolean if a field has been set.
-func (o *IndexerNode) HasTxid() bool {
+func (o *Node) HasTxid() bool {
 	if o != nil && !IsNil(o.Txid) {
 		return true
 	}
@@ -101,11 +101,11 @@ func (o *IndexerNode) HasTxid() bool {
 }
 
 // SetTxid gets a reference to the given string and assigns it to the Txid field.
-func (o *IndexerNode) SetTxid(v string) {
+func (o *Node) SetTxid(v string) {
 	o.Txid = &v
 }
 
-func (o IndexerNode) MarshalJSON() ([]byte, error) {
+func (o Node) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -113,7 +113,7 @@ func (o IndexerNode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerNode) ToMap() (map[string]interface{}, error) {
+func (o Node) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Children) {
 		toSerialize["children"] = o.Children
@@ -124,38 +124,38 @@ func (o IndexerNode) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerNode struct {
-	value *IndexerNode
+type NullableNode struct {
+	value *Node
 	isSet bool
 }
 
-func (v NullableIndexerNode) Get() *IndexerNode {
+func (v NullableNode) Get() *Node {
 	return v.value
 }
 
-func (v *NullableIndexerNode) Set(val *IndexerNode) {
+func (v *NullableNode) Set(val *Node) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerNode) IsSet() bool {
+func (v NullableNode) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerNode) Unset() {
+func (v *NullableNode) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerNode(val *IndexerNode) *NullableIndexerNode {
-	return &NullableIndexerNode{value: val, isSet: true}
+func NewNullableNode(val *Node) *NullableNode {
+	return &NullableNode{value: val, isSet: true}
 }
 
-func (v NullableIndexerNode) MarshalJSON() ([]byte, error) {
+func (v NullableNode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerNode) UnmarshalJSON(src []byte) error {
+func (v *NullableNode) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

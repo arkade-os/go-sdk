@@ -19,7 +19,7 @@ var _ MappedNullable = &GetConnectorsRequest{}
 
 // GetConnectorsRequest struct for GetConnectorsRequest
 type GetConnectorsRequest struct {
-		Page *IndexerPageRequest `json:"page,omitempty"`
+		Page *PageRequest `json:"page,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
 
@@ -41,9 +41,9 @@ func NewGetConnectorsRequestWithDefaults() *GetConnectorsRequest {
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetConnectorsRequest) GetPage() IndexerPageRequest {
+func (o *GetConnectorsRequest) GetPage() PageRequest {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageRequest
+		var ret PageRequest
 		return ret
 	}
 	return *o.Page
@@ -51,7 +51,7 @@ func (o *GetConnectorsRequest) GetPage() IndexerPageRequest {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetConnectorsRequest) GetPageOk() (*IndexerPageRequest, bool) {
+func (o *GetConnectorsRequest) GetPageOk() (*PageRequest, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -67,8 +67,8 @@ func (o *GetConnectorsRequest) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageRequest and assigns it to the Page field.
-func (o *GetConnectorsRequest) SetPage(v IndexerPageRequest) {
+// SetPage gets a reference to the given PageRequest and assigns it to the Page field.
+func (o *GetConnectorsRequest) SetPage(v PageRequest) {
 	o.Page = &v
 }
 

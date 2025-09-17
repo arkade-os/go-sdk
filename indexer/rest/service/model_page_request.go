@@ -14,34 +14,34 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerPageRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerPageRequest{}
+// checks if the PageRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &PageRequest{}
 
-// IndexerPageRequest struct for IndexerPageRequest
-type IndexerPageRequest struct {
+// PageRequest struct for PageRequest
+type PageRequest struct {
 		Index *int32 `json:"index,omitempty"`
 		Size *int32 `json:"size,omitempty"`
 }
 
-// NewIndexerPageRequest instantiates a new IndexerPageRequest object
+// NewPageRequest instantiates a new PageRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerPageRequest() *IndexerPageRequest {
-	this := IndexerPageRequest{}
+func NewPageRequest() *PageRequest {
+	this := PageRequest{}
 	return &this
 }
 
-// NewIndexerPageRequestWithDefaults instantiates a new IndexerPageRequest object
+// NewPageRequestWithDefaults instantiates a new PageRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerPageRequestWithDefaults() *IndexerPageRequest {
-	this := IndexerPageRequest{}
+func NewPageRequestWithDefaults() *PageRequest {
+	this := PageRequest{}
 	return &this
 }
 
 // GetIndex returns the Index field value if set, zero value otherwise.
-func (o *IndexerPageRequest) GetIndex() int32 {
+func (o *PageRequest) GetIndex() int32 {
 	if o == nil || IsNil(o.Index) {
 		var ret int32
 		return ret
@@ -51,7 +51,7 @@ func (o *IndexerPageRequest) GetIndex() int32 {
 
 // GetIndexOk returns a tuple with the Index field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerPageRequest) GetIndexOk() (*int32, bool) {
+func (o *PageRequest) GetIndexOk() (*int32, bool) {
 	if o == nil || IsNil(o.Index) {
 		return nil, false
 	}
@@ -59,7 +59,7 @@ func (o *IndexerPageRequest) GetIndexOk() (*int32, bool) {
 }
 
 // HasIndex returns a boolean if a field has been set.
-func (o *IndexerPageRequest) HasIndex() bool {
+func (o *PageRequest) HasIndex() bool {
 	if o != nil && !IsNil(o.Index) {
 		return true
 	}
@@ -68,12 +68,12 @@ func (o *IndexerPageRequest) HasIndex() bool {
 }
 
 // SetIndex gets a reference to the given int32 and assigns it to the Index field.
-func (o *IndexerPageRequest) SetIndex(v int32) {
+func (o *PageRequest) SetIndex(v int32) {
 	o.Index = &v
 }
 
 // GetSize returns the Size field value if set, zero value otherwise.
-func (o *IndexerPageRequest) GetSize() int32 {
+func (o *PageRequest) GetSize() int32 {
 	if o == nil || IsNil(o.Size) {
 		var ret int32
 		return ret
@@ -83,7 +83,7 @@ func (o *IndexerPageRequest) GetSize() int32 {
 
 // GetSizeOk returns a tuple with the Size field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerPageRequest) GetSizeOk() (*int32, bool) {
+func (o *PageRequest) GetSizeOk() (*int32, bool) {
 	if o == nil || IsNil(o.Size) {
 		return nil, false
 	}
@@ -91,7 +91,7 @@ func (o *IndexerPageRequest) GetSizeOk() (*int32, bool) {
 }
 
 // HasSize returns a boolean if a field has been set.
-func (o *IndexerPageRequest) HasSize() bool {
+func (o *PageRequest) HasSize() bool {
 	if o != nil && !IsNil(o.Size) {
 		return true
 	}
@@ -100,11 +100,11 @@ func (o *IndexerPageRequest) HasSize() bool {
 }
 
 // SetSize gets a reference to the given int32 and assigns it to the Size field.
-func (o *IndexerPageRequest) SetSize(v int32) {
+func (o *PageRequest) SetSize(v int32) {
 	o.Size = &v
 }
 
-func (o IndexerPageRequest) MarshalJSON() ([]byte, error) {
+func (o PageRequest) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -112,7 +112,7 @@ func (o IndexerPageRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerPageRequest) ToMap() (map[string]interface{}, error) {
+func (o PageRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Index) {
 		toSerialize["index"] = o.Index
@@ -123,38 +123,38 @@ func (o IndexerPageRequest) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerPageRequest struct {
-	value *IndexerPageRequest
+type NullablePageRequest struct {
+	value *PageRequest
 	isSet bool
 }
 
-func (v NullableIndexerPageRequest) Get() *IndexerPageRequest {
+func (v NullablePageRequest) Get() *PageRequest {
 	return v.value
 }
 
-func (v *NullableIndexerPageRequest) Set(val *IndexerPageRequest) {
+func (v *NullablePageRequest) Set(val *PageRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerPageRequest) IsSet() bool {
+func (v NullablePageRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerPageRequest) Unset() {
+func (v *NullablePageRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerPageRequest(val *IndexerPageRequest) *NullableIndexerPageRequest {
-	return &NullableIndexerPageRequest{value: val, isSet: true}
+func NewNullablePageRequest(val *PageRequest) *NullablePageRequest {
+	return &NullablePageRequest{value: val, isSet: true}
 }
 
-func (v NullableIndexerPageRequest) MarshalJSON() ([]byte, error) {
+func (v NullablePageRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerPageRequest) UnmarshalJSON(src []byte) error {
+func (v *NullablePageRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

@@ -19,7 +19,7 @@ var _ MappedNullable = &GetVirtualTxsRequest{}
 
 // GetVirtualTxsRequest struct for GetVirtualTxsRequest
 type GetVirtualTxsRequest struct {
-		Page *IndexerPageRequest `json:"page,omitempty"`
+		Page *PageRequest `json:"page,omitempty"`
 		Txids []string `json:"txids,omitempty"`
 }
 
@@ -41,9 +41,9 @@ func NewGetVirtualTxsRequestWithDefaults() *GetVirtualTxsRequest {
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetVirtualTxsRequest) GetPage() IndexerPageRequest {
+func (o *GetVirtualTxsRequest) GetPage() PageRequest {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageRequest
+		var ret PageRequest
 		return ret
 	}
 	return *o.Page
@@ -51,7 +51,7 @@ func (o *GetVirtualTxsRequest) GetPage() IndexerPageRequest {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVirtualTxsRequest) GetPageOk() (*IndexerPageRequest, bool) {
+func (o *GetVirtualTxsRequest) GetPageOk() (*PageRequest, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -67,8 +67,8 @@ func (o *GetVirtualTxsRequest) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageRequest and assigns it to the Page field.
-func (o *GetVirtualTxsRequest) SetPage(v IndexerPageRequest) {
+// SetPage gets a reference to the given PageRequest and assigns it to the Page field.
+func (o *GetVirtualTxsRequest) SetPage(v PageRequest) {
 	o.Page = &v
 }
 

@@ -14,34 +14,34 @@ import (
 	"encoding/json"
 )
 
-// checks if the IndexerOutpoint type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &IndexerOutpoint{}
+// checks if the Outpoint type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &Outpoint{}
 
-// IndexerOutpoint struct for IndexerOutpoint
-type IndexerOutpoint struct {
+// Outpoint struct for Outpoint
+type Outpoint struct {
 		Txid *string `json:"txid,omitempty"`
 		Vout *int32 `json:"vout,omitempty"`
 }
 
-// NewIndexerOutpoint instantiates a new IndexerOutpoint object
+// NewOutpoint instantiates a new Outpoint object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIndexerOutpoint() *IndexerOutpoint {
-	this := IndexerOutpoint{}
+func NewOutpoint() *Outpoint {
+	this := Outpoint{}
 	return &this
 }
 
-// NewIndexerOutpointWithDefaults instantiates a new IndexerOutpoint object
+// NewOutpointWithDefaults instantiates a new Outpoint object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewIndexerOutpointWithDefaults() *IndexerOutpoint {
-	this := IndexerOutpoint{}
+func NewOutpointWithDefaults() *Outpoint {
+	this := Outpoint{}
 	return &this
 }
 
 // GetTxid returns the Txid field value if set, zero value otherwise.
-func (o *IndexerOutpoint) GetTxid() string {
+func (o *Outpoint) GetTxid() string {
 	if o == nil || IsNil(o.Txid) {
 		var ret string
 		return ret
@@ -51,7 +51,7 @@ func (o *IndexerOutpoint) GetTxid() string {
 
 // GetTxidOk returns a tuple with the Txid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerOutpoint) GetTxidOk() (*string, bool) {
+func (o *Outpoint) GetTxidOk() (*string, bool) {
 	if o == nil || IsNil(o.Txid) {
 		return nil, false
 	}
@@ -59,7 +59,7 @@ func (o *IndexerOutpoint) GetTxidOk() (*string, bool) {
 }
 
 // HasTxid returns a boolean if a field has been set.
-func (o *IndexerOutpoint) HasTxid() bool {
+func (o *Outpoint) HasTxid() bool {
 	if o != nil && !IsNil(o.Txid) {
 		return true
 	}
@@ -68,12 +68,12 @@ func (o *IndexerOutpoint) HasTxid() bool {
 }
 
 // SetTxid gets a reference to the given string and assigns it to the Txid field.
-func (o *IndexerOutpoint) SetTxid(v string) {
+func (o *Outpoint) SetTxid(v string) {
 	o.Txid = &v
 }
 
 // GetVout returns the Vout field value if set, zero value otherwise.
-func (o *IndexerOutpoint) GetVout() int32 {
+func (o *Outpoint) GetVout() int32 {
 	if o == nil || IsNil(o.Vout) {
 		var ret int32
 		return ret
@@ -83,7 +83,7 @@ func (o *IndexerOutpoint) GetVout() int32 {
 
 // GetVoutOk returns a tuple with the Vout field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IndexerOutpoint) GetVoutOk() (*int32, bool) {
+func (o *Outpoint) GetVoutOk() (*int32, bool) {
 	if o == nil || IsNil(o.Vout) {
 		return nil, false
 	}
@@ -91,7 +91,7 @@ func (o *IndexerOutpoint) GetVoutOk() (*int32, bool) {
 }
 
 // HasVout returns a boolean if a field has been set.
-func (o *IndexerOutpoint) HasVout() bool {
+func (o *Outpoint) HasVout() bool {
 	if o != nil && !IsNil(o.Vout) {
 		return true
 	}
@@ -100,11 +100,11 @@ func (o *IndexerOutpoint) HasVout() bool {
 }
 
 // SetVout gets a reference to the given int32 and assigns it to the Vout field.
-func (o *IndexerOutpoint) SetVout(v int32) {
+func (o *Outpoint) SetVout(v int32) {
 	o.Vout = &v
 }
 
-func (o IndexerOutpoint) MarshalJSON() ([]byte, error) {
+func (o Outpoint) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -112,7 +112,7 @@ func (o IndexerOutpoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o IndexerOutpoint) ToMap() (map[string]interface{}, error) {
+func (o Outpoint) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Txid) {
 		toSerialize["txid"] = o.Txid
@@ -123,38 +123,38 @@ func (o IndexerOutpoint) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableIndexerOutpoint struct {
-	value *IndexerOutpoint
+type NullableOutpoint struct {
+	value *Outpoint
 	isSet bool
 }
 
-func (v NullableIndexerOutpoint) Get() *IndexerOutpoint {
+func (v NullableOutpoint) Get() *Outpoint {
 	return v.value
 }
 
-func (v *NullableIndexerOutpoint) Set(val *IndexerOutpoint) {
+func (v *NullableOutpoint) Set(val *Outpoint) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableIndexerOutpoint) IsSet() bool {
+func (v NullableOutpoint) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableIndexerOutpoint) Unset() {
+func (v *NullableOutpoint) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableIndexerOutpoint(val *IndexerOutpoint) *NullableIndexerOutpoint {
-	return &NullableIndexerOutpoint{value: val, isSet: true}
+func NewNullableOutpoint(val *Outpoint) *NullableOutpoint {
+	return &NullableOutpoint{value: val, isSet: true}
 }
 
-func (v NullableIndexerOutpoint) MarshalJSON() ([]byte, error) {
+func (v NullableOutpoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableIndexerOutpoint) UnmarshalJSON(src []byte) error {
+func (v *NullableOutpoint) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

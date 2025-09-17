@@ -6,7 +6,7 @@
   },
   "components": {
     "schemas": {
-      "BatchFailedEvent": {
+      "ark.v1.BatchFailedEvent": {
         "title": "BatchFailedEvent",
         "type": "object",
         "properties": {
@@ -18,7 +18,7 @@
           }
         }
       },
-      "BatchFinalizationEvent": {
+      "ark.v1.BatchFinalizationEvent": {
         "title": "BatchFinalizationEvent",
         "type": "object",
         "properties": {
@@ -30,7 +30,7 @@
           }
         }
       },
-      "BatchFinalizedEvent": {
+      "ark.v1.BatchFinalizedEvent": {
         "title": "BatchFinalizedEvent",
         "type": "object",
         "properties": {
@@ -42,7 +42,7 @@
           }
         }
       },
-      "BatchStartedEvent": {
+      "ark.v1.BatchStartedEvent": {
         "title": "BatchStartedEvent",
         "type": "object",
         "properties": {
@@ -61,7 +61,7 @@
           }
         }
       },
-      "Bip322Signature": {
+      "ark.v1.Bip322Signature": {
         "title": "Bip322Signature",
         "type": "object",
         "properties": {
@@ -73,23 +73,23 @@
           }
         }
       },
-      "Heartbeat": {
+      "ark.v1.Heartbeat": {
         "title": "Heartbeat",
         "type": "object"
       },
-      "Input": {
+      "ark.v1.Input": {
         "title": "Input",
         "type": "object",
         "properties": {
           "outpoint": {
-            "$ref": "#/components/schemas/Outpoint"
+            "$ref": "#/components/schemas/ark.v1.Outpoint"
           },
           "taprootTree": {
-            "$ref": "#/components/schemas/Tapscripts"
+            "$ref": "#/components/schemas/ark.v1.Tapscripts"
           }
         }
       },
-      "MarketHour": {
+      "ark.v1.MarketHour": {
         "title": "MarketHour",
         "type": "object",
         "properties": {
@@ -111,7 +111,7 @@
           }
         }
       },
-      "Outpoint": {
+      "ark.v1.Outpoint": {
         "title": "Outpoint",
         "type": "object",
         "properties": {
@@ -124,7 +124,7 @@
           }
         }
       },
-      "Tapscripts": {
+      "ark.v1.Tapscripts": {
         "title": "Tapscripts",
         "type": "object",
         "properties": {
@@ -136,7 +136,7 @@
           }
         }
       },
-      "TreeNoncesAggregatedEvent": {
+      "ark.v1.TreeNoncesAggregatedEvent": {
         "title": "TreeNoncesAggregatedEvent",
         "type": "object",
         "properties": {
@@ -148,7 +148,7 @@
           }
         }
       },
-      "TreeSignatureEvent": {
+      "ark.v1.TreeSignatureEvent": {
         "title": "TreeSignatureEvent",
         "type": "object",
         "properties": {
@@ -173,7 +173,7 @@
           }
         }
       },
-      "TreeSigningStartedEvent": {
+      "ark.v1.TreeSigningStartedEvent": {
         "title": "TreeSigningStartedEvent",
         "type": "object",
         "properties": {
@@ -191,7 +191,7 @@
           }
         }
       },
-      "TreeTxEvent": {
+      "ark.v1.TreeTxEvent": {
         "title": "TreeTxEvent",
         "type": "object",
         "properties": {
@@ -223,7 +223,7 @@
           }
         }
       },
-      "TxData": {
+      "ark.v1.TxData": {
         "title": "TxData",
         "type": "object",
         "properties": {
@@ -235,7 +235,7 @@
           }
         }
       },
-      "TxNotification": {
+      "ark.v1.TxNotification": {
         "title": "TxNotification",
         "type": "object",
         "properties": {
@@ -243,19 +243,19 @@
             "type": "object",
             "description": "This field is set only in case of offchain tx.\n\nkey: outpoint, value: checkpoint txid",
             "additionalProperties": {
-              "$ref": "#/components/schemas/TxData"
+              "$ref": "#/components/schemas/ark.v1.TxData"
             }
           },
           "spendableVtxos": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Vtxo"
+              "$ref": "#/components/schemas/ark.v1.Vtxo"
             }
           },
           "spentVtxos": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Vtxo"
+              "$ref": "#/components/schemas/ark.v1.Vtxo"
             }
           },
           "tx": {
@@ -266,14 +266,13 @@
           }
         }
       },
-      "Vtxo": {
+      "ark.v1.Vtxo": {
         "title": "Vtxo",
         "type": "object",
         "properties": {
           "amount": {
             "type": "integer",
-            "format": "uint64",
-            "x-go-json-string": true
+            "format": "uint64"
           },
           "arkTxid": {
             "type": "string"
@@ -286,13 +285,11 @@
           },
           "createdAt": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "expiresAt": {
             "type": "integer",
-            "format": "int64",
-            "x-go-json-string": true
+            "format": "int64"
           },
           "isPreconfirmed": {
             "type": "boolean"
@@ -307,7 +304,7 @@
             "type": "boolean"
           },
           "outpoint": {
-            "$ref": "#/components/schemas/Outpoint"
+            "$ref": "#/components/schemas/ark.v1.Outpoint"
           },
           "script": {
             "type": "string"

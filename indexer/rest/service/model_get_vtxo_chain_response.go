@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxoChainResponse{}
 
 // GetVtxoChainResponse struct for GetVtxoChainResponse
 type GetVtxoChainResponse struct {
-		Chain []IndexerChain `json:"chain,omitempty"`
-		Page *IndexerPageResponse `json:"page,omitempty"`
+		Chain []Chain `json:"chain,omitempty"`
+		Page *PageResponse `json:"page,omitempty"`
 }
 
 // NewGetVtxoChainResponse instantiates a new GetVtxoChainResponse object
@@ -41,9 +41,9 @@ func NewGetVtxoChainResponseWithDefaults() *GetVtxoChainResponse {
 }
 
 // GetChain returns the Chain field value if set, zero value otherwise.
-func (o *GetVtxoChainResponse) GetChain() []IndexerChain {
+func (o *GetVtxoChainResponse) GetChain() []Chain {
 	if o == nil || IsNil(o.Chain) {
-		var ret []IndexerChain
+		var ret []Chain
 		return ret
 	}
 	return o.Chain
@@ -51,7 +51,7 @@ func (o *GetVtxoChainResponse) GetChain() []IndexerChain {
 
 // GetChainOk returns a tuple with the Chain field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxoChainResponse) GetChainOk() ([]IndexerChain, bool) {
+func (o *GetVtxoChainResponse) GetChainOk() ([]Chain, bool) {
 	if o == nil || IsNil(o.Chain) {
 		return nil, false
 	}
@@ -67,15 +67,15 @@ func (o *GetVtxoChainResponse) HasChain() bool {
 	return false
 }
 
-// SetChain gets a reference to the given []IndexerChain and assigns it to the Chain field.
-func (o *GetVtxoChainResponse) SetChain(v []IndexerChain) {
+// SetChain gets a reference to the given []Chain and assigns it to the Chain field.
+func (o *GetVtxoChainResponse) SetChain(v []Chain) {
 	o.Chain = v
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetVtxoChainResponse) GetPage() IndexerPageResponse {
+func (o *GetVtxoChainResponse) GetPage() PageResponse {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageResponse
+		var ret PageResponse
 		return ret
 	}
 	return *o.Page
@@ -83,7 +83,7 @@ func (o *GetVtxoChainResponse) GetPage() IndexerPageResponse {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxoChainResponse) GetPageOk() (*IndexerPageResponse, bool) {
+func (o *GetVtxoChainResponse) GetPageOk() (*PageResponse, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -99,8 +99,8 @@ func (o *GetVtxoChainResponse) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageResponse and assigns it to the Page field.
-func (o *GetVtxoChainResponse) SetPage(v IndexerPageResponse) {
+// SetPage gets a reference to the given PageResponse and assigns it to the Page field.
+func (o *GetVtxoChainResponse) SetPage(v PageResponse) {
 	o.Page = &v
 }
 

@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVtxosResponse{}
 
 // GetVtxosResponse struct for GetVtxosResponse
 type GetVtxosResponse struct {
-		Page *IndexerPageResponse `json:"page,omitempty"`
-		Vtxos []IndexerVtxo `json:"vtxos,omitempty"`
+		Page *PageResponse `json:"page,omitempty"`
+		Vtxos []Vtxo `json:"vtxos,omitempty"`
 }
 
 // NewGetVtxosResponse instantiates a new GetVtxosResponse object
@@ -41,9 +41,9 @@ func NewGetVtxosResponseWithDefaults() *GetVtxosResponse {
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetVtxosResponse) GetPage() IndexerPageResponse {
+func (o *GetVtxosResponse) GetPage() PageResponse {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageResponse
+		var ret PageResponse
 		return ret
 	}
 	return *o.Page
@@ -51,7 +51,7 @@ func (o *GetVtxosResponse) GetPage() IndexerPageResponse {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxosResponse) GetPageOk() (*IndexerPageResponse, bool) {
+func (o *GetVtxosResponse) GetPageOk() (*PageResponse, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -67,15 +67,15 @@ func (o *GetVtxosResponse) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageResponse and assigns it to the Page field.
-func (o *GetVtxosResponse) SetPage(v IndexerPageResponse) {
+// SetPage gets a reference to the given PageResponse and assigns it to the Page field.
+func (o *GetVtxosResponse) SetPage(v PageResponse) {
 	o.Page = &v
 }
 
 // GetVtxos returns the Vtxos field value if set, zero value otherwise.
-func (o *GetVtxosResponse) GetVtxos() []IndexerVtxo {
+func (o *GetVtxosResponse) GetVtxos() []Vtxo {
 	if o == nil || IsNil(o.Vtxos) {
-		var ret []IndexerVtxo
+		var ret []Vtxo
 		return ret
 	}
 	return o.Vtxos
@@ -83,7 +83,7 @@ func (o *GetVtxosResponse) GetVtxos() []IndexerVtxo {
 
 // GetVtxosOk returns a tuple with the Vtxos field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVtxosResponse) GetVtxosOk() ([]IndexerVtxo, bool) {
+func (o *GetVtxosResponse) GetVtxosOk() ([]Vtxo, bool) {
 	if o == nil || IsNil(o.Vtxos) {
 		return nil, false
 	}
@@ -99,8 +99,8 @@ func (o *GetVtxosResponse) HasVtxos() bool {
 	return false
 }
 
-// SetVtxos gets a reference to the given []IndexerVtxo and assigns it to the Vtxos field.
-func (o *GetVtxosResponse) SetVtxos(v []IndexerVtxo) {
+// SetVtxos gets a reference to the given []Vtxo and assigns it to the Vtxos field.
+func (o *GetVtxosResponse) SetVtxos(v []Vtxo) {
 	o.Vtxos = v
 }
 

@@ -1,0 +1,7 @@
+openapi:
+  messages:
+    - selector: "indexer.v1.Vtxo"
+      fields:
+        amount: { extra: { x-go-json-string: true } }
+        created_at: { extra: { x-go-json-string: true } }
+        expires_at: { extra: { x-go-json-string: true } }

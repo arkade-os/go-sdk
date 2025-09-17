@@ -19,7 +19,7 @@ var _ MappedNullable = &GetForfeitTxsRequest{}
 
 // GetForfeitTxsRequest struct for GetForfeitTxsRequest
 type GetForfeitTxsRequest struct {
-		Page *IndexerPageRequest `json:"page,omitempty"`
+		Page *PageRequest `json:"page,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
 
@@ -41,9 +41,9 @@ func NewGetForfeitTxsRequestWithDefaults() *GetForfeitTxsRequest {
 }
 
 // GetPage returns the Page field value if set, zero value otherwise.
-func (o *GetForfeitTxsRequest) GetPage() IndexerPageRequest {
+func (o *GetForfeitTxsRequest) GetPage() PageRequest {
 	if o == nil || IsNil(o.Page) {
-		var ret IndexerPageRequest
+		var ret PageRequest
 		return ret
 	}
 	return *o.Page
@@ -51,7 +51,7 @@ func (o *GetForfeitTxsRequest) GetPage() IndexerPageRequest {
 
 // GetPageOk returns a tuple with the Page field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetForfeitTxsRequest) GetPageOk() (*IndexerPageRequest, bool) {
+func (o *GetForfeitTxsRequest) GetPageOk() (*PageRequest, bool) {
 	if o == nil || IsNil(o.Page) {
 		return nil, false
 	}
@@ -67,8 +67,8 @@ func (o *GetForfeitTxsRequest) HasPage() bool {
 	return false
 }
 
-// SetPage gets a reference to the given IndexerPageRequest and assigns it to the Page field.
-func (o *GetForfeitTxsRequest) SetPage(v IndexerPageRequest) {
+// SetPage gets a reference to the given PageRequest and assigns it to the Page field.
+func (o *GetForfeitTxsRequest) SetPage(v PageRequest) {
 	o.Page = &v
 }
 
