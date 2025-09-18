@@ -507,6 +507,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						err,
 						websocket.CloseNormalClosure,
 						websocket.CloseGoingAway,
+						websocket.CloseAbnormalClosure,
 					) ||
 						errors.Is(err, net.ErrClosed) {
 						return
