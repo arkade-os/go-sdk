@@ -84,6 +84,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		return err
 	}
 
+	log.SetLevel(log.DebugLevel)
 	if !a.verbose {
 		log.SetLevel(log.ErrorLevel)
 	}
