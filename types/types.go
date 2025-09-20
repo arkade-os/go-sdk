@@ -37,6 +37,7 @@ type Config struct {
 	ExplorerPollInterval    time.Duration
 	ForfeitAddress          string
 	WithTransactionFeed     bool
+	NoLogs                  bool
 	MarketHourStartTime     int64
 	MarketHourEndTime       int64
 	MarketHourPeriod        int64

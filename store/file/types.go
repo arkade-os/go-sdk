@@ -24,6 +24,7 @@ type storeData struct {
 	ExplorerURL             string `json:"explorer_url"`
 	ForfeitAddress          string `json:"forfeit_address"`
 	WithTransactionFeed     string `json:"with_transaction_feed"`
+	NoLogs                  string `json:"no_logs"`
 	MarketHourStartTime     string `json:"market_hour_start_time"`
 	MarketHourEndTime       string `json:"market_hour_end_time"`
 	MarketHourPeriod        string `json:"market_hour_period"`
@@ -51,6 +52,7 @@ func (d storeData) decode() types.Config {
 	unilateralExitDelay, _ := strconv.Atoi(d.UnilateralExitDelay)
 	boardingExitDelay, _ := strconv.Atoi(d.BoardingExitDelay)
 	withTransactionFeed, _ := strconv.ParseBool(d.WithTransactionFeed)
+	noLogs, _ := strconv.ParseBool(d.NoLogs)
 	dust, _ := strconv.Atoi(d.Dust)
 	buf, _ := hex.DecodeString(d.SignerPubKey)
 	signerPubkey, _ := secp256k1.ParsePubKey(buf)
@@ -102,6 +104,7 @@ func (d storeData) decode() types.Config {
 		ExplorerURL:             explorerURL,
 		ForfeitAddress:          d.ForfeitAddress,
 		WithTransactionFeed:     withTransactionFeed,
+		NoLogs:                  noLogs,
 		MarketHourStartTime:     int64(nextStartTime),
 		MarketHourEndTime:       int64(nextEndTime),
 		MarketHourPeriod:        int64(period),
@@ -129,6 +132,7 @@ func (d storeData) asMap() map[string]string {
 		"explorer_url":               d.ExplorerURL,
 		"forfeit_address":            d.ForfeitAddress,
 		"with_transaction_feed":      d.WithTransactionFeed,
+		"no_logs":                    d.NoLogs,
 		"market_hour_start_time":     d.MarketHourStartTime,
 		"market_hour_end_time":       d.MarketHourEndTime,
 		"market_hour_period":         d.MarketHourPeriod,

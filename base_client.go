@@ -75,6 +75,10 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		return err
 	}
 
+	if cfgData.NoLogs {
+		log.SetLevel(log.ErrorLevel)
+	}
+
 	go func() {
 		if cfgData.WithTransactionFeed {
 			txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
@@ -312,6 +316,7 @@ func (a *arkClient) initWithWallet(
 		},
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
+		NoLogs:                  args.NoLogs,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -424,6 +429,7 @@ func (a *arkClient) init(
 		ExplorerURL:             explorerSvc.BaseUrl(),
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
+		NoLogs:                  args.NoLogs,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
