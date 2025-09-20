@@ -250,15 +250,14 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{}
+	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
 	if args.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(
-		args.ExplorerURL,
-		utils.NetworkFromString(info.Network),
-		explorerOpts...)
+		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -362,15 +361,14 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{}
+	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
 	if args.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(
-		args.ExplorerURL,
-		utils.NetworkFromString(info.Network),
-		explorerOpts...)
+		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}

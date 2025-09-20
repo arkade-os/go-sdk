@@ -75,7 +75,7 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{}
+	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
 	if cfgData.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
 	}
@@ -137,7 +137,7 @@ func LoadArkClientWithWallet(
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{}
+	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
 	if cfgData.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
 	}
