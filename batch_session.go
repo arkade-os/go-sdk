@@ -252,8 +252,8 @@ func JoinBatchSession(
 					return "", err
 				}
 
-				log.Info("done.")
-				log.Info("waiting for batch finalization...")
+				log.Debug("done.")
+				log.Debug("waiting for batch finalization...")
 				step++
 				continue
 			}
@@ -358,7 +358,7 @@ func (h *defaultBatchEventsHandler) OnBatchStarted(
 		}
 	}
 
-	log.Info("intent id not found in batch proposal, waiting for next one...")
+	log.Debug("intent id not found in batch proposal, waiting for next one...")
 	return true, nil
 }
 
@@ -366,7 +366,7 @@ func (h *defaultBatchEventsHandler) OnBatchFinalized(
 	ctx context.Context, event client.BatchFinalizedEvent,
 ) error {
 	if event.Id == h.batchSessionId {
-		log.Infof("batch completed in commitment tx %s", event.Txid)
+		log.Debugf("batch completed in commitment tx %s", event.Txid)
 	}
 	return nil
 }
@@ -407,7 +407,7 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	}
 
 	if len(foundPubkeys) <= 0 {
-		log.Info("no signer found in cosigner list, waiting for next one...")
+		log.Debug("no signer found in cosigner list, waiting for next one...")
 		return true, nil
 	}
 
@@ -479,7 +479,7 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 func (h *defaultBatchEventsHandler) OnTreeNoncesAggregated(
 	ctx context.Context, event client.TreeNoncesAggregatedEvent,
 ) error {
-	log.Info("tree nonces aggregated, sending signatures...")
+	log.Debug("tree nonces aggregated, sending signatures...")
 	if len(h.signerSessions) <= 0 {
 		return fmt.Errorf("tree signer session not set")
 	}
@@ -528,7 +528,7 @@ func (h *defaultBatchEventsHandler) OnTreeNoncesAggregated(
 func (h *defaultBatchEventsHandler) OnBatchFinalization(
 	ctx context.Context, event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
 ) error {
-	log.Info("vtxo and connector trees fully signed, sending forfeit transactions...")
+	log.Debug("vtxo and connector trees fully signed, sending forfeit transactions...")
 	if err := h.validateVtxoTree(event, vtxoTree, connectorTree); err != nil {
 		return fmt.Errorf("failed to verify vtxo tree: %s", err)
 	}

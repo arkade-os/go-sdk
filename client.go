@@ -646,7 +646,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 				// the branch tx is in the mempool, we must wait for confirmation
 				// print only, do not make the function to fail
 				// continue to try other branches
-				log.Info(err.Error())
+				log.Debug(err.Error())
 				isWaitingForConfirmation = true
 				continue
 			}
@@ -685,7 +685,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 			return err
 		}
 
-		log.Infof("package broadcasted: %s", packageResponse)
+		log.Debugf("package broadcasted: %s", packageResponse)
 	}
 
 	return nil
@@ -1366,7 +1366,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("stopping onchain transaction listener")
+			log.Debug("stopping onchain transaction listener")
 			if err := a.explorer.UnsubscribeForAddresses(addresses); err != nil {
 				log.WithError(err).Error("failed to unsubscribe for onchain addresses")
 			}
@@ -2085,7 +2085,7 @@ func (a *arkClient) joinBatchWithRetry(
 			return "", err
 		}
 
-		log.Infof("registered inputs and outputs with request id: %s", intentID)
+		log.Debugf("registered inputs and outputs with request id: %s", intentID)
 
 		commitmentTxid, err := a.handleBatchEvents(
 			ctx, intentID, selectedCoins, selectedBoardingCoins, outputs, signerSessions,
