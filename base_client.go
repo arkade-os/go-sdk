@@ -75,7 +75,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		return err
 	}
 
-	if cfgData.NoLogs {
+	if !cfgData.Verbose {
 		log.SetLevel(log.ErrorLevel)
 	}
 
@@ -316,7 +316,7 @@ func (a *arkClient) initWithWallet(
 		},
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
-		NoLogs:                  args.NoLogs,
+		Verbose:                 args.Verbose,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -429,7 +429,7 @@ func (a *arkClient) init(
 		ExplorerURL:             explorerSvc.BaseUrl(),
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
-		NoLogs:                  args.NoLogs,
+		Verbose:                 args.Verbose,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
