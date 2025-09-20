@@ -41,6 +41,14 @@ var (
 	ErrNotInitialized     = fmt.Errorf("client not initialized")
 )
 
+type ClientOption func(*arkClient)
+
+func WithVerbose() ClientOption {
+	return func(c *arkClient) {
+		c.verbose = true
+	}
+}
+
 type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
@@ -50,6 +58,7 @@ type arkClient struct {
 	indexer  indexer.Indexer
 
 	txStreamCtxCancel context.CancelFunc
+	verbose           bool
 }
 
 func (a *arkClient) GetVersion() string {
@@ -75,7 +84,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		return err
 	}
 
-	if !cfgData.Verbose {
+	if !a.verbose {
 		log.SetLevel(log.ErrorLevel)
 	}
 
@@ -316,7 +325,6 @@ func (a *arkClient) initWithWallet(
 		},
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
-		Verbose:                 args.Verbose,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,
@@ -429,7 +437,6 @@ func (a *arkClient) init(
 		ExplorerURL:             explorerSvc.BaseUrl(),
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
-		Verbose:                 args.Verbose,
 		MarketHourStartTime:     info.MarketHourStartTime,
 		MarketHourEndTime:       info.MarketHourEndTime,
 		MarketHourPeriod:        info.MarketHourPeriod,

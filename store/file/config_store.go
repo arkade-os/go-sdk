@@ -65,7 +65,6 @@ func (s *configStore) AddData(ctx context.Context, data types.Config) error {
 		ExplorerURL:             data.ExplorerURL,
 		ForfeitAddress:          data.ForfeitAddress,
 		WithTransactionFeed:     strconv.FormatBool(data.WithTransactionFeed),
-		Verbose:                 strconv.FormatBool(data.Verbose),
 		MarketHourStartTime:     fmt.Sprintf("%d", data.MarketHourStartTime),
 		MarketHourEndTime:       fmt.Sprintf("%d", data.MarketHourEndTime),
 		MarketHourPeriod:        fmt.Sprintf("%d", data.MarketHourPeriod),

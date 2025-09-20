@@ -30,7 +30,6 @@ type InitArgs struct {
 	ExplorerURL          string
 	ExplorerPollInterval time.Duration
 	WithTransactionFeed  bool
-	Verbose              bool
 }
 
 func (a InitArgs) validate() error {
@@ -72,7 +71,6 @@ type InitWithWalletArgs struct {
 	ExplorerURL          string
 	ExplorerPollInterval time.Duration
 	WithTransactionFeed  bool
-	Verbose              bool
 }
 
 func (a InitWithWalletArgs) validate() error {

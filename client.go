@@ -42,7 +42,7 @@ var (
 	ErrWaitingForConfirmation = fmt.Errorf("waiting for confirmation(s), please retry later")
 )
 
-func NewArkClient(sdkStore types.Store) (ArkClient, error) {
+func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error) {
 	cfgData, err := sdkStore.ConfigStore().GetData(context.Background())
 	if err != nil {
 		return nil, err
@@ -52,10 +52,15 @@ func NewArkClient(sdkStore types.Store) (ArkClient, error) {
 		return nil, ErrAlreadyInitialized
 	}
 
-	return &arkClient{store: sdkStore}, nil
+	client := &arkClient{store: sdkStore}
+	for _, opt := range opts {
+		opt(client)
+	}
+
+	return client, nil
 }
 
-func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
+func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error) {
 	if sdkStore == nil {
 		return nil, fmt.Errorf("missing sdk repository")
 	}
@@ -106,6 +111,9 @@ func LoadArkClient(sdkStore types.Store) (ArkClient, error) {
 		explorer: explorerSvc,
 		client:   clientSvc,
 		indexer:  indexerSvc,
+	}
+	for _, opt := range opts {
+		opt(client)
 	}
 
 	return client, nil
