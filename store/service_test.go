@@ -18,17 +18,18 @@ import (
 var (
 	key, _         = btcec.NewPrivateKey()
 	testConfigData = types.Config{
-		ServerUrl:           "localhost:7070",
-		SignerPubKey:        key.PubKey(),
-		WalletType:          wallet.SingleKeyWallet,
-		ClientType:          client.GrpcClient,
-		Network:             arklib.BitcoinRegTest,
-		VtxoTreeExpiry:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		RoundInterval:       10,
-		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		Dust:                1000,
-		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		ForfeitAddress:      "bcrt1qzvqj",
+		ServerUrl:            "localhost:7070",
+		SignerPubKey:         key.PubKey(),
+		WalletType:           wallet.SingleKeyWallet,
+		ClientType:           client.GrpcClient,
+		Network:              arklib.BitcoinRegTest,
+		VtxoTreeExpiry:       arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		RoundInterval:        10,
+		UnilateralExitDelay:  arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		Dust:                 1000,
+		BoardingExitDelay:    arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		ForfeitAddress:       "bcrt1qzvqj",
+		ExplorerPollInterval: 10 * time.Second,
 		// CheckpointTapscript: "abcdefghijklmnopqrtuvxyz",
 	}
 
