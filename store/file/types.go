@@ -3,6 +3,7 @@ package filestore
 import (
 	"encoding/hex"
 	"strconv"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/internal/utils"
@@ -22,6 +23,7 @@ type storeData struct {
 	Dust                    string `json:"dust"`
 	BoardingExitDelay       string `json:"boarding_exit_delay"`
 	ExplorerURL             string `json:"explorer_url"`
+	ExplorerPollInterval    string `json:"explorer_poll_interval"`
 	ForfeitAddress          string `json:"forfeit_address"`
 	WithTransactionFeed     string `json:"with_transaction_feed"`
 	MarketHourStartTime     string `json:"market_hour_start_time"`
@@ -63,6 +65,8 @@ func (d storeData) decode() types.Config {
 	utxoMaxAmount, _ := strconv.Atoi(d.UtxoMaxAmount)
 	vtxoMinAmount, _ := strconv.Atoi(d.VtxoMinAmount)
 	vtxoMaxAmount, _ := strconv.Atoi(d.VtxoMaxAmount)
+	pollInterval, _ := strconv.Atoi(d.ExplorerPollInterval)
+	explorerPollInterval := time.Duration(pollInterval) * time.Second
 
 	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
 	if vtxoTreeExpiry >= 512 {
@@ -100,6 +104,7 @@ func (d storeData) decode() types.Config {
 			Value: uint32(boardingExitDelay),
 		},
 		ExplorerURL:             explorerURL,
+		ExplorerPollInterval:    explorerPollInterval,
 		ForfeitAddress:          d.ForfeitAddress,
 		WithTransactionFeed:     withTransactionFeed,
 		MarketHourStartTime:     int64(nextStartTime),
@@ -127,6 +132,7 @@ func (d storeData) asMap() map[string]string {
 		"dust":                       d.Dust,
 		"boarding_exit_delay":        d.BoardingExitDelay,
 		"explorer_url":               d.ExplorerURL,
+		"explorer_poll_interval":     d.ExplorerPollInterval,
 		"forfeit_address":            d.ForfeitAddress,
 		"with_transaction_feed":      d.WithTransactionFeed,
 		"market_hour_start_time":     d.MarketHourStartTime,

@@ -80,6 +80,7 @@ type explorerSvc struct {
 	channel       chan types.OnchainAddressEvent
 	stopTracking  func()
 	pollInterval  time.Duration
+	noTracking    bool
 }
 
 type Option func(*explorerSvc)
@@ -87,6 +88,14 @@ type Option func(*explorerSvc)
 func WithPollInterval(interval time.Duration) Option {
 	return func(svc *explorerSvc) {
 		svc.pollInterval = interval
+	}
+}
+
+func WithTracker(withTracker bool) Option {
+	return func(svc *explorerSvc) {
+		if !withTracker {
+			svc.noTracking = true
+		}
 	}
 }
 
@@ -100,6 +109,21 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 			)
 		}
 		return NewExplorer(baseUrl, net, opts...)
+	}
+
+	svcOpts := &explorerSvc{}
+	for _, opt := range opts {
+		opt(svcOpts)
+	}
+
+	if svcOpts.noTracking {
+		return &explorerSvc{
+			cache:        utils.NewCache[string](),
+			baseUrl:      baseUrl,
+			net:          net,
+			pollInterval: svcOpts.pollInterval,
+			noTracking:   svcOpts.noTracking,
+		}, nil
 	}
 
 	wsURL, err := deriveWsURL(baseUrl)
@@ -129,11 +153,8 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		subscribedMap: make(map[string]addressData),
 		channel:       make(chan types.OnchainAddressEvent, 100),
 		stopTracking:  cancel,
-		pollInterval:  defaultPollInterval,
-	}
-
-	for _, opt := range opts {
-		opt(svc)
+		pollInterval:  svcOpts.pollInterval,
+		noTracking:    svcOpts.noTracking,
 	}
 
 	if svc.conn == nil {
@@ -150,6 +171,10 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 }
 
 func (e *explorerSvc) Stop() {
+	if e.noTracking {
+		return
+	}
+
 	e.stopTracking()
 	if e.conn != nil {
 		if err := e.conn.Close(); err != nil {
@@ -300,6 +325,10 @@ func (e *explorerSvc) GetTxs(addr string) ([]tx, error) {
 }
 
 func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
+	if e.noTracking {
+		return nil
+	}
+
 	e.subscribedMu.Lock()
 	defer e.subscribedMu.Unlock()
 
@@ -337,6 +366,10 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 }
 
 func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
+	if e.noTracking {
+		return nil
+	}
+
 	e.subscribedMu.Lock()
 	defer e.subscribedMu.Unlock()
 
@@ -507,6 +540,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						err,
 						websocket.CloseNormalClosure,
 						websocket.CloseGoingAway,
+						websocket.CloseAbnormalClosure,
 					) ||
 						errors.Is(err, net.ErrClosed) {
 						return

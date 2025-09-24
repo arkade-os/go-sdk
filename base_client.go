@@ -41,6 +41,14 @@ var (
 	ErrNotInitialized     = fmt.Errorf("client not initialized")
 )
 
+type ClientOption func(*arkClient)
+
+func WithVerbose() ClientOption {
+	return func(c *arkClient) {
+		c.verbose = true
+	}
+}
+
 type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
@@ -50,6 +58,7 @@ type arkClient struct {
 	indexer  indexer.Indexer
 
 	txStreamCtxCancel context.CancelFunc
+	verbose           bool
 }
 
 func (a *arkClient) GetVersion() string {
@@ -73,6 +82,11 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 
 	if _, err := a.wallet.Unlock(ctx, pasword); err != nil {
 		return err
+	}
+
+	log.SetLevel(log.DebugLevel)
+	if !a.verbose {
+		log.SetLevel(log.ErrorLevel)
 	}
 
 	go func() {
@@ -250,15 +264,14 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{}
+	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
 	if args.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(
-		args.ExplorerURL,
-		utils.NetworkFromString(info.Network),
-		explorerOpts...)
+		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -318,6 +331,7 @@ func (a *arkClient) initWithWallet(
 		MarketHourPeriod:        info.MarketHourPeriod,
 		MarketHourRoundInterval: info.MarketHourRoundInterval,
 		ExplorerURL:             explorerSvc.BaseUrl(),
+		ExplorerPollInterval:    args.ExplorerPollInterval,
 		UtxoMinAmount:           info.UtxoMinAmount,
 		UtxoMaxAmount:           info.UtxoMaxAmount,
 		VtxoMinAmount:           info.VtxoMinAmount,
@@ -362,15 +376,14 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{}
+	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
 	if args.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(
-		args.ExplorerURL,
-		utils.NetworkFromString(info.Network),
-		explorerOpts...)
+		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -424,6 +437,7 @@ func (a *arkClient) init(
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
 		ExplorerURL:             explorerSvc.BaseUrl(),
+		ExplorerPollInterval:    args.ExplorerPollInterval,
 		ForfeitAddress:          info.ForfeitAddress,
 		WithTransactionFeed:     args.WithTransactionFeed,
 		MarketHourStartTime:     info.MarketHourStartTime,

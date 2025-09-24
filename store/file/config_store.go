@@ -63,6 +63,7 @@ func (s *configStore) AddData(ctx context.Context, data types.Config) error {
 		BoardingExitDelay:       fmt.Sprintf("%d", data.BoardingExitDelay.Value),
 		Dust:                    fmt.Sprintf("%d", data.Dust),
 		ExplorerURL:             data.ExplorerURL,
+		ExplorerPollInterval:    fmt.Sprintf("%.0f", data.ExplorerPollInterval.Seconds()),
 		ForfeitAddress:          data.ForfeitAddress,
 		WithTransactionFeed:     strconv.FormatBool(data.WithTransactionFeed),
 		MarketHourStartTime:     fmt.Sprintf("%d", data.MarketHourStartTime),
