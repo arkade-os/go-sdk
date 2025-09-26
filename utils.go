@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"slices"
@@ -13,7 +12,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/bip322"
+	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -313,37 +312,46 @@ func extractExitPath(tapscripts []string) ([]byte, *arklib.TaprootMerkleProof, u
 	return pkScript, leafProof, sequence, nil
 }
 
-// convert inputs to BIP322 inputs and return all the data needed to sign and proof PSBT
-func toBIP322Inputs(
+// convert regular coins (boarding, vtxos or notes) to intent proof inputs
+// it also returns the necessary data used to sign the proof PSBT
+func toIntentInputs(
 	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo, notes []string,
-) ([]bip322.Input, []*arklib.TaprootMerkleProof, map[string][]string, map[int][]byte, error) {
-	inputs := make([]bip322.Input, 0, len(boardingUtxos)+len(vtxos))
+) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
+	inputs := make([]intent.Input, 0, len(boardingUtxos)+len(vtxos))
 	exitLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
-	tapscripts := make(map[string][]string)
-	notesWitnesses := make(map[int][]byte)
+	arkFields := make([][]*psbt.Unknown, 0, len(boardingUtxos)+len(vtxos))
 
 	for _, coin := range vtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
-		tapscripts[outpoint.String()] = coin.Tapscripts
-
 		pkScript, leafProof, vtxoSequence, err := extractExitPath(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		exitLeaves = append(exitLeaves, leafProof)
 
-		inputs = append(inputs, bip322.Input{
+		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
 			Sequence: vtxoSequence,
 			WitnessUtxo: &wire.TxOut{
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
+			},
+		})
+
+		taptree, err := txutils.TapTree(coin.Tapscripts).Encode()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		arkFields = append(arkFields, []*psbt.Unknown{
+			{
+				Value: taptree,
+				Key:   txutils.VTXO_TAPROOT_TREE_KEY,
 			},
 		})
 	}
@@ -351,20 +359,18 @@ func toBIP322Inputs(
 	for _, coin := range boardingUtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
-		tapscripts[outpoint.String()] = coin.Tapscripts
-
 		pkScript, leafProof, vtxoSequence, err := extractExitPath(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		exitLeaves = append(exitLeaves, leafProof)
 
-		inputs = append(inputs, bip322.Input{
+		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
 			Sequence: vtxoSequence,
 			WitnessUtxo: &wire.TxOut{
@@ -372,74 +378,74 @@ func toBIP322Inputs(
 				PkScript: pkScript,
 			},
 		})
+
+		taptree, err := txutils.TapTree(coin.Tapscripts).Encode()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to encode taptree: %w", err)
+		}
+		arkFields = append(arkFields, []*psbt.Unknown{
+			{
+				Value: taptree,
+				Key:   txutils.VTXO_TAPROOT_TREE_KEY,
+			},
+		})
 	}
 
 	nextInputIndex := len(inputs)
 	if nextInputIndex > 0 {
-		// if there is non-notes inputs, count the extra bip322 input
+		// if there is non-notes inputs, count the extra intent proof input
 		nextInputIndex++
 	}
 
 	for _, n := range notes {
 		parsedNote, err := note.NewNoteFromString(n)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		input, err := parsedNote.BIP322Input()
+		outpoint, input, err := parsedNote.IntentProofInput()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		inputs = append(inputs, *input)
+		inputs = append(inputs, intent.Input{
+			OutPoint: outpoint,
+			Sequence: wire.MaxTxInSequenceNum,
+			WitnessUtxo: &wire.TxOut{
+				Value:    input.WitnessUtxo.Value,
+				PkScript: input.WitnessUtxo.PkScript,
+			},
+		})
 
 		vtxoScript := parsedNote.VtxoScript()
 
 		_, taprootTree, err := vtxoScript.TapTree()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		exitScript, err := vtxoScript.Closures[0].Script()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		exitLeaf := txscript.NewBaseTapLeaf(exitScript)
 		leafProof, err := taprootTree.GetTaprootMerkleProof(exitLeaf.TapHash())
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
+			return nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 		}
 
-		witness, err := vtxoScript.Closures[0].Witness(leafProof.ControlBlock, map[string][]byte{
-			"preimage": parsedNote.Preimage[:],
-		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to get witness: %s", err)
-		}
-
-		var witnessBuf bytes.Buffer
-		if err := psbt.WriteTxWitness(&witnessBuf, witness); err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to write witness: %s", err)
-		}
-
-		notesWitnesses[nextInputIndex] = witnessBuf.Bytes()
 		nextInputIndex++
 		// if the note vtxo is the first input, it will be used twice
 		if nextInputIndex == 1 {
-			notesWitnesses[nextInputIndex] = witnessBuf.Bytes()
 			nextInputIndex++
 		}
 
 		exitLeaves = append(exitLeaves, leafProof)
-		encodedVtxoScript, err := vtxoScript.Encode()
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
-		tapscripts[input.OutPoint.String()] = encodedVtxoScript
+		arkFields = append(arkFields, input.Unknowns)
 	}
 
-	return inputs, exitLeaves, tapscripts, notesWitnesses, nil
+	return inputs, exitLeaves, arkFields, nil
 }
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []VtxoDetails) {
 	nextExpiration := int64(0)
@@ -497,31 +503,6 @@ func computeVSize(tx *wire.MsgTx) lntypes.VByte {
 	return lntypes.WeightUnit(uint64(weight)).ToVB()
 }
 
-// custom BIP322 finalizer function handling note vtxo inputs
-func finalizeWithNotes(notesWitnesses map[int][]byte) func(ptx *psbt.Packet) error {
-	return func(ptx *psbt.Packet) error {
-		for i, input := range ptx.Inputs {
-			witness, isNote := notesWitnesses[i]
-			if !isNote {
-				ok, err := psbt.MaybeFinalize(ptx, i)
-				if err != nil {
-					return fmt.Errorf("failed to finalize input %d: %s", i, err)
-				}
-				if !ok {
-					return fmt.Errorf("failed to finalize input %d", i)
-				}
-				continue
-			}
-
-			newInput := psbt.NewPsbtInput(nil, input.WitnessUtxo)
-			newInput.FinalScriptWitness = witness
-			ptx.Inputs[i] = *newInput
-		}
-
-		return nil
-	}
-}
-
 func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
 	opts, ok := o.(*SettleOptions)
 	if !ok {
@@ -532,29 +513,13 @@ func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
 }
 
 func registerIntentMessage(
-	inputs []bip322.Input, outputs []types.Receiver, tapscripts map[string][]string,
+	inputs []intent.Input, outputs []types.Receiver,
 	cosignersPublicKeys []string,
 ) (string, []*wire.TxOut, error) {
 	validAt := time.Now()
 	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
 	onchainOutputsIndexes := make([]int, 0)
-	inputTapTrees := make([]string, 0)
-
-	for _, input := range inputs {
-		outpointStr := input.OutPoint.String()
-		tapscripts, ok := tapscripts[outpointStr]
-		if !ok {
-			return "", nil, fmt.Errorf("no tapscripts found for input %s", outpointStr)
-		}
-
-		encodedTapTree, err := txutils.TapTree(tapscripts).Encode()
-		if err != nil {
-			return "", nil, err
-		}
-
-		inputTapTrees = append(inputTapTrees, hex.EncodeToString(encodedTapTree))
-	}
 
 	for i, output := range outputs {
 		txOut, isOnchain, err := output.ToTxOut()
@@ -569,11 +534,10 @@ func registerIntentMessage(
 		outputsTxOut = append(outputsTxOut, txOut)
 	}
 
-	message, err := bip322.IntentMessage{
-		BaseIntentMessage: bip322.BaseIntentMessage{
-			Type: bip322.IntentMessageTypeRegister,
+	message, err := intent.RegisterMessage{
+		BaseMessage: intent.BaseMessage{
+			Type: intent.IntentMessageTypeRegister,
 		},
-		InputTapTrees:        inputTapTrees,
 		OnchainOutputIndexes: onchainOutputsIndexes,
 		ExpireAt:             expireAt,
 		ValidAt:              validAt.Unix(),
