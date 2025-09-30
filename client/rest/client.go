@@ -136,12 +136,12 @@ func (a *restClient) GetInfo(
 
 func (a *restClient) RegisterIntent(
 	ctx context.Context,
-	signature, message string,
+	proof, message string,
 ) (string, error) {
 	body := &models.V1RegisterIntentRequest{
-		Intent: &models.V1Bip322Signature{
-			Message:   message,
-			Signature: signature,
+		Intent: &models.V1Intent{
+			Message: message,
+			Proof:   proof,
 		},
 	}
 	resp, err := a.svc.ArkServiceRegisterIntent(
@@ -154,11 +154,11 @@ func (a *restClient) RegisterIntent(
 	return resp.Payload.IntentID, nil
 }
 
-func (a *restClient) DeleteIntent(_ context.Context, signature, message string) error {
+func (a *restClient) DeleteIntent(_ context.Context, proof, message string) error {
 	body := &models.V1DeleteIntentRequest{
-		Proof: &models.V1Bip322Signature{
-			Message:   message,
-			Signature: signature,
+		Intent: &models.V1Intent{
+			Message: message,
+			Proof:   proof,
 		},
 	}
 

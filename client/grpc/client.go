@@ -147,12 +147,12 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 
 func (a *grpcClient) RegisterIntent(
 	ctx context.Context,
-	signature, message string,
+	proof, message string,
 ) (string, error) {
 	req := &arkv1.RegisterIntentRequest{
-		Intent: &arkv1.Bip322Signature{
-			Message:   message,
-			Signature: signature,
+		Intent: &arkv1.Intent{
+			Message: message,
+			Proof:   proof,
 		},
 	}
 
@@ -163,11 +163,11 @@ func (a *grpcClient) RegisterIntent(
 	return resp.GetIntentId(), nil
 }
 
-func (a *grpcClient) DeleteIntent(ctx context.Context, signature, message string) error {
+func (a *grpcClient) DeleteIntent(ctx context.Context, proof, message string) error {
 	req := &arkv1.DeleteIntentRequest{
-		Proof: &arkv1.Bip322Signature{
-			Message:   message,
-			Signature: signature,
+		Intent: &arkv1.Intent{
+			Message: message,
+			Proof:   proof,
 		},
 	}
 	_, err := a.svc().DeleteIntent(ctx, req)
