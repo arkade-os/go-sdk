@@ -19,8 +19,8 @@ var (
 
 type TransportClient interface {
 	GetInfo(ctx context.Context) (*Info, error)
-	RegisterIntent(ctx context.Context, signature, message string) (string, error)
-	DeleteIntent(ctx context.Context, signature, message string) error
+	RegisterIntent(ctx context.Context, proof, message string) (string, error)
+	DeleteIntent(ctx context.Context, proof, message string) error
 	ConfirmRegistration(ctx context.Context, intentID string) error
 	SubmitTreeNonces(
 		ctx context.Context,

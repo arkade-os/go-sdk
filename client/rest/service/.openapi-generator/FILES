@@ -6,7 +6,6 @@ model_batch_failed_event.go
 model_batch_finalization_event.go
 model_batch_finalized_event.go
 model_batch_started_event.go
-model_bip322_signature.go
 model_confirm_registration_request.go
 model_delete_intent_request.go
 model_finalize_tx_request.go
@@ -14,6 +13,7 @@ model_get_event_stream_request.go
 model_get_event_stream_response.go
 model_get_info_response.go
 model_get_transactions_stream_response.go
+model_intent.go
 model_market_hour.go
 model_outpoint.go
 model_register_intent_request.go

@@ -74,13 +74,13 @@ func (a *restClient) GetInfo(
 }
 
 func (a *restClient) RegisterIntent(
-	ctx context.Context, signature, message string,
+	ctx context.Context, proof, message string,
 ) (string, error) {
 	req := a.svc.ArkServiceAPI.ArkServiceRegisterIntent(ctx).
 		RegisterIntentRequest(ark_service.RegisterIntentRequest{
-			Intent: &ark_service.Bip322Signature{
-				Message:   &message,
-				Signature: &signature,
+			Intent: &ark_service.Intent{
+				Message: &message,
+				Proof:   &proof,
 			},
 		})
 
@@ -92,12 +92,12 @@ func (a *restClient) RegisterIntent(
 	return resp.GetIntentId(), nil
 }
 
-func (a *restClient) DeleteIntent(ctx context.Context, signature, message string) error {
+func (a *restClient) DeleteIntent(ctx context.Context, proof, message string) error {
 	req := a.svc.ArkServiceAPI.ArkServiceDeleteIntent(ctx).
 		DeleteIntentRequest(ark_service.DeleteIntentRequest{
-			Proof: &ark_service.Bip322Signature{
-				Message:   &message,
-				Signature: &signature,
+			Intent: &ark_service.Intent{
+				Message: &message,
+				Proof:   &proof,
 			},
 		})
 

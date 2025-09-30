@@ -19,8 +19,8 @@ var _ MappedNullable = &RegisterIntentRequest{}
 
 // RegisterIntentRequest struct for RegisterIntentRequest
 type RegisterIntentRequest struct {
-	// BIP322 signature embeds the outpoints to be spent and new ones to be created, as well as the the proof of funds.
-		Intent *Bip322Signature `json:"intent,omitempty"`
+	// an intent proof that embeds the outpoints to be spent and new ones to be created, as well as the proof of funds.
+		Intent *Intent `json:"intent,omitempty"`
 }
 
 // NewRegisterIntentRequest instantiates a new RegisterIntentRequest object
@@ -41,9 +41,9 @@ func NewRegisterIntentRequestWithDefaults() *RegisterIntentRequest {
 }
 
 // GetIntent returns the Intent field value if set, zero value otherwise.
-func (o *RegisterIntentRequest) GetIntent() Bip322Signature {
+func (o *RegisterIntentRequest) GetIntent() Intent {
 	if o == nil || IsNil(o.Intent) {
-		var ret Bip322Signature
+		var ret Intent
 		return ret
 	}
 	return *o.Intent
@@ -51,7 +51,7 @@ func (o *RegisterIntentRequest) GetIntent() Bip322Signature {
 
 // GetIntentOk returns a tuple with the Intent field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RegisterIntentRequest) GetIntentOk() (*Bip322Signature, bool) {
+func (o *RegisterIntentRequest) GetIntentOk() (*Intent, bool) {
 	if o == nil || IsNil(o.Intent) {
 		return nil, false
 	}
@@ -67,8 +67,8 @@ func (o *RegisterIntentRequest) HasIntent() bool {
 	return false
 }
 
-// SetIntent gets a reference to the given Bip322Signature and assigns it to the Intent field.
-func (o *RegisterIntentRequest) SetIntent(v Bip322Signature) {
+// SetIntent gets a reference to the given Intent and assigns it to the Intent field.
+func (o *RegisterIntentRequest) SetIntent(v Intent) {
 	o.Intent = &v
 }
 

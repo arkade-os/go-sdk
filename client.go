@@ -14,7 +14,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/bip322"
+	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
@@ -924,22 +924,21 @@ func (a *arkClient) RegisterIntent(
 		return "", err
 	}
 
-	inputs, exitLeaves, tapscripts, notesWitnesses, err := toBIP322Inputs(
+	inputs, exitLeaves, arkFields, err := toIntentInputs(
 		boardingUtxos, vtxosWithTapscripts, notes,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	bip322Signature, bip322Message, err := a.makeRegisterIntentBIP322Signature(
-		inputs, exitLeaves, tapscripts,
-		outputs, cosignersPublicKeys, notesWitnesses,
+	proofTx, message, err := a.makeRegisterIntent(
+		inputs, exitLeaves, outputs, cosignersPublicKeys, arkFields,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	return a.client.RegisterIntent(ctx, bip322Signature, bip322Message)
+	return a.client.RegisterIntent(ctx, proofTx, message)
 }
 
 func (a *arkClient) DeleteIntent(
@@ -950,21 +949,19 @@ func (a *arkClient) DeleteIntent(
 		return err
 	}
 
-	inputs, exitLeaves, _, notesWitnesses, err := toBIP322Inputs(
+	inputs, exitLeaves, arkFields, err := toIntentInputs(
 		boardingUtxos, vtxosWithTapscripts, notes,
 	)
 	if err != nil {
 		return err
 	}
 
-	bip322Signature, bip322Message, err := a.makeDeleteIntentBIP322Signature(
-		inputs, exitLeaves, notesWitnesses,
-	)
+	proofTx, message, err := a.makeDeleteIntent(inputs, exitLeaves, arkFields)
 	if err != nil {
 		return err
 	}
 
-	return a.client.DeleteIntent(ctx, bip322Signature, bip322Message)
+	return a.client.DeleteIntent(ctx, proofTx, message)
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
@@ -1844,26 +1841,26 @@ func (a *arkClient) sendOffchain(
 	return a.joinBatchWithRetry(ctx, nil, outputs, *options, vtxos, boardingUtxos)
 }
 
-func (a *arkClient) makeRegisterIntentBIP322Signature(
-	inputs []bip322.Input, leafProofs []*arklib.TaprootMerkleProof, tapscripts map[string][]string,
-	outputs []types.Receiver, cosignersPublicKeys []string, notesWitnesses map[int][]byte,
+func (a *arkClient) makeRegisterIntent(
+	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof,
+	outputs []types.Receiver, cosignersPublicKeys []string, arkFields [][]*psbt.Unknown,
 ) (string, string, error) {
 	message, outputsTxOut, err := registerIntentMessage(
-		inputs, outputs, tapscripts, cosignersPublicKeys,
+		inputs, outputs, cosignersPublicKeys,
 	)
 	if err != nil {
 		return "", "", err
 	}
 
-	return a.makeBIP322Signature(message, inputs, outputsTxOut, leafProofs, notesWitnesses)
+	return a.makeIntent(message, inputs, outputsTxOut, leafProofs, arkFields)
 }
 
-func (a *arkClient) makeDeleteIntentBIP322Signature(
-	inputs []bip322.Input, leafProofs []*arklib.TaprootMerkleProof, notesWitnesses map[int][]byte,
+func (a *arkClient) makeDeleteIntent(
+	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
 ) (string, string, error) {
-	message, err := bip322.DeleteIntentMessage{
-		BaseIntentMessage: bip322.BaseIntentMessage{
-			Type: bip322.IntentMessageTypeDelete,
+	message, err := intent.DeleteMessage{
+		BaseMessage: intent.BaseMessage{
+			Type: intent.IntentMessageTypeDelete,
 		},
 		ExpireAt: time.Now().Add(2 * time.Minute).Unix(),
 	}.Encode()
@@ -1871,26 +1868,27 @@ func (a *arkClient) makeDeleteIntentBIP322Signature(
 		return "", "", err
 	}
 
-	return a.makeBIP322Signature(message, inputs, nil, leafProofs, notesWitnesses)
+	return a.makeIntent(message, inputs, nil, leafProofs, arkFields)
 }
 
-func (a *arkClient) makeBIP322Signature(
-	message string, inputs []bip322.Input, outputsTxOut []*wire.TxOut,
-	leafProofs []*arklib.TaprootMerkleProof, notesWitnesses map[int][]byte,
+func (a *arkClient) makeIntent(
+	message string, inputs []intent.Input, outputsTxOut []*wire.TxOut,
+	leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
 ) (string, string, error) {
-	proof, err := bip322.New(message, inputs, outputsTxOut)
+	proof, err := intent.New(message, inputs, outputsTxOut)
 	if err != nil {
 		return "", "", err
 	}
 
 	for i, input := range proof.Inputs {
-		// BIP322 proof has an additional input using the first vtxo script
+		// intent proof tx has an additional input using the first vtxo script
 		// so we need to use the previous leaf proof for the current input except for the first input
 		var leafProof *arklib.TaprootMerkleProof
 		if i == 0 {
 			leafProof = leafProofs[0]
 		} else {
 			leafProof = leafProofs[i-1]
+			input.Unknowns = arkFields[i-1]
 		}
 		input.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
 			{
@@ -1903,9 +1901,7 @@ func (a *arkClient) makeBIP322Signature(
 		proof.Inputs[i] = input
 	}
 
-	proofTx := psbt.Packet(*proof)
-
-	unsignedProofTx, err := proofTx.B64Encode()
+	unsignedProofTx, err := proof.B64Encode()
 	if err != nil {
 		return "", "", err
 	}
@@ -1915,24 +1911,7 @@ func (a *arkClient) makeBIP322Signature(
 		return "", "", err
 	}
 
-	signedProofTx, err := psbt.NewFromRawBytes(strings.NewReader(signedTx), true)
-	if err != nil {
-		return "", "", err
-	}
-
-	proof = (*bip322.FullProof)(signedProofTx)
-
-	sig, err := proof.Signature(finalizeWithNotes(notesWitnesses))
-	if err != nil {
-		return "", "", err
-	}
-
-	encodedSig, err := sig.Encode()
-	if err != nil {
-		return "", "", err
-	}
-
-	return encodedSig, message, nil
+	return signedTx, message, nil
 }
 
 func (a *arkClient) addInputs(
@@ -2047,7 +2026,7 @@ func (a *arkClient) joinBatchWithRetry(
 	ctx context.Context, notes []string, outputs []types.Receiver, options SettleOptions,
 	selectedCoins []client.TapscriptsVtxo, selectedBoardingCoins []types.Utxo,
 ) (string, error) {
-	inputs, exitLeaves, tapscripts, notesWitnesses, err := toBIP322Inputs(
+	inputs, exitLeaves, arkFields, err := toIntentInputs(
 		selectedBoardingCoins, selectedCoins, notes,
 	)
 	if err != nil {
@@ -2059,8 +2038,8 @@ func (a *arkClient) joinBatchWithRetry(
 		return "", err
 	}
 
-	bip322Signature, bip322Message, err := a.makeRegisterIntentBIP322Signature(
-		inputs, exitLeaves, tapscripts, outputs, signerPubKeys, notesWitnesses,
+	proofTx, message, err := a.makeRegisterIntent(
+		inputs, exitLeaves, outputs, signerPubKeys, arkFields,
 	)
 	if err != nil {
 		return "", err
@@ -2070,9 +2049,7 @@ func (a *arkClient) joinBatchWithRetry(
 	retryCount := 0
 	var batchErr error
 	for retryCount < maxRetry {
-		intentID, err := a.client.RegisterIntent(
-			ctx, bip322Signature, bip322Message,
-		)
+		intentID, err := a.client.RegisterIntent(ctx, proofTx, message)
 		if err != nil {
 			return "", err
 		}
@@ -2753,7 +2730,7 @@ func (a *arkClient) handleArkTx(
 }
 
 func (a *arkClient) handleOptions(
-	options SettleOptions, inputs []bip322.Input, notesInputs []string,
+	options SettleOptions, inputs []intent.Input, notesInputs []string,
 ) ([]tree.SignerSession, []string, error) {
 	sessions := make([]tree.SignerSession, 0)
 	sessions = append(sessions, options.ExtraSignerSessions...)

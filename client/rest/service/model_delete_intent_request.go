@@ -19,8 +19,8 @@ var _ MappedNullable = &DeleteIntentRequest{}
 
 // DeleteIntentRequest struct for DeleteIntentRequest
 type DeleteIntentRequest struct {
-	// A BIP322 signature that includes any of the inputs of the intent to be deleted to prove the ownership of that intent.
-		Proof *Bip322Signature `json:"proof,omitempty"`
+	// an intent proof that includes any of the inputs of the intent to be deleted to prove the ownership of that intent.
+		Intent *Intent `json:"intent,omitempty"`
 }
 
 // NewDeleteIntentRequest instantiates a new DeleteIntentRequest object
@@ -40,36 +40,36 @@ func NewDeleteIntentRequestWithDefaults() *DeleteIntentRequest {
 	return &this
 }
 
-// GetProof returns the Proof field value if set, zero value otherwise.
-func (o *DeleteIntentRequest) GetProof() Bip322Signature {
-	if o == nil || IsNil(o.Proof) {
-		var ret Bip322Signature
+// GetIntent returns the Intent field value if set, zero value otherwise.
+func (o *DeleteIntentRequest) GetIntent() Intent {
+	if o == nil || IsNil(o.Intent) {
+		var ret Intent
 		return ret
 	}
-	return *o.Proof
+	return *o.Intent
 }
 
-// GetProofOk returns a tuple with the Proof field value if set, nil otherwise
+// GetIntentOk returns a tuple with the Intent field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *DeleteIntentRequest) GetProofOk() (*Bip322Signature, bool) {
-	if o == nil || IsNil(o.Proof) {
+func (o *DeleteIntentRequest) GetIntentOk() (*Intent, bool) {
+	if o == nil || IsNil(o.Intent) {
 		return nil, false
 	}
-	return o.Proof, true
+	return o.Intent, true
 }
 
-// HasProof returns a boolean if a field has been set.
-func (o *DeleteIntentRequest) HasProof() bool {
-	if o != nil && !IsNil(o.Proof) {
+// HasIntent returns a boolean if a field has been set.
+func (o *DeleteIntentRequest) HasIntent() bool {
+	if o != nil && !IsNil(o.Intent) {
 		return true
 	}
 
 	return false
 }
 
-// SetProof gets a reference to the given Bip322Signature and assigns it to the Proof field.
-func (o *DeleteIntentRequest) SetProof(v Bip322Signature) {
-	o.Proof = &v
+// SetIntent gets a reference to the given Intent and assigns it to the Intent field.
+func (o *DeleteIntentRequest) SetIntent(v Intent) {
+	o.Intent = &v
 }
 
 func (o DeleteIntentRequest) MarshalJSON() ([]byte, error) {
@@ -82,8 +82,8 @@ func (o DeleteIntentRequest) MarshalJSON() ([]byte, error) {
 
 func (o DeleteIntentRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Proof) {
-		toSerialize["proof"] = o.Proof
+	if !IsNil(o.Intent) {
+		toSerialize["intent"] = o.Intent
 	}
 	return toSerialize, nil
 }
