@@ -150,7 +150,7 @@ func (a *grpcClient) RegisterIntent(
 	proof, message string,
 ) (string, error) {
 	req := &arkv1.RegisterIntentRequest{
-		Intent: &arkv1.IntentProof{
+		Intent: &arkv1.Intent{
 			Message: message,
 			Proof:   proof,
 		},
@@ -165,7 +165,7 @@ func (a *grpcClient) RegisterIntent(
 
 func (a *grpcClient) DeleteIntent(ctx context.Context, proof, message string) error {
 	req := &arkv1.DeleteIntentRequest{
-		Proof: &arkv1.IntentProof{
+		Intent: &arkv1.Intent{
 			Message: message,
 			Proof:   proof,
 		},

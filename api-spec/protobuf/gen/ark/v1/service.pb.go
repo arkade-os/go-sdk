@@ -209,8 +209,8 @@ func (x *GetInfoResponse) GetBoardingExitDelay() int64 {
 type RegisterIntentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// an intent proof that embeds the outpoints to be spent and new ones to be created, as well as the
-	// the proof of funds.
-	Intent        *IntentProof `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
+	// proof of funds.
+	Intent        *Intent `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -245,7 +245,7 @@ func (*RegisterIntentRequest) Descriptor() ([]byte, []int) {
 	return file_ark_v1_service_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RegisterIntentRequest) GetIntent() *IntentProof {
+func (x *RegisterIntentRequest) GetIntent() *Intent {
 	if x != nil {
 		return x.Intent
 	}
@@ -300,7 +300,7 @@ type DeleteIntentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// an intent proof that includes any of the inputs of the intent to be deleted to prove the
 	// ownership of that intent.
-	Proof         *IntentProof `protobuf:"bytes,1,opt,name=proof,proto3" json:"proof,omitempty"`
+	Intent        *Intent `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -335,9 +335,9 @@ func (*DeleteIntentRequest) Descriptor() ([]byte, []int) {
 	return file_ark_v1_service_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *DeleteIntentRequest) GetProof() *IntentProof {
+func (x *DeleteIntentRequest) GetIntent() *Intent {
 	if x != nil {
-		return x.Proof
+		return x.Intent
 	}
 	return nil
 }
@@ -1302,13 +1302,13 @@ const file_ark_v1_service_proto_rawDesc = "" +
 	"\x0futxo_max_amount\x18\v \x01(\x03R\rutxoMaxAmount\x12&\n" +
 	"\x0fvtxo_min_amount\x18\f \x01(\x03R\rvtxoMinAmount\x12&\n" +
 	"\x0fvtxo_max_amount\x18\r \x01(\x03R\rvtxoMaxAmount\x12.\n" +
-	"\x13boarding_exit_delay\x18\x0e \x01(\x03R\x11boardingExitDelay\"D\n" +
-	"\x15RegisterIntentRequest\x12+\n" +
-	"\x06intent\x18\x01 \x01(\v2\x13.ark.v1.IntentProofR\x06intent\"5\n" +
+	"\x13boarding_exit_delay\x18\x0e \x01(\x03R\x11boardingExitDelay\"?\n" +
+	"\x15RegisterIntentRequest\x12&\n" +
+	"\x06intent\x18\x01 \x01(\v2\x0e.ark.v1.IntentR\x06intent\"5\n" +
 	"\x16RegisterIntentResponse\x12\x1b\n" +
-	"\tintent_id\x18\x01 \x01(\tR\bintentId\"@\n" +
-	"\x13DeleteIntentRequest\x12)\n" +
-	"\x05proof\x18\x01 \x01(\v2\x13.ark.v1.IntentProofR\x05proof\"\x16\n" +
+	"\tintent_id\x18\x01 \x01(\tR\bintentId\"=\n" +
+	"\x13DeleteIntentRequest\x12&\n" +
+	"\x06intent\x18\x01 \x01(\v2\x0e.ark.v1.IntentR\x06intent\"\x16\n" +
 	"\x14DeleteIntentResponse\"9\n" +
 	"\x1aConfirmRegistrationRequest\x12\x1b\n" +
 	"\tintent_id\x18\x01 \x01(\tR\bintentId\"\x1d\n" +
@@ -1412,7 +1412,7 @@ var file_ark_v1_service_proto_goTypes = []any{
 	(*GetTransactionsStreamRequest)(nil),   // 20: ark.v1.GetTransactionsStreamRequest
 	(*GetTransactionsStreamResponse)(nil),  // 21: ark.v1.GetTransactionsStreamResponse
 	(*MarketHour)(nil),                     // 22: ark.v1.MarketHour
-	(*IntentProof)(nil),                    // 23: ark.v1.IntentProof
+	(*Intent)(nil),                         // 23: ark.v1.Intent
 	(*BatchStartedEvent)(nil),              // 24: ark.v1.BatchStartedEvent
 	(*BatchFinalizationEvent)(nil),         // 25: ark.v1.BatchFinalizationEvent
 	(*BatchFinalizedEvent)(nil),            // 26: ark.v1.BatchFinalizedEvent
@@ -1425,8 +1425,8 @@ var file_ark_v1_service_proto_goTypes = []any{
 }
 var file_ark_v1_service_proto_depIdxs = []int32{
 	22, // 0: ark.v1.GetInfoResponse.market_hour:type_name -> ark.v1.MarketHour
-	23, // 1: ark.v1.RegisterIntentRequest.intent:type_name -> ark.v1.IntentProof
-	23, // 2: ark.v1.DeleteIntentRequest.proof:type_name -> ark.v1.IntentProof
+	23, // 1: ark.v1.RegisterIntentRequest.intent:type_name -> ark.v1.Intent
+	23, // 2: ark.v1.DeleteIntentRequest.intent:type_name -> ark.v1.Intent
 	24, // 3: ark.v1.GetEventStreamResponse.batch_started:type_name -> ark.v1.BatchStartedEvent
 	25, // 4: ark.v1.GetEventStreamResponse.batch_finalization:type_name -> ark.v1.BatchFinalizationEvent
 	26, // 5: ark.v1.GetEventStreamResponse.batch_finalized:type_name -> ark.v1.BatchFinalizedEvent

@@ -20,14 +20,14 @@ type V1DeleteIntentRequest struct {
 
 	// an intent proof that includes any of the inputs of the intent to be deleted to prove the
 	// ownership of that intent.
-	Proof *V1IntentProof `json:"proof,omitempty"`
+	Intent *V1Intent `json:"intent,omitempty"`
 }
 
 // Validate validates this v1 delete intent request
 func (m *V1DeleteIntentRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateProof(formats); err != nil {
+	if err := m.validateIntent(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -37,17 +37,17 @@ func (m *V1DeleteIntentRequest) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *V1DeleteIntentRequest) validateProof(formats strfmt.Registry) error {
-	if swag.IsZero(m.Proof) { // not required
+func (m *V1DeleteIntentRequest) validateIntent(formats strfmt.Registry) error {
+	if swag.IsZero(m.Intent) { // not required
 		return nil
 	}
 
-	if m.Proof != nil {
-		if err := m.Proof.Validate(formats); err != nil {
+	if m.Intent != nil {
+		if err := m.Intent.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("proof")
+				return ve.ValidateName("intent")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("proof")
+				return ce.ValidateName("intent")
 			}
 			return err
 		}
@@ -60,7 +60,7 @@ func (m *V1DeleteIntentRequest) validateProof(formats strfmt.Registry) error {
 func (m *V1DeleteIntentRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.contextValidateProof(ctx, formats); err != nil {
+	if err := m.contextValidateIntent(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -70,19 +70,19 @@ func (m *V1DeleteIntentRequest) ContextValidate(ctx context.Context, formats str
 	return nil
 }
 
-func (m *V1DeleteIntentRequest) contextValidateProof(ctx context.Context, formats strfmt.Registry) error {
+func (m *V1DeleteIntentRequest) contextValidateIntent(ctx context.Context, formats strfmt.Registry) error {
 
-	if m.Proof != nil {
+	if m.Intent != nil {
 
-		if swag.IsZero(m.Proof) { // not required
+		if swag.IsZero(m.Intent) { // not required
 			return nil
 		}
 
-		if err := m.Proof.ContextValidate(ctx, formats); err != nil {
+		if err := m.Intent.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("proof")
+				return ve.ValidateName("intent")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("proof")
+				return ce.ValidateName("intent")
 			}
 			return err
 		}

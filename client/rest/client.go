@@ -139,7 +139,7 @@ func (a *restClient) RegisterIntent(
 	proof, message string,
 ) (string, error) {
 	body := &models.V1RegisterIntentRequest{
-		Intent: &models.V1IntentProof{
+		Intent: &models.V1Intent{
 			Message: message,
 			Proof:   proof,
 		},
@@ -156,7 +156,7 @@ func (a *restClient) RegisterIntent(
 
 func (a *restClient) DeleteIntent(_ context.Context, proof, message string) error {
 	body := &models.V1DeleteIntentRequest{
-		Proof: &models.V1IntentProof{
+		Intent: &models.V1Intent{
 			Message: message,
 			Proof:   proof,
 		},

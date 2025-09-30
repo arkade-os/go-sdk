@@ -12,10 +12,10 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// V1IntentProof v1 intent proof
+// V1Intent v1 intent
 //
-// swagger:model v1IntentProof
-type V1IntentProof struct {
+// swagger:model v1Intent
+type V1Intent struct {
 
 	// message
 	Message string `json:"message,omitempty"`
@@ -24,18 +24,18 @@ type V1IntentProof struct {
 	Proof string `json:"proof,omitempty"`
 }
 
-// Validate validates this v1 intent proof
-func (m *V1IntentProof) Validate(formats strfmt.Registry) error {
+// Validate validates this v1 intent
+func (m *V1Intent) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this v1 intent proof based on context it is used
-func (m *V1IntentProof) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this v1 intent based on context it is used
+func (m *V1Intent) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *V1IntentProof) MarshalBinary() ([]byte, error) {
+func (m *V1Intent) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -43,8 +43,8 @@ func (m *V1IntentProof) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *V1IntentProof) UnmarshalBinary(b []byte) error {
-	var res V1IntentProof
+func (m *V1Intent) UnmarshalBinary(b []byte) error {
+	var res V1Intent
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

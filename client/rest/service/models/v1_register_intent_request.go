@@ -19,8 +19,8 @@ import (
 type V1RegisterIntentRequest struct {
 
 	// an intent proof that embeds the outpoints to be spent and new ones to be created, as well as the
-	// the proof of funds.
-	Intent *V1IntentProof `json:"intent,omitempty"`
+	// proof of funds.
+	Intent *V1Intent `json:"intent,omitempty"`
 }
 
 // Validate validates this v1 register intent request
