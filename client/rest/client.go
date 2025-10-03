@@ -292,23 +292,30 @@ func (c *restClient) GetEventStream(
 			case !ark_service.IsNil(event.GetTreeNonces()):
 				e := event.GetTreeNonces()
 				nonces := make(map[string]*tree.Musig2Nonce)
+				var _err error
+				var mustBreak bool
 				for pubkey, nonce := range e.Nonces {
 					pubnonce, err := hex.DecodeString(nonce)
 					if err != nil {
+						mustBreak = true
+						_err = err
 						break
 					}
-
 					if len(pubnonce) != 66 {
-						err = fmt.Errorf(
+						_err = fmt.Errorf(
 							"invalid nonce length expected 66 bytes got %d",
 							len(pubnonce),
 						)
+						mustBreak = true
 						break
 					}
-
 					nonces[pubkey] = &tree.Musig2Nonce{
 						PubNonce: [66]byte(pubnonce),
 					}
+				}
+				if mustBreak {
+					err = _err
+					break
 				}
 				batchEvent = client.TreeNoncesEvent{
 					Id:     e.GetId(),
