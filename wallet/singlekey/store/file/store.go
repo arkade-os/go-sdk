@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 const (
@@ -31,7 +31,7 @@ func (d walletData) decode() walletstore.WalletData {
 	encryptedPrvkey, _ := hex.DecodeString(d.EncryptedPrvkey)
 	passwordHash, _ := hex.DecodeString(d.PasswordHash)
 	buf, _ := hex.DecodeString(d.PubKey)
-	pubkey, _ := secp256k1.ParsePubKey(buf)
+	pubkey, _ := btcec.ParsePubKey(buf)
 	return walletstore.WalletData{
 		EncryptedPrvkey: encryptedPrvkey,
 		PasswordHash:    passwordHash,

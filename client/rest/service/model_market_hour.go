@@ -19,6 +19,7 @@ var _ MappedNullable = &MarketHour{}
 
 // MarketHour struct for MarketHour
 type MarketHour struct {
+		Fees *FeeInfo `json:"fees,omitempty"`
 		NextEndTime *int64 `json:"nextEndTime,omitempty"`
 		NextStartTime *int64 `json:"nextStartTime,omitempty"`
 		Period *int64 `json:"period,omitempty"`
@@ -40,6 +41,38 @@ func NewMarketHour() *MarketHour {
 func NewMarketHourWithDefaults() *MarketHour {
 	this := MarketHour{}
 	return &this
+}
+
+// GetFees returns the Fees field value if set, zero value otherwise.
+func (o *MarketHour) GetFees() FeeInfo {
+	if o == nil || IsNil(o.Fees) {
+		var ret FeeInfo
+		return ret
+	}
+	return *o.Fees
+}
+
+// GetFeesOk returns a tuple with the Fees field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *MarketHour) GetFeesOk() (*FeeInfo, bool) {
+	if o == nil || IsNil(o.Fees) {
+		return nil, false
+	}
+	return o.Fees, true
+}
+
+// HasFees returns a boolean if a field has been set.
+func (o *MarketHour) HasFees() bool {
+	if o != nil && !IsNil(o.Fees) {
+		return true
+	}
+
+	return false
+}
+
+// SetFees gets a reference to the given FeeInfo and assigns it to the Fees field.
+func (o *MarketHour) SetFees(v FeeInfo) {
+	o.Fees = &v
 }
 
 // GetNextEndTime returns the NextEndTime field value if set, zero value otherwise.
@@ -180,6 +213,9 @@ func (o MarketHour) MarshalJSON() ([]byte, error) {
 
 func (o MarketHour) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
+	if !IsNil(o.Fees) {
+		toSerialize["fees"] = o.Fees
+	}
 	if !IsNil(o.NextEndTime) {
 		toSerialize["nextEndTime"] = o.NextEndTime
 	}

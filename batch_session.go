@@ -16,13 +16,13 @@ import (
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -440,7 +440,7 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	}
 
 	sweepClosure := script.CSVMultisigClosure{
-		MultisigClosure: script.MultisigClosure{PubKeys: []*secp256k1.PublicKey{h.SignerPubKey}},
+		MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{h.SignerPubKey}},
 		Locktime:        h.VtxoTreeExpiry,
 	}
 

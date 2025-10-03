@@ -19,7 +19,6 @@ import (
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
 	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -283,13 +282,14 @@ func (a *arkClient) initWithWallet(
 
 	network := utils.NetworkFromString(info.Network)
 
-	buf, err := hex.DecodeString(info.SignerPubKey)
+	signerPubkey, err := ecPubkeyFromHex(info.SignerPubKey)
 	if err != nil {
 		return fmt.Errorf("failed to parse signer pubkey: %s", err)
 	}
-	signerPubkey, err := secp256k1.ParsePubKey(buf)
+
+	forfeitPubkey, err := ecPubkeyFromHex(info.ForfeitPubKey)
 	if err != nil {
-		return fmt.Errorf("failed to parse server pubkey: %s", err)
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
 	}
 
 	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
@@ -308,11 +308,12 @@ func (a *arkClient) initWithWallet(
 	}
 
 	storeData := types.Config{
-		ServerUrl:    args.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   args.Wallet.GetType(),
-		ClientType:   args.ClientType,
-		Network:      network,
+		ServerUrl:     args.ServerUrl,
+		SignerPubKey:  signerPubkey,
+		ForfeitPubKey: forfeitPubkey,
+		WalletType:    args.Wallet.GetType(),
+		ClientType:    args.ClientType,
+		Network:       network,
 		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
 		},
@@ -324,19 +325,16 @@ func (a *arkClient) initWithWallet(
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
-		ForfeitAddress:          info.ForfeitAddress,
-		WithTransactionFeed:     args.WithTransactionFeed,
-		MarketHourStartTime:     info.MarketHourStartTime,
-		MarketHourEndTime:       info.MarketHourEndTime,
-		MarketHourPeriod:        info.MarketHourPeriod,
-		MarketHourRoundInterval: info.MarketHourRoundInterval,
-		ExplorerURL:             explorerSvc.BaseUrl(),
-		ExplorerPollInterval:    args.ExplorerPollInterval,
-		UtxoMinAmount:           info.UtxoMinAmount,
-		UtxoMaxAmount:           info.UtxoMaxAmount,
-		VtxoMinAmount:           info.VtxoMinAmount,
-		VtxoMaxAmount:           info.VtxoMaxAmount,
-		CheckpointTapscript:     info.CheckpointTapscript,
+		ForfeitAddress:       info.ForfeitAddress,
+		WithTransactionFeed:  args.WithTransactionFeed,
+		ExplorerURL:          explorerSvc.BaseUrl(),
+		ExplorerPollInterval: args.ExplorerPollInterval,
+		UtxoMinAmount:        info.UtxoMinAmount,
+		UtxoMaxAmount:        info.UtxoMaxAmount,
+		VtxoMinAmount:        info.VtxoMinAmount,
+		VtxoMaxAmount:        info.VtxoMaxAmount,
+		CheckpointTapscript:  info.CheckpointTapscript,
+		Fees:                 info.Fees,
 	}
 	if err := a.store.ConfigStore().AddData(ctx, storeData); err != nil {
 		return err
@@ -395,13 +393,14 @@ func (a *arkClient) init(
 
 	network := utils.NetworkFromString(info.Network)
 
-	buf, err := hex.DecodeString(info.SignerPubKey)
+	signerPubkey, err := ecPubkeyFromHex(info.SignerPubKey)
 	if err != nil {
 		return fmt.Errorf("failed to parse signer pubkey: %s", err)
 	}
-	signerPubkey, err := secp256k1.ParsePubKey(buf)
+
+	forfeitPubkey, err := ecPubkeyFromHex(info.ForfeitPubKey)
 	if err != nil {
-		return fmt.Errorf("failed to parse server pubkey: %s", err)
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
 	}
 
 	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
@@ -420,11 +419,12 @@ func (a *arkClient) init(
 	}
 
 	cfgData := types.Config{
-		ServerUrl:    args.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   args.WalletType,
-		ClientType:   args.ClientType,
-		Network:      network,
+		ServerUrl:     args.ServerUrl,
+		SignerPubKey:  signerPubkey,
+		ForfeitPubKey: forfeitPubkey,
+		WalletType:    args.WalletType,
+		ClientType:    args.ClientType,
+		Network:       network,
 		VtxoTreeExpiry: arklib.RelativeLocktime{
 			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
 		},
@@ -436,19 +436,16 @@ func (a *arkClient) init(
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
-		ExplorerURL:             explorerSvc.BaseUrl(),
-		ExplorerPollInterval:    args.ExplorerPollInterval,
-		ForfeitAddress:          info.ForfeitAddress,
-		WithTransactionFeed:     args.WithTransactionFeed,
-		MarketHourStartTime:     info.MarketHourStartTime,
-		MarketHourEndTime:       info.MarketHourEndTime,
-		MarketHourPeriod:        info.MarketHourPeriod,
-		MarketHourRoundInterval: info.MarketHourRoundInterval,
-		UtxoMinAmount:           info.UtxoMinAmount,
-		UtxoMaxAmount:           info.UtxoMaxAmount,
-		VtxoMinAmount:           info.VtxoMinAmount,
-		VtxoMaxAmount:           info.VtxoMaxAmount,
-		CheckpointTapscript:     info.CheckpointTapscript,
+		ExplorerURL:          explorerSvc.BaseUrl(),
+		ExplorerPollInterval: args.ExplorerPollInterval,
+		ForfeitAddress:       info.ForfeitAddress,
+		WithTransactionFeed:  args.WithTransactionFeed,
+		UtxoMinAmount:        info.UtxoMinAmount,
+		UtxoMaxAmount:        info.UtxoMaxAmount,
+		VtxoMinAmount:        info.VtxoMinAmount,
+		VtxoMaxAmount:        info.VtxoMaxAmount,
+		CheckpointTapscript:  info.CheckpointTapscript,
+		Fees:                 info.Fees,
 	}
 	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
 	if err != nil {
