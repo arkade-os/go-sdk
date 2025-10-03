@@ -24,6 +24,7 @@ type GetEventStreamResponse struct {
 		BatchFinalized *BatchFinalizedEvent `json:"batchFinalized,omitempty"`
 		BatchStarted *BatchStartedEvent `json:"batchStarted,omitempty"`
 		Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
+		TreeNonces *TreeNoncesEvent `json:"treeNonces,omitempty"`
 		TreeNoncesAggregated *TreeNoncesAggregatedEvent `json:"treeNoncesAggregated,omitempty"`
 		TreeSignature *TreeSignatureEvent `json:"treeSignature,omitempty"`
 		TreeSigningStarted *TreeSigningStartedEvent `json:"treeSigningStarted,omitempty"`
@@ -207,6 +208,38 @@ func (o *GetEventStreamResponse) SetHeartbeat(v map[string]interface{}) {
 	o.Heartbeat = v
 }
 
+// GetTreeNonces returns the TreeNonces field value if set, zero value otherwise.
+func (o *GetEventStreamResponse) GetTreeNonces() TreeNoncesEvent {
+	if o == nil || IsNil(o.TreeNonces) {
+		var ret TreeNoncesEvent
+		return ret
+	}
+	return *o.TreeNonces
+}
+
+// GetTreeNoncesOk returns a tuple with the TreeNonces field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetEventStreamResponse) GetTreeNoncesOk() (*TreeNoncesEvent, bool) {
+	if o == nil || IsNil(o.TreeNonces) {
+		return nil, false
+	}
+	return o.TreeNonces, true
+}
+
+// HasTreeNonces returns a boolean if a field has been set.
+func (o *GetEventStreamResponse) HasTreeNonces() bool {
+	if o != nil && !IsNil(o.TreeNonces) {
+		return true
+	}
+
+	return false
+}
+
+// SetTreeNonces gets a reference to the given TreeNoncesEvent and assigns it to the TreeNonces field.
+func (o *GetEventStreamResponse) SetTreeNonces(v TreeNoncesEvent) {
+	o.TreeNonces = &v
+}
+
 // GetTreeNoncesAggregated returns the TreeNoncesAggregated field value if set, zero value otherwise.
 func (o *GetEventStreamResponse) GetTreeNoncesAggregated() TreeNoncesAggregatedEvent {
 	if o == nil || IsNil(o.TreeNoncesAggregated) {
@@ -359,6 +392,9 @@ func (o GetEventStreamResponse) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Heartbeat) {
 		toSerialize["heartbeat"] = o.Heartbeat
+	}
+	if !IsNil(o.TreeNonces) {
+		toSerialize["treeNonces"] = o.TreeNonces
 	}
 	if !IsNil(o.TreeNoncesAggregated) {
 		toSerialize["treeNoncesAggregated"] = o.TreeNoncesAggregated

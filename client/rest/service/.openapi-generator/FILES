@@ -25,6 +25,7 @@ model_submit_tree_signatures_request.go
 model_submit_tx_request.go
 model_submit_tx_response.go
 model_tree_nonces_aggregated_event.go
+model_tree_nonces_event.go
 model_tree_signature_event.go
 model_tree_signing_started_event.go
 model_tree_tx_event.go

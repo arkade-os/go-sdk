@@ -2,6 +2,7 @@ package restclient
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -265,6 +266,42 @@ func (c *restClient) GetEventStream(
 						Tx:       e.GetTx(),
 						Children: children,
 					},
+				}
+			case !ark_service.IsNil(event.GetTreeSignature()):
+				e := event.GetTreeSignature()
+				batchEvent = client.TreeSignatureEvent{
+					Id:         e.GetId(),
+					Topic:      e.GetTopic(),
+					BatchIndex: e.GetBatchIndex(),
+					Txid:       e.GetTxid(),
+					Signature:  e.GetSignature(),
+				}
+			case !ark_service.IsNil(event.GetTreeNonces()):
+				e := event.GetTreeNonces()
+				nonces := make(map[string]*tree.Musig2Nonce)
+				for pubkey, nonce := range e.Nonces {
+					pubnonce, err := hex.DecodeString(nonce)
+					if err != nil {
+						break
+					}
+
+					if len(pubnonce) != 66 {
+						err = fmt.Errorf(
+							"invalid nonce length expected 66 bytes got %d",
+							len(pubnonce),
+						)
+						break
+					}
+
+					nonces[pubkey] = &tree.Musig2Nonce{
+						PubNonce: [66]byte(pubnonce),
+					}
+				}
+				batchEvent = client.TreeNoncesEvent{
+					Id:     e.GetId(),
+					Topic:  e.GetTopic(),
+					Txid:   e.GetTxid(),
+					Nonces: nonces,
 				}
 			case !ark_service.IsNil(event.GetTreeSignature()):
 				e := event.GetTreeSignature()

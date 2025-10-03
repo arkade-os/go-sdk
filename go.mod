@@ -5,7 +5,7 @@ go 1.24.6
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
 require (
-	github.com/arkade-os/arkd/pkg/ark-lib v0.7.2-0.20251003171006-77780ef24ee5
+	github.com/arkade-os/arkd/pkg/ark-lib v0.7.2-0.20251003181519-188d54e2258d
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/btcutil v1.1.5
@@ -19,10 +19,10 @@ require (
 	github.com/lightningnetwork/lnd v0.18.2-beta
 	github.com/meshapi/grpc-api-gateway v0.1.0
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/timshannon/badgerhold/v4 v4.0.3
 	github.com/vulpemventures/go-bip32 v0.0.0-20200624192635-867c159da4d7
-	golang.org/x/crypto v0.36.0
+	golang.org/x/crypto v0.42.0
 	google.golang.org/grpc v1.71.0
 	google.golang.org/protobuf v1.36.6
 	modernc.org/sqlite v1.33.1
@@ -53,7 +53,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fergusstrange/embedded-postgres v1.28.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.1.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -119,11 +119,11 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8 // indirect
-	golang.org/x/net v0.37.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/term v0.30.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/net v0.44.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/term v0.35.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	google.golang.org/genproto v0.0.0-20240812133136-8ffd90a71988 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
