@@ -351,7 +351,7 @@ func toIntentInputs(
 		arkFields = append(arkFields, []*psbt.Unknown{
 			{
 				Value: taptree,
-				Key:   txutils.VTXO_TAPROOT_TREE_KEY,
+				Key:   txutils.ArkFieldTaprootTree,
 			},
 		})
 	}
@@ -386,7 +386,7 @@ func toIntentInputs(
 		arkFields = append(arkFields, []*psbt.Unknown{
 			{
 				Value: taptree,
-				Key:   txutils.VTXO_TAPROOT_TREE_KEY,
+				Key:   txutils.ArkFieldTaprootTree,
 			},
 		})
 	}
