@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 
@@ -61,7 +60,7 @@ type BatchEventsHandler interface {
 		ctx context.Context,
 		event client.TreeNoncesAggregatedEvent,
 	) (signed bool, err error)
-	OnTreeNoncesEvent(ctx context.Context, event client.TreeNoncesEvent) (signed bool, err error)
+	OnTreeNonces(ctx context.Context, event client.TreeNoncesEvent) (signed bool, err error)
 	OnBatchFinalization(
 		ctx context.Context,
 		event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
@@ -244,7 +243,7 @@ func JoinBatchSession(
 				}
 
 				event := event.(client.TreeNoncesEvent)
-				signed, err := eventsHandler.OnTreeNoncesEvent(ctx, event)
+				signed, err := eventsHandler.OnTreeNonces(ctx, event)
 				if err != nil {
 					return "", err
 				}
@@ -501,7 +500,7 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	return false, nil
 }
 
-func (h *defaultBatchEventsHandler) OnTreeNoncesEvent(
+func (h *defaultBatchEventsHandler) OnTreeNonces(
 	ctx context.Context, event client.TreeNoncesEvent,
 ) (bool, error) {
 	log.Debugf("tree nonces event received for tx %s", event.Txid)
@@ -510,10 +509,6 @@ func (h *defaultBatchEventsHandler) OnTreeNoncesEvent(
 	}
 
 	handler := func(session tree.SignerSession) (bool, error) {
-		if !slices.Contains(event.Topic, session.GetPublicKey()) {
-			return false, nil // skip event if not involving this session
-		}
-
 		hasAllNonces, err := session.AggregateNonces(event.Txid, event.Nonces)
 		if err != nil {
 			return false, err
