@@ -69,6 +69,7 @@ type Info struct {
 	CheckpointTapscript     string
 	Fees                    types.FeeInfo
 	DeprecatedSignerPubKeys []DeprecatedSigner
+	ServiceStatus           map[string]string
 	Digest                  string
 }
 

@@ -90,6 +90,7 @@ func (a *restClient) GetInfo(
 		CheckpointTapscript:     resp.GetCheckpointTapscript(),
 		DeprecatedSignerPubKeys: deprecatedSigners,
 		Fees:                    fees,
+		ServiceStatus:           resp.GetServiceStatus(),
 		Digest:                  resp.GetDigest(),
 	}, nil
 }

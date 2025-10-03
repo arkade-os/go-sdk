@@ -718,6 +718,12 @@
             "format": "int64",
             "x-go-json-string": true
           },
+          "serviceStatus": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "signerPubkey": {
             "type": "string"
           },

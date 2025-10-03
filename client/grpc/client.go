@@ -166,6 +166,7 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 		CheckpointTapscript:     resp.GetCheckpointTapscript(),
 		DeprecatedSignerPubKeys: deprecatedSigners,
 		Fees:                    fees,
+		ServiceStatus:           resp.GetServiceStatus(),
 		Digest:                  resp.GetDigest(),
 	}, nil
 }

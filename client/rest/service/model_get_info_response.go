@@ -30,6 +30,7 @@ type GetInfoResponse struct {
 		MarketHour *MarketHour `json:"marketHour,omitempty"`
 		Network *string `json:"network,omitempty"`
 		RoundInterval *int64 `json:"roundInterval,string,omitempty"`
+		ServiceStatus map[string]string `json:"serviceStatus,omitempty"`
 		SignerPubkey *string `json:"signerPubkey,omitempty"`
 		UnilateralExitDelay *int64 `json:"unilateralExitDelay,string,omitempty"`
 	// -1 means no limit (default), 0 means boarding not allowed
@@ -411,6 +412,38 @@ func (o *GetInfoResponse) SetRoundInterval(v int64) {
 	o.RoundInterval = &v
 }
 
+// GetServiceStatus returns the ServiceStatus field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetServiceStatus() map[string]string {
+	if o == nil || IsNil(o.ServiceStatus) {
+		var ret map[string]string
+		return ret
+	}
+	return o.ServiceStatus
+}
+
+// GetServiceStatusOk returns a tuple with the ServiceStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetServiceStatusOk() (map[string]string, bool) {
+	if o == nil || IsNil(o.ServiceStatus) {
+		return map[string]string{}, false
+	}
+	return o.ServiceStatus, true
+}
+
+// HasServiceStatus returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasServiceStatus() bool {
+	if o != nil && !IsNil(o.ServiceStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetServiceStatus gets a reference to the given map[string]string and assigns it to the ServiceStatus field.
+func (o *GetInfoResponse) SetServiceStatus(v map[string]string) {
+	o.ServiceStatus = v
+}
+
 // GetSignerPubkey returns the SignerPubkey field value if set, zero value otherwise.
 func (o *GetInfoResponse) GetSignerPubkey() string {
 	if o == nil || IsNil(o.SignerPubkey) {
@@ -709,6 +742,9 @@ func (o GetInfoResponse) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.RoundInterval) {
 		toSerialize["roundInterval"] = o.RoundInterval
+	}
+	if !IsNil(o.ServiceStatus) {
+		toSerialize["serviceStatus"] = o.ServiceStatus
 	}
 	if !IsNil(o.SignerPubkey) {
 		toSerialize["signerPubkey"] = o.SignerPubkey
