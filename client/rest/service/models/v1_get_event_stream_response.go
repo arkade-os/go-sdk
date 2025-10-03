@@ -30,6 +30,9 @@ type V1GetEventStreamResponse struct {
 	// batch started
 	BatchStarted *V1BatchStartedEvent `json:"batchStarted,omitempty"`
 
+	// tree nonces
+	TreeNonces *V1TreeNoncesEvent `json:"treeNonces,omitempty"`
+
 	// tree nonces aggregated
 	TreeNoncesAggregated *V1TreeNoncesAggregatedEvent `json:"treeNoncesAggregated,omitempty"`
 
@@ -60,6 +63,10 @@ func (m *V1GetEventStreamResponse) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateBatchStarted(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTreeNonces(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -153,6 +160,25 @@ func (m *V1GetEventStreamResponse) validateBatchStarted(formats strfmt.Registry)
 				return ve.ValidateName("batchStarted")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("batchStarted")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *V1GetEventStreamResponse) validateTreeNonces(formats strfmt.Registry) error {
+	if swag.IsZero(m.TreeNonces) { // not required
+		return nil
+	}
+
+	if m.TreeNonces != nil {
+		if err := m.TreeNonces.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("treeNonces")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("treeNonces")
 			}
 			return err
 		}
@@ -257,6 +283,10 @@ func (m *V1GetEventStreamResponse) ContextValidate(ctx context.Context, formats 
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTreeNonces(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateTreeNoncesAggregated(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -355,6 +385,27 @@ func (m *V1GetEventStreamResponse) contextValidateBatchStarted(ctx context.Conte
 				return ve.ValidateName("batchStarted")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("batchStarted")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *V1GetEventStreamResponse) contextValidateTreeNonces(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TreeNonces != nil {
+
+		if swag.IsZero(m.TreeNonces) { // not required
+			return nil
+		}
+
+		if err := m.TreeNonces.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("treeNonces")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("treeNonces")
 			}
 			return err
 		}

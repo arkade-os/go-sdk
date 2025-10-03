@@ -2,6 +2,7 @@ package restclient
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -361,6 +362,34 @@ func (c *restClient) GetEventStream(
 							Tx:       e.Tx,
 							Children: children,
 						},
+					}
+				case resp.Result.TreeNonces != nil:
+					e := resp.Result.TreeNonces
+					nonces := make(map[string]*tree.Musig2Nonce)
+					for pubkey, nonce := range e.Nonces {
+						pubnonce, err := hex.DecodeString(nonce)
+						if err != nil {
+							_err = err
+							break
+						}
+
+						if len(pubnonce) != 66 {
+							_err = fmt.Errorf(
+								"invalid nonce length expected 66 bytes got %d",
+								len(pubnonce),
+							)
+							break
+						}
+
+						nonces[pubkey] = &tree.Musig2Nonce{
+							PubNonce: [66]byte(pubnonce),
+						}
+					}
+					event = client.TreeNoncesEvent{
+						Id:     e.ID,
+						Topic:  e.Topic,
+						Txid:   e.Txid,
+						Nonces: nonces,
 					}
 				case resp.Result.TreeSignature != nil:
 					e := resp.Result.TreeSignature

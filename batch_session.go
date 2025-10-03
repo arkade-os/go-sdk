@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -56,7 +57,11 @@ type BatchEventsHandler interface {
 	OnTreeSigningStarted(
 		ctx context.Context, event client.TreeSigningStartedEvent, vtxoTree *tree.TxTree,
 	) (bool, error)
-	OnTreeNoncesAggregated(ctx context.Context, event client.TreeNoncesAggregatedEvent) error
+	OnTreeNoncesAggregated(
+		ctx context.Context,
+		event client.TreeNoncesAggregatedEvent,
+	) (signed bool, err error)
+	OnTreeNoncesEvent(ctx context.Context, event client.TreeNoncesEvent) (signed bool, err error)
 	OnBatchFinalization(
 		ctx context.Context,
 		event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
@@ -222,14 +227,31 @@ func JoinBatchSession(
 				}
 
 				event := event.(client.TreeNoncesAggregatedEvent)
-				if err := eventsHandler.OnTreeNoncesAggregated(ctx, event); err != nil {
+				signed, err := eventsHandler.OnTreeNoncesAggregated(ctx, event)
+				if err != nil {
 					return "", err
 				}
 
-				step++
+				if signed {
+					step++
+				}
 				continue
 			// we received the fully signed vtxo and connector trees, let's send our signed forfeit
 			// txs and optionally signed boarding utxos included in the commitment tx.
+			case client.TreeNoncesEvent:
+				if step != treeSigningStarted {
+					continue
+				}
+
+				event := event.(client.TreeNoncesEvent)
+				signed, err := eventsHandler.OnTreeNoncesEvent(ctx, event)
+				if err != nil {
+					return "", err
+				}
+				if signed {
+					step++
+				}
+				continue
 			case client.BatchFinalizationEvent:
 				if step != treeNoncesAggregated {
 					continue
@@ -312,6 +334,8 @@ type defaultBatchEventsHandler struct {
 	signerSessions []tree.SignerSession
 
 	batchSessionId string
+	// internal count to handle TreeNoncesEvent
+	countSigningDone int
 }
 
 func newBatchEventsHandler(
@@ -332,13 +356,14 @@ func newBatchEventsHandler(
 	}
 
 	return &defaultBatchEventsHandler{
-		arkClient:      arkClient,
-		intentId:       intentId,
-		vtxos:          vtxosToSign,
-		boardingUtxos:  boardingUtxos,
-		receivers:      receivers,
-		signerSessions: signerSessions,
-		batchSessionId: "",
+		arkClient:        arkClient,
+		intentId:         intentId,
+		vtxos:            vtxosToSign,
+		boardingUtxos:    boardingUtxos,
+		receivers:        receivers,
+		signerSessions:   signerSessions,
+		batchSessionId:   "",
+		countSigningDone: 0,
 	}
 }
 
@@ -476,53 +501,86 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	return false, nil
 }
 
-func (h *defaultBatchEventsHandler) OnTreeNoncesAggregated(
-	ctx context.Context, event client.TreeNoncesAggregatedEvent,
-) error {
-	log.Debug("tree nonces aggregated, sending signatures...")
+func (h *defaultBatchEventsHandler) OnTreeNoncesEvent(
+	ctx context.Context, event client.TreeNoncesEvent,
+) (bool, error) {
+	log.Debugf("tree nonces event received for tx %s", event.Txid)
 	if len(h.signerSessions) <= 0 {
-		return fmt.Errorf("tree signer session not set")
+		return false, fmt.Errorf("tree signer session not set")
 	}
 
-	sign := func(session tree.SignerSession) error {
-		session.SetAggregatedNonces(event.Nonces)
-
-		sigs, err := session.Sign()
-		if err != nil {
-			return err
+	handler := func(session tree.SignerSession) (bool, error) {
+		if !slices.Contains(event.Topic, session.GetPublicKey()) {
+			return false, nil // skip event if not involving this session
 		}
 
-		return h.client.SubmitTreeSignatures(
+		hasAllNonces, err := session.AggregateNonces(event.Txid, event.Nonces)
+		if err != nil {
+			return false, err
+		}
+
+		if !hasAllNonces {
+			return false, nil
+		}
+
+		log.Debugf("all nonces aggregated, signing...")
+		sigs, err := session.Sign()
+		if err != nil {
+			return false, err
+		}
+
+		if err := h.client.SubmitTreeSignatures(
 			ctx,
 			event.Id,
 			session.GetPublicKey(),
 			sigs,
-		)
+		); err != nil {
+			return false, err
+		}
+
+		return true, nil
 	}
 
-	errChan := make(chan error, len(h.signerSessions))
+	type res struct {
+		signed bool
+		err    error
+	}
+
+	resChan := make(chan res, len(h.signerSessions))
 	waitGroup := sync.WaitGroup{}
 	waitGroup.Add(len(h.signerSessions))
 
 	for _, session := range h.signerSessions {
 		go func(session tree.SignerSession) {
 			defer waitGroup.Done()
-			if err := sign(session); err != nil {
-				errChan <- err
-			}
+			signed, err := handler(session)
+			resChan <- res{signed, err}
 		}(session)
 	}
 
 	waitGroup.Wait()
-	close(errChan)
+	close(resChan)
 
-	for err := range errChan {
-		if err != nil {
-			return err
+	for res := range resChan {
+		if res.err != nil {
+			return false, res.err
+		}
+		if res.signed {
+			h.countSigningDone++
+			if h.countSigningDone == len(h.signerSessions) {
+				return true, nil
+			}
 		}
 	}
 
-	return nil
+	return false, nil
+}
+
+func (h *defaultBatchEventsHandler) OnTreeNoncesAggregated(
+	ctx context.Context, event client.TreeNoncesAggregatedEvent,
+) (bool, error) {
+	// ignore TreeNoncesAggregatedEvent as we handle it in OnTreeNoncesEvent
+	return false, nil
 }
 
 func (h *defaultBatchEventsHandler) OnBatchFinalization(

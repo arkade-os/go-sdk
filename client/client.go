@@ -108,6 +108,13 @@ type TreeNoncesAggregatedEvent struct {
 	Nonces tree.TreeNonces
 }
 
+type TreeNoncesEvent struct {
+	Id     string
+	Topic  []string
+	Txid   string
+	Nonces map[string]*tree.Musig2Nonce
+}
+
 type TreeTxEvent struct {
 	Id         string
 	Topic      []string
