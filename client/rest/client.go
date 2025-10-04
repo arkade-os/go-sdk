@@ -60,7 +60,7 @@ func (a *restClient) GetInfo(
 	if err != nil {
 		return nil, err
 	}
-	deprecatedSigners := make([]client.DeprecatedSigner, len(resp.GetDeprecatedSigners()))
+	deprecatedSigners := make([]client.DeprecatedSigner, 0, len(resp.GetDeprecatedSigners()))
 	for _, s := range resp.GetDeprecatedSigners() {
 		deprecatedSigners = append(deprecatedSigners, client.DeprecatedSigner{
 			PubKey:     s.GetPubkey(),
