@@ -7,10 +7,10 @@ GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:latest golangci-lint"; \
 )
 
-SWAGGER ?= $(shell \
+SWAGGER = $(shell \
 	echo "docker run --rm \
-		-v $$(PWD):/work -w /work \
-		openapitools/openapi-generator-cli"; \
+		-v $(shell pwd):/work -w /work \
+		openapitools/openapi-generator-cli:v7.16.0"; \
 )
 
 proto:
