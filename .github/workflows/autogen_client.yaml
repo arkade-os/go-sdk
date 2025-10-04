@@ -22,9 +22,6 @@ jobs:
       - name: Install deps
         run: go mod download
 
-      - name: Install Swagger
-        run: go install github.com/go-swagger/go-swagger/cmd/swagger@latest
-
       - name: Generate Client
         run: make genrest CI=true
 

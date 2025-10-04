@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -120,8 +122,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 }
 
 func buildOffchainTx(
-	vtxos []arkTxInput, receivers []types.Receiver,
-	serverUnrollScript *script.CSVMultisigClosure, dustLimit uint64,
+	vtxos []arkTxInput, receivers []types.Receiver, serverUnrollScript []byte, dustLimit uint64,
 ) (string, []string, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, fmt.Errorf("missing vtxos")
@@ -616,4 +617,12 @@ func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
 		return spentByVtxos[0]
 	}
 	return types.Vtxo{}
+}
+
+func ecPubkeyFromHex(pubkey string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(pubkey)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.ParsePubKey(buf)
 }
