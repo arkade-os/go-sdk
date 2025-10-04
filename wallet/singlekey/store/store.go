@@ -1,13 +1,11 @@
 package store
 
-import (
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-)
+import "github.com/btcsuite/btcd/btcec/v2"
 
 type WalletData struct {
 	EncryptedPrvkey []byte
 	PasswordHash    []byte
-	PubKey          *secp256k1.PublicKey
+	PubKey          *btcec.PublicKey
 }
 
 type WalletStore interface {

@@ -21,11 +21,16 @@ var _ MappedNullable = &GetInfoResponse{}
 type GetInfoResponse struct {
 		BoardingExitDelay *int64 `json:"boardingExitDelay,string,omitempty"`
 		CheckpointTapscript *string `json:"checkpointTapscript,omitempty"`
+		DeprecatedSigners []DeprecatedSigner `json:"deprecatedSigners,omitempty"`
+		Digest *string `json:"digest,omitempty"`
 		Dust *int64 `json:"dust,string,omitempty"`
+		Fees *FeeInfo `json:"fees,omitempty"`
 		ForfeitAddress *string `json:"forfeitAddress,omitempty"`
+		ForfeitPubkey *string `json:"forfeitPubkey,omitempty"`
 		MarketHour *MarketHour `json:"marketHour,omitempty"`
 		Network *string `json:"network,omitempty"`
 		RoundInterval *int64 `json:"roundInterval,string,omitempty"`
+		ServiceStatus map[string]string `json:"serviceStatus,omitempty"`
 		SignerPubkey *string `json:"signerPubkey,omitempty"`
 		UnilateralExitDelay *int64 `json:"unilateralExitDelay,string,omitempty"`
 	// -1 means no limit (default), 0 means boarding not allowed
@@ -119,6 +124,70 @@ func (o *GetInfoResponse) SetCheckpointTapscript(v string) {
 	o.CheckpointTapscript = &v
 }
 
+// GetDeprecatedSigners returns the DeprecatedSigners field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetDeprecatedSigners() []DeprecatedSigner {
+	if o == nil || IsNil(o.DeprecatedSigners) {
+		var ret []DeprecatedSigner
+		return ret
+	}
+	return o.DeprecatedSigners
+}
+
+// GetDeprecatedSignersOk returns a tuple with the DeprecatedSigners field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetDeprecatedSignersOk() ([]DeprecatedSigner, bool) {
+	if o == nil || IsNil(o.DeprecatedSigners) {
+		return nil, false
+	}
+	return o.DeprecatedSigners, true
+}
+
+// HasDeprecatedSigners returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasDeprecatedSigners() bool {
+	if o != nil && !IsNil(o.DeprecatedSigners) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeprecatedSigners gets a reference to the given []DeprecatedSigner and assigns it to the DeprecatedSigners field.
+func (o *GetInfoResponse) SetDeprecatedSigners(v []DeprecatedSigner) {
+	o.DeprecatedSigners = v
+}
+
+// GetDigest returns the Digest field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetDigest() string {
+	if o == nil || IsNil(o.Digest) {
+		var ret string
+		return ret
+	}
+	return *o.Digest
+}
+
+// GetDigestOk returns a tuple with the Digest field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetDigestOk() (*string, bool) {
+	if o == nil || IsNil(o.Digest) {
+		return nil, false
+	}
+	return o.Digest, true
+}
+
+// HasDigest returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasDigest() bool {
+	if o != nil && !IsNil(o.Digest) {
+		return true
+	}
+
+	return false
+}
+
+// SetDigest gets a reference to the given string and assigns it to the Digest field.
+func (o *GetInfoResponse) SetDigest(v string) {
+	o.Digest = &v
+}
+
 // GetDust returns the Dust field value if set, zero value otherwise.
 func (o *GetInfoResponse) GetDust() int64 {
 	if o == nil || IsNil(o.Dust) {
@@ -151,6 +220,38 @@ func (o *GetInfoResponse) SetDust(v int64) {
 	o.Dust = &v
 }
 
+// GetFees returns the Fees field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetFees() FeeInfo {
+	if o == nil || IsNil(o.Fees) {
+		var ret FeeInfo
+		return ret
+	}
+	return *o.Fees
+}
+
+// GetFeesOk returns a tuple with the Fees field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetFeesOk() (*FeeInfo, bool) {
+	if o == nil || IsNil(o.Fees) {
+		return nil, false
+	}
+	return o.Fees, true
+}
+
+// HasFees returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasFees() bool {
+	if o != nil && !IsNil(o.Fees) {
+		return true
+	}
+
+	return false
+}
+
+// SetFees gets a reference to the given FeeInfo and assigns it to the Fees field.
+func (o *GetInfoResponse) SetFees(v FeeInfo) {
+	o.Fees = &v
+}
+
 // GetForfeitAddress returns the ForfeitAddress field value if set, zero value otherwise.
 func (o *GetInfoResponse) GetForfeitAddress() string {
 	if o == nil || IsNil(o.ForfeitAddress) {
@@ -181,6 +282,38 @@ func (o *GetInfoResponse) HasForfeitAddress() bool {
 // SetForfeitAddress gets a reference to the given string and assigns it to the ForfeitAddress field.
 func (o *GetInfoResponse) SetForfeitAddress(v string) {
 	o.ForfeitAddress = &v
+}
+
+// GetForfeitPubkey returns the ForfeitPubkey field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetForfeitPubkey() string {
+	if o == nil || IsNil(o.ForfeitPubkey) {
+		var ret string
+		return ret
+	}
+	return *o.ForfeitPubkey
+}
+
+// GetForfeitPubkeyOk returns a tuple with the ForfeitPubkey field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetForfeitPubkeyOk() (*string, bool) {
+	if o == nil || IsNil(o.ForfeitPubkey) {
+		return nil, false
+	}
+	return o.ForfeitPubkey, true
+}
+
+// HasForfeitPubkey returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasForfeitPubkey() bool {
+	if o != nil && !IsNil(o.ForfeitPubkey) {
+		return true
+	}
+
+	return false
+}
+
+// SetForfeitPubkey gets a reference to the given string and assigns it to the ForfeitPubkey field.
+func (o *GetInfoResponse) SetForfeitPubkey(v string) {
+	o.ForfeitPubkey = &v
 }
 
 // GetMarketHour returns the MarketHour field value if set, zero value otherwise.
@@ -277,6 +410,38 @@ func (o *GetInfoResponse) HasRoundInterval() bool {
 // SetRoundInterval gets a reference to the given int64 and assigns it to the RoundInterval field.
 func (o *GetInfoResponse) SetRoundInterval(v int64) {
 	o.RoundInterval = &v
+}
+
+// GetServiceStatus returns the ServiceStatus field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetServiceStatus() map[string]string {
+	if o == nil || IsNil(o.ServiceStatus) {
+		var ret map[string]string
+		return ret
+	}
+	return o.ServiceStatus
+}
+
+// GetServiceStatusOk returns a tuple with the ServiceStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetServiceStatusOk() (map[string]string, bool) {
+	if o == nil || IsNil(o.ServiceStatus) {
+		return map[string]string{}, false
+	}
+	return o.ServiceStatus, true
+}
+
+// HasServiceStatus returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasServiceStatus() bool {
+	if o != nil && !IsNil(o.ServiceStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetServiceStatus gets a reference to the given map[string]string and assigns it to the ServiceStatus field.
+func (o *GetInfoResponse) SetServiceStatus(v map[string]string) {
+	o.ServiceStatus = v
 }
 
 // GetSignerPubkey returns the SignerPubkey field value if set, zero value otherwise.
@@ -551,11 +716,23 @@ func (o GetInfoResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.CheckpointTapscript) {
 		toSerialize["checkpointTapscript"] = o.CheckpointTapscript
 	}
+	if !IsNil(o.DeprecatedSigners) {
+		toSerialize["deprecatedSigners"] = o.DeprecatedSigners
+	}
+	if !IsNil(o.Digest) {
+		toSerialize["digest"] = o.Digest
+	}
 	if !IsNil(o.Dust) {
 		toSerialize["dust"] = o.Dust
 	}
+	if !IsNil(o.Fees) {
+		toSerialize["fees"] = o.Fees
+	}
 	if !IsNil(o.ForfeitAddress) {
 		toSerialize["forfeitAddress"] = o.ForfeitAddress
+	}
+	if !IsNil(o.ForfeitPubkey) {
+		toSerialize["forfeitPubkey"] = o.ForfeitPubkey
 	}
 	if !IsNil(o.MarketHour) {
 		toSerialize["marketHour"] = o.MarketHour
@@ -565,6 +742,9 @@ func (o GetInfoResponse) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.RoundInterval) {
 		toSerialize["roundInterval"] = o.RoundInterval
+	}
+	if !IsNil(o.ServiceStatus) {
+		toSerialize["serviceStatus"] = o.ServiceStatus
 	}
 	if !IsNil(o.SignerPubkey) {
 		toSerialize["signerPubkey"] = o.SignerPubkey

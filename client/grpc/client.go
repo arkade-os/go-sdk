@@ -2,9 +2,9 @@ package grpcclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -117,15 +117,35 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	if err != nil {
 		return nil, err
 	}
+	fees, err := parseFees(resp.GetFees())
+	if err != nil {
+		return nil, err
+	}
 	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
+	var marketHourFees types.FeeInfo
 	if mktHour := resp.GetMarketHour(); mktHour != nil {
 		marketHourStartTime = mktHour.GetNextStartTime()
 		marketHourEndTime = mktHour.GetNextEndTime()
 		marketHourPeriod = mktHour.GetPeriod()
 		marketHourRoundInterval = mktHour.GetRoundInterval()
+		marketHourFees, err = parseFees(mktHour.GetFees())
+		if err != nil {
+			return nil, err
+		}
+	}
+	var deprecatedSigners []client.DeprecatedSigner
+	for _, s := range resp.GetDeprecatedSigners() {
+		if s == nil {
+			continue
+		}
+		deprecatedSigners = append(deprecatedSigners, client.DeprecatedSigner{
+			PubKey:     s.GetPubkey(),
+			CutoffDate: s.GetCutoffDate(),
+		})
 	}
 	return &client.Info{
 		SignerPubKey:            resp.GetSignerPubkey(),
+		ForfeitPubKey:           resp.GetForfeitPubkey(),
 		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
 		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
 		RoundInterval:           resp.GetRoundInterval(),
@@ -138,11 +158,16 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 		MarketHourEndTime:       marketHourEndTime,
 		MarketHourPeriod:        marketHourPeriod,
 		MarketHourRoundInterval: marketHourRoundInterval,
+		MarketHourFees:          marketHourFees,
 		UtxoMinAmount:           resp.GetUtxoMinAmount(),
 		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
 		VtxoMinAmount:           resp.GetVtxoMinAmount(),
 		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
 		CheckpointTapscript:     resp.GetCheckpointTapscript(),
+		DeprecatedSignerPubKeys: deprecatedSigners,
+		Fees:                    fees,
+		ServiceStatus:           resp.GetServiceStatus(),
+		Digest:                  resp.GetDigest(),
 	}, nil
 }
 
@@ -192,15 +217,10 @@ func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) e
 func (a *grpcClient) SubmitTreeNonces(
 	ctx context.Context, batchId, cosignerPubkey string, nonces tree.TreeNonces,
 ) error {
-	sigsJSON, err := json.Marshal(nonces)
-	if err != nil {
-		return err
-	}
-
 	req := &arkv1.SubmitTreeNoncesRequest{
 		BatchId:    batchId,
 		Pubkey:     cosignerPubkey,
-		TreeNonces: string(sigsJSON),
+		TreeNonces: nonces.ToMap(),
 	}
 
 	if _, err := a.svc().SubmitTreeNonces(ctx, req); err != nil {
@@ -213,7 +233,7 @@ func (a *grpcClient) SubmitTreeNonces(
 func (a *grpcClient) SubmitTreeSignatures(
 	ctx context.Context, batchId, cosignerPubkey string, signatures tree.TreePartialSigs,
 ) error {
-	sigsJSON, err := json.Marshal(signatures)
+	sigs, err := signatures.ToMap()
 	if err != nil {
 		return err
 	}
@@ -221,7 +241,7 @@ func (a *grpcClient) SubmitTreeSignatures(
 	req := &arkv1.SubmitTreeSignaturesRequest{
 		BatchId:        batchId,
 		Pubkey:         cosignerPubkey,
-		TreeSignatures: string(sigsJSON),
+		TreeSignatures: sigs,
 	}
 
 	if _, err := a.svc().SubmitTreeSignatures(ctx, req); err != nil {
@@ -451,4 +471,40 @@ func (c *grpcClient) Close() {
 	defer c.connMu.Unlock()
 	// nolint:errcheck
 	c.conn.Close()
+}
+
+func parseFees(fees *arkv1.FeeInfo) (types.FeeInfo, error) {
+	var (
+		err                               error
+		txFeeRate                         float64
+		onchainInputFee, onchainOutputFee uint64
+	)
+	if fees.GetTxFeeRate() != "" {
+		txFeeRate, err = strconv.ParseFloat(fees.GetTxFeeRate(), 64)
+		if err != nil {
+			return types.FeeInfo{}, err
+		}
+	}
+	intentFees := fees.GetIntentFee()
+	if intentFees.GetOnchainInput() != "" {
+		onchainInputFee, err = strconv.ParseUint(intentFees.GetOnchainInput(), 10, 64)
+		if err != nil {
+			return types.FeeInfo{}, err
+		}
+	}
+	if intentFees.GetOnchainOutput() != "" {
+		onchainOutputFee, err = strconv.ParseUint(intentFees.GetOnchainOutput(), 10, 64)
+		if err != nil {
+			return types.FeeInfo{}, err
+		}
+	}
+	return types.FeeInfo{
+		TxFeeRate: txFeeRate,
+		IntentFees: types.IntentFeeInfo{
+			OffchainInput:  fees.GetIntentFee().GetOffchainInput(),
+			OffchainOutput: fees.GetIntentFee().GetOffchainOutput(),
+			OnchainInput:   onchainInputFee,
+			OnchainOutput:  onchainOutputFee,
+		},
+	}, nil
 }

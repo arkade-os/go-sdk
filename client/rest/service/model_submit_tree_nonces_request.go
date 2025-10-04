@@ -21,7 +21,7 @@ var _ MappedNullable = &SubmitTreeNoncesRequest{}
 type SubmitTreeNoncesRequest struct {
 		BatchId *string `json:"batchId,omitempty"`
 		Pubkey *string `json:"pubkey,omitempty"`
-		TreeNonces *string `json:"treeNonces,omitempty"`
+		TreeNonces map[string]string `json:"treeNonces,omitempty"`
 }
 
 // NewSubmitTreeNoncesRequest instantiates a new SubmitTreeNoncesRequest object
@@ -106,19 +106,19 @@ func (o *SubmitTreeNoncesRequest) SetPubkey(v string) {
 }
 
 // GetTreeNonces returns the TreeNonces field value if set, zero value otherwise.
-func (o *SubmitTreeNoncesRequest) GetTreeNonces() string {
+func (o *SubmitTreeNoncesRequest) GetTreeNonces() map[string]string {
 	if o == nil || IsNil(o.TreeNonces) {
-		var ret string
+		var ret map[string]string
 		return ret
 	}
-	return *o.TreeNonces
+	return o.TreeNonces
 }
 
 // GetTreeNoncesOk returns a tuple with the TreeNonces field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubmitTreeNoncesRequest) GetTreeNoncesOk() (*string, bool) {
+func (o *SubmitTreeNoncesRequest) GetTreeNoncesOk() (map[string]string, bool) {
 	if o == nil || IsNil(o.TreeNonces) {
-		return nil, false
+		return map[string]string{}, false
 	}
 	return o.TreeNonces, true
 }
@@ -132,9 +132,9 @@ func (o *SubmitTreeNoncesRequest) HasTreeNonces() bool {
 	return false
 }
 
-// SetTreeNonces gets a reference to the given string and assigns it to the TreeNonces field.
-func (o *SubmitTreeNoncesRequest) SetTreeNonces(v string) {
-	o.TreeNonces = &v
+// SetTreeNonces gets a reference to the given map[string]string and assigns it to the TreeNonces field.
+func (o *SubmitTreeNoncesRequest) SetTreeNonces(v map[string]string) {
+	o.TreeNonces = v
 }
 
 func (o SubmitTreeNoncesRequest) MarshalJSON() ([]byte, error) {

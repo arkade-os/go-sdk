@@ -33,8 +33,8 @@ func makeDirectoryIfNotExists(path string) error {
 	return nil
 }
 
-func merge(maps ...map[string]string) map[string]string {
-	merge := make(map[string]string, 0)
+func merge(maps ...map[string]any) map[string]any {
+	merge := make(map[string]any, 0)
 	for _, m := range maps {
 		for k, v := range m {
 			merge[k] = v

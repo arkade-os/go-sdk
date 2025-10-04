@@ -17,9 +17,11 @@ import (
 
 var (
 	key, _         = btcec.NewPrivateKey()
+	forfeitkKey, _ = btcec.NewPrivateKey()
 	testConfigData = types.Config{
 		ServerUrl:           "localhost:7070",
 		SignerPubKey:        key.PubKey(),
+		ForfeitPubKey:       forfeitkKey.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,
 		ClientType:          client.GrpcClient,
 		Network:             arklib.BitcoinRegTest,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -615,4 +617,12 @@ func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
 		return spentByVtxos[0]
 	}
 	return types.Vtxo{}
+}
+
+func ecPubkeyFromHex(pubkey string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(pubkey)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.ParsePubKey(buf)
 }

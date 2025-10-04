@@ -49,6 +49,7 @@ type TransportClient interface {
 type Info struct {
 	Version                 string
 	SignerPubKey            string
+	ForfeitPubKey           string
 	VtxoTreeExpiry          int64
 	UnilateralExitDelay     int64
 	BoardingExitDelay       int64
@@ -60,11 +61,21 @@ type Info struct {
 	MarketHourEndTime       int64
 	MarketHourPeriod        int64
 	MarketHourRoundInterval int64
+	MarketHourFees          types.FeeInfo
 	UtxoMinAmount           int64
 	UtxoMaxAmount           int64
 	VtxoMinAmount           int64
 	VtxoMaxAmount           int64
 	CheckpointTapscript     string
+	Fees                    types.FeeInfo
+	DeprecatedSignerPubKeys []DeprecatedSigner
+	ServiceStatus           map[string]string
+	Digest                  string
+}
+
+type DeprecatedSigner struct {
+	PubKey     string
+	CutoffDate int64
 }
 
 type BatchEventChannel struct {

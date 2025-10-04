@@ -21,7 +21,7 @@ var _ MappedNullable = &SubmitTreeSignaturesRequest{}
 type SubmitTreeSignaturesRequest struct {
 		BatchId *string `json:"batchId,omitempty"`
 		Pubkey *string `json:"pubkey,omitempty"`
-		TreeSignatures *string `json:"treeSignatures,omitempty"`
+		TreeSignatures map[string]string `json:"treeSignatures,omitempty"`
 }
 
 // NewSubmitTreeSignaturesRequest instantiates a new SubmitTreeSignaturesRequest object
@@ -106,19 +106,19 @@ func (o *SubmitTreeSignaturesRequest) SetPubkey(v string) {
 }
 
 // GetTreeSignatures returns the TreeSignatures field value if set, zero value otherwise.
-func (o *SubmitTreeSignaturesRequest) GetTreeSignatures() string {
+func (o *SubmitTreeSignaturesRequest) GetTreeSignatures() map[string]string {
 	if o == nil || IsNil(o.TreeSignatures) {
-		var ret string
+		var ret map[string]string
 		return ret
 	}
-	return *o.TreeSignatures
+	return o.TreeSignatures
 }
 
 // GetTreeSignaturesOk returns a tuple with the TreeSignatures field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubmitTreeSignaturesRequest) GetTreeSignaturesOk() (*string, bool) {
+func (o *SubmitTreeSignaturesRequest) GetTreeSignaturesOk() (map[string]string, bool) {
 	if o == nil || IsNil(o.TreeSignatures) {
-		return nil, false
+		return map[string]string{}, false
 	}
 	return o.TreeSignatures, true
 }
@@ -132,9 +132,9 @@ func (o *SubmitTreeSignaturesRequest) HasTreeSignatures() bool {
 	return false
 }
 
-// SetTreeSignatures gets a reference to the given string and assigns it to the TreeSignatures field.
-func (o *SubmitTreeSignaturesRequest) SetTreeSignatures(v string) {
-	o.TreeSignatures = &v
+// SetTreeSignatures gets a reference to the given map[string]string and assigns it to the TreeSignatures field.
+func (o *SubmitTreeSignaturesRequest) SetTreeSignatures(v map[string]string) {
+	o.TreeSignatures = v
 }
 
 func (o SubmitTreeSignaturesRequest) MarshalJSON() ([]byte, error) {

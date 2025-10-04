@@ -15,12 +15,12 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/vulpemventures/go-bip32"
 )
 
@@ -425,7 +425,7 @@ func (w *bitcoinWallet) NewVtxoTreeSigner(
 		}
 	}
 
-	derivedPrivKey := secp256k1.PrivKeyFromBytes(currentKey.Key)
+	derivedPrivKey, _ := btcec.PrivKeyFromBytes(currentKey.Key)
 	return tree.NewTreeSignerSession(derivedPrivKey), nil
 }
 

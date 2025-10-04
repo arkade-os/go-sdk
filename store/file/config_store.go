@@ -52,29 +52,35 @@ func (s *configStore) GetDatadir() string {
 
 func (s *configStore) AddData(ctx context.Context, data types.Config) error {
 	sd := &storeData{
-		ServerUrl:               data.ServerUrl,
-		SignerPubKey:            hex.EncodeToString(data.SignerPubKey.SerializeCompressed()),
-		WalletType:              data.WalletType,
-		ClientType:              data.ClientType,
-		Network:                 data.Network.Name,
-		VtxoTreeExpiry:          fmt.Sprintf("%d", data.VtxoTreeExpiry.Value),
-		RoundInterval:           fmt.Sprintf("%d", data.RoundInterval),
-		UnilateralExitDelay:     fmt.Sprintf("%d", data.UnilateralExitDelay.Value),
-		BoardingExitDelay:       fmt.Sprintf("%d", data.BoardingExitDelay.Value),
-		Dust:                    fmt.Sprintf("%d", data.Dust),
-		ExplorerURL:             data.ExplorerURL,
-		ExplorerPollInterval:    fmt.Sprintf("%.0f", data.ExplorerPollInterval.Seconds()),
-		ForfeitAddress:          data.ForfeitAddress,
-		WithTransactionFeed:     strconv.FormatBool(data.WithTransactionFeed),
-		MarketHourStartTime:     fmt.Sprintf("%d", data.MarketHourStartTime),
-		MarketHourEndTime:       fmt.Sprintf("%d", data.MarketHourEndTime),
-		MarketHourPeriod:        fmt.Sprintf("%d", data.MarketHourPeriod),
-		MarketHourRoundInterval: fmt.Sprintf("%d", data.MarketHourRoundInterval),
-		UtxoMinAmount:           fmt.Sprintf("%d", data.UtxoMinAmount),
-		UtxoMaxAmount:           fmt.Sprintf("%d", data.UtxoMaxAmount),
-		VtxoMinAmount:           fmt.Sprintf("%d", data.VtxoMinAmount),
-		VtxoMaxAmount:           fmt.Sprintf("%d", data.VtxoMaxAmount),
-		CheckpointTapscript:     data.CheckpointTapscript,
+		ServerUrl:            data.ServerUrl,
+		SignerPubKey:         hex.EncodeToString(data.SignerPubKey.SerializeCompressed()),
+		ForfeitPubKey:        hex.EncodeToString(data.ForfeitPubKey.SerializeCompressed()),
+		WalletType:           data.WalletType,
+		ClientType:           data.ClientType,
+		Network:              data.Network.Name,
+		VtxoTreeExpiry:       fmt.Sprintf("%d", data.VtxoTreeExpiry.Value),
+		RoundInterval:        fmt.Sprintf("%d", data.RoundInterval),
+		UnilateralExitDelay:  fmt.Sprintf("%d", data.UnilateralExitDelay.Value),
+		BoardingExitDelay:    fmt.Sprintf("%d", data.BoardingExitDelay.Value),
+		Dust:                 fmt.Sprintf("%d", data.Dust),
+		ExplorerURL:          data.ExplorerURL,
+		ExplorerPollInterval: fmt.Sprintf("%.0f", data.ExplorerPollInterval.Seconds()),
+		ForfeitAddress:       data.ForfeitAddress,
+		WithTransactionFeed:  strconv.FormatBool(data.WithTransactionFeed),
+		UtxoMinAmount:        fmt.Sprintf("%d", data.UtxoMinAmount),
+		UtxoMaxAmount:        fmt.Sprintf("%d", data.UtxoMaxAmount),
+		VtxoMinAmount:        fmt.Sprintf("%d", data.VtxoMinAmount),
+		VtxoMaxAmount:        fmt.Sprintf("%d", data.VtxoMaxAmount),
+		CheckpointTapscript:  data.CheckpointTapscript,
+		Fees: feeData{
+			TxFeeRate: fmt.Sprintf("%.1f", data.Fees.TxFeeRate),
+			IntentFees: intentFeeData{
+				OffchainInput:  data.Fees.IntentFees.OffchainInput,
+				OffchainOutput: data.Fees.IntentFees.OffchainOutput,
+				OnchainInput:   fmt.Sprintf("%d", data.Fees.IntentFees.OnchainInput),
+				OnchainOutput:  fmt.Sprintf("%d", data.Fees.IntentFees.OnchainOutput),
+			},
+		},
 	}
 
 	if err := s.write(sd); err != nil {
@@ -129,7 +135,7 @@ func (s *configStore) write(data *storeData) error {
 			return err
 		}
 	}
-	currentData := map[string]string{}
+	currentData := map[string]any{}
 	if len(file) > 0 {
 		if err := json.Unmarshal(file, &currentData); err != nil {
 			return fmt.Errorf("failed to read file store: %s", err)

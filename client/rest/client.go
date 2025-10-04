@@ -51,9 +51,25 @@ func (a *restClient) GetInfo(
 		return nil, err
 	}
 
+	fees, err := parseFees(resp.GetFees())
+	if err != nil {
+		return nil, err
+	}
 	mktHour := resp.GetMarketHour()
+	mktHourFees, err := parseFees(mktHour.GetFees())
+	if err != nil {
+		return nil, err
+	}
+	deprecatedSigners := make([]client.DeprecatedSigner, len(resp.GetDeprecatedSigners()))
+	for _, s := range resp.GetDeprecatedSigners() {
+		deprecatedSigners = append(deprecatedSigners, client.DeprecatedSigner{
+			PubKey:     s.GetPubkey(),
+			CutoffDate: s.GetCutoffDate(),
+		})
+	}
 	return &client.Info{
 		SignerPubKey:            resp.GetSignerPubkey(),
+		ForfeitPubKey:           resp.GetForfeitPubkey(),
 		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
 		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
 		RoundInterval:           resp.GetRoundInterval(),
@@ -66,11 +82,16 @@ func (a *restClient) GetInfo(
 		MarketHourEndTime:       mktHour.GetNextEndTime(),
 		MarketHourPeriod:        mktHour.GetPeriod(),
 		MarketHourRoundInterval: mktHour.GetRoundInterval(),
+		MarketHourFees:          mktHourFees,
 		UtxoMinAmount:           resp.GetUtxoMinAmount(),
 		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
 		VtxoMinAmount:           resp.GetVtxoMinAmount(),
 		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
 		CheckpointTapscript:     resp.GetCheckpointTapscript(),
+		DeprecatedSignerPubKeys: deprecatedSigners,
+		Fees:                    fees,
+		ServiceStatus:           resp.GetServiceStatus(),
+		Digest:                  resp.GetDigest(),
 	}, nil
 }
 
@@ -119,37 +140,30 @@ func (a *restClient) ConfirmRegistration(ctx context.Context, intentId string) e
 func (a *restClient) SubmitTreeNonces(
 	ctx context.Context, batchId, cosignerPubkey string, nonces tree.TreeNonces,
 ) error {
-	buf, err := json.Marshal(nonces)
-	if err != nil {
-		return err
-	}
-	serializedNonces := string(buf)
-
 	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeNonces(ctx).
 		SubmitTreeNoncesRequest(ark_service.SubmitTreeNoncesRequest{
 			BatchId:    &batchId,
 			Pubkey:     &cosignerPubkey,
-			TreeNonces: &serializedNonces,
+			TreeNonces: nonces.ToMap(),
 		})
 
-	_, _, err = req.Execute()
+	_, _, err := req.Execute()
 	return err
 }
 
 func (a *restClient) SubmitTreeSignatures(
 	ctx context.Context, batchId, cosignerPubkey string, signatures tree.TreePartialSigs,
 ) error {
-	buf, err := json.Marshal(signatures)
+	sigs, err := signatures.ToMap()
 	if err != nil {
 		return err
 	}
-	serializedSignatures := string(buf)
 
 	req := a.svc.ArkServiceAPI.ArkServiceSubmitTreeSignatures(ctx).
 		SubmitTreeSignaturesRequest(ark_service.SubmitTreeSignaturesRequest{
 			BatchId:        &batchId,
 			Pubkey:         &cosignerPubkey,
-			TreeSignatures: &serializedSignatures,
+			TreeSignatures: sigs,
 		})
 
 	_, _, err = req.Execute()
@@ -279,23 +293,30 @@ func (c *restClient) GetEventStream(
 			case !ark_service.IsNil(event.GetTreeNonces()):
 				e := event.GetTreeNonces()
 				nonces := make(map[string]*tree.Musig2Nonce)
+				var _err error
+				var mustBreak bool
 				for pubkey, nonce := range e.Nonces {
 					pubnonce, err := hex.DecodeString(nonce)
 					if err != nil {
+						mustBreak = true
+						_err = err
 						break
 					}
-
 					if len(pubnonce) != 66 {
-						err = fmt.Errorf(
+						_err = fmt.Errorf(
 							"invalid nonce length expected 66 bytes got %d",
 							len(pubnonce),
 						)
+						mustBreak = true
 						break
 					}
-
 					nonces[pubkey] = &tree.Musig2Nonce{
 						PubNonce: [66]byte(pubnonce),
 					}
+				}
+				if mustBreak {
+					err = _err
+					break
 				}
 				batchEvent = client.TreeNoncesEvent{
 					Id:     e.GetId(),
@@ -477,4 +498,40 @@ func vtxosFromRest(restVtxos []ark_service.Vtxo) []types.Vtxo {
 		}
 	}
 	return vtxos
+}
+
+func parseFees(fees ark_service.FeeInfo) (types.FeeInfo, error) {
+	var (
+		err                               error
+		txFeeRate                         float64
+		onchainInputFee, onchainOutputFee uint64
+	)
+	if fees.GetTxFeeRate() != "" {
+		txFeeRate, err = strconv.ParseFloat(fees.GetTxFeeRate(), 64)
+		if err != nil {
+			return types.FeeInfo{}, err
+		}
+	}
+	intentFee := fees.GetIntentFee()
+	if intentFee.GetOnchainInput() != "" {
+		onchainInputFee, err = strconv.ParseUint(intentFee.GetOnchainInput(), 10, 64)
+		if err != nil {
+			return types.FeeInfo{}, err
+		}
+	}
+	if intentFee.GetOnchainOutput() != "" {
+		onchainOutputFee, err = strconv.ParseUint(intentFee.GetOnchainOutput(), 10, 64)
+		if err != nil {
+			return types.FeeInfo{}, err
+		}
+	}
+	return types.FeeInfo{
+		TxFeeRate: txFeeRate,
+		IntentFees: types.IntentFeeInfo{
+			OffchainInput:  intentFee.GetOffchainInput(),
+			OffchainOutput: intentFee.GetOffchainOutput(),
+			OnchainInput:   onchainInputFee,
+			OnchainOutput:  onchainOutputFee,
+		},
+	}, nil
 }

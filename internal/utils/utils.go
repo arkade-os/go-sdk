@@ -21,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -149,7 +148,7 @@ func ToBitcoinNetwork(net arklib.Network) chaincfg.Params {
 	}
 }
 
-func GenerateRandomPrivateKey() (*secp256k1.PrivateKey, error) {
+func GenerateRandomPrivateKey() (*btcec.PrivateKey, error) {
 	prvkey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err

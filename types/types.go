@@ -8,11 +8,11 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 const (
@@ -23,35 +23,50 @@ const (
 )
 
 type Config struct {
-	ServerUrl               string
-	SignerPubKey            *secp256k1.PublicKey
-	WalletType              string
-	ClientType              string
-	Network                 arklib.Network
-	VtxoTreeExpiry          arklib.RelativeLocktime
-	RoundInterval           int64
-	UnilateralExitDelay     arklib.RelativeLocktime
-	Dust                    uint64
-	BoardingExitDelay       arklib.RelativeLocktime
-	ExplorerURL             string
-	ExplorerPollInterval    time.Duration
-	ForfeitAddress          string
-	WithTransactionFeed     bool
-	MarketHourStartTime     int64
-	MarketHourEndTime       int64
-	MarketHourPeriod        int64
-	MarketHourRoundInterval int64
-	UtxoMinAmount           int64
-	UtxoMaxAmount           int64
-	VtxoMinAmount           int64
-	VtxoMaxAmount           int64
-	CheckpointTapscript     string
+	ServerUrl            string
+	SignerPubKey         *btcec.PublicKey
+	ForfeitPubKey        *btcec.PublicKey
+	WalletType           string
+	ClientType           string
+	Network              arklib.Network
+	VtxoTreeExpiry       arklib.RelativeLocktime
+	RoundInterval        int64
+	UnilateralExitDelay  arklib.RelativeLocktime
+	Dust                 uint64
+	BoardingExitDelay    arklib.RelativeLocktime
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	ForfeitAddress       string
+	WithTransactionFeed  bool
+	UtxoMinAmount        int64
+	UtxoMaxAmount        int64
+	VtxoMinAmount        int64
+	VtxoMaxAmount        int64
+	CheckpointTapscript  string
+	Fees                 FeeInfo
 }
 
 func (c Config) CheckpointExitPath() []byte {
 	// nolint
 	buf, _ := hex.DecodeString(c.CheckpointTapscript)
 	return buf
+}
+
+type FeeInfo struct {
+	IntentFees IntentFeeInfo
+	TxFeeRate  float64
+}
+
+type IntentFeeInfo struct {
+	OffchainInput  string
+	OffchainOutput string
+	OnchainInput   uint64
+	OnchainOutput  uint64
+}
+
+type DeprecatedSigner struct {
+	PubKey     *btcec.PublicKey
+	CutoffDate time.Time
 }
 
 type Outpoint struct {
@@ -89,7 +104,7 @@ func (v Vtxo) IsRecoverable() bool {
 	return v.Swept && !v.Spent
 }
 
-func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, error) {
+func (v Vtxo) Address(server *btcec.PublicKey, net arklib.Network) (string, error) {
 	buf, err := hex.DecodeString(v.Script)
 	if err != nil {
 		return "", err
