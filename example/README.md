@@ -9,7 +9,7 @@ The `multi_connection_demo.go` demonstrates the explorer's ability to handle hig
 ### Usage
 
 ```bash
-go run example/multi_connection_demo.go [flags]
+go run example/multi_connection_demo/multi_connection_demo.go [flags]
 ```
 
 ### Flags
