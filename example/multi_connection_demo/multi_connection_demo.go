@@ -65,7 +65,7 @@ func main() {
 	// Generate test addresses
 	addresses := make([]string, 0, *numAddresses)
 	fmt.Printf("🔄 Generating %d test addresses...\n", *numAddresses)
-	for i := range *numAddresses {
+	for i := 0; i < *numAddresses; i++ {
 		addresses = append(addresses, newTestAddr(i))
 	}
 	fmt.Printf("✅ Generated %d addresses\n", len(addresses))

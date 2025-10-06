@@ -3,14 +3,12 @@
 //
 // # Architecture
 //
-// The explorer uses a connection pool architecture to distribute address subscriptions across
-// multiple WebSocket connections, preventing I/O timeouts and improving scalability:
 //
 //   - Multiple concurrent WebSocket connections (configurable, default: 3)
 //   - Hash-based address distribution for consistent routing
 //   - Batched subscriptions to prevent overwhelming individual connections
-//   - Global deduplication to prevent duplicate subscriptions
-//   - Automatic fallback to HTTP polling if WebSocket fails
+//   - Instance-scoped deduplication to prevent duplicate subscriptions
+//   - Automatic fallback to polling if WebSocket connections fails
 //
 // # Usage
 //
@@ -176,7 +174,7 @@ type Explorer interface {
 	// SubscribeForAddresses subscribes to address updates via WebSocket connections.
 	// Addresses are automatically distributed across multiple connections using hash-based routing.
 	// Subscriptions are batched to prevent overwhelming individual connections.
-	// Duplicate subscriptions are automatically prevented via global deduplication.
+	// Duplicate subscriptions are automatically prevented via instance-scoped deduplication.
 	SubscribeForAddresses(addresses []string) error
 	
 	// UnsubscribeForAddresses removes address subscriptions and updates the WebSocket connections.
@@ -208,13 +206,6 @@ type connectionPool struct {
 	mu             sync.RWMutex
 }
 
-// Global address-to-connection mapping for deduplication.
-// Prevents the same address from being subscribed multiple times across the application.
-var (
-	globalAddressMap = make(map[string]int)
-	globalAddressMu  sync.RWMutex
-)
-
 type explorerSvc struct {
 	cache          *utils.Cache[string]
 	baseUrl        string
@@ -232,6 +223,10 @@ type explorerSvc struct {
 	errorsMu       sync.RWMutex
 	errors         []error
 	errorCount     int
+	// Instance-scoped address deduplication map
+	// Prevents the same address from being subscribed multiple times within this explorer instance
+	addressDedupMap map[string]bool
+	addressDedupMu  sync.RWMutex
 }
 
 // Option is a functional option for configuring the Explorer service.
@@ -290,7 +285,7 @@ func WithMaxConnections(maxConnections int) Option {
 // The explorer supports:
 //   - Multiple concurrent WebSocket connections for scalability
 //   - Batched address subscriptions to prevent overwhelming connections
-//   - Global deduplication to prevent duplicate subscriptions
+//   - Instance-scoped deduplication to prevent duplicate subscriptions
 //   - Automatic fallback to polling if WebSocket connections fail
 //
 // Example:
@@ -351,6 +346,7 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		batchSize:      svcOpts.batchSize,
 		batchDelay:     svcOpts.batchDelay,
 		maxConnections: svcOpts.maxConnections,
+		addressDedupMap: make(map[string]bool),
 	}
 
 	// Initialize connection pool
@@ -401,18 +397,21 @@ func (cp *connectionPool) addConnection(conn *websocket.Conn) {
 }
 
 func (cp *connectionPool) getConnectionForAddress(address string) (*websocketConnection, bool) {
-	// Use hash-based distribution to consistently assign addresses to connections
-	hash := sha256.Sum256([]byte(address))
-	connectionIndex := int(hash[0]) % cp.maxConnections
-
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
 
-	if connectionIndex < len(cp.connections) {
-		return cp.connections[connectionIndex], true
+	// Guard against empty connection pool
+	n := len(cp.connections)
+	if n == 0 {
+		return nil, false
 	}
 
-	return nil, false
+	// Use hash-based distribution to consistently assign addresses to connections
+	// Use actual number of live connections instead of maxConnections
+	hash := sha256.Sum256([]byte(address))
+	connectionIndex := int(hash[0]) % n
+
+	return cp.connections[connectionIndex], true
 }
 
 func (e *explorerSvc) initializeConnectionPool(ctx context.Context, wsURL string) error {
@@ -463,6 +462,11 @@ func (e *explorerSvc) Stop() {
 		}
 		e.connPool.mu.Unlock()
 	}
+
+	// Clear instance-scoped deduplication map
+	e.addressDedupMu.Lock()
+	e.addressDedupMap = make(map[string]bool)
+	e.addressDedupMu.Unlock()
 
 	close(e.channel)
 }
@@ -724,13 +728,13 @@ func (e *explorerSvc) subscribeForAddressesWithPool(addressesToSubscribe []strin
 	addressBuckets := make(map[*websocketConnection][]string)
 
 	for _, addr := range addressesToSubscribe {
-		// Check if address is already subscribed globally (deduplication)
-		globalAddressMu.Lock()
-		if _, exists := globalAddressMap[addr]; exists {
-			globalAddressMu.Unlock()
-			continue // Already subscribed
+		// Check if address is already subscribed in this instance (deduplication)
+		e.addressDedupMu.RLock()
+		if e.addressDedupMap[addr] {
+			e.addressDedupMu.RUnlock()
+			continue // Already subscribed in this instance
 		}
-		globalAddressMu.Unlock()
+		e.addressDedupMu.RUnlock()
 
 		// Get the connection for this address
 		wsConn, found := e.connPool.getConnectionForAddress(addr)
@@ -740,6 +744,10 @@ func (e *explorerSvc) subscribeForAddressesWithPool(addressesToSubscribe []strin
 
 		addressBuckets[wsConn] = append(addressBuckets[wsConn], addr)
 	}
+
+	// Track addresses that were successfully subscribed for rollback on error
+	var subscribedAddresses []string
+	var subscriptionError error
 
 	// Subscribe addresses to their respective connections in batches
 	for wsConn, addrs := range addressBuckets {
@@ -751,21 +759,23 @@ func (e *explorerSvc) subscribeForAddressesWithPool(addressesToSubscribe []strin
 			}
 			batch := addrs[i:end]
 
-			// Mark addresses as subscribed globally
-			globalAddressMu.Lock()
-			for _, addr := range batch {
-				globalAddressMap[addr] = 1
-			}
-			globalAddressMu.Unlock()
-
 			// Send subscription request
 			payload := map[string][]string{"track-addresses": batch}
 			wsConn.mu.Lock()
 			if err := wsConn.conn.WriteJSON(payload); err != nil {
 				wsConn.mu.Unlock()
-				return fmt.Errorf("failed to subscribe for addresses batch: %s", err)
+				subscriptionError = fmt.Errorf("failed to subscribe for addresses batch: %s", err)
+				break
 			}
 			wsConn.mu.Unlock()
+
+			// Mark addresses as subscribed in instance dedup map
+			e.addressDedupMu.Lock()
+			for _, addr := range batch {
+				e.addressDedupMap[addr] = true
+				subscribedAddresses = append(subscribedAddresses, addr)
+			}
+			e.addressDedupMu.Unlock()
 
 			// Mark addresses in this connection's bucket
 			wsConn.mu.Lock()
@@ -779,6 +789,20 @@ func (e *explorerSvc) subscribeForAddressesWithPool(addressesToSubscribe []strin
 				time.Sleep(e.batchDelay)
 			}
 		}
+
+		if subscriptionError != nil {
+			break
+		}
+	}
+
+	// If there was an error, clean up the addresses that were subscribed
+	if subscriptionError != nil {
+		e.addressDedupMu.Lock()
+		for _, addr := range subscribedAddresses {
+			delete(e.addressDedupMap, addr)
+		}
+		e.addressDedupMu.Unlock()
+		return subscriptionError
 	}
 
 	return nil
@@ -795,10 +819,10 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 	for _, addr := range addresses {
 		delete(e.subscribedMap, addr)
 		
-		// Remove from global address map
-		globalAddressMu.Lock()
-		delete(globalAddressMap, addr)
-		globalAddressMu.Unlock()
+		// Remove from instance dedup map
+		e.addressDedupMu.Lock()
+		delete(e.addressDedupMap, addr)
+		e.addressDedupMu.Unlock()
 	}
 
 	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {

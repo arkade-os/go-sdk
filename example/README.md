@@ -62,12 +62,12 @@ Large delay (batch-delay=200ms):
 
 #### Default Configuration (100 addresses, 3 connections)
 ```bash
-go run example/multi_connection_demo.go
+go run example/multi_connection_demo/multi_connection_demo.go
 ```
 
 #### Stress Test: 500 addresses on single connection
 ```bash
-go run example/multi_connection_demo.go \
+go run example/multi_connection_demo/multi_connection_demo.go \
   -addresses 500 \
   -connections 1 \
   -batch-size 500 \
@@ -76,7 +76,7 @@ go run example/multi_connection_demo.go \
 
 #### High Volume: 1000 addresses across 5 connections
 ```bash
-go run example/multi_connection_demo.go \
+go run example/multi_connection_demo/multi_connection_demo.go \
   -addresses 1000 \
   -connections 5 \
   -batch-size 50 \
@@ -85,7 +85,7 @@ go run example/multi_connection_demo.go \
 
 #### Conservative: Small batches with delays
 ```bash
-go run example/multi_connection_demo.go \
+go run example/multi_connection_demo/multi_connection_demo.go \
   -addresses 200 \
   -connections 2 \
   -batch-size 10 \
@@ -94,7 +94,7 @@ go run example/multi_connection_demo.go \
 
 #### Listen indefinitely for events
 ```bash
-go run example/multi_connection_demo.go \
+go run example/multi_connection_demo/multi_connection_demo.go \
   -addresses 50 \
   -max-events 0
 ```
