@@ -1,3 +1,62 @@
+// Package explorer provides a high-performance blockchain explorer client with support for
+// multiple concurrent WebSocket connections, batched subscriptions, and automatic deduplication.
+//
+// # Architecture
+//
+// The explorer uses a connection pool architecture to distribute address subscriptions across
+// multiple WebSocket connections, preventing I/O timeouts and improving scalability:
+//
+//   - Multiple concurrent WebSocket connections (configurable, default: 3)
+//   - Hash-based address distribution for consistent routing
+//   - Batched subscriptions to prevent overwhelming individual connections
+//   - Global deduplication to prevent duplicate subscriptions
+//   - Automatic fallback to HTTP polling if WebSocket fails
+//
+// # Usage
+//
+// Basic usage with default settings:
+//
+//	svc, err := explorer.NewExplorer("", arklib.Bitcoin,
+//	    explorer.WithTracker(true))
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer svc.Stop()
+//
+// Advanced usage with custom connection pool settings:
+//
+//	svc, err := explorer.NewExplorer("https://mempool.space/api", arklib.Bitcoin,
+//	    explorer.WithTracker(true),
+//	    explorer.WithMaxConnections(5),        // 5 concurrent connections
+//	    explorer.WithBatchSize(25),            // 25 addresses per batch
+//	    explorer.WithBatchDelay(50*time.Millisecond)) // 50ms between batches
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer svc.Stop()
+//
+//	// Subscribe to addresses
+//	addresses := []string{"bc1q...", "bc1p...", ...}
+//	if err := svc.SubscribeForAddresses(addresses); err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Listen for events
+//	for event := range svc.GetAddressesEvents() {
+//	    fmt.Printf("New UTXOs: %d, Spent: %d\n",
+//	        len(event.NewUtxos), len(event.SpentUtxos))
+//	}
+//
+// # Performance Considerations
+//
+// When subscribing to many addresses (100+), consider:
+//   - Increase MaxConnections (3-5) to distribute load
+//   - Adjust BatchSize (25-50) to control subscription rate
+//   - Set BatchDelay (50-100ms) to avoid rate limiting
+//
+// # Thread Safety
+//
+// All public methods are thread-safe and can be called concurrently.
 package explorer
 
 import (
@@ -45,52 +104,150 @@ var (
 	}
 )
 
+// Explorer provides methods to interact with blockchain explorers (e.g., mempool.space, esplora).
+// It supports both HTTP REST API calls and WebSocket connections for real-time address tracking.
+// The implementation uses a connection pool architecture with multiple concurrent WebSocket connections
+// to handle high-volume address subscriptions without overwhelming individual connections.
 type Explorer interface {
+	// GetTxHex retrieves the raw transaction hex for a given transaction ID.
 	GetTxHex(txid string) (string, error)
+	
+	// Broadcast broadcasts one or more raw transactions to the network.
+	// Returns the transaction ID of the first transaction on success.
 	Broadcast(txs ...string) (string, error)
+	
+	// GetTxs retrieves all transactions associated with a given address.
 	GetTxs(addr string) ([]tx, error)
+	
+	// GetTxOutspends returns the spent status of all outputs for a given transaction.
 	GetTxOutspends(tx string) ([]spentStatus, error)
+	
+	// GetUtxos retrieves all unspent transaction outputs (UTXOs) for a given address.
 	GetUtxos(addr string) ([]Utxo, error)
+	
+	// GetRedeemedVtxosBalance calculates the redeemed virtual UTXO balance for an address
+	// considering the unilateral exit delay.
 	GetRedeemedVtxosBalance(
 		addr string, unilateralExitDelay arklib.RelativeLocktime,
 	) (uint64, map[int64]uint64, error)
+	
+	// GetTxBlockTime returns whether a transaction is confirmed and its block time.
 	GetTxBlockTime(
 		txid string,
 	) (confirmed bool, blocktime int64, err error)
+	
+	// BaseUrl returns the base URL of the explorer service.
 	BaseUrl() string
+	
+	// GetFeeRate retrieves the current recommended fee rate in sat/vB.
 	GetFeeRate() (float64, error)
+	
+	// GetConnectionCount returns the number of active WebSocket connections.
+	GetConnectionCount() int
+	
+	// GetBatchSize returns the configured batch size for address subscriptions.
+	GetBatchSize() int
+	
+	// GetBatchDelay returns the configured delay between batches.
+	GetBatchDelay() time.Duration
+	
+	// GetSubscribedAddressCount returns the number of currently subscribed addresses.
+	GetSubscribedAddressCount() int
+	
+	// GetSubscribedAddresses returns a list of all currently subscribed addresses.
+	GetSubscribedAddresses() []string
+	
+	// IsAddressSubscribed checks if a specific address is currently subscribed.
+	IsAddressSubscribed(address string) bool
+	
+	// GetErrors returns recent errors encountered by the explorer (max 100).
+	GetErrors() []error
+	
+	// GetErrorCount returns the total number of errors encountered since creation.
+	GetErrorCount() int
+	
+	// ClearErrors clears the error history.
+	ClearErrors()
+	
+	// GetAddressesEvents returns a channel that receives onchain address events
+	// (new UTXOs, spent UTXOs, confirmed UTXOs) for all subscribed addresses.
 	GetAddressesEvents() <-chan types.OnchainAddressEvent
+	
+	// SubscribeForAddresses subscribes to address updates via WebSocket connections.
+	// Addresses are automatically distributed across multiple connections using hash-based routing.
+	// Subscriptions are batched to prevent overwhelming individual connections.
+	// Duplicate subscriptions are automatically prevented via global deduplication.
 	SubscribeForAddresses(addresses []string) error
+	
+	// UnsubscribeForAddresses removes address subscriptions and updates the WebSocket connections.
 	UnsubscribeForAddresses(addresses []string) error
+	
+	// Stop gracefully shuts down the explorer, closing all WebSocket connections and channels.
 	Stop()
 }
 
+// addressData stores cached UTXO data for an address to detect changes during polling.
 type addressData struct {
 	hash  []byte
 	utxos []Utxo
 }
 
-type explorerSvc struct {
-	cache         *utils.Cache[string]
-	baseUrl       string
-	net           arklib.Network
+// websocketConnection represents a single WebSocket connection with its subscribed addresses.
+type websocketConnection struct {
 	conn          *websocket.Conn
-	subscribedMu  *sync.RWMutex
-	subscribedMap map[string]addressData
-	channel       chan types.OnchainAddressEvent
-	stopTracking  func()
-	pollInterval  time.Duration
-	noTracking    bool
+	addressBucket map[string]bool // Track subscribed addresses for this connection
+	mu            sync.RWMutex
 }
 
+// connectionPool manages multiple WebSocket connections for load distribution.
+// Addresses are distributed across connections using consistent hash-based routing.
+type connectionPool struct {
+	connections    []*websocketConnection
+	maxConnections int
+	currentIndex   int // For round-robin distribution
+	mu             sync.RWMutex
+}
+
+// Global address-to-connection mapping for deduplication.
+// Prevents the same address from being subscribed multiple times across the application.
+var (
+	globalAddressMap = make(map[string]int)
+	globalAddressMu  sync.RWMutex
+)
+
+type explorerSvc struct {
+	cache          *utils.Cache[string]
+	baseUrl        string
+	net            arklib.Network
+	connPool       *connectionPool
+	subscribedMu   *sync.RWMutex
+	subscribedMap  map[string]addressData
+	channel        chan types.OnchainAddressEvent
+	stopTracking   func()
+	pollInterval   time.Duration
+	noTracking     bool
+	batchSize      int
+	batchDelay     time.Duration
+	maxConnections int
+	errorsMu       sync.RWMutex
+	errors         []error
+	errorCount     int
+}
+
+// Option is a functional option for configuring the Explorer service.
 type Option func(*explorerSvc)
 
+// WithPollInterval sets the polling interval for address tracking when WebSocket is unavailable.
+// Default: 10 seconds.
 func WithPollInterval(interval time.Duration) Option {
 	return func(svc *explorerSvc) {
 		svc.pollInterval = interval
 	}
 }
 
+// WithTracker enables or disables address tracking.
+// When disabled, the explorer only provides REST API functionality without WebSocket connections.
+// Default: tracking is disabled.
 func WithTracker(withTracker bool) Option {
 	return func(svc *explorerSvc) {
 		if !withTracker {
@@ -99,6 +256,50 @@ func WithTracker(withTracker bool) Option {
 	}
 }
 
+// WithBatchSize sets the number of addresses to subscribe per batch.
+// Batching prevents overwhelming individual WebSocket connections with large subscription requests.
+// Default: 50 addresses per batch.
+func WithBatchSize(batchSize int) Option {
+	return func(svc *explorerSvc) {
+		svc.batchSize = batchSize
+	}
+}
+
+// WithBatchDelay sets the delay between subscription batches.
+// This helps rate-limit subscription requests to avoid overwhelming the explorer service.
+// Default: 100 milliseconds.
+func WithBatchDelay(batchDelay time.Duration) Option {
+	return func(svc *explorerSvc) {
+		svc.batchDelay = batchDelay
+	}
+}
+
+// WithMaxConnections sets the maximum number of concurrent WebSocket connections.
+// Multiple connections distribute the load and prevent I/O timeouts when subscribing to many addresses.
+// Addresses are distributed across connections using consistent hash-based routing.
+// Default: 3 connections.
+func WithMaxConnections(maxConnections int) Option {
+	return func(svc *explorerSvc) {
+		svc.maxConnections = maxConnections
+	}
+}
+
+// NewExplorer creates a new Explorer instance for the specified network.
+// If baseUrl is empty, it uses the default explorer URL for the network.
+//
+// The explorer supports:
+//   - Multiple concurrent WebSocket connections for scalability
+//   - Batched address subscriptions to prevent overwhelming connections
+//   - Global deduplication to prevent duplicate subscriptions
+//   - Automatic fallback to polling if WebSocket connections fail
+//
+// Example:
+//
+//	svc, err := explorer.NewExplorer("https://mempool.space/api", arklib.Bitcoin,
+//	    explorer.WithTracker(true),
+//	    explorer.WithMaxConnections(3),
+//	    explorer.WithBatchSize(25),
+//	    explorer.WithBatchDelay(50*time.Millisecond))
 func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, error) {
 	if len(baseUrl) == 0 {
 		baseUrl, ok := defaultExplorerUrls[net.Name]
@@ -111,7 +312,11 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		return NewExplorer(baseUrl, net, opts...)
 	}
 
-	svcOpts := &explorerSvc{}
+	svcOpts := &explorerSvc{
+		batchSize:      50,
+		batchDelay:     100 * time.Millisecond,
+		maxConnections: 3,
+	}
 	for _, opt := range opts {
 		opt(svcOpts)
 	}
@@ -130,44 +335,113 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 	if err != nil {
 		return nil, fmt.Errorf("invalid base url: %s", err)
 	}
-	dialer := websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
-		HandshakeTimeout: 10 * time.Second,
-	}
-
-	conn, _, err := dialer.DialContext(context.Background(), wsURL, nil)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"network": net.Name,
-			"url":     wsURL,
-		}).WithError(err).Warn("websocket dial failed, falling back to polling")
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	svc := &explorerSvc{
-		cache:         utils.NewCache[string](),
-		baseUrl:       baseUrl,
-		net:           net,
-		conn:          conn,
-		subscribedMu:  &sync.RWMutex{},
-		subscribedMap: make(map[string]addressData),
-		channel:       make(chan types.OnchainAddressEvent, 100),
-		stopTracking:  cancel,
-		pollInterval:  svcOpts.pollInterval,
-		noTracking:    svcOpts.noTracking,
+		cache:          utils.NewCache[string](),
+		baseUrl:        baseUrl,
+		net:            net,
+		connPool:       newConnectionPool(svcOpts.maxConnections),
+		subscribedMu:   &sync.RWMutex{},
+		subscribedMap:  make(map[string]addressData),
+		channel:        make(chan types.OnchainAddressEvent, 100),
+		stopTracking:   cancel,
+		pollInterval:   svcOpts.pollInterval,
+		noTracking:     svcOpts.noTracking,
+		batchSize:      svcOpts.batchSize,
+		batchDelay:     svcOpts.batchDelay,
+		maxConnections: svcOpts.maxConnections,
 	}
 
-	if svc.conn == nil {
+	// Initialize connection pool
+	if err := svc.initializeConnectionPool(ctx, wsURL); err != nil {
+		log.WithFields(log.Fields{
+			"network": net.Name,
+			"url":     wsURL,
+		}).WithError(err).Warn("websocket connection pool initialization failed, falling back to polling")
+	}
+
+	if svc.connPool.getConnectionCount() == 0 {
 		log.Debugf(
 			"starting explorer background tracking with polling interval %s",
 			svc.pollInterval,
 		)
 	} else {
-		log.Debugf("starting explorer background tracking with websocket")
+		log.Debugf("starting explorer background tracking with %d websocket connections", svc.connPool.getConnectionCount())
 	}
 	go svc.startTracking(ctx)
 
 	return svc, nil
+}
+
+func newConnectionPool(maxConnections int) *connectionPool {
+	return &connectionPool{
+		connections:    make([]*websocketConnection, 0, maxConnections),
+		maxConnections: maxConnections,
+		currentIndex:   0,
+	}
+}
+
+func (cp *connectionPool) getConnectionCount() int {
+	cp.mu.RLock()
+	defer cp.mu.RUnlock()
+	return len(cp.connections)
+}
+
+func (cp *connectionPool) addConnection(conn *websocket.Conn) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+
+	wsConn := &websocketConnection{
+		conn:          conn,
+		addressBucket: make(map[string]bool),
+	}
+
+	cp.connections = append(cp.connections, wsConn)
+}
+
+func (cp *connectionPool) getConnectionForAddress(address string) (*websocketConnection, bool) {
+	// Use hash-based distribution to consistently assign addresses to connections
+	hash := sha256.Sum256([]byte(address))
+	connectionIndex := int(hash[0]) % cp.maxConnections
+
+	cp.mu.RLock()
+	defer cp.mu.RUnlock()
+
+	if connectionIndex < len(cp.connections) {
+		return cp.connections[connectionIndex], true
+	}
+
+	return nil, false
+}
+
+func (e *explorerSvc) initializeConnectionPool(ctx context.Context, wsURL string) error {
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// Try to establish connections up to maxConnections
+	for i := 0; i < e.maxConnections; i++ {
+		conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"connection": i + 1,
+				"max":        e.maxConnections,
+				"url":        wsURL,
+			}).WithError(err).Warn("failed to establish websocket connection")
+			break
+		}
+
+		e.connPool.addConnection(conn)
+		log.WithField("connection", i+1).Debug("established websocket connection")
+	}
+
+	if e.connPool.getConnectionCount() == 0 {
+		return fmt.Errorf("failed to establish any websocket connections")
+	}
+
+	return nil
 }
 
 func (e *explorerSvc) Stop() {
@@ -176,11 +450,20 @@ func (e *explorerSvc) Stop() {
 	}
 
 	e.stopTracking()
-	if e.conn != nil {
-		if err := e.conn.Close(); err != nil {
-			log.WithError(err).Error("failed to close websocket connection")
+
+	// Close all connections in the pool
+	if e.connPool != nil {
+		e.connPool.mu.Lock()
+		for _, wsConn := range e.connPool.connections {
+			if wsConn.conn != nil {
+				if err := wsConn.conn.Close(); err != nil {
+					log.WithError(err).Error("failed to close websocket connection")
+				}
+			}
 		}
+		e.connPool.mu.Unlock()
 	}
+
 	close(e.channel)
 }
 
@@ -220,6 +503,86 @@ func (e *explorerSvc) GetFeeRate() (float64, error) {
 	}
 
 	return response["1"], nil
+}
+
+func (e *explorerSvc) GetConnectionCount() int {
+	if e.connPool == nil {
+		return 0
+	}
+	return e.connPool.getConnectionCount()
+}
+
+func (e *explorerSvc) GetBatchSize() int {
+	return e.batchSize
+}
+
+func (e *explorerSvc) GetBatchDelay() time.Duration {
+	return e.batchDelay
+}
+
+func (e *explorerSvc) GetSubscribedAddressCount() int {
+	e.subscribedMu.RLock()
+	defer e.subscribedMu.RUnlock()
+	return len(e.subscribedMap)
+}
+
+func (e *explorerSvc) GetSubscribedAddresses() []string {
+	e.subscribedMu.RLock()
+	defer e.subscribedMu.RUnlock()
+	
+	addresses := make([]string, 0, len(e.subscribedMap))
+	for addr := range e.subscribedMap {
+		addresses = append(addresses, addr)
+	}
+	return addresses
+}
+
+func (e *explorerSvc) IsAddressSubscribed(address string) bool {
+	e.subscribedMu.RLock()
+	defer e.subscribedMu.RUnlock()
+	_, exists := e.subscribedMap[address]
+	return exists
+}
+
+func (e *explorerSvc) GetErrors() []error {
+	e.errorsMu.RLock()
+	defer e.errorsMu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	errorsCopy := make([]error, len(e.errors))
+	copy(errorsCopy, e.errors)
+	return errorsCopy
+}
+
+func (e *explorerSvc) GetErrorCount() int {
+	e.errorsMu.RLock()
+	defer e.errorsMu.RUnlock()
+	return e.errorCount
+}
+
+func (e *explorerSvc) ClearErrors() {
+	e.errorsMu.Lock()
+	defer e.errorsMu.Unlock()
+	e.errors = nil
+	e.errorCount = 0
+}
+
+// recordError stores an error for later retrieval (keeps last 100 errors)
+func (e *explorerSvc) recordError(err error) {
+	if err == nil {
+		return
+	}
+	
+	e.errorsMu.Lock()
+	defer e.errorsMu.Unlock()
+	
+	e.errorCount++
+	e.errors = append(e.errors, err)
+	
+	// Keep only last 100 errors to prevent unbounded growth
+	if len(e.errors) > 100 {
+		e.errors = e.errors[len(e.errors)-100:]
+	}
 }
 
 func (e *explorerSvc) GetAddressesEvents() <-chan types.OnchainAddressEvent {
@@ -344,21 +707,77 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		return nil
 	}
 
+	// Add new addresses to the subscribed map
 	for _, addr := range addressesToSubscribe {
 		e.subscribedMap[addr] = addressData{}
 	}
 
-	if e.conn != nil {
-		// When adding new addresses we have to resubscribe for the whole new total list of
-		// addresses.
-		trackAddresses := make([]string, 0, len(e.subscribedMap))
-		for addr := range e.subscribedMap {
-			trackAddresses = append(trackAddresses, addr)
-		}
-		payload := map[string][]string{"track-addresses": trackAddresses}
+	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
+		// Use connection pool for address subscription with batching
+		return e.subscribeForAddressesWithPool(addressesToSubscribe)
+	}
+	return nil
+}
 
-		if err := e.conn.WriteJSON(payload); err != nil {
-			return fmt.Errorf("failed to subscribe for addresses %s: %s", addressesToSubscribe, err)
+func (e *explorerSvc) subscribeForAddressesWithPool(addressesToSubscribe []string) error {
+	// Group addresses by their assigned connection
+	addressBuckets := make(map[*websocketConnection][]string)
+
+	for _, addr := range addressesToSubscribe {
+		// Check if address is already subscribed globally (deduplication)
+		globalAddressMu.Lock()
+		if _, exists := globalAddressMap[addr]; exists {
+			globalAddressMu.Unlock()
+			continue // Already subscribed
+		}
+		globalAddressMu.Unlock()
+
+		// Get the connection for this address
+		wsConn, found := e.connPool.getConnectionForAddress(addr)
+		if !found {
+			continue // Skip if no available connection
+		}
+
+		addressBuckets[wsConn] = append(addressBuckets[wsConn], addr)
+	}
+
+	// Subscribe addresses to their respective connections in batches
+	for wsConn, addrs := range addressBuckets {
+		// Process in batches to avoid overwhelming a single websocket message
+		for i := 0; i < len(addrs); i += e.batchSize {
+			end := i + e.batchSize
+			if end > len(addrs) {
+				end = len(addrs)
+			}
+			batch := addrs[i:end]
+
+			// Mark addresses as subscribed globally
+			globalAddressMu.Lock()
+			for _, addr := range batch {
+				globalAddressMap[addr] = 1
+			}
+			globalAddressMu.Unlock()
+
+			// Send subscription request
+			payload := map[string][]string{"track-addresses": batch}
+			wsConn.mu.Lock()
+			if err := wsConn.conn.WriteJSON(payload); err != nil {
+				wsConn.mu.Unlock()
+				return fmt.Errorf("failed to subscribe for addresses batch: %s", err)
+			}
+			wsConn.mu.Unlock()
+
+			// Mark addresses in this connection's bucket
+			wsConn.mu.Lock()
+			for _, addr := range batch {
+				wsConn.addressBucket[addr] = true
+			}
+			wsConn.mu.Unlock()
+
+			// Add delay between batches if configured
+			if i+e.batchSize < len(addrs) && e.batchDelay > 0 {
+				time.Sleep(e.batchDelay)
+			}
 		}
 	}
 
@@ -375,18 +794,34 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 
 	for _, addr := range addresses {
 		delete(e.subscribedMap, addr)
+		
+		// Remove from global address map
+		globalAddressMu.Lock()
+		delete(globalAddressMap, addr)
+		globalAddressMu.Unlock()
 	}
 
-	if e.conn != nil {
+	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
 		// When unsubscribing we have to resubscribe for the remaining addresses.
-		trackAddresses := make([]string, 0, len(e.subscribedMap))
+		// Group remaining addresses by connection
+		addressBuckets := make(map[*websocketConnection][]string)
+		
 		for addr := range e.subscribedMap {
-			trackAddresses = append(trackAddresses, addr)
+			wsConn, found := e.connPool.getConnectionForAddress(addr)
+			if found {
+				addressBuckets[wsConn] = append(addressBuckets[wsConn], addr)
+			}
 		}
-		payload := map[string][]string{"track-addresses": trackAddresses}
-
-		if err := e.conn.WriteJSON(payload); err != nil {
-			return fmt.Errorf("failed to unsubscribe for addresses %s: %s", addresses, err)
+		
+		// Resubscribe to each connection with its addresses
+		for wsConn, addrs := range addressBuckets {
+			payload := map[string][]string{"track-addresses": addrs}
+			wsConn.mu.Lock()
+			if err := wsConn.conn.WriteJSON(payload); err != nil {
+				wsConn.mu.Unlock()
+				return fmt.Errorf("failed to unsubscribe for addresses %s: %s", addresses, err)
+			}
+			wsConn.mu.Unlock()
 		}
 	}
 
@@ -521,61 +956,72 @@ func (e *explorerSvc) GetTxBlockTime(
 }
 
 func (e *explorerSvc) startTracking(ctx context.Context) {
-	// If the ws endpoint is avaialble (mempool.space url), read from websocket and eventually
+	// If the ws endpoint is available (mempool.space url), read from websocket and eventually
 	// send notifications and periodically send a ping message to keep the connection alive.
-	if e.conn != nil {
-		// Go routine to listen for addresses updates from websocket.
-		go func(ctx context.Context) {
-			if err := e.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
-				log.WithError(err).Error("failed to set read deadline")
-				return
-			}
-			e.conn.SetPongHandler(func(string) error {
-				return e.conn.SetReadDeadline(time.Now().Add(pongInterval))
-			})
-			for {
-				var payload addressNotification
-				if err := e.conn.ReadJSON(&payload); err != nil {
-					if websocket.IsCloseError(
-						err,
-						websocket.CloseNormalClosure,
-						websocket.CloseGoingAway,
-						websocket.CloseAbnormalClosure,
-					) ||
-						errors.Is(err, net.ErrClosed) {
-						return
-					}
-					log.WithError(err).Error("failed to read address notification")
-					continue
-				}
-				// Skip handling the received message if it's not an address update.
-				if len(payload.MultiAddrTx) == 0 {
-					continue
-				}
-
-				go e.sendAddressEventFromWs(ctx, payload)
-			}
-		}(ctx)
-
-		// Go routine to periodically send ping messages and keep the connection alive.
-		go func(ctx context.Context) {
-			ticker := time.NewTicker(pingInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
+	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
+		// Start a listener and ping routine for each connection in the pool
+		e.connPool.mu.RLock()
+		for i, wsConn := range e.connPool.connections {
+			connIndex := i
+			conn := wsConn
+			
+			// Go routine to listen for addresses updates from websocket.
+			go func(ctx context.Context, connIdx int, wsConn *websocketConnection) {
+				if err := wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
+					e.recordError(fmt.Errorf("connection %d: failed to set read deadline: %w", connIdx, err))
+					log.WithError(err).WithField("connection", connIdx).Error("failed to set read deadline")
 					return
-				case <-ticker.C:
-					deadline := time.Now().Add(10 * time.Second)
-					if err := e.conn.WriteControl(
-						websocket.PingMessage, nil, deadline,
-					); err != nil {
-						log.WithError(err).Error("failed to ping explorer")
+				}
+				wsConn.conn.SetPongHandler(func(string) error {
+					return wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval))
+				})
+				for {
+					var payload addressNotification
+					if err := wsConn.conn.ReadJSON(&payload); err != nil {
+						if websocket.IsCloseError(
+							err,
+							websocket.CloseNormalClosure,
+							websocket.CloseGoingAway,
+							websocket.CloseAbnormalClosure,
+						) ||
+							errors.Is(err, net.ErrClosed) {
+							return
+						}
+						e.recordError(fmt.Errorf("connection %d: failed to read address notification: %w", connIdx, err))
+						log.WithError(err).WithField("connection", connIdx).Error("failed to read address notification")
+						continue
+					}
+					// Skip handling the received message if it's not an address update.
+					if len(payload.MultiAddrTx) == 0 {
+						continue
+					}
+
+					go e.sendAddressEventFromWs(ctx, payload)
+				}
+			}(ctx, connIndex, conn)
+
+			// Go routine to periodically send ping messages and keep the connection alive.
+			go func(ctx context.Context, connIdx int, wsConn *websocketConnection) {
+				ticker := time.NewTicker(pingInterval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
 						return
+					case <-ticker.C:
+						deadline := time.Now().Add(10 * time.Second)
+						if err := wsConn.conn.WriteControl(
+							websocket.PingMessage, nil, deadline,
+						); err != nil {
+							e.recordError(fmt.Errorf("connection %d: failed to ping explorer: %w", connIdx, err))
+							log.WithError(err).WithField("connection", connIdx).Error("failed to ping explorer")
+							return
+						}
 					}
 				}
-			}
-		}(ctx)
+			}(ctx, connIndex, conn)
+		}
+		e.connPool.mu.RUnlock()
 
 		return
 	}
@@ -610,6 +1056,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 			for addr, oldUtxos := range subscribedMap {
 				newUtxos, err := e.GetUtxos(addr)
 				if err != nil {
+					e.recordError(fmt.Errorf("polling: failed to get UTXOs for %s: %w", addr, err))
 					log.WithError(err).Error("failed to poll explorer")
 				}
 				buf, _ := json.Marshal(newUtxos)
