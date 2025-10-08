@@ -55,8 +55,8 @@ func (a *restClient) GetInfo(
 	if err != nil {
 		return nil, err
 	}
-	mktHour := resp.GetMarketHour()
-	mktHourFees, err := parseFees(mktHour.GetFees())
+	scheduledSession := resp.GetScheduledSession()
+	scheduledSessionFees, err := parseFees(scheduledSession.GetFees())
 	if err != nil {
 		return nil, err
 	}
@@ -68,30 +68,29 @@ func (a *restClient) GetInfo(
 		})
 	}
 	return &client.Info{
-		SignerPubKey:            resp.GetSignerPubkey(),
-		ForfeitPubKey:           resp.GetForfeitPubkey(),
-		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
-		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
-		RoundInterval:           resp.GetRoundInterval(),
-		Network:                 resp.GetNetwork(),
-		Dust:                    uint64(resp.GetDust()),
-		BoardingExitDelay:       resp.GetBoardingExitDelay(),
-		ForfeitAddress:          resp.GetForfeitAddress(),
-		Version:                 resp.GetVersion(),
-		MarketHourStartTime:     mktHour.GetNextStartTime(),
-		MarketHourEndTime:       mktHour.GetNextEndTime(),
-		MarketHourPeriod:        mktHour.GetPeriod(),
-		MarketHourRoundInterval: mktHour.GetRoundInterval(),
-		MarketHourFees:          mktHourFees,
-		UtxoMinAmount:           resp.GetUtxoMinAmount(),
-		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
-		VtxoMinAmount:           resp.GetVtxoMinAmount(),
-		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
-		CheckpointTapscript:     resp.GetCheckpointTapscript(),
-		DeprecatedSignerPubKeys: deprecatedSigners,
-		Fees:                    fees,
-		ServiceStatus:           resp.GetServiceStatus(),
-		Digest:                  resp.GetDigest(),
+		SignerPubKey:              resp.GetSignerPubkey(),
+		ForfeitPubKey:             resp.GetForfeitPubkey(),
+		UnilateralExitDelay:       resp.GetUnilateralExitDelay(),
+		SessionDuration:           resp.GetSessionDuration(),
+		Network:                   resp.GetNetwork(),
+		Dust:                      uint64(resp.GetDust()),
+		BoardingExitDelay:         resp.GetBoardingExitDelay(),
+		ForfeitAddress:            resp.GetForfeitAddress(),
+		Version:                   resp.GetVersion(),
+		ScheduledSessionStartTime: scheduledSession.GetNextStartTime(),
+		ScheduledSessionEndTime:   scheduledSession.GetNextEndTime(),
+		ScheduledSessionPeriod:    scheduledSession.GetPeriod(),
+		ScheduledSessionDuration:  scheduledSession.GetDuration(),
+		ScheduledSessionFees:      scheduledSessionFees,
+		UtxoMinAmount:             resp.GetUtxoMinAmount(),
+		UtxoMaxAmount:             resp.GetUtxoMaxAmount(),
+		VtxoMinAmount:             resp.GetVtxoMinAmount(),
+		VtxoMaxAmount:             resp.GetVtxoMaxAmount(),
+		CheckpointTapscript:       resp.GetCheckpointTapscript(),
+		DeprecatedSignerPubKeys:   deprecatedSigners,
+		Fees:                      fees,
+		ServiceStatus:             resp.GetServiceStatus(),
+		Digest:                    resp.GetDigest(),
 	}, nil
 }
 
@@ -251,8 +250,7 @@ func (c *restClient) GetEventStream(
 				}
 			case !ark_service.IsNil(event.GetTreeNoncesAggregated()):
 				e := event.GetTreeNoncesAggregated()
-				nonces := make(tree.TreeNonces)
-				err = json.Unmarshal([]byte(e.GetTreeNonces()), &nonces)
+				nonces, err := tree.NewTreeNonces(e.GetTreeNonces())
 				if err != nil {
 					break
 				}

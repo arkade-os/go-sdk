@@ -292,11 +292,6 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
 	}
 
-	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
-	if info.VtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
-	}
-
 	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if info.UnilateralExitDelay >= 512 {
 		unilateralExitDelayType = arklib.LocktimeTypeSecond
@@ -308,16 +303,13 @@ func (a *arkClient) initWithWallet(
 	}
 
 	storeData := types.Config{
-		ServerUrl:     args.ServerUrl,
-		SignerPubKey:  signerPubkey,
-		ForfeitPubKey: forfeitPubkey,
-		WalletType:    args.Wallet.GetType(),
-		ClientType:    args.ClientType,
-		Network:       network,
-		VtxoTreeExpiry: arklib.RelativeLocktime{
-			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
-		},
-		RoundInterval: info.RoundInterval,
+		ServerUrl:       args.ServerUrl,
+		SignerPubKey:    signerPubkey,
+		ForfeitPubKey:   forfeitPubkey,
+		WalletType:      args.Wallet.GetType(),
+		ClientType:      args.ClientType,
+		Network:         network,
+		SessionDuration: info.SessionDuration,
 		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
 		},
@@ -403,11 +395,6 @@ func (a *arkClient) init(
 		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
 	}
 
-	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
-	if info.VtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
-	}
-
 	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if info.UnilateralExitDelay >= 512 {
 		unilateralExitDelayType = arklib.LocktimeTypeSecond
@@ -419,16 +406,13 @@ func (a *arkClient) init(
 	}
 
 	cfgData := types.Config{
-		ServerUrl:     args.ServerUrl,
-		SignerPubKey:  signerPubkey,
-		ForfeitPubKey: forfeitPubkey,
-		WalletType:    args.WalletType,
-		ClientType:    args.ClientType,
-		Network:       network,
-		VtxoTreeExpiry: arklib.RelativeLocktime{
-			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
-		},
-		RoundInterval: info.RoundInterval,
+		ServerUrl:       args.ServerUrl,
+		SignerPubKey:    signerPubkey,
+		ForfeitPubKey:   forfeitPubkey,
+		WalletType:      args.WalletType,
+		ClientType:      args.ClientType,
+		Network:         network,
+		SessionDuration: info.SessionDuration,
 		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
 		},

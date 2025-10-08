@@ -14,37 +14,69 @@ import (
 	"encoding/json"
 )
 
-// checks if the MarketHour type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &MarketHour{}
+// checks if the ScheduledSession type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &ScheduledSession{}
 
-// MarketHour struct for MarketHour
-type MarketHour struct {
+// ScheduledSession struct for ScheduledSession
+type ScheduledSession struct {
+		Duration *int64 `json:"duration,omitempty"`
 		Fees *FeeInfo `json:"fees,omitempty"`
 		NextEndTime *int64 `json:"nextEndTime,omitempty"`
 		NextStartTime *int64 `json:"nextStartTime,omitempty"`
 		Period *int64 `json:"period,omitempty"`
-		RoundInterval *int64 `json:"roundInterval,omitempty"`
 }
 
-// NewMarketHour instantiates a new MarketHour object
+// NewScheduledSession instantiates a new ScheduledSession object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMarketHour() *MarketHour {
-	this := MarketHour{}
+func NewScheduledSession() *ScheduledSession {
+	this := ScheduledSession{}
 	return &this
 }
 
-// NewMarketHourWithDefaults instantiates a new MarketHour object
+// NewScheduledSessionWithDefaults instantiates a new ScheduledSession object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewMarketHourWithDefaults() *MarketHour {
-	this := MarketHour{}
+func NewScheduledSessionWithDefaults() *ScheduledSession {
+	this := ScheduledSession{}
 	return &this
+}
+
+// GetDuration returns the Duration field value if set, zero value otherwise.
+func (o *ScheduledSession) GetDuration() int64 {
+	if o == nil || IsNil(o.Duration) {
+		var ret int64
+		return ret
+	}
+	return *o.Duration
+}
+
+// GetDurationOk returns a tuple with the Duration field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ScheduledSession) GetDurationOk() (*int64, bool) {
+	if o == nil || IsNil(o.Duration) {
+		return nil, false
+	}
+	return o.Duration, true
+}
+
+// HasDuration returns a boolean if a field has been set.
+func (o *ScheduledSession) HasDuration() bool {
+	if o != nil && !IsNil(o.Duration) {
+		return true
+	}
+
+	return false
+}
+
+// SetDuration gets a reference to the given int64 and assigns it to the Duration field.
+func (o *ScheduledSession) SetDuration(v int64) {
+	o.Duration = &v
 }
 
 // GetFees returns the Fees field value if set, zero value otherwise.
-func (o *MarketHour) GetFees() FeeInfo {
+func (o *ScheduledSession) GetFees() FeeInfo {
 	if o == nil || IsNil(o.Fees) {
 		var ret FeeInfo
 		return ret
@@ -54,7 +86,7 @@ func (o *MarketHour) GetFees() FeeInfo {
 
 // GetFeesOk returns a tuple with the Fees field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MarketHour) GetFeesOk() (*FeeInfo, bool) {
+func (o *ScheduledSession) GetFeesOk() (*FeeInfo, bool) {
 	if o == nil || IsNil(o.Fees) {
 		return nil, false
 	}
@@ -62,7 +94,7 @@ func (o *MarketHour) GetFeesOk() (*FeeInfo, bool) {
 }
 
 // HasFees returns a boolean if a field has been set.
-func (o *MarketHour) HasFees() bool {
+func (o *ScheduledSession) HasFees() bool {
 	if o != nil && !IsNil(o.Fees) {
 		return true
 	}
@@ -71,12 +103,12 @@ func (o *MarketHour) HasFees() bool {
 }
 
 // SetFees gets a reference to the given FeeInfo and assigns it to the Fees field.
-func (o *MarketHour) SetFees(v FeeInfo) {
+func (o *ScheduledSession) SetFees(v FeeInfo) {
 	o.Fees = &v
 }
 
 // GetNextEndTime returns the NextEndTime field value if set, zero value otherwise.
-func (o *MarketHour) GetNextEndTime() int64 {
+func (o *ScheduledSession) GetNextEndTime() int64 {
 	if o == nil || IsNil(o.NextEndTime) {
 		var ret int64
 		return ret
@@ -86,7 +118,7 @@ func (o *MarketHour) GetNextEndTime() int64 {
 
 // GetNextEndTimeOk returns a tuple with the NextEndTime field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MarketHour) GetNextEndTimeOk() (*int64, bool) {
+func (o *ScheduledSession) GetNextEndTimeOk() (*int64, bool) {
 	if o == nil || IsNil(o.NextEndTime) {
 		return nil, false
 	}
@@ -94,7 +126,7 @@ func (o *MarketHour) GetNextEndTimeOk() (*int64, bool) {
 }
 
 // HasNextEndTime returns a boolean if a field has been set.
-func (o *MarketHour) HasNextEndTime() bool {
+func (o *ScheduledSession) HasNextEndTime() bool {
 	if o != nil && !IsNil(o.NextEndTime) {
 		return true
 	}
@@ -103,12 +135,12 @@ func (o *MarketHour) HasNextEndTime() bool {
 }
 
 // SetNextEndTime gets a reference to the given int64 and assigns it to the NextEndTime field.
-func (o *MarketHour) SetNextEndTime(v int64) {
+func (o *ScheduledSession) SetNextEndTime(v int64) {
 	o.NextEndTime = &v
 }
 
 // GetNextStartTime returns the NextStartTime field value if set, zero value otherwise.
-func (o *MarketHour) GetNextStartTime() int64 {
+func (o *ScheduledSession) GetNextStartTime() int64 {
 	if o == nil || IsNil(o.NextStartTime) {
 		var ret int64
 		return ret
@@ -118,7 +150,7 @@ func (o *MarketHour) GetNextStartTime() int64 {
 
 // GetNextStartTimeOk returns a tuple with the NextStartTime field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MarketHour) GetNextStartTimeOk() (*int64, bool) {
+func (o *ScheduledSession) GetNextStartTimeOk() (*int64, bool) {
 	if o == nil || IsNil(o.NextStartTime) {
 		return nil, false
 	}
@@ -126,7 +158,7 @@ func (o *MarketHour) GetNextStartTimeOk() (*int64, bool) {
 }
 
 // HasNextStartTime returns a boolean if a field has been set.
-func (o *MarketHour) HasNextStartTime() bool {
+func (o *ScheduledSession) HasNextStartTime() bool {
 	if o != nil && !IsNil(o.NextStartTime) {
 		return true
 	}
@@ -135,12 +167,12 @@ func (o *MarketHour) HasNextStartTime() bool {
 }
 
 // SetNextStartTime gets a reference to the given int64 and assigns it to the NextStartTime field.
-func (o *MarketHour) SetNextStartTime(v int64) {
+func (o *ScheduledSession) SetNextStartTime(v int64) {
 	o.NextStartTime = &v
 }
 
 // GetPeriod returns the Period field value if set, zero value otherwise.
-func (o *MarketHour) GetPeriod() int64 {
+func (o *ScheduledSession) GetPeriod() int64 {
 	if o == nil || IsNil(o.Period) {
 		var ret int64
 		return ret
@@ -150,7 +182,7 @@ func (o *MarketHour) GetPeriod() int64 {
 
 // GetPeriodOk returns a tuple with the Period field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MarketHour) GetPeriodOk() (*int64, bool) {
+func (o *ScheduledSession) GetPeriodOk() (*int64, bool) {
 	if o == nil || IsNil(o.Period) {
 		return nil, false
 	}
@@ -158,7 +190,7 @@ func (o *MarketHour) GetPeriodOk() (*int64, bool) {
 }
 
 // HasPeriod returns a boolean if a field has been set.
-func (o *MarketHour) HasPeriod() bool {
+func (o *ScheduledSession) HasPeriod() bool {
 	if o != nil && !IsNil(o.Period) {
 		return true
 	}
@@ -167,43 +199,11 @@ func (o *MarketHour) HasPeriod() bool {
 }
 
 // SetPeriod gets a reference to the given int64 and assigns it to the Period field.
-func (o *MarketHour) SetPeriod(v int64) {
+func (o *ScheduledSession) SetPeriod(v int64) {
 	o.Period = &v
 }
 
-// GetRoundInterval returns the RoundInterval field value if set, zero value otherwise.
-func (o *MarketHour) GetRoundInterval() int64 {
-	if o == nil || IsNil(o.RoundInterval) {
-		var ret int64
-		return ret
-	}
-	return *o.RoundInterval
-}
-
-// GetRoundIntervalOk returns a tuple with the RoundInterval field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *MarketHour) GetRoundIntervalOk() (*int64, bool) {
-	if o == nil || IsNil(o.RoundInterval) {
-		return nil, false
-	}
-	return o.RoundInterval, true
-}
-
-// HasRoundInterval returns a boolean if a field has been set.
-func (o *MarketHour) HasRoundInterval() bool {
-	if o != nil && !IsNil(o.RoundInterval) {
-		return true
-	}
-
-	return false
-}
-
-// SetRoundInterval gets a reference to the given int64 and assigns it to the RoundInterval field.
-func (o *MarketHour) SetRoundInterval(v int64) {
-	o.RoundInterval = &v
-}
-
-func (o MarketHour) MarshalJSON() ([]byte, error) {
+func (o ScheduledSession) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -211,8 +211,11 @@ func (o MarketHour) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o MarketHour) ToMap() (map[string]interface{}, error) {
+func (o ScheduledSession) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
+	if !IsNil(o.Duration) {
+		toSerialize["duration"] = o.Duration
+	}
 	if !IsNil(o.Fees) {
 		toSerialize["fees"] = o.Fees
 	}
@@ -225,44 +228,41 @@ func (o MarketHour) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Period) {
 		toSerialize["period"] = o.Period
 	}
-	if !IsNil(o.RoundInterval) {
-		toSerialize["roundInterval"] = o.RoundInterval
-	}
 	return toSerialize, nil
 }
 
-type NullableMarketHour struct {
-	value *MarketHour
+type NullableScheduledSession struct {
+	value *ScheduledSession
 	isSet bool
 }
 
-func (v NullableMarketHour) Get() *MarketHour {
+func (v NullableScheduledSession) Get() *ScheduledSession {
 	return v.value
 }
 
-func (v *NullableMarketHour) Set(val *MarketHour) {
+func (v *NullableScheduledSession) Set(val *ScheduledSession) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableMarketHour) IsSet() bool {
+func (v NullableScheduledSession) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableMarketHour) Unset() {
+func (v *NullableScheduledSession) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableMarketHour(val *MarketHour) *NullableMarketHour {
-	return &NullableMarketHour{value: val, isSet: true}
+func NewNullableScheduledSession(val *ScheduledSession) *NullableScheduledSession {
+	return &NullableScheduledSession{value: val, isSet: true}
 }
 
-func (v NullableMarketHour) MarshalJSON() ([]byte, error) {
+func (v NullableScheduledSession) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableMarketHour) UnmarshalJSON(src []byte) error {
+func (v *NullableScheduledSession) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
