@@ -19,11 +19,11 @@ model_get_pending_tx_response.go
 model_get_transactions_stream_response.go
 model_intent.go
 model_intent_fee_info.go
-model_market_hour.go
 model_outpoint.go
 model_pending_tx.go
 model_register_intent_request.go
 model_register_intent_response.go
+model_scheduled_session.go
 model_status.go
 model_submit_signed_forfeit_txs_request.go
 model_submit_tree_nonces_request.go

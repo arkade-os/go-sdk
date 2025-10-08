@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -333,6 +334,7 @@ type defaultBatchEventsHandler struct {
 	signerSessions []tree.SignerSession
 
 	batchSessionId string
+	batchExpiry    arklib.RelativeLocktime
 	// internal count to handle TreeNoncesEvent
 	countSigningDone int
 }
@@ -378,10 +380,10 @@ func (h *defaultBatchEventsHandler) OnBatchStarted(
 				return false, err
 			}
 			h.batchSessionId = event.Id
+			h.batchExpiry = getBatchExpiryLocktime(uint32(event.BatchExpiry))
 			return false, nil
 		}
 	}
-
 	log.Debug("intent id not found in batch proposal, waiting for next one...")
 	return true, nil
 }
@@ -422,11 +424,8 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	foundPubkeys := make([]string, 0, len(h.signerSessions))
 	for _, session := range h.signerSessions {
 		myPubkey := session.GetPublicKey()
-		for _, cosigner := range event.CosignersPubkeys {
-			if cosigner == myPubkey {
-				foundPubkeys = append(foundPubkeys, myPubkey)
-				break
-			}
+		if slices.Contains(event.CosignersPubkeys, myPubkey) {
+			foundPubkeys = append(foundPubkeys, myPubkey)
 		}
 	}
 
@@ -440,8 +439,8 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	}
 
 	sweepClosure := script.CSVMultisigClosure{
-		MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{h.SignerPubKey}},
-		Locktime:        h.VtxoTreeExpiry,
+		MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{h.ForfeitPubKey}},
+		Locktime:        h.batchExpiry,
 	}
 
 	script, err := sweepClosure.Script()
@@ -693,7 +692,7 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 	// validate the vtxo tree is well formed
 	if !utils.IsOnchainOnly(h.receivers) {
 		if err := tree.ValidateVtxoTree(
-			vtxoTree, commitmentPtx, h.SignerPubKey, h.VtxoTreeExpiry,
+			vtxoTree, commitmentPtx, h.ForfeitPubKey, h.batchExpiry,
 		); err != nil {
 			return err
 		}

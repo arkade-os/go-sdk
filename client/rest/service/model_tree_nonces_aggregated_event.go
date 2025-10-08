@@ -20,7 +20,7 @@ var _ MappedNullable = &TreeNoncesAggregatedEvent{}
 // TreeNoncesAggregatedEvent struct for TreeNoncesAggregatedEvent
 type TreeNoncesAggregatedEvent struct {
 		Id *string `json:"id,omitempty"`
-		TreeNonces *string `json:"treeNonces,omitempty"`
+		TreeNonces map[string]string `json:"treeNonces,omitempty"`
 }
 
 // NewTreeNoncesAggregatedEvent instantiates a new TreeNoncesAggregatedEvent object
@@ -73,19 +73,19 @@ func (o *TreeNoncesAggregatedEvent) SetId(v string) {
 }
 
 // GetTreeNonces returns the TreeNonces field value if set, zero value otherwise.
-func (o *TreeNoncesAggregatedEvent) GetTreeNonces() string {
+func (o *TreeNoncesAggregatedEvent) GetTreeNonces() map[string]string {
 	if o == nil || IsNil(o.TreeNonces) {
-		var ret string
+		var ret map[string]string
 		return ret
 	}
-	return *o.TreeNonces
+	return o.TreeNonces
 }
 
 // GetTreeNoncesOk returns a tuple with the TreeNonces field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TreeNoncesAggregatedEvent) GetTreeNoncesOk() (*string, bool) {
+func (o *TreeNoncesAggregatedEvent) GetTreeNoncesOk() (map[string]string, bool) {
 	if o == nil || IsNil(o.TreeNonces) {
-		return nil, false
+		return map[string]string{}, false
 	}
 	return o.TreeNonces, true
 }
@@ -99,9 +99,9 @@ func (o *TreeNoncesAggregatedEvent) HasTreeNonces() bool {
 	return false
 }
 
-// SetTreeNonces gets a reference to the given string and assigns it to the TreeNonces field.
-func (o *TreeNoncesAggregatedEvent) SetTreeNonces(v string) {
-	o.TreeNonces = &v
+// SetTreeNonces gets a reference to the given map[string]string and assigns it to the TreeNonces field.
+func (o *TreeNoncesAggregatedEvent) SetTreeNonces(v map[string]string) {
+	o.TreeNonces = v
 }
 
 func (o TreeNoncesAggregatedEvent) MarshalJSON() ([]byte, error) {

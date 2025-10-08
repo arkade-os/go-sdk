@@ -2,7 +2,6 @@ package grpcclient
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -68,9 +67,8 @@ func (e event) toBatchEvent() (any, error) {
 	}
 
 	if ee := e.GetTreeNoncesAggregated(); ee != nil {
-		nonces := make(tree.TreeNonces)
-
-		if err := json.Unmarshal([]byte(ee.GetTreeNonces()), &nonces); err != nil {
+		nonces, err := tree.NewTreeNonces(ee.GetTreeNonces())
+		if err != nil {
 			return nil, err
 		}
 		return client.TreeNoncesAggregatedEvent{
