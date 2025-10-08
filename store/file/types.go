@@ -30,8 +30,7 @@ type storeData struct {
 	WalletType           string  `json:"wallet_type"`
 	ClientType           string  `json:"client_type"`
 	Network              string  `json:"network"`
-	VtxoTreeExpiry       string  `json:"vtxo_tree_expiry"`
-	RoundInterval        string  `json:"round_interval"`
+	SessionDuration      string  `json:"session_duration"`
 	UnilateralExitDelay  string  `json:"unilateral_exit_delay"`
 	Dust                 string  `json:"dust"`
 	BoardingExitDelay    string  `json:"boarding_exit_delay"`
@@ -58,8 +57,7 @@ func (d storeData) isEmpty() bool {
 
 func (d storeData) decode() types.Config {
 	network := utils.NetworkFromString(d.Network)
-	vtxoTreeExpiry, _ := strconv.Atoi(d.VtxoTreeExpiry)
-	roundInterval, _ := strconv.Atoi(d.RoundInterval)
+	sessionDuration, _ := strconv.Atoi(d.SessionDuration)
 	unilateralExitDelay, _ := strconv.Atoi(d.UnilateralExitDelay)
 	boardingExitDelay, _ := strconv.Atoi(d.BoardingExitDelay)
 	withTransactionFeed, _ := strconv.ParseBool(d.WithTransactionFeed)
@@ -75,11 +73,6 @@ func (d storeData) decode() types.Config {
 	vtxoMaxAmount, _ := strconv.Atoi(d.VtxoMaxAmount)
 	pollInterval, _ := strconv.Atoi(d.ExplorerPollInterval)
 	explorerPollInterval := time.Duration(pollInterval) * time.Second
-
-	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
-	if vtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
-	}
 
 	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if unilateralExitDelay >= 512 {
@@ -111,16 +104,12 @@ func (d storeData) decode() types.Config {
 		WalletType:    d.WalletType,
 		ClientType:    d.ClientType,
 		Network:       network,
-		VtxoTreeExpiry: arklib.RelativeLocktime{
-			Type:  vtxoTreeExpiryType,
-			Value: uint32(vtxoTreeExpiry),
-		},
 		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type:  unilateralExitDelayType,
 			Value: uint32(unilateralExitDelay),
 		},
-		RoundInterval: int64(roundInterval),
-		Dust:          uint64(dust),
+		SessionDuration: int64(sessionDuration),
+		Dust:            uint64(dust),
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type:  boardingExitDelayType,
 			Value: uint32(boardingExitDelay),
@@ -146,8 +135,7 @@ func (d storeData) asMap() map[string]any {
 		"wallet_type":            d.WalletType,
 		"client_type":            d.ClientType,
 		"network":                d.Network,
-		"vtxo_tree_expiry":       d.VtxoTreeExpiry,
-		"round_interval":         d.RoundInterval,
+		"session_duration":       d.SessionDuration,
 		"unilateral_exit_delay":  d.UnilateralExitDelay,
 		"dust":                   d.Dust,
 		"boarding_exit_delay":    d.BoardingExitDelay,
