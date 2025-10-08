@@ -439,7 +439,7 @@ func (h *defaultBatchEventsHandler) OnTreeSigningStarted(
 	}
 
 	sweepClosure := script.CSVMultisigClosure{
-		MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{h.SignerPubKey}},
+		MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{h.ForfeitPubKey}},
 		Locktime:        h.batchExpiry,
 	}
 
@@ -692,7 +692,7 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 	// validate the vtxo tree is well formed
 	if !utils.IsOnchainOnly(h.receivers) {
 		if err := tree.ValidateVtxoTree(
-			vtxoTree, commitmentPtx, h.SignerPubKey, h.batchExpiry,
+			vtxoTree, commitmentPtx, h.ForfeitPubKey, h.batchExpiry,
 		); err != nil {
 			return err
 		}
