@@ -475,6 +475,10 @@ func (c *grpcClient) Close() {
 }
 
 func parseFees(fees *arkv1.FeeInfo) (types.FeeInfo, error) {
+	if fees == nil {
+		return types.FeeInfo{}, nil
+	}
+
 	var (
 		err                               error
 		txFeeRate                         float64
