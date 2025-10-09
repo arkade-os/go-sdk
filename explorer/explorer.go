@@ -84,10 +84,9 @@ import (
 )
 
 const (
-	BitcoinExplorer     = "bitcoin"
-	pongInterval        = 60 * time.Second
-	pingInterval        = (pongInterval * 9) / 10
-	defaultPollInterval = 10 * time.Second
+	BitcoinExplorer = "bitcoin"
+	pongInterval    = 60 * time.Second
+	pingInterval    = (pongInterval * 9) / 10
 )
 
 var (
@@ -461,6 +460,11 @@ func (e *explorerSvc) Stop() {
 		}
 		e.connPool.mu.Unlock()
 	}
+
+	// Clear subscribed addresses map
+	e.subscribedMu.Lock()
+	e.subscribedMap = make(map[string]addressData)
+	e.subscribedMu.Unlock()
 
 	// Clear instance-scoped deduplication map
 	e.addressDedupMu.Lock()
