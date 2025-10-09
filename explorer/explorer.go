@@ -3,7 +3,6 @@
 //
 // # Architecture
 //
-//
 //   - Multiple concurrent WebSocket connections (configurable, default: 3)
 //   - Hash-based address distribution for consistent routing
 //   - Batched subscriptions to prevent overwhelming individual connections
@@ -109,77 +108,77 @@ var (
 type Explorer interface {
 	// GetTxHex retrieves the raw transaction hex for a given transaction ID.
 	GetTxHex(txid string) (string, error)
-	
+
 	// Broadcast broadcasts one or more raw transactions to the network.
 	// Returns the transaction ID of the first transaction on success.
 	Broadcast(txs ...string) (string, error)
-	
+
 	// GetTxs retrieves all transactions associated with a given address.
 	GetTxs(addr string) ([]tx, error)
-	
+
 	// GetTxOutspends returns the spent status of all outputs for a given transaction.
 	GetTxOutspends(tx string) ([]spentStatus, error)
-	
+
 	// GetUtxos retrieves all unspent transaction outputs (UTXOs) for a given address.
 	GetUtxos(addr string) ([]Utxo, error)
-	
+
 	// GetRedeemedVtxosBalance calculates the redeemed virtual UTXO balance for an address
 	// considering the unilateral exit delay.
 	GetRedeemedVtxosBalance(
 		addr string, unilateralExitDelay arklib.RelativeLocktime,
 	) (uint64, map[int64]uint64, error)
-	
+
 	// GetTxBlockTime returns whether a transaction is confirmed and its block time.
 	GetTxBlockTime(
 		txid string,
 	) (confirmed bool, blocktime int64, err error)
-	
+
 	// BaseUrl returns the base URL of the explorer service.
 	BaseUrl() string
-	
+
 	// GetFeeRate retrieves the current recommended fee rate in sat/vB.
 	GetFeeRate() (float64, error)
-	
+
 	// GetConnectionCount returns the number of active WebSocket connections.
 	GetConnectionCount() int
-	
+
 	// GetBatchSize returns the configured batch size for address subscriptions.
 	GetBatchSize() int
-	
+
 	// GetBatchDelay returns the configured delay between batches.
 	GetBatchDelay() time.Duration
-	
+
 	// GetSubscribedAddressCount returns the number of currently subscribed addresses.
 	GetSubscribedAddressCount() int
-	
+
 	// GetSubscribedAddresses returns a list of all currently subscribed addresses.
 	GetSubscribedAddresses() []string
-	
+
 	// IsAddressSubscribed checks if a specific address is currently subscribed.
 	IsAddressSubscribed(address string) bool
-	
+
 	// GetErrors returns recent errors encountered by the explorer (max 100).
 	GetErrors() []error
-	
+
 	// GetErrorCount returns the total number of errors encountered since creation.
 	GetErrorCount() int
-	
+
 	// ClearErrors clears the error history.
 	ClearErrors()
-	
+
 	// GetAddressesEvents returns a channel that receives onchain address events
 	// (new UTXOs, spent UTXOs, confirmed UTXOs) for all subscribed addresses.
 	GetAddressesEvents() <-chan types.OnchainAddressEvent
-	
+
 	// SubscribeForAddresses subscribes to address updates via WebSocket connections.
 	// Addresses are automatically distributed across multiple connections using hash-based routing.
 	// Subscriptions are batched to prevent overwhelming individual connections.
 	// Duplicate subscriptions are automatically prevented via instance-scoped deduplication.
 	SubscribeForAddresses(addresses []string) error
-	
+
 	// UnsubscribeForAddresses removes address subscriptions and updates the WebSocket connections.
 	UnsubscribeForAddresses(addresses []string) error
-	
+
 	// Stop gracefully shuts down the explorer, closing all WebSocket connections and channels.
 	Stop()
 }
@@ -333,19 +332,19 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	svc := &explorerSvc{
-		cache:          utils.NewCache[string](),
-		baseUrl:        baseUrl,
-		net:            net,
-		connPool:       newConnectionPool(svcOpts.maxConnections),
-		subscribedMu:   &sync.RWMutex{},
-		subscribedMap:  make(map[string]addressData),
-		channel:        make(chan types.OnchainAddressEvent, 100),
-		stopTracking:   cancel,
-		pollInterval:   svcOpts.pollInterval,
-		noTracking:     svcOpts.noTracking,
-		batchSize:      svcOpts.batchSize,
-		batchDelay:     svcOpts.batchDelay,
-		maxConnections: svcOpts.maxConnections,
+		cache:           utils.NewCache[string](),
+		baseUrl:         baseUrl,
+		net:             net,
+		connPool:        newConnectionPool(svcOpts.maxConnections),
+		subscribedMu:    &sync.RWMutex{},
+		subscribedMap:   make(map[string]addressData),
+		channel:         make(chan types.OnchainAddressEvent, 100),
+		stopTracking:    cancel,
+		pollInterval:    svcOpts.pollInterval,
+		noTracking:      svcOpts.noTracking,
+		batchSize:       svcOpts.batchSize,
+		batchDelay:      svcOpts.batchDelay,
+		maxConnections:  svcOpts.maxConnections,
 		addressDedupMap: make(map[string]bool),
 	}
 
@@ -533,7 +532,7 @@ func (e *explorerSvc) GetSubscribedAddressCount() int {
 func (e *explorerSvc) GetSubscribedAddresses() []string {
 	e.subscribedMu.RLock()
 	defer e.subscribedMu.RUnlock()
-	
+
 	addresses := make([]string, 0, len(e.subscribedMap))
 	for addr := range e.subscribedMap {
 		addresses = append(addresses, addr)
@@ -551,7 +550,7 @@ func (e *explorerSvc) IsAddressSubscribed(address string) bool {
 func (e *explorerSvc) GetErrors() []error {
 	e.errorsMu.RLock()
 	defer e.errorsMu.RUnlock()
-	
+
 	// Return a copy to avoid race conditions
 	errorsCopy := make([]error, len(e.errors))
 	copy(errorsCopy, e.errors)
@@ -576,13 +575,13 @@ func (e *explorerSvc) recordError(err error) {
 	if err == nil {
 		return
 	}
-	
+
 	e.errorsMu.Lock()
 	defer e.errorsMu.Unlock()
-	
+
 	e.errorCount++
 	e.errors = append(e.errors, err)
-	
+
 	// Keep only last 100 errors to prevent unbounded growth
 	if len(e.errors) > 100 {
 		e.errors = e.errors[len(e.errors)-100:]
@@ -818,7 +817,7 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 
 	for _, addr := range addresses {
 		delete(e.subscribedMap, addr)
-		
+
 		// Remove from instance dedup map
 		e.addressDedupMu.Lock()
 		delete(e.addressDedupMap, addr)
@@ -829,14 +828,14 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 		// When unsubscribing we have to resubscribe for the remaining addresses.
 		// Group remaining addresses by connection
 		addressBuckets := make(map[*websocketConnection][]string)
-		
+
 		for addr := range e.subscribedMap {
 			wsConn, found := e.connPool.getConnectionForAddress(addr)
 			if found {
 				addressBuckets[wsConn] = append(addressBuckets[wsConn], addr)
 			}
 		}
-		
+
 		// Resubscribe to each connection with its addresses
 		for wsConn, addrs := range addressBuckets {
 			payload := map[string][]string{"track-addresses": addrs}
@@ -988,12 +987,16 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 		for i, wsConn := range e.connPool.connections {
 			connIndex := i
 			conn := wsConn
-			
+
 			// Go routine to listen for addresses updates from websocket.
 			go func(ctx context.Context, connIdx int, wsConn *websocketConnection) {
 				if err := wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
-					e.recordError(fmt.Errorf("connection %d: failed to set read deadline: %w", connIdx, err))
-					log.WithError(err).WithField("connection", connIdx).Error("failed to set read deadline")
+					e.recordError(
+						fmt.Errorf("connection %d: failed to set read deadline: %w", connIdx, err),
+					)
+					log.WithError(err).WithField("connection", connIdx).Error(
+						"failed to set read deadline",
+					)
 					return
 				}
 				wsConn.conn.SetPongHandler(func(string) error {
@@ -1011,8 +1014,12 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 							errors.Is(err, net.ErrClosed) {
 							return
 						}
-						e.recordError(fmt.Errorf("connection %d: failed to read address notification: %w", connIdx, err))
-						log.WithError(err).WithField("connection", connIdx).Error("failed to read address notification")
+						e.recordError(fmt.Errorf(
+							"connection %d: failed to read address notification: %w", connIdx, err,
+						))
+						log.WithError(err).WithField("connection", connIdx).Error(
+							"failed to read address notification",
+						)
 						continue
 					}
 					// Skip handling the received message if it's not an address update.
@@ -1037,8 +1044,12 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						if err := wsConn.conn.WriteControl(
 							websocket.PingMessage, nil, deadline,
 						); err != nil {
-							e.recordError(fmt.Errorf("connection %d: failed to ping explorer: %w", connIdx, err))
-							log.WithError(err).WithField("connection", connIdx).Error("failed to ping explorer")
+							e.recordError(fmt.Errorf(
+								"connection %d: failed to ping explorer: %w", connIdx, err,
+							))
+							log.WithError(err).WithField("connection", connIdx).Error(
+								"failed to ping explorer",
+							)
 							return
 						}
 					}

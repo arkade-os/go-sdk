@@ -16,11 +16,15 @@ import (
 func main() {
 	// Command-line flags
 	numAddresses := flag.Int("addresses", 100, "Number of addresses to generate and subscribe")
-	maxConnections := flag.Int("connections", 3, "Maximum number of concurrent WebSocket connections")
+	maxConnections := flag.Int(
+		"connections", 3, "Maximum number of concurrent WebSocket connections",
+	)
 	batchSize := flag.Int("batch-size", 25, "Number of addresses per batch")
 	batchDelay := flag.Duration("batch-delay", 50*time.Millisecond, "Delay between batches")
 	explorerURL := flag.String("url", "https://mempool.space/api", "Explorer API URL")
-	maxEvents := flag.Int("max-events", 5, "Maximum number of events to receive before stopping (0 = unlimited)")
+	maxEvents := flag.Int(
+		"max-events", 5, "Maximum number of events to receive before stopping (0 = unlimited)",
+	)
 	showAll := flag.Bool("show-all", false, "Show all subscribed addresses (not just first 3)")
 
 	flag.Parse()
@@ -51,11 +55,12 @@ func main() {
 	actualBatchDelay := svc.GetBatchDelay()
 
 	fmt.Println("\nActual Configuration (verified from service):")
-	if actualConnections == 0 {
+	switch actualConnections {
+	case 0:
 		fmt.Println("  Mode:          Polling (WebSocket unavailable)")
-	} else if actualConnections == 1 {
+	case 1:
 		fmt.Printf("  Connections:   %d connection\n", actualConnections)
-	} else {
+	default:
 		fmt.Printf("  Connections:   %d connections\n", actualConnections)
 	}
 	fmt.Printf("  Batch Size:    %d addresses/batch\n", actualBatchSize)
