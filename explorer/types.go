@@ -31,6 +31,7 @@ type tx struct {
 	} `json:"status"`
 }
 
+// Utxo represents an unspent transaction output from the blockchain explorer.
 type Utxo struct {
 	Txid   string `json:"txid"`
 	Vout   uint32 `json:"vout"`
@@ -43,6 +44,8 @@ type Utxo struct {
 	Script string
 }
 
+// ToUtxo converts the explorer UTXO to the internal types.Utxo format
+// with the specified relative locktime delay and tapscripts.
 func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	return newUtxo(e, delay, tapscripts)
 }
