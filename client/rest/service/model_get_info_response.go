@@ -27,10 +27,10 @@ type GetInfoResponse struct {
 		Fees *FeeInfo `json:"fees,omitempty"`
 		ForfeitAddress *string `json:"forfeitAddress,omitempty"`
 		ForfeitPubkey *string `json:"forfeitPubkey,omitempty"`
-		MarketHour *MarketHour `json:"marketHour,omitempty"`
 		Network *string `json:"network,omitempty"`
-		RoundInterval *int64 `json:"roundInterval,string,omitempty"`
+		ScheduledSession *ScheduledSession `json:"scheduledSession,omitempty"`
 		ServiceStatus map[string]string `json:"serviceStatus,omitempty"`
+		SessionDuration *int64 `json:"sessionDuration,omitempty"`
 		SignerPubkey *string `json:"signerPubkey,omitempty"`
 		UnilateralExitDelay *int64 `json:"unilateralExitDelay,string,omitempty"`
 	// -1 means no limit (default), 0 means boarding not allowed
@@ -40,7 +40,6 @@ type GetInfoResponse struct {
 	// -1 means no limit (default)
 		VtxoMaxAmount *int64 `json:"vtxoMaxAmount,string,omitempty"`
 		VtxoMinAmount *int64 `json:"vtxoMinAmount,string,omitempty"`
-		VtxoTreeExpiry *int64 `json:"vtxoTreeExpiry,string,omitempty"`
 }
 
 // NewGetInfoResponse instantiates a new GetInfoResponse object
@@ -316,38 +315,6 @@ func (o *GetInfoResponse) SetForfeitPubkey(v string) {
 	o.ForfeitPubkey = &v
 }
 
-// GetMarketHour returns the MarketHour field value if set, zero value otherwise.
-func (o *GetInfoResponse) GetMarketHour() MarketHour {
-	if o == nil || IsNil(o.MarketHour) {
-		var ret MarketHour
-		return ret
-	}
-	return *o.MarketHour
-}
-
-// GetMarketHourOk returns a tuple with the MarketHour field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GetInfoResponse) GetMarketHourOk() (*MarketHour, bool) {
-	if o == nil || IsNil(o.MarketHour) {
-		return nil, false
-	}
-	return o.MarketHour, true
-}
-
-// HasMarketHour returns a boolean if a field has been set.
-func (o *GetInfoResponse) HasMarketHour() bool {
-	if o != nil && !IsNil(o.MarketHour) {
-		return true
-	}
-
-	return false
-}
-
-// SetMarketHour gets a reference to the given MarketHour and assigns it to the MarketHour field.
-func (o *GetInfoResponse) SetMarketHour(v MarketHour) {
-	o.MarketHour = &v
-}
-
 // GetNetwork returns the Network field value if set, zero value otherwise.
 func (o *GetInfoResponse) GetNetwork() string {
 	if o == nil || IsNil(o.Network) {
@@ -380,36 +347,36 @@ func (o *GetInfoResponse) SetNetwork(v string) {
 	o.Network = &v
 }
 
-// GetRoundInterval returns the RoundInterval field value if set, zero value otherwise.
-func (o *GetInfoResponse) GetRoundInterval() int64 {
-	if o == nil || IsNil(o.RoundInterval) {
-		var ret int64
+// GetScheduledSession returns the ScheduledSession field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetScheduledSession() ScheduledSession {
+	if o == nil || IsNil(o.ScheduledSession) {
+		var ret ScheduledSession
 		return ret
 	}
-	return *o.RoundInterval
+	return *o.ScheduledSession
 }
 
-// GetRoundIntervalOk returns a tuple with the RoundInterval field value if set, nil otherwise
+// GetScheduledSessionOk returns a tuple with the ScheduledSession field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetInfoResponse) GetRoundIntervalOk() (*int64, bool) {
-	if o == nil || IsNil(o.RoundInterval) {
+func (o *GetInfoResponse) GetScheduledSessionOk() (*ScheduledSession, bool) {
+	if o == nil || IsNil(o.ScheduledSession) {
 		return nil, false
 	}
-	return o.RoundInterval, true
+	return o.ScheduledSession, true
 }
 
-// HasRoundInterval returns a boolean if a field has been set.
-func (o *GetInfoResponse) HasRoundInterval() bool {
-	if o != nil && !IsNil(o.RoundInterval) {
+// HasScheduledSession returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasScheduledSession() bool {
+	if o != nil && !IsNil(o.ScheduledSession) {
 		return true
 	}
 
 	return false
 }
 
-// SetRoundInterval gets a reference to the given int64 and assigns it to the RoundInterval field.
-func (o *GetInfoResponse) SetRoundInterval(v int64) {
-	o.RoundInterval = &v
+// SetScheduledSession gets a reference to the given ScheduledSession and assigns it to the ScheduledSession field.
+func (o *GetInfoResponse) SetScheduledSession(v ScheduledSession) {
+	o.ScheduledSession = &v
 }
 
 // GetServiceStatus returns the ServiceStatus field value if set, zero value otherwise.
@@ -442,6 +409,38 @@ func (o *GetInfoResponse) HasServiceStatus() bool {
 // SetServiceStatus gets a reference to the given map[string]string and assigns it to the ServiceStatus field.
 func (o *GetInfoResponse) SetServiceStatus(v map[string]string) {
 	o.ServiceStatus = v
+}
+
+// GetSessionDuration returns the SessionDuration field value if set, zero value otherwise.
+func (o *GetInfoResponse) GetSessionDuration() int64 {
+	if o == nil || IsNil(o.SessionDuration) {
+		var ret int64
+		return ret
+	}
+	return *o.SessionDuration
+}
+
+// GetSessionDurationOk returns a tuple with the SessionDuration field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetInfoResponse) GetSessionDurationOk() (*int64, bool) {
+	if o == nil || IsNil(o.SessionDuration) {
+		return nil, false
+	}
+	return o.SessionDuration, true
+}
+
+// HasSessionDuration returns a boolean if a field has been set.
+func (o *GetInfoResponse) HasSessionDuration() bool {
+	if o != nil && !IsNil(o.SessionDuration) {
+		return true
+	}
+
+	return false
+}
+
+// SetSessionDuration gets a reference to the given int64 and assigns it to the SessionDuration field.
+func (o *GetInfoResponse) SetSessionDuration(v int64) {
+	o.SessionDuration = &v
 }
 
 // GetSignerPubkey returns the SignerPubkey field value if set, zero value otherwise.
@@ -668,38 +667,6 @@ func (o *GetInfoResponse) SetVtxoMinAmount(v int64) {
 	o.VtxoMinAmount = &v
 }
 
-// GetVtxoTreeExpiry returns the VtxoTreeExpiry field value if set, zero value otherwise.
-func (o *GetInfoResponse) GetVtxoTreeExpiry() int64 {
-	if o == nil || IsNil(o.VtxoTreeExpiry) {
-		var ret int64
-		return ret
-	}
-	return *o.VtxoTreeExpiry
-}
-
-// GetVtxoTreeExpiryOk returns a tuple with the VtxoTreeExpiry field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GetInfoResponse) GetVtxoTreeExpiryOk() (*int64, bool) {
-	if o == nil || IsNil(o.VtxoTreeExpiry) {
-		return nil, false
-	}
-	return o.VtxoTreeExpiry, true
-}
-
-// HasVtxoTreeExpiry returns a boolean if a field has been set.
-func (o *GetInfoResponse) HasVtxoTreeExpiry() bool {
-	if o != nil && !IsNil(o.VtxoTreeExpiry) {
-		return true
-	}
-
-	return false
-}
-
-// SetVtxoTreeExpiry gets a reference to the given int64 and assigns it to the VtxoTreeExpiry field.
-func (o *GetInfoResponse) SetVtxoTreeExpiry(v int64) {
-	o.VtxoTreeExpiry = &v
-}
-
 func (o GetInfoResponse) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -734,17 +701,17 @@ func (o GetInfoResponse) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ForfeitPubkey) {
 		toSerialize["forfeitPubkey"] = o.ForfeitPubkey
 	}
-	if !IsNil(o.MarketHour) {
-		toSerialize["marketHour"] = o.MarketHour
-	}
 	if !IsNil(o.Network) {
 		toSerialize["network"] = o.Network
 	}
-	if !IsNil(o.RoundInterval) {
-		toSerialize["roundInterval"] = o.RoundInterval
+	if !IsNil(o.ScheduledSession) {
+		toSerialize["scheduledSession"] = o.ScheduledSession
 	}
 	if !IsNil(o.ServiceStatus) {
 		toSerialize["serviceStatus"] = o.ServiceStatus
+	}
+	if !IsNil(o.SessionDuration) {
+		toSerialize["sessionDuration"] = o.SessionDuration
 	}
 	if !IsNil(o.SignerPubkey) {
 		toSerialize["signerPubkey"] = o.SignerPubkey
@@ -766,9 +733,6 @@ func (o GetInfoResponse) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.VtxoMinAmount) {
 		toSerialize["vtxoMinAmount"] = o.VtxoMinAmount
-	}
-	if !IsNil(o.VtxoTreeExpiry) {
-		toSerialize["vtxoTreeExpiry"] = o.VtxoTreeExpiry
 	}
 	return toSerialize, nil
 }

@@ -121,14 +121,16 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	if err != nil {
 		return nil, err
 	}
-	var marketHourStartTime, marketHourEndTime, marketHourPeriod, marketHourRoundInterval int64
-	var marketHourFees types.FeeInfo
-	if mktHour := resp.GetMarketHour(); mktHour != nil {
-		marketHourStartTime = mktHour.GetNextStartTime()
-		marketHourEndTime = mktHour.GetNextEndTime()
-		marketHourPeriod = mktHour.GetPeriod()
-		marketHourRoundInterval = mktHour.GetRoundInterval()
-		marketHourFees, err = parseFees(mktHour.GetFees())
+	var (
+		ssStartTime, ssEndTime, ssPeriod, ssDuration int64
+		ssFees                                       types.FeeInfo
+	)
+	if ss := resp.GetScheduledSession(); ss != nil {
+		ssStartTime = ss.GetNextStartTime()
+		ssEndTime = ss.GetNextEndTime()
+		ssPeriod = ss.GetPeriod()
+		ssDuration = ss.GetDuration()
+		ssFees, err = parseFees(ss.GetFees())
 		if err != nil {
 			return nil, err
 		}
@@ -144,30 +146,29 @@ func (a *grpcClient) GetInfo(ctx context.Context) (*client.Info, error) {
 		})
 	}
 	return &client.Info{
-		SignerPubKey:            resp.GetSignerPubkey(),
-		ForfeitPubKey:           resp.GetForfeitPubkey(),
-		VtxoTreeExpiry:          resp.GetVtxoTreeExpiry(),
-		UnilateralExitDelay:     resp.GetUnilateralExitDelay(),
-		RoundInterval:           resp.GetRoundInterval(),
-		Network:                 resp.GetNetwork(),
-		Dust:                    uint64(resp.GetDust()),
-		BoardingExitDelay:       resp.GetBoardingExitDelay(),
-		ForfeitAddress:          resp.GetForfeitAddress(),
-		Version:                 resp.GetVersion(),
-		MarketHourStartTime:     marketHourStartTime,
-		MarketHourEndTime:       marketHourEndTime,
-		MarketHourPeriod:        marketHourPeriod,
-		MarketHourRoundInterval: marketHourRoundInterval,
-		MarketHourFees:          marketHourFees,
-		UtxoMinAmount:           resp.GetUtxoMinAmount(),
-		UtxoMaxAmount:           resp.GetUtxoMaxAmount(),
-		VtxoMinAmount:           resp.GetVtxoMinAmount(),
-		VtxoMaxAmount:           resp.GetVtxoMaxAmount(),
-		CheckpointTapscript:     resp.GetCheckpointTapscript(),
-		DeprecatedSignerPubKeys: deprecatedSigners,
-		Fees:                    fees,
-		ServiceStatus:           resp.GetServiceStatus(),
-		Digest:                  resp.GetDigest(),
+		SignerPubKey:              resp.GetSignerPubkey(),
+		ForfeitPubKey:             resp.GetForfeitPubkey(),
+		UnilateralExitDelay:       resp.GetUnilateralExitDelay(),
+		SessionDuration:           resp.GetSessionDuration(),
+		Network:                   resp.GetNetwork(),
+		Dust:                      uint64(resp.GetDust()),
+		BoardingExitDelay:         resp.GetBoardingExitDelay(),
+		ForfeitAddress:            resp.GetForfeitAddress(),
+		Version:                   resp.GetVersion(),
+		ScheduledSessionStartTime: ssStartTime,
+		ScheduledSessionEndTime:   ssEndTime,
+		ScheduledSessionPeriod:    ssPeriod,
+		ScheduledSessionDuration:  ssDuration,
+		ScheduledSessionFees:      ssFees,
+		UtxoMinAmount:             resp.GetUtxoMinAmount(),
+		UtxoMaxAmount:             resp.GetUtxoMaxAmount(),
+		VtxoMinAmount:             resp.GetVtxoMinAmount(),
+		VtxoMaxAmount:             resp.GetVtxoMaxAmount(),
+		CheckpointTapscript:       resp.GetCheckpointTapscript(),
+		DeprecatedSignerPubKeys:   deprecatedSigners,
+		Fees:                      fees,
+		ServiceStatus:             resp.GetServiceStatus(),
+		Digest:                    resp.GetDigest(),
 	}, nil
 }
 
@@ -474,6 +475,10 @@ func (c *grpcClient) Close() {
 }
 
 func parseFees(fees *arkv1.FeeInfo) (types.FeeInfo, error) {
+	if fees == nil {
+		return types.FeeInfo{}, nil
+	}
+
 	var (
 		err                               error
 		txFeeRate                         float64

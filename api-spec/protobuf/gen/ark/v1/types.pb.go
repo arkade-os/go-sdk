@@ -490,31 +490,31 @@ func (x *Intent) GetMessage() string {
 	return ""
 }
 
-type MarketHour struct {
+type ScheduledSession struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NextStartTime int64                  `protobuf:"varint,1,opt,name=next_start_time,json=nextStartTime,proto3" json:"next_start_time,omitempty"`
 	NextEndTime   int64                  `protobuf:"varint,2,opt,name=next_end_time,json=nextEndTime,proto3" json:"next_end_time,omitempty"`
 	Period        int64                  `protobuf:"varint,3,opt,name=period,proto3" json:"period,omitempty"`
-	RoundInterval int64                  `protobuf:"varint,4,opt,name=round_interval,json=roundInterval,proto3" json:"round_interval,omitempty"`
+	Duration      int64                  `protobuf:"varint,4,opt,name=duration,proto3" json:"duration,omitempty"`
 	Fees          *FeeInfo               `protobuf:"bytes,5,opt,name=fees,proto3" json:"fees,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MarketHour) Reset() {
-	*x = MarketHour{}
+func (x *ScheduledSession) Reset() {
+	*x = ScheduledSession{}
 	mi := &file_ark_v1_types_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MarketHour) String() string {
+func (x *ScheduledSession) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MarketHour) ProtoMessage() {}
+func (*ScheduledSession) ProtoMessage() {}
 
-func (x *MarketHour) ProtoReflect() protoreflect.Message {
+func (x *ScheduledSession) ProtoReflect() protoreflect.Message {
 	mi := &file_ark_v1_types_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -526,40 +526,40 @@ func (x *MarketHour) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MarketHour.ProtoReflect.Descriptor instead.
-func (*MarketHour) Descriptor() ([]byte, []int) {
+// Deprecated: Use ScheduledSession.ProtoReflect.Descriptor instead.
+func (*ScheduledSession) Descriptor() ([]byte, []int) {
 	return file_ark_v1_types_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *MarketHour) GetNextStartTime() int64 {
+func (x *ScheduledSession) GetNextStartTime() int64 {
 	if x != nil {
 		return x.NextStartTime
 	}
 	return 0
 }
 
-func (x *MarketHour) GetNextEndTime() int64 {
+func (x *ScheduledSession) GetNextEndTime() int64 {
 	if x != nil {
 		return x.NextEndTime
 	}
 	return 0
 }
 
-func (x *MarketHour) GetPeriod() int64 {
+func (x *ScheduledSession) GetPeriod() int64 {
 	if x != nil {
 		return x.Period
 	}
 	return 0
 }
 
-func (x *MarketHour) GetRoundInterval() int64 {
+func (x *ScheduledSession) GetDuration() int64 {
 	if x != nil {
-		return x.RoundInterval
+		return x.Duration
 	}
 	return 0
 }
 
-func (x *MarketHour) GetFees() *FeeInfo {
+func (x *ScheduledSession) GetFees() *FeeInfo {
 	if x != nil {
 		return x.Fees
 	}
@@ -1077,7 +1077,7 @@ func (x *TreeSigningStartedEvent) GetUnsignedCommitmentTx() string {
 type TreeNoncesAggregatedEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	TreeNonces    string                 `protobuf:"bytes,2,opt,name=tree_nonces,json=treeNonces,proto3" json:"tree_nonces,omitempty"`
+	TreeNonces    map[string]string      `protobuf:"bytes,2,rep,name=tree_nonces,json=treeNonces,proto3" json:"tree_nonces,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1119,11 +1119,11 @@ func (x *TreeNoncesAggregatedEvent) GetId() string {
 	return ""
 }
 
-func (x *TreeNoncesAggregatedEvent) GetTreeNonces() string {
+func (x *TreeNoncesAggregatedEvent) GetTreeNonces() map[string]string {
 	if x != nil {
 		return x.TreeNonces
 	}
-	return ""
+	return nil
 }
 
 type TreeNoncesEvent struct {
@@ -1390,6 +1390,74 @@ func (*Heartbeat) Descriptor() ([]byte, []int) {
 	return file_ark_v1_types_proto_rawDescGZIP(), []int{21}
 }
 
+type ErrorDetails struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          int32                  `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Metadata      map[string]string      `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ErrorDetails) Reset() {
+	*x = ErrorDetails{}
+	mi := &file_ark_v1_types_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorDetails) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorDetails) ProtoMessage() {}
+
+func (x *ErrorDetails) ProtoReflect() protoreflect.Message {
+	mi := &file_ark_v1_types_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorDetails.ProtoReflect.Descriptor instead.
+func (*ErrorDetails) Descriptor() ([]byte, []int) {
+	return file_ark_v1_types_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ErrorDetails) GetCode() int32 {
+	if x != nil {
+		return x.Code
+	}
+	return 0
+}
+
+func (x *ErrorDetails) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ErrorDetails) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ErrorDetails) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
 var File_ark_v1_types_proto protoreflect.FileDescriptor
 
 const file_ark_v1_types_proto_rawDesc = "" +
@@ -1438,13 +1506,12 @@ const file_ark_v1_types_proto_rawDesc = "" +
 	"\ascripts\x18\x01 \x03(\tR\ascripts\"8\n" +
 	"\x06Intent\x12\x14\n" +
 	"\x05proof\x18\x01 \x01(\tR\x05proof\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xbc\x01\n" +
-	"\n" +
-	"MarketHour\x12&\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xb7\x01\n" +
+	"\x10ScheduledSession\x12&\n" +
 	"\x0fnext_start_time\x18\x01 \x01(\x03R\rnextStartTime\x12\"\n" +
 	"\rnext_end_time\x18\x02 \x01(\x03R\vnextEndTime\x12\x16\n" +
-	"\x06period\x18\x03 \x01(\x03R\x06period\x12%\n" +
-	"\x0eround_interval\x18\x04 \x01(\x03R\rroundInterval\x12#\n" +
+	"\x06period\x18\x03 \x01(\x03R\x06period\x12\x1a\n" +
+	"\bduration\x18\x04 \x01(\x03R\bduration\x12#\n" +
 	"\x04fees\x18\x05 \x01(\v2\x0f.ark.v1.FeeInfoR\x04fees\"_\n" +
 	"\aFeeInfo\x124\n" +
 	"\n" +
@@ -1480,11 +1547,14 @@ const file_ark_v1_types_proto_rawDesc = "" +
 	"\x17TreeSigningStartedEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12+\n" +
 	"\x11cosigners_pubkeys\x18\x02 \x03(\tR\x10cosignersPubkeys\x124\n" +
-	"\x16unsigned_commitment_tx\x18\x03 \x01(\tR\x14unsignedCommitmentTx\"L\n" +
+	"\x16unsigned_commitment_tx\x18\x03 \x01(\tR\x14unsignedCommitmentTx\"\xbe\x01\n" +
 	"\x19TreeNoncesAggregatedEvent\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
-	"\vtree_nonces\x18\x02 \x01(\tR\n" +
-	"treeNonces\"\xc3\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12R\n" +
+	"\vtree_nonces\x18\x02 \x03(\v21.ark.v1.TreeNoncesAggregatedEvent.TreeNoncesEntryR\n" +
+	"treeNonces\x1a=\n" +
+	"\x0fTreeNoncesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc3\x01\n" +
 	"\x0fTreeNoncesEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05topic\x18\x02 \x03(\tR\x05topic\x12\x12\n" +
@@ -1511,7 +1581,15 @@ const file_ark_v1_types_proto_rawDesc = "" +
 	"batchIndex\x12\x12\n" +
 	"\x04txid\x18\x04 \x01(\tR\x04txid\x12\x1c\n" +
 	"\tsignature\x18\x05 \x01(\tR\tsignature\"\v\n" +
-	"\tHeartbeatB\x91\x01\n" +
+	"\tHeartbeat\"\xcd\x01\n" +
+	"\fErrorDetails\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12>\n" +
+	"\bmetadata\x18\x04 \x03(\v2\".ark.v1.ErrorDetails.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x91\x01\n" +
 	"\n" +
 	"com.ark.v1B\n" +
 	"TypesProtoP\x01Z>github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1;arkv1\xa2\x02\x03AXX\xaa\x02\x06Ark.V1\xca\x02\x06Ark\\V1\xe2\x02\x12Ark\\V1\\GPBMetadata\xea\x02\aArk::V1b\x06proto3"
@@ -1528,7 +1606,7 @@ func file_ark_v1_types_proto_rawDescGZIP() []byte {
 	return file_ark_v1_types_proto_rawDescData
 }
 
-var file_ark_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_ark_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_ark_v1_types_proto_goTypes = []any{
 	(*Outpoint)(nil),                  // 0: ark.v1.Outpoint
 	(*Input)(nil),                     // 1: ark.v1.Input
@@ -1537,7 +1615,7 @@ var file_ark_v1_types_proto_goTypes = []any{
 	(*TxNotification)(nil),            // 4: ark.v1.TxNotification
 	(*Tapscripts)(nil),                // 5: ark.v1.Tapscripts
 	(*Intent)(nil),                    // 6: ark.v1.Intent
-	(*MarketHour)(nil),                // 7: ark.v1.MarketHour
+	(*ScheduledSession)(nil),          // 7: ark.v1.ScheduledSession
 	(*FeeInfo)(nil),                   // 8: ark.v1.FeeInfo
 	(*IntentFeeInfo)(nil),             // 9: ark.v1.IntentFeeInfo
 	(*PendingTx)(nil),                 // 10: ark.v1.PendingTx
@@ -1552,9 +1630,12 @@ var file_ark_v1_types_proto_goTypes = []any{
 	(*TreeTxEvent)(nil),               // 19: ark.v1.TreeTxEvent
 	(*TreeSignatureEvent)(nil),        // 20: ark.v1.TreeSignatureEvent
 	(*Heartbeat)(nil),                 // 21: ark.v1.Heartbeat
-	nil,                               // 22: ark.v1.TxNotification.CheckpointTxsEntry
-	nil,                               // 23: ark.v1.TreeNoncesEvent.NoncesEntry
-	nil,                               // 24: ark.v1.TreeTxEvent.ChildrenEntry
+	(*ErrorDetails)(nil),              // 22: ark.v1.ErrorDetails
+	nil,                               // 23: ark.v1.TxNotification.CheckpointTxsEntry
+	nil,                               // 24: ark.v1.TreeNoncesAggregatedEvent.TreeNoncesEntry
+	nil,                               // 25: ark.v1.TreeNoncesEvent.NoncesEntry
+	nil,                               // 26: ark.v1.TreeTxEvent.ChildrenEntry
+	nil,                               // 27: ark.v1.ErrorDetails.MetadataEntry
 }
 var file_ark_v1_types_proto_depIdxs = []int32{
 	0,  // 0: ark.v1.Input.outpoint:type_name -> ark.v1.Outpoint
@@ -1562,17 +1643,19 @@ var file_ark_v1_types_proto_depIdxs = []int32{
 	0,  // 2: ark.v1.Vtxo.outpoint:type_name -> ark.v1.Outpoint
 	2,  // 3: ark.v1.TxNotification.spent_vtxos:type_name -> ark.v1.Vtxo
 	2,  // 4: ark.v1.TxNotification.spendable_vtxos:type_name -> ark.v1.Vtxo
-	22, // 5: ark.v1.TxNotification.checkpoint_txs:type_name -> ark.v1.TxNotification.CheckpointTxsEntry
-	8,  // 6: ark.v1.MarketHour.fees:type_name -> ark.v1.FeeInfo
+	23, // 5: ark.v1.TxNotification.checkpoint_txs:type_name -> ark.v1.TxNotification.CheckpointTxsEntry
+	8,  // 6: ark.v1.ScheduledSession.fees:type_name -> ark.v1.FeeInfo
 	9,  // 7: ark.v1.FeeInfo.intent_fee:type_name -> ark.v1.IntentFeeInfo
-	23, // 8: ark.v1.TreeNoncesEvent.nonces:type_name -> ark.v1.TreeNoncesEvent.NoncesEntry
-	24, // 9: ark.v1.TreeTxEvent.children:type_name -> ark.v1.TreeTxEvent.ChildrenEntry
-	3,  // 10: ark.v1.TxNotification.CheckpointTxsEntry.value:type_name -> ark.v1.TxData
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	24, // 8: ark.v1.TreeNoncesAggregatedEvent.tree_nonces:type_name -> ark.v1.TreeNoncesAggregatedEvent.TreeNoncesEntry
+	25, // 9: ark.v1.TreeNoncesEvent.nonces:type_name -> ark.v1.TreeNoncesEvent.NoncesEntry
+	26, // 10: ark.v1.TreeTxEvent.children:type_name -> ark.v1.TreeTxEvent.ChildrenEntry
+	27, // 11: ark.v1.ErrorDetails.metadata:type_name -> ark.v1.ErrorDetails.MetadataEntry
+	3,  // 12: ark.v1.TxNotification.CheckpointTxsEntry.value:type_name -> ark.v1.TxData
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_ark_v1_types_proto_init() }
@@ -1586,7 +1669,7 @@ func file_ark_v1_types_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ark_v1_types_proto_rawDesc), len(file_ark_v1_types_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

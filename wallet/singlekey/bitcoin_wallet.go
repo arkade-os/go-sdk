@@ -495,9 +495,7 @@ func (w *bitcoinWallet) getArkAddresses(
 	netParams := utils.ToBitcoinNetwork(data.Network)
 
 	defaultVtxoScript := script.NewDefaultVtxoScript(
-		w.walletData.PubKey,
-		data.SignerPubKey,
-		data.UnilateralExitDelay,
+		w.walletData.PubKey, data.SignerPubKey, data.UnilateralExitDelay,
 	)
 
 	vtxoTapKey, _, err := defaultVtxoScript.TapTree()
@@ -512,9 +510,7 @@ func (w *bitcoinWallet) getArkAddresses(
 	}
 
 	boardingVtxoScript := script.NewDefaultVtxoScript(
-		w.walletData.PubKey,
-		data.SignerPubKey,
-		data.BoardingExitDelay,
+		w.walletData.PubKey, data.SignerPubKey, data.BoardingExitDelay,
 	)
 
 	boardingTapKey, _, err := boardingVtxoScript.TapTree()

@@ -29,8 +29,7 @@ type Config struct {
 	WalletType           string
 	ClientType           string
 	Network              arklib.Network
-	VtxoTreeExpiry       arklib.RelativeLocktime
-	RoundInterval        int64
+	SessionDuration      int64
 	UnilateralExitDelay  arklib.RelativeLocktime
 	Dust                 uint64
 	BoardingExitDelay    arklib.RelativeLocktime

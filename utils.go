@@ -626,3 +626,10 @@ func ecPubkeyFromHex(pubkey string) (*btcec.PublicKey, error) {
 	}
 	return btcec.ParsePubKey(buf)
 }
+
+func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
+	if expiry >= 512 {
+		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: expiry}
+	}
+	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
+}
