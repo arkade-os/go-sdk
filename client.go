@@ -924,7 +924,7 @@ func (a *arkClient) RegisterIntent(
 		return "", err
 	}
 
-	inputs, exitLeaves, arkFields, err := toIntentInputs(
+	inputs, tapLeaves, arkFields, err := toIntentInputs(
 		boardingUtxos, vtxosWithTapscripts, notes,
 	)
 	if err != nil {
@@ -932,7 +932,7 @@ func (a *arkClient) RegisterIntent(
 	}
 
 	proofTx, message, err := a.makeRegisterIntent(
-		inputs, exitLeaves, outputs, cosignersPublicKeys, arkFields,
+		inputs, tapLeaves, outputs, cosignersPublicKeys, arkFields,
 	)
 	if err != nil {
 		return "", err
