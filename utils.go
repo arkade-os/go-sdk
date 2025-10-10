@@ -271,46 +271,39 @@ func inputsToDerivationPath(inputs []types.Outpoint, notesInputs []string) strin
 	return path
 }
 
-func extractExitPath(tapscripts []string) ([]byte, *arklib.TaprootMerkleProof, uint32, error) {
+func extractCollaborativePath(tapscripts []string) ([]byte, *arklib.TaprootMerkleProof, error) {
 	vtxoScript, err := script.ParseVtxoScript(tapscripts)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	exitClosures := vtxoScript.ExitClosures()
-	if len(exitClosures) <= 0 {
-		return nil, nil, 0, fmt.Errorf("no exit closures found")
+	forfeitClosures := vtxoScript.ForfeitClosures()
+	if len(forfeitClosures) <= 0 {
+		return nil, nil, fmt.Errorf("no exit closures found")
 	}
 
-	exitClosure := exitClosures[0].(*script.CSVMultisigClosure)
-
-	exitScript, err := exitClosure.Script()
+	forfeitClosure := forfeitClosures[0]
+	forfeitScript, err := forfeitClosure.Script()
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
 	taprootKey, taprootTree, err := vtxoScript.TapTree()
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	exitLeaf := txscript.NewBaseTapLeaf(exitScript)
-	leafProof, err := taprootTree.GetTaprootMerkleProof(exitLeaf.TapHash())
+	forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+	leafProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to get taproot merkle proof: %s", err)
+		return nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 	}
-
-	sequence, err := arklib.BIP68Sequence(exitClosure.Locktime)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
 	pkScript, err := script.P2TRScript(taprootKey)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	return pkScript, leafProof, sequence, nil
+	return pkScript, leafProof, nil
 }
 
 // convert regular coins (boarding, vtxos or notes) to intent proof inputs
@@ -319,7 +312,7 @@ func toIntentInputs(
 	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo, notes []string,
 ) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
 	inputs := make([]intent.Input, 0, len(boardingUtxos)+len(vtxos))
-	exitLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
+	signingLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
 	arkFields := make([][]*psbt.Unknown, 0, len(boardingUtxos)+len(vtxos))
 
 	for _, coin := range vtxos {
@@ -329,32 +322,28 @@ func toIntentInputs(
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
-		pkScript, leafProof, vtxoSequence, err := extractExitPath(coin.Tapscripts)
+		pkScript, leafProof, err := extractCollaborativePath(coin.Tapscripts)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
-		exitLeaves = append(exitLeaves, leafProof)
+		signingLeaves = append(signingLeaves, leafProof)
 
 		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
-			Sequence: vtxoSequence,
+			Sequence: wire.MaxTxInSequenceNum,
 			WitnessUtxo: &wire.TxOut{
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
 			},
 		})
 
-		taptree, err := txutils.TapTree(coin.Tapscripts).Encode()
+		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		arkFields = append(arkFields, []*psbt.Unknown{
-			{
-				Value: taptree,
-				Key:   txutils.ArkFieldTaprootTree,
-			},
-		})
+
+		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 	}
 
 	for _, coin := range boardingUtxos {
@@ -364,32 +353,27 @@ func toIntentInputs(
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
-		pkScript, leafProof, vtxoSequence, err := extractExitPath(coin.Tapscripts)
+		pkScript, leafProof, err := extractCollaborativePath(coin.Tapscripts)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
-		exitLeaves = append(exitLeaves, leafProof)
+		signingLeaves = append(signingLeaves, leafProof)
 
 		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
-			Sequence: vtxoSequence,
+			Sequence: wire.MaxTxInSequenceNum,
 			WitnessUtxo: &wire.TxOut{
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
 			},
 		})
 
-		taptree, err := txutils.TapTree(coin.Tapscripts).Encode()
+		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to encode taptree: %w", err)
+			return nil, nil, nil, err
 		}
-		arkFields = append(arkFields, []*psbt.Unknown{
-			{
-				Value: taptree,
-				Key:   txutils.ArkFieldTaprootTree,
-			},
-		})
+		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 	}
 
 	nextInputIndex := len(inputs)
@@ -425,13 +409,13 @@ func toIntentInputs(
 			return nil, nil, nil, err
 		}
 
-		exitScript, err := vtxoScript.Closures[0].Script()
+		forfeitScript, err := vtxoScript.Closures[0].Script()
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
-		exitLeaf := txscript.NewBaseTapLeaf(exitScript)
-		leafProof, err := taprootTree.GetTaprootMerkleProof(exitLeaf.TapHash())
+		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+		leafProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 		}
@@ -442,12 +426,13 @@ func toIntentInputs(
 			nextInputIndex++
 		}
 
-		exitLeaves = append(exitLeaves, leafProof)
+		signingLeaves = append(signingLeaves, leafProof)
 		arkFields = append(arkFields, input.Unknowns)
 	}
 
-	return inputs, exitLeaves, arkFields, nil
+	return inputs, signingLeaves, arkFields, nil
 }
+
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []VtxoDetails) {
 	nextExpiration := int64(0)
 	details := make([]VtxoDetails, 0)
@@ -513,10 +498,9 @@ func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
 	return opts, nil
 }
 
-func registerIntentMessage(
-	inputs []intent.Input, outputs []types.Receiver,
-	cosignersPublicKeys []string,
-) (string, []*wire.TxOut, error) {
+func registerIntentMessage(outputs []types.Receiver, cosignersPublicKeys []string) (
+	string, []*wire.TxOut, error,
+) {
 	validAt := time.Now()
 	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
