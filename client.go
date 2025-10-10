@@ -1845,9 +1845,7 @@ func (a *arkClient) makeRegisterIntent(
 	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof,
 	outputs []types.Receiver, cosignersPublicKeys []string, arkFields [][]*psbt.Unknown,
 ) (string, string, error) {
-	message, outputsTxOut, err := registerIntentMessage(
-		inputs, outputs, cosignersPublicKeys,
-	)
+	message, outputsTxOut, err := registerIntentMessage(outputs, cosignersPublicKeys)
 	if err != nil {
 		return "", "", err
 	}
