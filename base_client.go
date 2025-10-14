@@ -174,15 +174,15 @@ func (a *arkClient) GetAddresses(
 		toStringList(boardingAddrs), toStringList(redemptionAddrs), nil
 }
 
-func (a *arkClient) GetNewPublicKey(ctx context.Context) (string, error) {
+func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	pubkey, err := a.wallet.NewPublicKey(ctx)
+	_, offchainAddr, _, err := a.wallet.NewAddress(ctx, false)
 	if err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(pubkey.SerializeCompressed()), nil
+	return offchainAddr.Address, nil
 }
 
 func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {

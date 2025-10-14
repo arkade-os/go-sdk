@@ -99,13 +99,6 @@ func (w *bitcoinWallet) GetAddresses(
 	return []string{onchainAddr.EncodeAddress()}, offchainAddrs, boardingAddrs, redemptionAddrs, nil
 }
 
-func (w *bitcoinWallet) NewPublicKey(ctx context.Context) (*btcec.PublicKey, error) {
-	if w.walletData == nil {
-		return nil, fmt.Errorf("wallet not initialized")
-	}
-	return w.walletData.PubKey, nil
-}
-
 func (w *bitcoinWallet) NewAddress(
 	ctx context.Context, _ bool,
 ) (string, *wallet.TapscriptsAddress, *wallet.TapscriptsAddress, error) {

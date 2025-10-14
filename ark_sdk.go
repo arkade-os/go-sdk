@@ -22,7 +22,7 @@ type ArkClient interface {
 		onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
 		err error,
 	)
-	GetNewPublicKey(ctx context.Context) (string, error)
+	NewOffchainAddress(ctx context.Context) (string, error)
 	SendOffChain(
 		ctx context.Context, withExpiryCoinselect bool, receivers []types.Receiver,
 	) (string, error)
