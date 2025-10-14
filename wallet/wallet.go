@@ -5,6 +5,7 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/explorer"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 const (
@@ -26,6 +27,7 @@ type WalletService interface {
 		onchainAddresses []string,
 		offchainAddresses, boardingAddresses, redemptionAddresses []TapscriptsAddress, err error,
 	)
+	NewPublicKey(ctx context.Context) (pubkey *btcec.PublicKey, err error)
 	NewAddress(ctx context.Context, change bool) (
 		onchainAddr string, offchainAddr, boardingAddr *TapscriptsAddress, err error,
 	)

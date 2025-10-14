@@ -151,6 +151,40 @@ func (a *arkClient) Receive(ctx context.Context) (string, string, string, error)
 	return onchainAddr, offchainAddr.Address, boardingAddr.Address, nil
 }
 
+func (a *arkClient) GetAddresses(
+	ctx context.Context,
+) ([]string, []string, []string, []string, error) {
+	if err := a.safeCheck(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	toStringList := func(l []wallet.TapscriptsAddress) []string {
+		res := make([]string, 0, len(l))
+		for _, v := range l {
+			res = append(res, v.Address)
+		}
+		return res
+	}
+
+	return onchainAddrs, toStringList(offchainAddrs),
+		toStringList(boardingAddrs), toStringList(redemptionAddrs), nil
+}
+
+func (a *arkClient) GetNewPublicKey(ctx context.Context) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+	pubkey, err := a.wallet.NewPublicKey(ctx)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(pubkey.SerializeCompressed()), nil
+}
+
 func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
 	if a.store != nil && a.store.TransactionStore() != nil {
 		return a.store.TransactionStore().GetEventChannel()
