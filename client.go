@@ -2055,7 +2055,7 @@ func (a *arkClient) joinBatchWithRetry(
 		log.Debugf("registered inputs and outputs with request id: %s", intentID)
 
 		commitmentTxid, err := a.handleBatchEvents(
-			ctx, intentID, selectedCoins, selectedBoardingCoins, outputs, signerSessions,
+			ctx, intentID, selectedCoins, notes, selectedBoardingCoins, outputs, signerSessions,
 			options.EventsCh, options.CancelCh,
 		)
 		if err != nil {
@@ -2074,11 +2074,23 @@ func (a *arkClient) joinBatchWithRetry(
 
 func (a *arkClient) handleBatchEvents(
 	ctx context.Context,
-	intentId string, vtxos []client.TapscriptsVtxo, boardingUtxos []types.Utxo,
+	intentId string, vtxos []client.TapscriptsVtxo, notes []string, boardingUtxos []types.Utxo,
 	receivers []types.Receiver, signerSessions []tree.SignerSession,
 	replayEventsCh chan<- any, cancelCh <-chan struct{},
 ) (string, error) {
 	topics := make([]string, 0)
+	for _, n := range notes {
+		parsedNote, err := note.NewNoteFromString(n)
+		if err != nil {
+			return "", err
+		}
+		outpoint, _, err := parsedNote.IntentProofInput()
+		if err != nil {
+			return "", err
+		}
+		topics = append(topics, outpoint.String())
+	}
+
 	for _, boardingUtxo := range boardingUtxos {
 		topics = append(topics, boardingUtxo.String())
 	}
