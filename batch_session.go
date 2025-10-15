@@ -400,10 +400,7 @@ func (h *defaultBatchEventsHandler) OnBatchFinalized(
 func (h *defaultBatchEventsHandler) OnBatchFailed(
 	ctx context.Context, event client.BatchFailedEvent,
 ) error {
-	if event.Id == h.batchSessionId {
-		return fmt.Errorf("batch failed: %s", event.Reason)
-	}
-	return nil
+	return fmt.Errorf("batch failed: %s", event.Reason)
 }
 
 func (h *defaultBatchEventsHandler) OnTreeTxEvent(

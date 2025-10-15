@@ -2079,6 +2079,9 @@ func (a *arkClient) handleBatchEvents(
 	replayEventsCh chan<- any, cancelCh <-chan struct{},
 ) (string, error) {
 	topics := make([]string, 0)
+	for _, boardingUtxo := range boardingUtxos {
+		topics = append(topics, boardingUtxo.String())
+	}
 	for _, vtxo := range vtxos {
 		topics = append(topics, vtxo.Outpoint.String())
 	}
