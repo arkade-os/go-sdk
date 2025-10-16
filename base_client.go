@@ -72,9 +72,7 @@ func (a *arkClient) GetVersion() string {
 	return Version
 }
 
-func (a *arkClient) GetConfigData(
-	_ context.Context,
-) (*types.Config, error) {
+func (a *arkClient) GetConfigData(_ context.Context) (*types.Config, error) {
 	if a.Config == nil {
 		return nil, fmt.Errorf("client sdk not initialized")
 	}
@@ -160,8 +158,8 @@ func (a *arkClient) Dump(ctx context.Context) (string, error) {
 }
 
 func (a *arkClient) Receive(ctx context.Context) (string, string, string, error) {
-	if a.wallet == nil {
-		return "", "", "", fmt.Errorf("wallet not initialized")
+	if err := a.safeCheck(); err != nil {
+		return "", "", "", err
 	}
 
 	onchainAddr, offchainAddr, boardingAddr, err := a.wallet.NewAddress(ctx, false)
@@ -190,6 +188,7 @@ func (a *arkClient) GetAddresses(
 	if err := a.safeCheck(); err != nil {
 		return nil, nil, nil, nil, err
 	}
+
 	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -279,6 +278,9 @@ func (a *arkClient) Stop() {
 
 func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, error) {
 	if a.WithTransactionFeed {
+		if err := a.safeCheck(); err != nil {
+			return nil, nil, err
+		}
 		return a.store.VtxoStore().GetAllVtxos(ctx)
 	}
 
@@ -288,8 +290,8 @@ func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, 
 func (a *arkClient) NotifyIncomingFunds(
 	ctx context.Context, addr string,
 ) ([]types.Vtxo, error) {
-	if a.client == nil {
-		return nil, fmt.Errorf("wallet not initialized")
+	if err := a.safeCheck(); err != nil {
+		return nil, err
 	}
 
 	decoded, err := arklib.DecodeAddressV0(addr)

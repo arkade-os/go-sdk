@@ -182,6 +182,9 @@ func (a *arkClient) Balance(
 	ctx context.Context, computeVtxoExpiration bool,
 ) (*Balance, error) {
 	if a.WithTransactionFeed {
+		if err := a.safeCheck(); err != nil {
+			return nil, err
+		}
 		return a.getBalanceFromStore(ctx, computeVtxoExpiration)
 	}
 
@@ -918,6 +921,7 @@ func (a *arkClient) RegisterIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 	outputs []types.Receiver, cosignersPublicKeys []string,
 ) (string, error) {
+	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
 	if err != nil {
 		return "", err
@@ -943,6 +947,7 @@ func (a *arkClient) RegisterIntent(
 func (a *arkClient) DeleteIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 ) error {
+	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
 	if err != nil {
 		return err
@@ -1175,8 +1180,7 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 }
 
 func (a *arkClient) refreshUtxoDb(
-	ctx context.Context,
-	spendableUtxos, spentUtxos []types.Utxo,
+	ctx context.Context, spendableUtxos, spentUtxos []types.Utxo,
 ) error {
 	// Fetch old data.
 	oldSpendableUtxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
@@ -1245,8 +1249,7 @@ func (a *arkClient) refreshUtxoDb(
 }
 
 func (a *arkClient) refreshVtxoDb(
-	ctx context.Context,
-	spendableVtxos, spentVtxos []types.Vtxo,
+	ctx context.Context, spendableVtxos, spentVtxos []types.Vtxo,
 ) error {
 	// Fetch old data.
 	oldSpendableVtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
@@ -1622,9 +1625,7 @@ func (a *arkClient) sendExpiredBoardingUtxos(
 	return ptx.B64Encode()
 }
 
-func (a *arkClient) completeUnilateralExit(
-	ctx context.Context, to string,
-) (string, error) {
+func (a *arkClient) completeUnilateralExit(ctx context.Context, to string) (string, error) {
 	pkscript, err := toOutputScript(to, a.Network)
 	if err != nil {
 		return "", err
@@ -2221,9 +2222,7 @@ func (a *arkClient) getOffchainBalance(
 	return balance, amountByExpiration, nil
 }
 
-func (a *arkClient) getAllBoardingUtxos(
-	ctx context.Context,
-) ([]types.Utxo, error) {
+func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]types.Utxo, error) {
 	_, _, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return nil, err
@@ -2396,9 +2395,7 @@ func (a *arkClient) getExpiredBoardingUtxos(
 	return expired, nil
 }
 
-func (a *arkClient) getVtxos(
-	ctx context.Context, opts *CoinSelectOptions,
-) ([]types.Vtxo, error) {
+func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]types.Vtxo, error) {
 	spendableVtxos, spentVtxos, err := a.ListVtxos(ctx)
 	if err != nil {
 		return nil, err
@@ -2448,9 +2445,7 @@ func (a *arkClient) getVtxos(
 	return allVtxos, nil
 }
 
-func (a *arkClient) getBoardingTxs(
-	ctx context.Context,
-) ([]types.Transaction, error) {
+func (a *arkClient) getBoardingTxs(ctx context.Context) ([]types.Transaction, error) {
 	allUtxos, err := a.getAllBoardingUtxos(ctx)
 	if err != nil {
 		return nil, err
