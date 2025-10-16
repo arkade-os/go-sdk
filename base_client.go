@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"sync"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -56,8 +57,15 @@ type arkClient struct {
 	client   client.TransportClient
 	indexer  indexer.Indexer
 
-	txStreamCtxCancel context.CancelFunc
-	verbose           bool
+	restoreLock    *sync.Mutex
+	restoreCh      chan error
+	restoreDone    bool
+	restoreErr     error
+	readyListeners *readyListeners
+	stopRestore    context.CancelFunc
+	stopWatch      context.CancelFunc
+
+	verbose bool
 }
 
 func (a *arkClient) GetVersion() string {
@@ -88,19 +96,29 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		log.SetLevel(log.ErrorLevel)
 	}
 
-	go func() {
-		if cfgData.WithTransactionFeed {
-			txStreamCtx, txStreamCtxCancel := context.WithCancel(context.Background())
-			a.txStreamCtxCancel = txStreamCtxCancel
+	if cfgData.WithTransactionFeed {
+		a.restoreCh = make(chan error)
+		a.restoreLock = &sync.Mutex{}
 
-			if err := a.refreshDb(txStreamCtx); err != nil {
-				log.WithError(err).Error("failed to refresh db")
-			}
+		go func() {
+			err := <-a.restoreCh
+			a.setRestored(err)
+		}()
 
-			go a.listenForArkTxs(txStreamCtx)
-			go a.listenForOnchainTxs(txStreamCtx)
-		}
-	}()
+		go func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			a.stopRestore = cancel
+
+			err := a.refreshDb(ctx)
+			a.restoreCh <- err
+			close(a.restoreCh)
+
+			ctx, cancel = context.WithCancel(context.Background())
+			a.stopWatch = cancel
+			go a.listenForArkTxs(ctx)
+			go a.listenForOnchainTxs(ctx)
+		}()
+	}
 
 	return nil
 }
@@ -109,7 +127,22 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	if a.wallet == nil {
 		return fmt.Errorf("wallet not initialized")
 	}
-	return a.wallet.Lock(ctx)
+	if err := a.wallet.Lock(ctx); err != nil {
+		return err
+	}
+	go func() {
+		if a.stopRestore != nil {
+			a.stopRestore()
+		}
+		if a.stopWatch != nil {
+			a.stopWatch()
+		}
+		if a.readyListeners != nil {
+			a.readyListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
+			a.readyListeners.clear()
+		}
+	}()
+	return nil
 }
 
 func (a *arkClient) IsLocked(ctx context.Context) bool {
@@ -214,8 +247,15 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 }
 
 func (a *arkClient) Reset(ctx context.Context) {
-	if a.txStreamCtxCancel != nil {
-		a.txStreamCtxCancel()
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	if a.stopRestore != nil {
+		a.stopRestore()
+	}
+	if a.readyListeners != nil {
+		a.readyListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
+		a.readyListeners.clear()
 	}
 	if a.store != nil {
 		a.store.Clean(ctx)
@@ -223,8 +263,15 @@ func (a *arkClient) Reset(ctx context.Context) {
 }
 
 func (a *arkClient) Stop() {
-	if a.txStreamCtxCancel != nil {
-		a.txStreamCtxCancel()
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	if a.stopRestore != nil {
+		a.stopRestore()
+	}
+	if a.readyListeners != nil {
+		a.readyListeners.broadcast(fmt.Errorf("service stopped while restoring"))
+		a.readyListeners.clear()
 	}
 
 	a.store.Close()
@@ -276,6 +323,32 @@ func (a *arkClient) NotifyIncomingFunds(
 		return nil, event.Err
 	}
 	return event.NewVtxos, nil
+}
+
+func (a *arkClient) IsReady(ctx context.Context) <-chan types.ReadyEvent {
+	if !a.WithTransactionFeed {
+		return nil
+	}
+
+	if a.restoreDone {
+		ch := make(chan types.ReadyEvent, 1)
+		go func() {
+			ch <- types.ReadyEvent{
+				Ready: a.restoreErr == nil,
+				Err:   a.restoreErr,
+			}
+		}()
+		return ch
+	}
+
+	ch := make(chan types.ReadyEvent, 1)
+	go func() {
+		if a.readyListeners == nil {
+			a.readyListeners = newReadyListeners()
+		}
+		a.readyListeners.add(ch)
+	}()
+	return ch
 }
 
 func (a *arkClient) initWithWallet(
@@ -540,7 +613,25 @@ func (a *arkClient) safeCheck() error {
 	if a.wallet.IsLocked() {
 		return fmt.Errorf("wallet is locked")
 	}
+	if a.WithTransactionFeed && !a.restoreDone {
+		if a.restoreErr != nil {
+			return fmt.Errorf("failed to restore wallet: %s", a.restoreErr)
+		}
+		return fmt.Errorf("wallet is still syncing")
+	}
 	return nil
+}
+
+func (a *arkClient) setRestored(err error) {
+	a.restoreLock.Lock()
+	defer a.restoreLock.Unlock()
+
+	a.restoreDone = true
+	a.restoreErr = err
+
+	a.readyListeners.broadcast(err)
+	a.readyListeners.clear()
+
 }
 
 func getClient(
@@ -605,4 +696,39 @@ func filterByOutpoints(vtxos []types.Vtxo, outpoints []types.Outpoint) []types.V
 		}
 	}
 	return filtered
+}
+
+type readyListeners struct {
+	lock      *sync.RWMutex
+	listeners map[chan types.ReadyEvent]struct{}
+}
+
+func newReadyListeners() *readyListeners {
+	return &readyListeners{
+		lock:      &sync.RWMutex{},
+		listeners: make(map[chan types.ReadyEvent]struct{}),
+	}
+}
+
+func (l *readyListeners) add(ch chan types.ReadyEvent) {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	l.listeners[ch] = struct{}{}
+}
+
+func (l *readyListeners) broadcast(err error) {
+	l.lock.RLock()
+	defer l.lock.RUnlock()
+	for ch := range l.listeners {
+		ch <- types.ReadyEvent{Ready: err == nil, Err: err}
+	}
+}
+
+func (l *readyListeners) clear() {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	for ch := range l.listeners {
+		close(ch)
+	}
+	l.listeners = make(map[chan types.ReadyEvent]struct{})
 }

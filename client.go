@@ -94,11 +94,7 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, fmt.Errorf("failed to setup indexer: %s", err)
 	}
 
-	walletSvc, err := getWallet(
-		sdkStore.ConfigStore(),
-		cfgData,
-		supportedWallets,
-	)
+	walletSvc, err := getWallet(sdkStore.ConfigStore(), cfgData, supportedWallets)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup wallet: %s", err)
 	}
@@ -119,7 +115,7 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 }
 
 func LoadArkClientWithWallet(
-	sdkStore types.Store, walletSvc wallet.WalletService,
+	sdkStore types.Store, walletSvc wallet.WalletService, opts ...ClientOption,
 ) (ArkClient, error) {
 	if sdkStore == nil {
 		return nil, fmt.Errorf("missin sdk repository")
@@ -166,6 +162,9 @@ func LoadArkClientWithWallet(
 		explorer: explorerSvc,
 		client:   clientSvc,
 		indexer:  indexerSvc,
+	}
+	for _, opt := range opts {
+		opt(client)
 	}
 
 	return client, nil
@@ -1027,12 +1026,23 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) refreshDb(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.listVtxosFromIndexer(ctx)
 	if err != nil {
 		return err
 	}
 
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	// Fetch new and spent utxos.
 	allUtxos, err := a.getAllBoardingUtxos(ctx)
 	if err != nil {
@@ -1076,6 +1086,12 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 
 	onchainHistory := append(unconfirmedTxs, confirmedTxs...)
 
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	offchainHistory, err := a.vtxosToTxs(ctx, spendableVtxos, spentVtxos, commitmentTxsToIgnore)
 	if err != nil {
 		return err
@@ -1085,6 +1101,12 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	sort.SliceStable(history, func(i, j int) bool {
 		return history[i].CreatedAt.After(history[j].CreatedAt)
 	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 
 	// Update tx history in db.
 	if err := a.refreshTxDb(ctx, history); err != nil {

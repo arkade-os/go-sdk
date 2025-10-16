@@ -16,6 +16,7 @@ type ArkClient interface {
 	IsLocked(ctx context.Context) bool
 	Unlock(ctx context.Context, password string) error
 	Lock(ctx context.Context) error
+	IsReady(ctx context.Context) <-chan types.ReadyEvent
 	Balance(ctx context.Context, computeExpiryDetails bool) (*Balance, error)
 	Receive(ctx context.Context) (onchainAddr, offchainAddr, boardingAddr string, err error)
 	GetAddresses(ctx context.Context) (

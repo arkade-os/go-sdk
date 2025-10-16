@@ -306,3 +306,8 @@ type OnchainAddressEvent struct {
 	ConfirmedUtxos []OnchainOutput
 	Replacements   map[string]string // replacedTxid -> replacementTxid
 }
+
+type ReadyEvent struct {
+	Ready bool
+	Err   error
+}
