@@ -95,6 +95,8 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 	}
 
 	if cfgData.WithTransactionFeed {
+		a.restoreDone = false
+		a.restoreErr = nil
 		a.restoreCh = make(chan error)
 		a.restoreLock = &sync.Mutex{}
 
