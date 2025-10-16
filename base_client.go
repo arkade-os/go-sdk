@@ -131,6 +131,8 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		return err
 	}
 	go func() {
+		a.restoreDone = false
+		a.restoreErr = nil
 		if a.stopRestore != nil {
 			a.stopRestore()
 		}
@@ -248,6 +250,8 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 }
 
 func (a *arkClient) Reset(ctx context.Context) {
+	a.restoreDone = false
+	a.restoreErr = nil
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
