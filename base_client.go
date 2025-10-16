@@ -287,9 +287,7 @@ func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, 
 	return a.listVtxosFromIndexer(ctx)
 }
 
-func (a *arkClient) NotifyIncomingFunds(
-	ctx context.Context, addr string,
-) ([]types.Vtxo, error) {
+func (a *arkClient) NotifyIncomingFunds(ctx context.Context, addr string) ([]types.Vtxo, error) {
 	if err := a.safeCheck(); err != nil {
 		return nil, err
 	}
@@ -353,9 +351,7 @@ func (a *arkClient) IsReady(ctx context.Context) <-chan types.ReadyEvent {
 	return ch
 }
 
-func (a *arkClient) initWithWallet(
-	ctx context.Context, args InitWithWalletArgs,
-) error {
+func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs) error {
 	if err := args.validate(); err != nil {
 		return fmt.Errorf("invalid args: %s", err)
 	}
@@ -456,9 +452,7 @@ func (a *arkClient) initWithWallet(
 	return nil
 }
 
-func (a *arkClient) init(
-	ctx context.Context, args InitArgs,
-) error {
+func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 	if err := args.validate(); err != nil {
 		return fmt.Errorf("invalid args: %s", err)
 	}
