@@ -51,7 +51,8 @@ func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.U
 }
 
 type addressNotification struct {
-	MultiAddrTx map[string]txNotificationSet `json:"multi-address-transactions"`
+	// The value can be either an object or a string error message
+	MultiAddrTx any `json:"multi-address-transactions"`
 }
 
 type txNotificationSet struct {

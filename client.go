@@ -766,6 +766,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 			return
 		case update := <-ch:
+			// TODO: we may want to forward this error so the user can try to reconnect.
+			if update.Error != nil {
+				log.WithError(update.Error).Error("received error from explorer")
+				continue
+			}
 			txsToAdd := make([]types.Transaction, 0)
 			txsToConfirm := make([]string, 0)
 			utxosToConfirm := make(map[types.Outpoint]int64)

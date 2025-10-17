@@ -301,6 +301,7 @@ type OnchainOutput struct {
 }
 
 type OnchainAddressEvent struct {
+	Error          error
 	SpentUtxos     []OnchainOutput
 	NewUtxos       []OnchainOutput
 	ConfirmedUtxos []OnchainOutput

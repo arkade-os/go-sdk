@@ -912,7 +912,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						continue
 					}
 					// Skip handling the received message if it's not an address update.
-					if len(payload.MultiAddrTx) == 0 {
+					if payload.MultiAddrTx == nil {
 						continue
 					}
 
@@ -1003,11 +1003,23 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 }
 
 func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
+	// If there's an error the event message looks like:
+	//
+	// { "multi-address-transactions": "error message" }
+	//
+	// The following check makes sure we return an error event message as well so the receiver can
+	// handle it properly.
+	if errMsg, ok := payload.MultiAddrTx.(string); ok {
+		e.sendAddressEvent(ctx, types.OnchainAddressEvent{
+			Error: fmt.Errorf("%s", errMsg),
+		})
+	}
+
 	spentUtxos := make([]types.OnchainOutput, 0)
 	newUtxos := make([]types.OnchainOutput, 0)
 	confirmedUtxos := make([]types.OnchainOutput, 0)
 	replacements := make(map[string]string)
-	for addr, data := range payload.MultiAddrTx {
+	for addr, data := range payload.MultiAddrTx.(map[string]txNotificationSet) {
 		if len(data.Removed) > 0 {
 			for _, tx := range data.Removed {
 				if len(data.Mempool) > 0 {
