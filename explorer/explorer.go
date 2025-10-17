@@ -282,7 +282,13 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 }
 
 func (e *explorerSvc) Start() {
+	// Nothing to do if tracking disabled.
 	if e.noTracking {
+		return
+	}
+
+	// Nothing to do if service already started.
+	if e.stopTracking != nil {
 		return
 	}
 
@@ -314,7 +320,13 @@ func (e *explorerSvc) Start() {
 }
 
 func (e *explorerSvc) Stop() {
+	// Nothing to do is tracking disabled.
 	if e.noTracking {
+		return
+	}
+
+	// Nothing to do if service already stopped.
+	if e.stopTracking == nil {
 		return
 	}
 
