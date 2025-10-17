@@ -268,10 +268,8 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		cache:           utils.NewCache[string](),
 		baseUrl:         baseUrl,
 		net:             net,
-		connPool:        newConnectionPool(svcOpts.maxConnections),
 		subscribedMu:    &sync.RWMutex{},
 		subscribedMap:   make(map[string]addressData),
-		channel:         make(chan types.OnchainAddressEvent, 100),
 		pollInterval:    svcOpts.pollInterval,
 		noTracking:      svcOpts.noTracking,
 		batchSize:       svcOpts.batchSize,
@@ -284,6 +282,13 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 }
 
 func (e *explorerSvc) Start() {
+	if e.noTracking {
+		return
+	}
+
+	e.connPool = newConnectionPool(e.maxConnections)
+	e.channel = make(chan types.OnchainAddressEvent, 100)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	// nolint
 	wsURL, _ := deriveWsURL(e.baseUrl)
