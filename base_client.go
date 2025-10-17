@@ -391,6 +391,15 @@ func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs)
 	if args.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
 	}
+	if args.ExplorerBatchSize > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithBatchSize(int(args.ExplorerBatchSize)))
+	}
+	if args.ExplorerBatchDelay > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithBatchDelay(args.ExplorerBatchDelay))
+	}
+	if args.ExplorerMaxConnections > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithMaxConnections(int(args.ExplorerMaxConnections)))
+	}
 
 	explorerSvc, err := explorer.NewExplorer(
 		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
@@ -441,16 +450,19 @@ func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs)
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
-		ForfeitAddress:       info.ForfeitAddress,
-		WithTransactionFeed:  args.WithTransactionFeed,
-		ExplorerURL:          explorerSvc.BaseUrl(),
-		ExplorerPollInterval: args.ExplorerPollInterval,
-		UtxoMinAmount:        info.UtxoMinAmount,
-		UtxoMaxAmount:        info.UtxoMaxAmount,
-		VtxoMinAmount:        info.VtxoMinAmount,
-		VtxoMaxAmount:        info.VtxoMaxAmount,
-		CheckpointTapscript:  info.CheckpointTapscript,
-		Fees:                 info.Fees,
+		ForfeitAddress:                 info.ForfeitAddress,
+		WithTransactionFeed:            args.WithTransactionFeed,
+		ExplorerURL:                    explorerSvc.BaseUrl(),
+		ExplorerTrackingPollInterval:   args.ExplorerPollInterval,
+		ExplorerTrackingBatchSize:      args.ExplorerBatchSize,
+		ExplorerTrackingBatchDelay:     args.ExplorerBatchDelay,
+		ExplorerTrackingMaxConnections: args.ExplorerMaxConnections,
+		UtxoMinAmount:                  info.UtxoMinAmount,
+		UtxoMaxAmount:                  info.UtxoMaxAmount,
+		VtxoMinAmount:                  info.VtxoMinAmount,
+		VtxoMaxAmount:                  info.VtxoMaxAmount,
+		CheckpointTapscript:            info.CheckpointTapscript,
+		Fees:                           info.Fees,
 	}
 	if err := a.store.ConfigStore().AddData(ctx, storeData); err != nil {
 		return err
@@ -491,6 +503,15 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
 	if args.ExplorerPollInterval > 0 {
 		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+	}
+	if args.ExplorerBatchSize > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithBatchSize(int(args.ExplorerBatchSize)))
+	}
+	if args.ExplorerBatchDelay > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithBatchDelay(args.ExplorerBatchDelay))
+	}
+	if args.ExplorerMaxConnections > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithMaxConnections(int(args.ExplorerMaxConnections)))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(
@@ -542,16 +563,19 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
-		ExplorerURL:          explorerSvc.BaseUrl(),
-		ExplorerPollInterval: args.ExplorerPollInterval,
-		ForfeitAddress:       info.ForfeitAddress,
-		WithTransactionFeed:  args.WithTransactionFeed,
-		UtxoMinAmount:        info.UtxoMinAmount,
-		UtxoMaxAmount:        info.UtxoMaxAmount,
-		VtxoMinAmount:        info.VtxoMinAmount,
-		VtxoMaxAmount:        info.VtxoMaxAmount,
-		CheckpointTapscript:  info.CheckpointTapscript,
-		Fees:                 info.Fees,
+		ExplorerURL:                    explorerSvc.BaseUrl(),
+		ExplorerTrackingPollInterval:   args.ExplorerPollInterval,
+		ExplorerTrackingBatchSize:      args.ExplorerBatchSize,
+		ExplorerTrackingBatchDelay:     args.ExplorerBatchDelay,
+		ExplorerTrackingMaxConnections: args.ExplorerMaxConnections,
+		ForfeitAddress:                 info.ForfeitAddress,
+		WithTransactionFeed:            args.WithTransactionFeed,
+		UtxoMinAmount:                  info.UtxoMinAmount,
+		UtxoMaxAmount:                  info.UtxoMaxAmount,
+		VtxoMinAmount:                  info.VtxoMinAmount,
+		VtxoMaxAmount:                  info.VtxoMaxAmount,
+		CheckpointTapscript:            info.CheckpointTapscript,
+		Fees:                           info.Fees,
 	}
 	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
 	if err != nil {

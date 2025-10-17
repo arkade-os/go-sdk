@@ -24,26 +24,29 @@ type intentFeeData struct {
 }
 
 type storeData struct {
-	ServerUrl            string  `json:"server_url"`
-	SignerPubKey         string  `json:"signer_pubkey"`
-	ForfeitPubKey        string  `json:"forfeit_pubkey"`
-	WalletType           string  `json:"wallet_type"`
-	ClientType           string  `json:"client_type"`
-	Network              string  `json:"network"`
-	SessionDuration      string  `json:"session_duration"`
-	UnilateralExitDelay  string  `json:"unilateral_exit_delay"`
-	Dust                 string  `json:"dust"`
-	BoardingExitDelay    string  `json:"boarding_exit_delay"`
-	ExplorerURL          string  `json:"explorer_url"`
-	ExplorerPollInterval string  `json:"explorer_poll_interval"`
-	ForfeitAddress       string  `json:"forfeit_address"`
-	WithTransactionFeed  string  `json:"with_transaction_feed"`
-	UtxoMinAmount        string  `json:"utxo_min_amount"`
-	UtxoMaxAmount        string  `json:"utxo_max_amount"`
-	VtxoMinAmount        string  `json:"vtxo_min_amount"`
-	VtxoMaxAmount        string  `json:"vtxo_max_amount"`
-	CheckpointTapscript  string  `json:"checkpoint_tapscript"`
-	Fees                 feeData `json:"fees"`
+	ServerUrl                      string  `json:"server_url"`
+	SignerPubKey                   string  `json:"signer_pubkey"`
+	ForfeitPubKey                  string  `json:"forfeit_pubkey"`
+	WalletType                     string  `json:"wallet_type"`
+	ClientType                     string  `json:"client_type"`
+	Network                        string  `json:"network"`
+	SessionDuration                string  `json:"session_duration"`
+	UnilateralExitDelay            string  `json:"unilateral_exit_delay"`
+	Dust                           string  `json:"dust"`
+	BoardingExitDelay              string  `json:"boarding_exit_delay"`
+	ExplorerURL                    string  `json:"explorer_url"`
+	ExplorerTrackingPollInterval   string  `json:"explorer_poll_interval"`
+	ExplorerTrackingBatchSize      string  `json:"explorer_batch_size"`
+	ExplorerTrackingBatchDelay     string  `json:"explorer_batch_delay"`
+	ExplorerTrackingMaxConnections string  `json:"explorer_max_connections"`
+	ForfeitAddress                 string  `json:"forfeit_address"`
+	WithTransactionFeed            string  `json:"with_transaction_feed"`
+	UtxoMinAmount                  string  `json:"utxo_min_amount"`
+	UtxoMaxAmount                  string  `json:"utxo_max_amount"`
+	VtxoMinAmount                  string  `json:"vtxo_min_amount"`
+	VtxoMaxAmount                  string  `json:"vtxo_max_amount"`
+	CheckpointTapscript            string  `json:"checkpoint_tapscript"`
+	Fees                           feeData `json:"fees"`
 }
 
 func (d storeData) isEmpty() bool {
@@ -71,8 +74,12 @@ func (d storeData) decode() types.Config {
 	utxoMaxAmount, _ := strconv.Atoi(d.UtxoMaxAmount)
 	vtxoMinAmount, _ := strconv.Atoi(d.VtxoMinAmount)
 	vtxoMaxAmount, _ := strconv.Atoi(d.VtxoMaxAmount)
-	pollInterval, _ := strconv.Atoi(d.ExplorerPollInterval)
+	pollInterval, _ := strconv.Atoi(d.ExplorerTrackingPollInterval)
 	explorerPollInterval := time.Duration(pollInterval) * time.Second
+	explorerBatchSize, _ := strconv.Atoi(d.ExplorerTrackingBatchSize)
+	batchDelay, _ := strconv.Atoi(d.ExplorerTrackingBatchDelay)
+	explorerBatchDelay := time.Duration(batchDelay) * time.Second
+	explorerMaxConnections, _ := strconv.Atoi(d.ExplorerTrackingMaxConnections)
 
 	unilateralExitDelayType := arklib.LocktimeTypeBlock
 	if unilateralExitDelay >= 512 {
@@ -114,40 +121,46 @@ func (d storeData) decode() types.Config {
 			Type:  boardingExitDelayType,
 			Value: uint32(boardingExitDelay),
 		},
-		ExplorerURL:          explorerURL,
-		ExplorerPollInterval: explorerPollInterval,
-		ForfeitAddress:       d.ForfeitAddress,
-		WithTransactionFeed:  withTransactionFeed,
-		UtxoMinAmount:        int64(utxoMinAmount),
-		UtxoMaxAmount:        int64(utxoMaxAmount),
-		VtxoMinAmount:        int64(vtxoMinAmount),
-		VtxoMaxAmount:        int64(vtxoMaxAmount),
-		CheckpointTapscript:  d.CheckpointTapscript,
-		Fees:                 fees,
+		ExplorerURL:                    explorerURL,
+		ExplorerTrackingPollInterval:   explorerPollInterval,
+		ExplorerTrackingBatchSize:      uint32(explorerBatchSize),
+		ExplorerTrackingBatchDelay:     explorerBatchDelay,
+		ExplorerTrackingMaxConnections: uint32(explorerMaxConnections),
+		ForfeitAddress:                 d.ForfeitAddress,
+		WithTransactionFeed:            withTransactionFeed,
+		UtxoMinAmount:                  int64(utxoMinAmount),
+		UtxoMaxAmount:                  int64(utxoMaxAmount),
+		VtxoMinAmount:                  int64(vtxoMinAmount),
+		VtxoMaxAmount:                  int64(vtxoMaxAmount),
+		CheckpointTapscript:            d.CheckpointTapscript,
+		Fees:                           fees,
 	}
 }
 
 func (d storeData) asMap() map[string]any {
 	return map[string]any{
-		"server_url":             d.ServerUrl,
-		"signer_pubkey":          d.SignerPubKey,
-		"forfeit_pubkey":         d.ForfeitPubKey,
-		"wallet_type":            d.WalletType,
-		"client_type":            d.ClientType,
-		"network":                d.Network,
-		"session_duration":       d.SessionDuration,
-		"unilateral_exit_delay":  d.UnilateralExitDelay,
-		"dust":                   d.Dust,
-		"boarding_exit_delay":    d.BoardingExitDelay,
-		"explorer_url":           d.ExplorerURL,
-		"explorer_poll_interval": d.ExplorerPollInterval,
-		"forfeit_address":        d.ForfeitAddress,
-		"with_transaction_feed":  d.WithTransactionFeed,
-		"utxo_min_amount":        d.UtxoMinAmount,
-		"utxo_max_amount":        d.UtxoMaxAmount,
-		"vtxo_min_amount":        d.VtxoMinAmount,
-		"vtxo_max_amount":        d.VtxoMaxAmount,
-		"checkpoint_tapscript":   d.CheckpointTapscript,
+		"server_url":               d.ServerUrl,
+		"signer_pubkey":            d.SignerPubKey,
+		"forfeit_pubkey":           d.ForfeitPubKey,
+		"wallet_type":              d.WalletType,
+		"client_type":              d.ClientType,
+		"network":                  d.Network,
+		"session_duration":         d.SessionDuration,
+		"unilateral_exit_delay":    d.UnilateralExitDelay,
+		"dust":                     d.Dust,
+		"boarding_exit_delay":      d.BoardingExitDelay,
+		"explorer_url":             d.ExplorerURL,
+		"explorer_poll_interval":   d.ExplorerTrackingPollInterval,
+		"explorer_batch_size":      d.ExplorerTrackingBatchSize,
+		"explorer_batch_delay":     d.ExplorerTrackingBatchDelay,
+		"explorer_max_connections": d.ExplorerTrackingMaxConnections,
+		"forfeit_address":          d.ForfeitAddress,
+		"with_transaction_feed":    d.WithTransactionFeed,
+		"utxo_min_amount":          d.UtxoMinAmount,
+		"utxo_max_amount":          d.UtxoMaxAmount,
+		"vtxo_min_amount":          d.VtxoMinAmount,
+		"vtxo_max_amount":          d.VtxoMaxAmount,
+		"checkpoint_tapscript":     d.CheckpointTapscript,
 		"fees": map[string]any{
 			"tx_fee_rate": d.Fees.TxFeeRate,
 			"intent_fees": map[string]string{

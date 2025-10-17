@@ -80,8 +80,8 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 	}
 
 	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
-	if cfgData.ExplorerPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
+	if cfgData.ExplorerTrackingPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
@@ -141,8 +141,8 @@ func LoadArkClientWithWallet(
 	}
 
 	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
-	if cfgData.ExplorerPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
+	if cfgData.ExplorerTrackingPollInterval > 0 {
+		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval))
 	}
 
 	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
