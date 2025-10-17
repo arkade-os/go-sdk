@@ -301,22 +301,20 @@ func (e *explorerSvc) Start() {
 
 	// Initialize connection pool
 	if err := e.initializeConnectionPool(ctx, wsURL); err != nil {
-		log.WithFields(log.Fields{
+		log.WithError(err).WithFields(log.Fields{
 			"network": e.net.Name,
 			"url":     wsURL,
-		}).WithError(err).Warn("websocket connection pool initialization failed, falling back to polling")
+		}).Warn("explorer: failed to initialize ws connection pool, falling back to polling")
 	}
 
-	if e.connPool.getConnectionCount() == 0 {
-		log.Debugf(
-			"starting explorer background tracking with polling interval %s",
-			e.pollInterval,
-		)
+	if count := e.connPool.getConnectionCount(); count == 0 {
+		log.Debugf("explorer: starting tracking with polling interval %s", e.pollInterval)
 	} else {
-		log.Debugf("starting explorer background tracking with %d websocket connections", e.connPool.getConnectionCount())
+		log.Debugf("explorer: starting tracking with %d ws connections", count)
 	}
 	e.stopTracking = cancel
 	go e.startTracking(ctx)
+	log.Debug("explorer: started")
 }
 
 func (e *explorerSvc) Stop() {
@@ -338,7 +336,7 @@ func (e *explorerSvc) Stop() {
 		for _, wsConn := range e.connPool.connections {
 			if wsConn.conn != nil {
 				if err := wsConn.conn.Close(); err != nil {
-					log.WithError(err).Error("failed to close websocket connection")
+					log.WithError(err).Warn("explorer: failed to close ws connection")
 				}
 			}
 		}
@@ -356,6 +354,8 @@ func (e *explorerSvc) Stop() {
 	e.addressDedupMu.Unlock()
 
 	close(e.channel)
+	e.stopTracking = nil
+	log.Debug("explorer: stopped")
 }
 
 func (e *explorerSvc) BaseUrl() string {
@@ -386,7 +386,7 @@ func (e *explorerSvc) GetFeeRate() (float64, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("error getting fee rate: %s", resp.Status)
+		return 0, fmt.Errorf("failed to get fee rate: %s", resp.Status)
 	}
 
 	if len(response) == 0 {
@@ -830,16 +830,16 @@ func (e *explorerSvc) initializeConnectionPool(ctx context.Context, wsURL string
 	for i := 0; i < e.maxConnections; i++ {
 		conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 		if err != nil {
-			log.WithFields(log.Fields{
+			log.WithError(err).WithFields(log.Fields{
 				"connection": i + 1,
 				"max":        e.maxConnections,
 				"url":        wsURL,
-			}).WithError(err).Debug("failed to establish websocket connection")
+			}).Debug("explorer: failed to establish ws connection")
 			break
 		}
 
 		e.connPool.addConnection(conn)
-		log.WithField("connection", i+1).Debug("established websocket connection")
+		log.WithField("connection", i+1).Debug("explorer: established ws connection")
 	}
 
 	if e.connPool.getConnectionCount() == 0 {
@@ -884,7 +884,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						fmt.Errorf("connection %d: failed to set read deadline: %w", connIdx, err),
 					)
 					log.WithError(err).WithField("connection", connIdx).Error(
-						"failed to set read deadline",
+						"explorer: failed to set read deadline",
 					)
 					return
 				}
@@ -907,7 +907,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 							"connection %d: failed to read address notification: %w", connIdx, err,
 						))
 						log.WithError(err).WithField("connection", connIdx).Error(
-							"failed to read address notification",
+							"explorer: failed to read address notification",
 						)
 						continue
 					}
@@ -937,7 +937,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 								"connection %d: failed to ping explorer: %w", connIdx, err,
 							))
 							log.WithError(err).WithField("connection", connIdx).Error(
-								"failed to ping explorer",
+								"explorer: failed to ping explorer",
 							)
 							return
 						}
@@ -981,7 +981,7 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 				newUtxos, err := e.GetUtxos(addr)
 				if err != nil {
 					e.recordError(fmt.Errorf("polling: failed to get UTXOs for %s: %w", addr, err))
-					log.WithError(err).Error("failed to poll explorer")
+					log.WithError(err).Error("explorer: failed to poll explorer")
 				}
 				buf, _ := json.Marshal(newUtxos)
 				hashedResp := sha256.Sum256(buf)
