@@ -901,8 +901,8 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 					return wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval))
 				})
 				for {
-					var payload addressNotification
-					if err := wsConn.conn.ReadJSON(&payload); err != nil {
+					var rawMsg map[string]any
+					if err := wsConn.conn.ReadJSON(&rawMsg); err != nil {
 						if websocket.IsCloseError(
 							err,
 							websocket.CloseNormalClosure,
@@ -920,6 +920,14 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						)
 						continue
 					}
+
+					if err := getErrorFromMessage(rawMsg); err != nil {
+						e.sendAddressEvent(ctx, types.OnchainAddressEvent{Error: err})
+						continue
+
+					}
+
+					payload := getPayloadFromMessage(rawMsg)
 					// Skip handling the received message if it's not an address update.
 					if payload.MultiAddrTx == nil {
 						continue
@@ -1012,23 +1020,11 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 }
 
 func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
-	// If there's an error the event message looks like:
-	//
-	// { "multi-address-transactions": "error message" }
-	//
-	// The following check makes sure we return an error event message as well so the receiver can
-	// handle it properly.
-	if errMsg, ok := payload.MultiAddrTx.(string); ok {
-		e.sendAddressEvent(ctx, types.OnchainAddressEvent{
-			Error: fmt.Errorf("%s", errMsg),
-		})
-	}
-
 	spentUtxos := make([]types.OnchainOutput, 0)
 	newUtxos := make([]types.OnchainOutput, 0)
 	confirmedUtxos := make([]types.OnchainOutput, 0)
 	replacements := make(map[string]string)
-	for addr, data := range payload.MultiAddrTx.(map[string]txNotificationSet) {
+	for addr, data := range payload.MultiAddrTx {
 		if len(data.Removed) > 0 {
 			for _, tx := range data.Removed {
 				if len(data.Mempool) > 0 {
@@ -1313,4 +1309,20 @@ func deriveWsURL(baseUrl string) (string, error) {
 	wsUrl = fmt.Sprintf("%s/v1/ws", wsUrl)
 
 	return wsUrl, nil
+}
+
+func getErrorFromMessage(msg map[string]any) error {
+	for key := range msg {
+		if strings.Contains(key, "multi-address-transactions:") {
+			return fmt.Errorf("%s", key)
+		}
+	}
+	return nil
+}
+
+func getPayloadFromMessage(msg map[string]any) addressNotification {
+	payload := addressNotification{}
+	buf, _ := json.Marshal(msg)
+	json.Unmarshal(buf, &payload)
+	return payload
 }
