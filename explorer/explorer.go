@@ -548,8 +548,17 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		addressesToSubscribe = append(addressesToSubscribe, addr)
 	}
 
+	// Nothing to do if no addresses to subscribe.
 	if len(addressesToSubscribe) == 0 {
 		return nil
+	}
+	// Prevent subscribing addresses if we exceed the max number of those allowed.
+	totalSubs := len(addressesToSubscribe) + len(e.subscribedMap)
+	maxSubs := (e.batchSize * e.maxConnections)
+	if totalSubs > maxSubs {
+		return fmt.Errorf(
+			"too many addresses to subscribe (current=%d) (max=%d)", len(e.subscribedMap), maxSubs,
+		)
 	}
 
 	// Add new addresses to the subscribed map
