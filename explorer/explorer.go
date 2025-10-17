@@ -105,6 +105,9 @@ var (
 // The implementation uses a connection pool architecture with multiple concurrent WebSocket connections
 // to handle high-volume address subscriptions without overwhelming individual connections.
 type Explorer interface {
+	// Start must be used when using the explorer with tracking enabled.
+	Start()
+
 	// GetTxHex retrieves the raw transaction hex for a given transaction ID.
 	GetTxHex(txid string) (string, error)
 
@@ -188,22 +191,6 @@ type addressData struct {
 	utxos []Utxo
 }
 
-// websocketConnection represents a single WebSocket connection with its subscribed addresses.
-type websocketConnection struct {
-	conn          *websocket.Conn
-	addressBucket map[string]bool // Track subscribed addresses for this connection
-	mu            sync.RWMutex
-}
-
-// connectionPool manages multiple WebSocket connections for load distribution.
-// Addresses are distributed across connections using consistent hash-based routing.
-type connectionPool struct {
-	connections    []*websocketConnection
-	maxConnections int
-	currentIndex   int // For round-robin distribution
-	mu             sync.RWMutex
-}
-
 type explorerSvc struct {
 	cache          *utils.Cache[string]
 	baseUrl        string
@@ -225,56 +212,6 @@ type explorerSvc struct {
 	// Prevents the same address from being subscribed multiple times within this explorer instance
 	addressDedupMap map[string]bool
 	addressDedupMu  sync.RWMutex
-}
-
-// Option is a functional option for configuring the Explorer service.
-type Option func(*explorerSvc)
-
-// WithPollInterval sets the polling interval for address tracking when WebSocket is unavailable.
-// Default: 10 seconds.
-func WithPollInterval(interval time.Duration) Option {
-	return func(svc *explorerSvc) {
-		svc.pollInterval = interval
-	}
-}
-
-// WithTracker enables or disables address tracking.
-// When disabled, the explorer only provides REST API functionality without WebSocket connections.
-// Default: tracking is disabled.
-func WithTracker(withTracker bool) Option {
-	return func(svc *explorerSvc) {
-		if !withTracker {
-			svc.noTracking = true
-		}
-	}
-}
-
-// WithBatchSize sets the number of addresses to subscribe per batch.
-// Batching prevents overwhelming individual WebSocket connections with large subscription requests.
-// Default: 50 addresses per batch.
-func WithBatchSize(batchSize int) Option {
-	return func(svc *explorerSvc) {
-		svc.batchSize = batchSize
-	}
-}
-
-// WithBatchDelay sets the delay between subscription batches.
-// This helps rate-limit subscription requests to avoid overwhelming the explorer service.
-// Default: 100 milliseconds.
-func WithBatchDelay(batchDelay time.Duration) Option {
-	return func(svc *explorerSvc) {
-		svc.batchDelay = batchDelay
-	}
-}
-
-// WithMaxConnections sets the maximum number of concurrent WebSocket connections.
-// Multiple connections distribute the load and prevent I/O timeouts when subscribing to many addresses.
-// Addresses are distributed across connections using consistent hash-based routing.
-// Default: 3 connections.
-func WithMaxConnections(maxConnections int) Option {
-	return func(svc *explorerSvc) {
-		svc.maxConnections = maxConnections
-	}
 }
 
 // NewExplorer creates a new Explorer instance for the specified network.
@@ -305,6 +242,10 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		return NewExplorer(baseUrl, net, opts...)
 	}
 
+	if _, err := deriveWsURL(baseUrl); err != nil {
+		return nil, fmt.Errorf("invalid base url: %s", err)
+	}
+
 	svcOpts := &explorerSvc{
 		batchSize:      50,
 		batchDelay:     100 * time.Millisecond,
@@ -316,20 +257,13 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 
 	if svcOpts.noTracking {
 		return &explorerSvc{
-			cache:        utils.NewCache[string](),
-			baseUrl:      baseUrl,
-			net:          net,
-			pollInterval: svcOpts.pollInterval,
-			noTracking:   svcOpts.noTracking,
+			cache:      utils.NewCache[string](),
+			baseUrl:    baseUrl,
+			net:        net,
+			noTracking: svcOpts.noTracking,
 		}, nil
 	}
 
-	wsURL, err := deriveWsURL(baseUrl)
-	if err != nil {
-		return nil, fmt.Errorf("invalid base url: %s", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
 	svc := &explorerSvc{
 		cache:           utils.NewCache[string](),
 		baseUrl:         baseUrl,
@@ -338,7 +272,6 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		subscribedMu:    &sync.RWMutex{},
 		subscribedMap:   make(map[string]addressData),
 		channel:         make(chan types.OnchainAddressEvent, 100),
-		stopTracking:    cancel,
 		pollInterval:    svcOpts.pollInterval,
 		noTracking:      svcOpts.noTracking,
 		batchSize:       svcOpts.batchSize,
@@ -347,98 +280,32 @@ func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, 
 		addressDedupMap: make(map[string]bool),
 	}
 
+	return svc, nil
+}
+
+func (e *explorerSvc) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	// nolint
+	wsURL, _ := deriveWsURL(e.baseUrl)
+
 	// Initialize connection pool
-	if err := svc.initializeConnectionPool(ctx, wsURL); err != nil {
+	if err := e.initializeConnectionPool(ctx, wsURL); err != nil {
 		log.WithFields(log.Fields{
-			"network": net.Name,
+			"network": e.net.Name,
 			"url":     wsURL,
 		}).WithError(err).Warn("websocket connection pool initialization failed, falling back to polling")
 	}
 
-	if svc.connPool.getConnectionCount() == 0 {
+	if e.connPool.getConnectionCount() == 0 {
 		log.Debugf(
 			"starting explorer background tracking with polling interval %s",
-			svc.pollInterval,
+			e.pollInterval,
 		)
 	} else {
-		log.Debugf("starting explorer background tracking with %d websocket connections", svc.connPool.getConnectionCount())
+		log.Debugf("starting explorer background tracking with %d websocket connections", e.connPool.getConnectionCount())
 	}
-	go svc.startTracking(ctx)
-
-	return svc, nil
-}
-
-func newConnectionPool(maxConnections int) *connectionPool {
-	return &connectionPool{
-		connections:    make([]*websocketConnection, 0, maxConnections),
-		maxConnections: maxConnections,
-		currentIndex:   0,
-	}
-}
-
-func (cp *connectionPool) getConnectionCount() int {
-	cp.mu.RLock()
-	defer cp.mu.RUnlock()
-	return len(cp.connections)
-}
-
-func (cp *connectionPool) addConnection(conn *websocket.Conn) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-
-	wsConn := &websocketConnection{
-		conn:          conn,
-		addressBucket: make(map[string]bool),
-	}
-
-	cp.connections = append(cp.connections, wsConn)
-}
-
-func (cp *connectionPool) getConnectionForAddress(address string) (*websocketConnection, bool) {
-	cp.mu.RLock()
-	defer cp.mu.RUnlock()
-
-	// Guard against empty connection pool
-	n := len(cp.connections)
-	if n == 0 {
-		return nil, false
-	}
-
-	// Use hash-based distribution to consistently assign addresses to connections
-	// Use actual number of live connections instead of maxConnections
-	hash := sha256.Sum256([]byte(address))
-	connectionIndex := int(hash[0]) % n
-
-	return cp.connections[connectionIndex], true
-}
-
-func (e *explorerSvc) initializeConnectionPool(ctx context.Context, wsURL string) error {
-	dialer := websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
-		HandshakeTimeout: 10 * time.Second,
-	}
-
-	// Try to establish connections up to maxConnections
-	for i := 0; i < e.maxConnections; i++ {
-		conn, _, err := dialer.DialContext(ctx, wsURL, nil)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"connection": i + 1,
-				"max":        e.maxConnections,
-				"url":        wsURL,
-			}).WithError(err).Warn("failed to establish websocket connection")
-			break
-		}
-
-		e.connPool.addConnection(conn)
-		log.WithField("connection", i+1).Debug("established websocket connection")
-	}
-
-	if e.connPool.getConnectionCount() == 0 {
-		return fmt.Errorf("failed to establish any websocket connections")
-	}
-
-	return nil
+	e.stopTracking = cancel
+	go e.startTracking(ctx)
 }
 
 func (e *explorerSvc) Stop() {
@@ -574,24 +441,6 @@ func (e *explorerSvc) ClearErrors() {
 	e.errorCount = 0
 }
 
-// recordError stores an error for later retrieval (keeps last 100 errors)
-func (e *explorerSvc) recordError(err error) {
-	if err == nil {
-		return
-	}
-
-	e.errorsMu.Lock()
-	defer e.errorsMu.Unlock()
-
-	e.errorCount++
-	e.errors = append(e.errors, err)
-
-	// Keep only last 100 errors to prevent unbounded growth
-	if len(e.errors) > 100 {
-		e.errors = e.errors[len(e.errors)-100:]
-	}
-}
-
 func (e *explorerSvc) GetAddressesEvents() <-chan types.OnchainAddressEvent {
 	return e.channel
 }
@@ -642,34 +491,6 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 
 	// package
 	return e.broadcastPackage(txs...)
-}
-
-func (e *explorerSvc) broadcastPackage(txs ...string) (string, error) {
-	url := fmt.Sprintf("%s/txs/package", e.baseUrl)
-
-	// body is a json array of txs hex
-	body := bytes.NewBuffer(nil)
-	if err := json.NewEncoder(body).Encode(txs); err != nil {
-		return "", err
-	}
-
-	resp, err := http.Post(url, "application/json", body)
-	if err != nil {
-		return "", err
-	}
-	// nolint
-	defer resp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to broadcast package: %s", string(bodyResponse))
-	}
-
-	return string(bodyResponse), nil
 }
 
 func (e *explorerSvc) GetTxs(addr string) ([]tx, error) {
@@ -980,6 +801,53 @@ func (e *explorerSvc) GetTxBlockTime(
 	}
 
 	return true, tx.Status.Blocktime, nil
+}
+
+func (e *explorerSvc) initializeConnectionPool(ctx context.Context, wsURL string) error {
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// Try to establish connections up to maxConnections
+	for i := 0; i < e.maxConnections; i++ {
+		conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"connection": i + 1,
+				"max":        e.maxConnections,
+				"url":        wsURL,
+			}).WithError(err).Debug("failed to establish websocket connection")
+			break
+		}
+
+		e.connPool.addConnection(conn)
+		log.WithField("connection", i+1).Debug("established websocket connection")
+	}
+
+	if e.connPool.getConnectionCount() == 0 {
+		return fmt.Errorf("failed to establish any websocket connections")
+	}
+
+	return nil
+}
+
+// recordError stores an error for later retrieval (keeps last 100 errors)
+func (e *explorerSvc) recordError(err error) {
+	if err == nil {
+		return
+	}
+
+	e.errorsMu.Lock()
+	defer e.errorsMu.Unlock()
+
+	e.errorCount++
+	e.errors = append(e.errors, err)
+
+	// Keep only last 100 errors to prevent unbounded growth
+	if len(e.errors) > 100 {
+		e.errors = e.errors[len(e.errors)-100:]
+	}
 }
 
 func (e *explorerSvc) startTracking(ctx context.Context) {
@@ -1298,6 +1166,34 @@ func (e *explorerSvc) broadcast(txHex string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("failed to broadcast: %s", string(bodyResponse))
+	}
+
+	return string(bodyResponse), nil
+}
+
+func (e *explorerSvc) broadcastPackage(txs ...string) (string, error) {
+	url := fmt.Sprintf("%s/txs/package", e.baseUrl)
+
+	// body is a json array of txs hex
+	body := bytes.NewBuffer(nil)
+	if err := json.NewEncoder(body).Encode(txs); err != nil {
+		return "", err
+	}
+
+	resp, err := http.Post(url, "application/json", body)
+	if err != nil {
+		return "", err
+	}
+	// nolint
+	defer resp.Body.Close()
+
+	bodyResponse, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to broadcast package: %s", string(bodyResponse))
 	}
 
 	return string(bodyResponse), nil

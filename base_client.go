@@ -106,6 +106,8 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		}()
 
 		go func() {
+			a.explorer.Start()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			a.stopRestore = cancel
 
@@ -131,6 +133,7 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		return err
 	}
 	go func() {
+		a.explorer.Stop()
 		a.restoreDone = false
 		a.restoreErr = nil
 		if a.stopRestore != nil {
@@ -250,6 +253,10 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 }
 
 func (a *arkClient) Reset(ctx context.Context) {
+	a.client.Close()
+	a.indexer.Close()
+	a.explorer.Stop()
+
 	a.restoreDone = false
 	a.restoreErr = nil
 	if a.stopWatch != nil {
@@ -268,6 +275,12 @@ func (a *arkClient) Reset(ctx context.Context) {
 }
 
 func (a *arkClient) Stop() {
+	a.client.Close()
+	a.indexer.Close()
+	a.explorer.Stop()
+
+	a.restoreDone = false
+	a.restoreErr = nil
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
