@@ -901,8 +901,8 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 					return wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval))
 				})
 				for {
-					var rawMsg map[string]any
-					if err := wsConn.conn.ReadJSON(&rawMsg); err != nil {
+					var payload addressNotification
+					if err := wsConn.conn.ReadJSON(&payload); err != nil {
 						if websocket.IsCloseError(
 							err,
 							websocket.CloseNormalClosure,
@@ -918,18 +918,6 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 						log.WithError(err).WithField("connection", connIdx).Error(
 							"explorer: failed to read address notification",
 						)
-						continue
-					}
-
-					if err := getErrorFromMessage(rawMsg); err != nil {
-						e.sendAddressEvent(ctx, types.OnchainAddressEvent{Error: err})
-						continue
-
-					}
-
-					payload := getPayloadFromMessage(rawMsg)
-					// Skip handling the received message if it's not an address update.
-					if payload.MultiAddrTx == nil {
 						continue
 					}
 
@@ -1020,6 +1008,19 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 }
 
 func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
+	// Forward the error if we received one.
+	if len(payload.Error) > 0 {
+		e.sendAddressEvent(ctx, types.OnchainAddressEvent{
+			Error: fmt.Errorf("%s", payload.Error),
+		})
+		return
+	}
+	// Nothing to do if it's not the message we're looking for.
+	if payload.MultiAddrTx == nil {
+		return
+	}
+
+	// Parse the message and send the event.
 	spentUtxos := make([]types.OnchainOutput, 0)
 	newUtxos := make([]types.OnchainOutput, 0)
 	confirmedUtxos := make([]types.OnchainOutput, 0)
@@ -1309,20 +1310,4 @@ func deriveWsURL(baseUrl string) (string, error) {
 	wsUrl = fmt.Sprintf("%s/v1/ws", wsUrl)
 
 	return wsUrl, nil
-}
-
-func getErrorFromMessage(msg map[string]any) error {
-	for key := range msg {
-		if strings.Contains(key, "multi-address-transactions:") {
-			return fmt.Errorf("%s", key)
-		}
-	}
-	return nil
-}
-
-func getPayloadFromMessage(msg map[string]any) addressNotification {
-	payload := addressNotification{}
-	buf, _ := json.Marshal(msg)
-	json.Unmarshal(buf, &payload)
-	return payload
 }
