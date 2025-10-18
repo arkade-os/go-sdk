@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -11,16 +16,14 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
 	// Command-line flags
-	numAddresses := flag.Int("addresses", 100, "Number of addresses to generate and subscribe")
-	maxConnections := flag.Int(
-		"connections", 3, "Maximum number of concurrent WebSocket connections",
-	)
-	batchSize := flag.Int("batch-size", 25, "Number of addresses per batch")
-	batchDelay := flag.Duration("batch-delay", 50*time.Millisecond, "Delay between batches")
+	log.SetLevel(log.DebugLevel)
+	numAddresses := flag.Int("addresses", 1500, "Number of addresses to generate and subscribe")
+	numListeners := flag.Int("listeners", 1, "Number of listeners waiting for notifications")
 	explorerURL := flag.String("url", "https://mempool.space/api", "Explorer API URL")
 	maxEvents := flag.Int(
 		"max-events", 5, "Maximum number of events to receive before stopping (0 = unlimited)",
@@ -33,45 +36,33 @@ func main() {
 	fmt.Println("============================================================")
 	fmt.Printf("Configuration:\n")
 	fmt.Printf("  Addresses:     %d\n", *numAddresses)
-	fmt.Printf("  Connections:   %d\n", *maxConnections)
-	fmt.Printf("  Batch Size:    %d\n", *batchSize)
-	fmt.Printf("  Batch Delay:   %v\n", *batchDelay)
+	fmt.Printf("  Listeners:     %d\n", *numListeners)
 	fmt.Printf("  Explorer URL:  %s\n", *explorerURL)
 	fmt.Println("============================================================")
 
 	// Create explorer with configurable parameters
-	svc, err := explorer.NewExplorer(*explorerURL, arklib.Bitcoin,
-		explorer.WithTracker(true),
-		explorer.WithMaxConnections(*maxConnections),
-		explorer.WithBatchSize(*batchSize),
-		explorer.WithBatchDelay(*batchDelay))
+	svc, err := explorer.NewExplorer(*explorerURL, arklib.Bitcoin, explorer.WithTracker(true))
 	if err != nil {
 		log.Fatal("❌ Failed to create explorer:", err)
 	}
 
-	// Verify actual configuration from the service
-	actualConnections := svc.GetConnectionCount()
-	actualBatchSize := svc.GetBatchSize()
-	actualBatchDelay := svc.GetBatchDelay()
+	svc.Start()
+	defer svc.Stop()
 
-	fmt.Println("\nActual Configuration (verified from service):")
-	switch actualConnections {
-	case 0:
-		fmt.Println("  Mode:          Polling (WebSocket unavailable)")
-	case 1:
-		fmt.Printf("  Connections:   %d connection\n", actualConnections)
-	default:
-		fmt.Printf("  Connections:   %d connections\n", actualConnections)
-	}
-	fmt.Printf("  Batch Size:    %d addresses/batch\n", actualBatchSize)
-	fmt.Printf("  Batch Delay:   %v\n", actualBatchDelay)
-	fmt.Printf("  Base URL:      %s\n", svc.BaseUrl())
+	aborted := false
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+		<-sigChan
+		svc.Stop()
+		aborted = true
+	}()
 
 	// Generate test addresses
 	addresses := make([]string, 0, *numAddresses)
 	fmt.Printf("🔄 Generating %d test addresses...\n", *numAddresses)
 	for i := 0; i < *numAddresses; i++ {
-		addresses = append(addresses, newTestAddr(i))
+		addresses = append(addresses, newTestAddr(*explorerURL))
 	}
 	fmt.Printf("✅ Generated %d addresses\n", len(addresses))
 
@@ -82,18 +73,30 @@ func main() {
 	duration := time.Since(start)
 
 	if err != nil {
-		log.Fatal("❌ Failed to subscribe to addresses:", err)
+		fmt.Printf("⚠️ Failed to subscribe all addresses: %s\n", err)
 	}
 
+	// Verify actual configuration from the service
+	activeConns := svc.GetConnectionCount()
+
+	fmt.Println("\nActual Configuration (verified from service):")
+	switch activeConns {
+	case 0:
+		fmt.Println("  Mode:	Polling (WebSocket unavailable)")
+	case 1:
+		fmt.Printf("  Connections:		%d connection\n", activeConns)
+	default:
+		fmt.Printf("  Connections:		%d connections\n", activeConns)
+	}
+	fmt.Printf("  Base URL:		%s\n\n", svc.BaseUrl())
+
 	// Verify actual subscription count from service
-	actualSubscribed := svc.GetSubscribedAddressCount()
-	errorCount := svc.GetErrorCount()
 	subscribedAddresses := svc.GetSubscribedAddresses()
 
-	fmt.Printf("✅ Successfully subscribed to %d addresses in %v\n", len(addresses), duration)
-	fmt.Printf("📊 Verified: %d addresses actively subscribed in service\n", actualSubscribed)
-	if actualConnections > 0 {
-		fmt.Printf("📡 Distributed across %d WebSocket connection(s)\n", actualConnections)
+	fmt.Printf("✅ Successfully subscribed to %d addresses in %v\n", len(subscribedAddresses), duration)
+	fmt.Printf("📊 Verified: %d addresses actively subscribed in service\n", len(addresses))
+	if activeConns > 0 {
+		fmt.Printf("📡 Distributed across %d WebSocket connection(s)\n", activeConns)
 	}
 
 	// Show sample of subscribed addresses
@@ -109,7 +112,7 @@ func main() {
 				fmt.Printf("   %d. %s %s\n", i+1, status, addr)
 			}
 		} else {
-			fmt.Printf("📋 Sample subscribed addresses (first 3 of %d):\n", len(subscribedAddresses))
+			fmt.Printf("📋 Sample subscribed addresses (3/%d):\n", len(subscribedAddresses))
 			for i := 0; i < 3 && i < len(subscribedAddresses); i++ {
 				isSubscribed := svc.IsAddressSubscribed(subscribedAddresses[i])
 				status := "✅"
@@ -124,17 +127,6 @@ func main() {
 		}
 	}
 
-	// Check for any errors during subscription
-	if errorCount > 0 {
-		fmt.Printf("⚠️  Warning: %d error(s) encountered during setup\n", errorCount)
-		errors := svc.GetErrors()
-		for i, err := range errors {
-			fmt.Printf("   Error %d: %v\n", i+1, err)
-		}
-	} else {
-		fmt.Println("✅ No errors encountered during setup")
-	}
-
 	if *maxEvents == 0 {
 		fmt.Println("🔄 Listening for blockchain events indefinitely (Ctrl+C to stop)...")
 	} else {
@@ -142,44 +134,51 @@ func main() {
 	}
 
 	// Listen for events
-	eventCount := 0
-	lastErrorCount := errorCount
+	errorCount := 0
+	totEventCount := 0
+	wg := sync.WaitGroup{}
+	wg.Add(*numListeners)
+	for i := range *numListeners {
+		go func(i int) {
+			defer wg.Done()
+			eventCount := 0
+			for ev := range svc.GetAddressesEvents() {
+				eventCount++
+				if ev.Error != nil {
+					errorCount++
+					fmt.Printf("⚠️ new error detected\n")
+					fmt.Printf("   Error: %v\n", err)
+				} else {
+					buf, _ := json.MarshalIndent(ev, "", "  ")
+					fmt.Printf("🎯 Listener %d receveived event #%d: %s\n", i, eventCount, string(buf))
+				}
 
-	for ev := range svc.GetAddressesEvents() {
-		eventCount++
-		fmt.Printf("🎯 Event #%d: %+v\n", eventCount, ev)
-
-		// Check for new errors periodically
-		currentErrorCount := svc.GetErrorCount()
-		if currentErrorCount > lastErrorCount {
-			newErrors := svc.GetErrors()[lastErrorCount:]
-			fmt.Printf("⚠️  %d new error(s) detected:\n", len(newErrors))
-			for i, err := range newErrors {
-				fmt.Printf("   Error %d: %v\n", lastErrorCount+i+1, err)
+				// Stop after receiving max events (if configured)
+				if *maxEvents > 0 && eventCount >= *maxEvents {
+					break
+				}
 			}
-			lastErrorCount = currentErrorCount
-		}
+			totEventCount += eventCount
+		}(i)
+	}
+	wg.Wait()
 
-		// Stop after receiving max events (if configured)
-		if *maxEvents > 0 && eventCount >= *maxEvents {
-			break
-		}
+	if aborted {
+		fmt.Println("\n💡 Test aborted by user")
+		os.Exit(0)
 	}
 
 	// Final error summary
-	finalErrorCount := svc.GetErrorCount()
 	fmt.Println("\n✅ Test completed successfully!")
 	fmt.Printf("📊 Final Statistics:\n")
-	fmt.Printf("   Events received: %d\n", eventCount)
-	fmt.Printf("   Total errors:    %d\n", finalErrorCount)
-	if finalErrorCount == 0 {
+	fmt.Printf("   Events received: %d\n", totEventCount)
+	fmt.Printf("   Total errors:    %d\n", errorCount)
+	if errorCount == 0 {
 		fmt.Println("   ✅ No errors encountered!")
 	}
-	fmt.Println("\n💡 The multi-connection architecture prevents I/O timeouts")
-	fmt.Println("   and provides better scalability for high-volume usage.")
 }
 
-func newTestAddr(index int) string {
+func newTestAddr(url string) string {
 	// Create a deterministic address based on index for testing
 	key, _ := btcec.NewPrivateKey()
 	pubKey := key.PubKey()
@@ -187,7 +186,18 @@ func newTestAddr(index int) string {
 
 	pubKeyHash := btcutil.Hash160(pubKeyCompressed)
 
-	addr, err := btcutil.NewAddressWitnessPubKeyHash(pubKeyHash, &chaincfg.MainNetParams)
+	net := &chaincfg.MainNetParams
+	if strings.Contains(url, "testnet") {
+		net = &chaincfg.TestNet3Params
+	}
+	if strings.Contains(url, "signet") || strings.Contains(url, "mutinynet") {
+		net = &chaincfg.SigNetParams
+	}
+	if strings.Contains(url, "localhost") {
+		net = &chaincfg.RegressionNetParams
+	}
+
+	addr, err := btcutil.NewAddressWitnessPubKeyHash(pubKeyHash, net)
 	if err != nil {
 		log.Fatal(err)
 	}

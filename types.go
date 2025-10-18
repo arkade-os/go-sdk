@@ -22,17 +22,14 @@ var (
 )
 
 type InitArgs struct {
-	ClientType             string
-	WalletType             string
-	ServerUrl              string
-	Seed                   string
-	Password               string
-	ExplorerURL            string
-	ExplorerPollInterval   time.Duration
-	ExplorerBatchSize      uint32
-	ExplorerBatchDelay     time.Duration
-	ExplorerMaxConnections uint32
-	WithTransactionFeed    bool
+	ClientType           string
+	WalletType           string
+	ServerUrl            string
+	Seed                 string
+	Password             string
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	WithTransactionFeed  bool
 }
 
 func (a InitArgs) validate() error {
@@ -66,17 +63,16 @@ func (a InitArgs) validate() error {
 }
 
 type InitWithWalletArgs struct {
-	ClientType             string
-	Wallet                 wallet.WalletService
-	ServerUrl              string
-	Seed                   string
-	Password               string
-	ExplorerURL            string
-	ExplorerPollInterval   time.Duration
-	ExplorerBatchSize      uint32
-	ExplorerBatchDelay     time.Duration
-	ExplorerMaxConnections uint32
-	WithTransactionFeed    bool
+	ClientType           string
+	Wallet               wallet.WalletService
+	ServerUrl            string
+	Seed                 string
+	Password             string
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	ExplorerBatchSize    uint32
+	ExplorerBatchDelay   time.Duration
+	WithTransactionFeed  bool
 }
 
 func (a InitWithWalletArgs) validate() error {

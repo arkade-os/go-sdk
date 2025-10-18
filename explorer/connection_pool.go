@@ -1,34 +1,56 @@
 package explorer
 
 import (
-	"crypto/sha256"
+	"context"
+	"fmt"
+	"maps"
+	"net/http"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 // websocketConnection represents a single WebSocket connection with its subscribed addresses.
 type websocketConnection struct {
-	conn          *websocket.Conn
-	addressBucket map[string]bool // Track subscribed addresses for this connection
-	mu            sync.RWMutex
+	id      int
+	conn    *websocket.Conn
+	address *addressStore
+	mu      *sync.RWMutex
 }
 
 // connectionPool manages multiple WebSocket connections for load distribution.
 // Addresses are distributed across connections using consistent hash-based routing.
 type connectionPool struct {
-	connections    []*websocketConnection
-	maxConnections int
-	currentIndex   int // For round-robin distribution
-	mu             sync.RWMutex
+	connectionsByAddress map[string]int               // map address => connection index
+	connections          map[int]*websocketConnection // pool of connections
+	newConnectionCh      chan *websocketConnection
+	mu                   *sync.RWMutex
+	wsURL                string
+	ctx                  context.Context
+	noMoreConnections    bool
 }
 
-func newConnectionPool(maxConnections int) *connectionPool {
-	return &connectionPool{
-		connections:    make([]*websocketConnection, 0, maxConnections),
-		maxConnections: maxConnections,
-		currentIndex:   0,
+func newConnectionPool(ctx context.Context, wsURL string) (*connectionPool, error) {
+	pool := &connectionPool{
+		connectionsByAddress: make(map[string]int),
+		connections:          make(map[int]*websocketConnection, 0),
+		newConnectionCh:      make(chan *websocketConnection),
+		mu:                   &sync.RWMutex{},
+		wsURL:                wsURL,
+		ctx:                  ctx,
 	}
+
+	if err := pool.addConnection(); err != nil {
+		return nil, err
+	}
+
+	return pool, nil
+}
+
+func (cp *connectionPool) getNewConnections() <-chan *websocketConnection {
+	return cp.newConnectionCh
 }
 
 func (cp *connectionPool) getConnectionCount() int {
@@ -37,32 +59,123 @@ func (cp *connectionPool) getConnectionCount() int {
 	return len(cp.connections)
 }
 
-func (cp *connectionPool) addConnection(conn *websocket.Conn) {
+func (cp *connectionPool) addConnection() error {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 
-	wsConn := &websocketConnection{
-		conn:          conn,
-		addressBucket: make(map[string]bool),
+	if cp.noMoreConnections {
+		return fmt.Errorf("no more connections available")
 	}
 
-	cp.connections = append(cp.connections, wsConn)
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 10 * time.Second,
+	}
+	conn, _, err := dialer.DialContext(cp.ctx, cp.wsURL, nil)
+	if err != nil {
+		cp.noMoreConnections = true
+		return err
+	}
+
+	connId := len(cp.connections)
+	wsConn := &websocketConnection{
+		id:      connId,
+		conn:    conn,
+		address: newAddressStore(),
+		mu:      &sync.RWMutex{},
+	}
+
+	cp.connections[connId] = wsConn
+	go func() { cp.newConnectionCh <- wsConn }()
+
+	return nil
+}
+
+func (cp *connectionPool) resetConnection(wsConn *websocketConnection) {
+	cp.mu.Lock()
+	// nolint
+	wsConn.conn.Close()
+	delete(cp.connections, wsConn.id)
+	delete(cp.connectionsByAddress, wsConn.address.get())
+	cp.noMoreConnections = false
+	cp.mu.Unlock()
+
+	cp.addConnection()
+}
+
+func (cp *connectionPool) pushAddress(address string) (*websocketConnection, bool) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+
+	if len(cp.connections) == 0 {
+		return nil, false
+	}
+
+	conns := slices.Collect(maps.Values(cp.connections))
+	idx := slices.IndexFunc(conns, func(c *websocketConnection) bool {
+		return c.address.get() == ""
+	})
+	// If connections are all taken for an address, reject the request
+	if idx < 0 {
+		return nil, false
+	}
+
+	connId := conns[idx].id
+	cp.connectionsByAddress[address] = connId
+	cp.connections[connId].address.set(address)
+	conn := cp.connections[connId]
+
+	return conn, true
+}
+
+func (cp *connectionPool) popAddress(address string) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+
+	connId, ok := cp.connectionsByAddress[address]
+	if !ok {
+		return
+	}
+	delete(cp.connectionsByAddress, address)
+	cp.connections[connId].address.remove(address)
 }
 
 func (cp *connectionPool) getConnectionForAddress(address string) (*websocketConnection, bool) {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
 
-	// Guard against empty connection pool
-	n := len(cp.connections)
-	if n == 0 {
+	connId, ok := cp.connectionsByAddress[address]
+	if !ok {
 		return nil, false
 	}
+	return cp.connections[connId], true
+}
 
-	// Use hash-based distribution to consistently assign addresses to connections
-	// Use actual number of live connections instead of maxConnections
-	hash := sha256.Sum256([]byte(address))
-	connectionIndex := int(hash[0]) % n
+type addressStore struct {
+	mu      *sync.RWMutex
+	address string
+}
 
-	return cp.connections[connectionIndex], true
+func newAddressStore() *addressStore {
+	return &addressStore{
+		mu: &sync.RWMutex{},
+	}
+}
+
+func (l *addressStore) set(address string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.address = address
+}
+
+func (l *addressStore) remove(_ string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.address = ""
+}
+
+func (l *addressStore) get() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.address
 }
