@@ -10,6 +10,6 @@ formatters:
     - goimports
     - golines
 
-formatters-settings:
+linters-settings:
   golines:
     max-len: 100
