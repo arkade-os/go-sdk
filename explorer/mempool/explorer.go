@@ -371,7 +371,10 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 	var numAddressesLeftToSubscribe int
 	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
 		if e.connPool.noMoreConnections {
-			return fmt.Errorf("can't subscribe for any more addresses (max=%d)", len(e.subscribedMap))
+			return fmt.Errorf(
+				"can't subscribe for any more addresses (max=%d)",
+				len(e.subscribedMap),
+			)
 		}
 
 		conns := make(map[int]*websocketConnection)
