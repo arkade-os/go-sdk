@@ -4,6 +4,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/go-sdk/explorer/scanner"
 	"github.com/arkade-os/go-sdk/types"
 )
 
@@ -72,49 +73,15 @@ type Explorer interface {
 	Stop()
 }
 
-type SpentStatus struct {
-	Spent   bool
-	SpentBy string
-}
-
-type Output struct {
-	Script  string
-	Address string
-	Amount  uint64
-}
-
-type Input struct {
-	Output
-	Txid string
-	Vout uint32
-}
-
-type Tx struct {
-	Txid   string
-	Vin    []Input
-	Vout   []Output
-	Status ConfirmedStatus
-}
-
-type ConfirmedStatus struct {
-	Confirmed bool
-	BlockTime int64
-}
-
-// Utxo represents an unspent transaction output from the blockchain explorer.
-type Utxo struct {
-	Txid   string
-	Vout   uint32
-	Amount uint64
-	Script string
-	Status ConfirmedStatus
-}
-
-// ToUtxo converts the explorer UTXO to the internal types.Utxo format
-// with the specified relative locktime delay and tapscripts.
-func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
-	return newUtxo(e, delay, tapscripts)
-}
+// Re-export scanner types for backward compatibility and public API
+type (
+	SpentStatus     = scanner.SpentStatus
+	Output          = scanner.Output
+	Input           = scanner.Input
+	Tx              = scanner.Tx
+	ConfirmedStatus = scanner.ConfirmedStatus
+	Utxo            = scanner.Utxo
+)
 
 func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
 	utxoTime := explorerUtxo.Status.BlockTime

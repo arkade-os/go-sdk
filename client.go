@@ -21,7 +21,6 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
-	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/redemption"
@@ -80,16 +79,16 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []mempool_explorer.Option{
-		mempool_explorer.WithTracker(cfgData.WithTransactionFeed),
+	explorerOpts := []explorer.ExplorerOption{
+		explorer.WithTracker(cfgData.WithTransactionFeed),
 	}
 	if cfgData.ExplorerTrackingPollInterval > 0 {
 		explorerOpts = append(
-			explorerOpts, mempool_explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval),
+			explorerOpts, explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval),
 		)
 	}
 
-	explorerSvc, err := mempool_explorer.NewExplorer(
+	explorerSvc, err := explorer.NewExplorer(
 		cfgData.ExplorerURL, cfgData.Network, explorerOpts...,
 	)
 	if err != nil {
@@ -147,16 +146,16 @@ func LoadArkClientWithWallet(
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []mempool_explorer.Option{
-		mempool_explorer.WithTracker(cfgData.WithTransactionFeed),
+	explorerOpts := []explorer.ExplorerOption{
+		explorer.WithTracker(cfgData.WithTransactionFeed),
 	}
 	if cfgData.ExplorerTrackingPollInterval > 0 {
 		explorerOpts = append(
-			explorerOpts, mempool_explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval),
+			explorerOpts, explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval),
 		)
 	}
 
-	explorerSvc, err := mempool_explorer.NewExplorer(
+	explorerSvc, err := explorer.NewExplorer(
 		cfgData.ExplorerURL, cfgData.Network, explorerOpts...,
 	)
 	if err != nil {
