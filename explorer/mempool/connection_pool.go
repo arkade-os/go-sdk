@@ -100,6 +100,7 @@ func (cp *connectionPool) resetConnection(wsConn *websocketConnection) {
 	cp.noMoreConnections = false
 	cp.mu.Unlock()
 
+	// nolint
 	cp.addConnection()
 }
 

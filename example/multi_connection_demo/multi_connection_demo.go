@@ -41,7 +41,9 @@ func main() {
 	fmt.Println("============================================================")
 
 	// Create explorer with configurable parameters
-	svc, err := mempool_explorer.NewExplorer(*explorerURL, arklib.Bitcoin, mempool_explorer.WithTracker(true))
+	svc, err := mempool_explorer.NewExplorer(
+		*explorerURL, arklib.Bitcoin, mempool_explorer.WithTracker(true),
+	)
 	if err != nil {
 		log.Fatal("❌ Failed to create explorer:", err)
 	}
@@ -93,7 +95,10 @@ func main() {
 	// Verify actual subscription count from service
 	subscribedAddresses := svc.GetSubscribedAddresses()
 
-	fmt.Printf("✅ Successfully subscribed to %d addresses in %v\n", len(subscribedAddresses), duration)
+	fmt.Printf(
+		"✅ Successfully subscribed to %d addresses in %v\n",
+		len(subscribedAddresses), duration,
+	)
 	fmt.Printf("📊 Verified: %d addresses actively subscribed in service\n", len(addresses))
 	if activeConns > 0 {
 		fmt.Printf("📡 Distributed across %d WebSocket connection(s)\n", activeConns)

@@ -405,6 +405,7 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			conns[wsConn.id] = wsConn
 			// Make sure a new connection is create for next addresses
 			time.Sleep(time.Millisecond)
+			// nolint
 			e.connPool.addConnection()
 			time.Sleep(time.Millisecond)
 		}
@@ -461,7 +462,7 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 		// Resubscribe to each connection with its addresses
 		for connId := range subsToUpdate {
 			wsConn := conns[connId]
-			payload := map[string][]string{"track-addresses": []string{}}
+			payload := map[string][]string{"track-addresses": {}}
 			wsConn.mu.Lock()
 			// nolint
 			wsConn.conn.WriteJSON(payload)
@@ -637,7 +638,8 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context) {
 						"explorer: failed to set read deadline",
 					)
 					go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
-						"connection for address %s dropped, please resubscribe: %w", wsConn.address.get(), err,
+						"connection for address %s dropped, please resubscribe: %w",
+						wsConn.address.get(), err,
 					)})
 					go e.connPool.resetConnection(wsConn)
 					return
