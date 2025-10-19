@@ -7,6 +7,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	walletclient "github.com/arkade-os/arkd/pkg/wallet"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/indexer"
@@ -52,7 +53,7 @@ type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
 	store    types.Store
-	explorer explorer.Explorer
+	explorer walletclient.Explorer
 	client   client.TransportClient
 	indexer  indexer.Indexer
 

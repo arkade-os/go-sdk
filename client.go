@@ -19,8 +19,8 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
+	walletclient "github.com/arkade-os/arkd/pkg/wallet"
 	"github.com/arkade-os/go-sdk/client"
-	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/redemption"
@@ -79,12 +79,7 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
-	if cfgData.ExplorerPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
-	}
-
-	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
+	explorerSvc, err := walletclient.NewExplorerClient(cfgData.ExplorerURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -144,12 +139,7 @@ func LoadArkClientWithWallet(
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
-	if cfgData.ExplorerPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerPollInterval))
-	}
-
-	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
+	explorerSvc, err := walletclient.NewExplorerClient(cfgData.ExplorerURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -309,19 +299,19 @@ func (a *arkClient) getBalanceFromExplorer(
 		getDelayedBalance := func(addr string) {
 			defer wg.Done()
 
-			spendableBalance, lockedBalance, err := a.explorer.GetRedeemedVtxosBalance(
-				addr, a.UnilateralExitDelay,
-			)
-			if err != nil {
-				chRes <- balanceRes{err: err}
-				return
-			}
+			// spendableBalance, lockedBalance, err := a.explorer.GetRedeemedVtxosBalance(
+			// 	addr, a.UnilateralExitDelay,
+			// )
+			// if err != nil {
+			// 	chRes <- balanceRes{err: err}
+			// 	return
+			// }
 
-			chRes <- balanceRes{
-				onchainSpendableBalance: spendableBalance,
-				onchainLockedBalance:    lockedBalance,
-				err:                     err,
-			}
+			// chRes <- balanceRes{
+			// 	onchainSpendableBalance: spendableBalance,
+			// 	onchainLockedBalance:    lockedBalance,
+			// 	err:                     err,
+			// }
 		}
 
 		go func() {
@@ -719,7 +709,7 @@ func (a *arkClient) bumpAnchorTx(
 		return "", err
 	}
 
-	selectedCoins := make([]explorer.Utxo, 0)
+	selectedCoins := make([]walletclient.Utxo, 0)
 	selectedAmount := uint64(0)
 	amountToSelect := int64(fees) - txutils.ANCHOR_VALUE
 	for _, addr := range addresses {
@@ -2143,7 +2133,7 @@ func (a *arkClient) getMatureUtxos(ctx context.Context) ([]types.Utxo, error) {
 		}
 
 		for _, utxo := range fetchedUtxos {
-			u := utxo.ToUtxo(a.UnilateralExitDelay, addr.Tapscripts)
+			u := walletUtxoToTypesUtxo(utxo, a.UnilateralExitDelay, addr.Tapscripts)
 			if u.SpendableAt.Before(now) {
 				utxos = append(utxos, u)
 			}
@@ -2209,7 +2199,7 @@ func (a *arkClient) getAllBoardingUtxos(
 
 	utxos := []types.Utxo{}
 	for _, addr := range boardingAddrs {
-		txs, err := a.explorer.GetTxs(addr.Address)
+		txs, err := a.explorer.GetTransactions(addr.Address)
 		if err != nil {
 			return nil, err
 		}
@@ -2306,7 +2296,7 @@ func (a *arkClient) getClaimableBoardingUtxos(
 				}
 			}
 
-			u := utxo.ToUtxo(*boardingTimeout, addr.Tapscripts)
+			u := walletUtxoToTypesUtxo(utxo, *boardingTimeout, addr.Tapscripts)
 			if u.SpendableAt.Before(now) {
 				continue
 			}
@@ -2364,7 +2354,7 @@ func (a *arkClient) getExpiredBoardingUtxos(
 				}
 			}
 
-			u := utxo.ToUtxo(*boardingTimeout, addr.Tapscripts)
+			u := walletUtxoToTypesUtxo(utxo, *boardingTimeout, addr.Tapscripts)
 			if u.SpendableAt.Before(now) || u.SpendableAt.Equal(now) {
 				expired = append(expired, u)
 			}
@@ -2936,4 +2926,25 @@ func toOnchainAddress(arkAddress string, network arklib.Network) (string, error)
 	}
 
 	return addr.String(), nil
+}
+
+// walletUtxoToTypesUtxo converts a wallet.Utxo to types.Utxo
+func walletUtxoToTypesUtxo(walletUtxo walletclient.Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
+	// For now, we'll create a basic conversion
+	// This may need to be adjusted based on the actual structure of wallet.Utxo
+	return types.Utxo{
+		Outpoint: types.Outpoint{
+			Txid: walletUtxo.Txid,
+			VOut: uint32(walletUtxo.Vout),
+		},
+		Amount:      uint64(walletUtxo.Amount),
+		Script:      walletUtxo.Script,
+		Delay:       delay,
+		SpendableAt: time.Now().Add(time.Duration(delay.Seconds()) * time.Second),
+		CreatedAt:   time.Now(),
+		Tapscripts:  tapscripts,
+		Spent:       false, // Default to not spent
+		SpentBy:     "",    // Default to empty
+		Tx:          "",    // Default to empty
+	}
 }

@@ -7,12 +7,13 @@
 package arkv1
 
 import (
-	_ "github.com/meshapi/grpc-api-gateway/api"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	_ "github.com/meshapi/grpc-api-gateway/api"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -1014,7 +1015,7 @@ func (*GetVirtualTxsResponse) Descriptor() ([]byte, []int) {
 	return file_ark_v1_indexer_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *GetVirtualTxsResponse) GetTxs() []string {
+func (x *GetVirtualTxsResponse) GetTransactions() []string {
 	if x != nil {
 		return x.Txs
 	}

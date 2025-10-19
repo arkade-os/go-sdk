@@ -19,8 +19,8 @@ var _ MappedNullable = &GetVirtualTxsResponse{}
 
 // GetVirtualTxsResponse struct for GetVirtualTxsResponse
 type GetVirtualTxsResponse struct {
-		Page *IndexerPageResponse `json:"page,omitempty"`
-		Txs []string `json:"txs,omitempty"`
+	Page *IndexerPageResponse `json:"page,omitempty"`
+	Txs  []string             `json:"txs,omitempty"`
 }
 
 // NewGetVirtualTxsResponse instantiates a new GetVirtualTxsResponse object
@@ -72,8 +72,8 @@ func (o *GetVirtualTxsResponse) SetPage(v IndexerPageResponse) {
 	o.Page = &v
 }
 
-// GetTxs returns the Txs field value if set, zero value otherwise.
-func (o *GetVirtualTxsResponse) GetTxs() []string {
+// GetTransactions returns the Txs field value if set, zero value otherwise.
+func (o *GetVirtualTxsResponse) GetTransactions() []string {
 	if o == nil || IsNil(o.Txs) {
 		var ret []string
 		return ret
@@ -81,9 +81,9 @@ func (o *GetVirtualTxsResponse) GetTxs() []string {
 	return o.Txs
 }
 
-// GetTxsOk returns a tuple with the Txs field value if set, nil otherwise
+// GetTransactionsOk returns a tuple with the Txs field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetVirtualTxsResponse) GetTxsOk() ([]string, bool) {
+func (o *GetVirtualTxsResponse) GetTransactionsOk() ([]string, bool) {
 	if o == nil || IsNil(o.Txs) {
 		return nil, false
 	}
@@ -105,7 +105,7 @@ func (o *GetVirtualTxsResponse) SetTxs(v []string) {
 }
 
 func (o GetVirtualTxsResponse) MarshalJSON() ([]byte, error) {
-	toSerialize,err := o.ToMap()
+	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -158,5 +158,3 @@ func (v *NullableGetVirtualTxsResponse) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
-
-

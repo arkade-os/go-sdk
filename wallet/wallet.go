@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	"github.com/arkade-os/go-sdk/explorer"
+	walletclient "github.com/arkade-os/arkd/pkg/wallet"
 )
 
 const (
@@ -34,7 +34,7 @@ type WalletService interface {
 		offchainAddresses, boardingAddresses []TapscriptsAddress, err error,
 	)
 	SignTransaction(
-		ctx context.Context, explorerSvc explorer.Explorer, tx string,
+		ctx context.Context, explorerSvc walletclient.Explorer, tx string,
 	) (signedTx string, err error)
 	SignMessage(ctx context.Context, message []byte) (signature string, err error)
 	Dump(ctx context.Context) (seed string, err error)

@@ -439,7 +439,7 @@ func (a *grpcClient) GetVirtualTxs(
 	}
 
 	return &indexer.VirtualTxsResponse{
-		Txs:  resp.GetTxs(),
+		Txs:  resp.GetTransactions(),
 		Page: parsePage(resp.GetPage()),
 	}, nil
 }

@@ -4,10 +4,17 @@ go 1.24.6
 
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
+replace github.com/arkade-os/arkd => ../ark/pkg/ark-lib
+
+replace github.com/arkade-os/arkd/pkg/wallet => ../ark/pkg/wallet
+
+replace github.com/arkade-os/arkd/api-spec => ../ark/api-spec
+
 require (
-	github.com/arkade-os/arkd/pkg/ark-lib v0.7.2-0.20251010142325-5b2f22ddea80
+	github.com/arkade-os/arkd/pkg/ark-lib v0.7.2-0.20251019004323-b4a2b0c2511e
+	github.com/arkade-os/arkd/pkg/wallet v0.7.2-0.20251019004323-b4a2b0c2511e
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.9
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
@@ -22,8 +29,8 @@ require (
 	github.com/timshannon/badgerhold/v4 v4.0.3
 	github.com/vulpemventures/go-bip32 v0.0.0-20200624192635-867c159da4d7
 	golang.org/x/crypto v0.42.0
-	google.golang.org/grpc v1.71.0
-	google.golang.org/protobuf v1.36.6
+	google.golang.org/grpc v1.76.0
+	google.golang.org/protobuf v1.36.8
 	modernc.org/sqlite v1.33.1
 	resty.dev/v3 v3.0.0-beta.3
 )
@@ -33,6 +40,7 @@ require (
 	github.com/FactomProject/basen v0.0.0-20150613233007-fe3947df716e // indirect
 	github.com/FactomProject/btcutilecc v0.0.0-20130527213604-d3a63a5752ec // indirect
 	github.com/aead/siphash v1.0.1 // indirect
+	github.com/arkade-os/arkd/api-spec v0.0.0-00010101000000-000000000000 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.1 // indirect
@@ -72,6 +80,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/jonboulle/clockwork v0.4.0 // indirect
+	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
@@ -125,9 +134,9 @@ require (
 	golang.org/x/term v0.35.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
-	google.golang.org/genproto v0.0.0-20240812133136-8ffd90a71988 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250603155806-513f23925822 // indirect
+	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250818200422-3122310a409c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect

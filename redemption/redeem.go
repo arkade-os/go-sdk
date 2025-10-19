@@ -10,7 +10,7 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
-	"github.com/arkade-os/go-sdk/explorer"
+	walletclient "github.com/arkade-os/arkd/pkg/wallet"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -19,13 +19,13 @@ import (
 type CovenantlessRedeemBranch struct {
 	vtxo     types.Vtxo
 	branch   []indexer.ChainWithExpiry
-	explorer explorer.Explorer
+	explorer walletclient.Explorer
 	indexer  indexer.Indexer
 }
 
 func NewRedeemBranch(
 	ctx context.Context,
-	explorer explorer.Explorer,
+	explorer walletclient.Explorer,
 	indexerSvc indexer.Indexer,
 	vtxo types.Vtxo,
 ) (*CovenantlessRedeemBranch, error) {

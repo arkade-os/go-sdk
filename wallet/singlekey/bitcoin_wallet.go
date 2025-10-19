@@ -10,7 +10,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	"github.com/arkade-os/go-sdk/explorer"
+	walletclient "github.com/arkade-os/arkd/pkg/wallet"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
@@ -162,7 +162,7 @@ func (w *bitcoinWallet) NewAddresses(
 }
 
 func (s *bitcoinWallet) SignTransaction(
-	ctx context.Context, explorerSvc explorer.Explorer, tx string,
+	ctx context.Context, explorerSvc walletclient.Explorer, tx string,
 ) (string, error) {
 	ptx, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
 	if err != nil {
