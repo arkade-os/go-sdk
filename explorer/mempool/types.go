@@ -1,9 +1,6 @@
-package explorer
+package mempool_explorer
 
-import (
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/go-sdk/types"
-)
+import "github.com/arkade-os/go-sdk/explorer"
 
 type spentStatus struct {
 	Spent   bool   `json:"spent"`
@@ -16,6 +13,7 @@ type tx struct {
 		Txid    string `json:"txid"`
 		Vout    uint32 `json:"vout"`
 		Prevout struct {
+			Script  string `json:"scriptpubkey"`
 			Address string `json:"scriptpubkey_address"`
 			Amount  uint64 `json:"value"`
 		} `json:"prevout"`
@@ -31,27 +29,47 @@ type tx struct {
 	} `json:"status"`
 }
 
-// Utxo represents an unspent transaction output from the blockchain explorer.
-type Utxo struct {
-	Txid   string `json:"txid"`
-	Vout   uint32 `json:"vout"`
-	Amount uint64 `json:"value"`
-	Asset  string `json:"asset,omitempty"`
-	Status struct {
-		Confirmed bool  `json:"confirmed"`
-		BlockTime int64 `json:"block_time"`
-	} `json:"status"`
-	Script string
-}
+type txs []tx
 
-// ToUtxo converts the explorer UTXO to the internal types.Utxo format
-// with the specified relative locktime delay and tapscripts.
-func (e Utxo) ToUtxo(delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
-	return newUtxo(e, delay, tapscripts)
+func (t txs) toList() []explorer.Tx {
+	txs := make([]explorer.Tx, 0)
+	for _, tx := range t {
+		ins := make([]explorer.Input, 0, len(tx.Vin))
+		for _, in := range tx.Vin {
+			ins = append(ins, explorer.Input{
+				Txid: in.Txid,
+				Vout: in.Vout,
+				Output: explorer.Output{
+					Script:  in.Prevout.Script,
+					Address: in.Prevout.Address,
+					Amount:  in.Prevout.Amount,
+				},
+			})
+		}
+		outs := make([]explorer.Output, 0, len(tx.Vout))
+		for _, out := range tx.Vout {
+			outs = append(outs, explorer.Output{
+				Script:  out.Script,
+				Address: out.Address,
+				Amount:  out.Amount,
+			})
+		}
+		txs = append(txs, explorer.Tx{
+			Txid: tx.Txid,
+			Vin:  ins,
+			Vout: outs,
+			Status: explorer.ConfirmedStatus{
+				Confirmed: tx.Status.Confirmed,
+				BlockTime: tx.Status.Blocktime,
+			},
+		})
+	}
+	return txs
 }
 
 type addressNotification struct {
 	MultiAddrTx map[string]txNotificationSet `json:"multi-address-transactions"`
+	Error       string                       `json:"track-addresses-error"`
 }
 
 type txNotificationSet struct {

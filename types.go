@@ -70,6 +70,8 @@ type InitWithWalletArgs struct {
 	Password             string
 	ExplorerURL          string
 	ExplorerPollInterval time.Duration
+	ExplorerBatchSize    uint32
+	ExplorerBatchDelay   time.Duration
 	WithTransactionFeed  bool
 }
 
