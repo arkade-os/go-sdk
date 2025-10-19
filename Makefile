@@ -4,7 +4,7 @@ ark_client_dir = $(or $(REST_DIR),client/rest/service)
 indexer_client_dir = $(or $(REST_DIR),indexer/rest/service)
 
 GOLANGCI_LINT ?= $(shell \
-	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:latest golangci-lint"; \
+	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.5.0 golangci-lint"; \
 )
 
 SWAGGER = $(shell \
@@ -45,7 +45,7 @@ vet:
 ## lint: lint codebase
 lint:
 	@echo "Linting code..."
-	@$(GOLANGCI_LINT) run --fix
+	@$(GOLANGCI_LINT) run --timeout 5m
 
 ## migrate: creates sqlite migration file(eg. make FILE=init migrate)
 migrate:

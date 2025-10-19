@@ -9,6 +9,7 @@ formatters:
     - gofmt
     - goimports
     - golines
-  settings:
-    golines:
-      max-len: 100
+
+formatters-settings:
+  golines:
+    max-len: 100
