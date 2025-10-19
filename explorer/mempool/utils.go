@@ -1,4 +1,4 @@
-package explorer
+package mempool_explorer
 
 import (
 	"bytes"
@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 )
@@ -41,27 +38,6 @@ func parseBitcoinTx(txStr string) (string, string, error) {
 	txid := tx.TxHash().String()
 
 	return txhex, txid, nil
-}
-
-func newUtxo(explorerUtxo Utxo, delay arklib.RelativeLocktime, tapscripts []string) types.Utxo {
-	utxoTime := explorerUtxo.Status.BlockTime
-	createdAt := time.Unix(utxoTime, 0)
-	if utxoTime == 0 {
-		createdAt = time.Time{}
-		utxoTime = time.Now().Unix()
-	}
-
-	return types.Utxo{
-		Outpoint: types.Outpoint{
-			Txid: explorerUtxo.Txid,
-			VOut: explorerUtxo.Vout,
-		},
-		Amount:      explorerUtxo.Amount,
-		Delay:       delay,
-		SpendableAt: time.Unix(utxoTime, 0).Add(time.Duration(delay.Seconds()) * time.Second),
-		CreatedAt:   createdAt,
-		Tapscripts:  tapscripts,
-	}
 }
 
 func deriveWsURL(baseUrl string) (string, error) {

@@ -1,4 +1,4 @@
-package explorer
+package mempool_explorer
 
 import (
 	"context"

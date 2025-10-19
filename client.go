@@ -21,6 +21,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
+	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/redemption"
@@ -79,12 +80,18 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
+	explorerOpts := []mempool_explorer.Option{
+		mempool_explorer.WithTracker(cfgData.WithTransactionFeed),
+	}
 	if cfgData.ExplorerTrackingPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval))
+		explorerOpts = append(
+			explorerOpts, mempool_explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval),
+		)
 	}
 
-	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
+	explorerSvc, err := mempool_explorer.NewExplorer(
+		cfgData.ExplorerURL, cfgData.Network, explorerOpts...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -140,12 +147,18 @@ func LoadArkClientWithWallet(
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{explorer.WithTracker(cfgData.WithTransactionFeed)}
+	explorerOpts := []mempool_explorer.Option{
+		mempool_explorer.WithTracker(cfgData.WithTransactionFeed),
+	}
 	if cfgData.ExplorerTrackingPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval))
+		explorerOpts = append(
+			explorerOpts, mempool_explorer.WithPollInterval(cfgData.ExplorerTrackingPollInterval),
+		)
 	}
 
-	explorerSvc, err := explorer.NewExplorer(cfgData.ExplorerURL, cfgData.Network, explorerOpts...)
+	explorerSvc, err := mempool_explorer.NewExplorer(
+		cfgData.ExplorerURL, cfgData.Network, explorerOpts...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -2235,8 +2248,8 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]types.Utxo, erro
 					createdAt := time.Time{}
 					utxoTime := time.Now()
 					if tx.Status.Confirmed {
-						createdAt = time.Unix(tx.Status.Blocktime, 0)
-						utxoTime = time.Unix(tx.Status.Blocktime, 0)
+						createdAt = time.Unix(tx.Status.BlockTime, 0)
+						utxoTime = time.Unix(tx.Status.BlockTime, 0)
 					}
 
 					txHex, err := a.explorer.GetTxHex(tx.Txid)

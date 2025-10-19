@@ -12,7 +12,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/go-sdk/explorer"
+	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -41,7 +41,7 @@ func main() {
 	fmt.Println("============================================================")
 
 	// Create explorer with configurable parameters
-	svc, err := explorer.NewExplorer(*explorerURL, arklib.Bitcoin, explorer.WithTracker(true))
+	svc, err := mempool_explorer.NewExplorer(*explorerURL, arklib.Bitcoin, mempool_explorer.WithTracker(true))
 	if err != nil {
 		log.Fatal("❌ Failed to create explorer:", err)
 	}

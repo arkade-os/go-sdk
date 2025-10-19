@@ -10,6 +10,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
+	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
 	"github.com/arkade-os/go-sdk/indexer"
 	grpcindexer "github.com/arkade-os/go-sdk/indexer/grpc"
 	restindexer "github.com/arkade-os/go-sdk/indexer/rest"
@@ -33,7 +34,7 @@ const (
 	FileStore     = types.FileStore
 	InMemoryStore = types.InMemoryStore
 	// explorer
-	BitcoinExplorer = explorer.BitcoinExplorer
+	BitcoinExplorer = mempool_explorer.BitcoinExplorer
 )
 
 var (
@@ -387,12 +388,16 @@ func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs)
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
+	explorerOpts := []mempool_explorer.Option{
+		mempool_explorer.WithTracker(args.WithTransactionFeed),
+	}
 	if args.ExplorerPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+		explorerOpts = append(
+			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
+		)
 	}
 
-	explorerSvc, err := explorer.NewExplorer(
+	explorerSvc, err := mempool_explorer.NewExplorer(
 		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
 	)
 	if err != nil {
@@ -488,12 +493,16 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerOpts := []explorer.Option{explorer.WithTracker(args.WithTransactionFeed)}
+	explorerOpts := []mempool_explorer.Option{
+		mempool_explorer.WithTracker(args.WithTransactionFeed),
+	}
 	if args.ExplorerPollInterval > 0 {
-		explorerOpts = append(explorerOpts, explorer.WithPollInterval(args.ExplorerPollInterval))
+		explorerOpts = append(
+			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
+		)
 	}
 
-	explorerSvc, err := explorer.NewExplorer(
+	explorerSvc, err := mempool_explorer.NewExplorer(
 		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
 	)
 	if err != nil {

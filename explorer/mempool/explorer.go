@@ -33,7 +33,7 @@
 // # Thread Safety
 //
 // All public methods are thread-safe and can be called concurrently.
-package explorer
+package mempool_explorer
 
 import (
 	"bytes"
@@ -54,6 +54,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/go-sdk/explorer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil"
@@ -79,75 +80,10 @@ var (
 	}
 )
 
-// Explorer provides methods to interact with blockchain explorers (e.g., mempool.space, esplora).
-// It supports both HTTP REST API calls and WebSocket connections for real-time address tracking.
-// The implementation uses a connection pool architecture with multiple concurrent WebSocket connections
-// to handle high-volume address subscriptions without overwhelming individual connections.
-type Explorer interface {
-	// Start must be used when using the explorer with tracking enabled.
-	Start()
-
-	// GetTxHex retrieves the raw transaction hex for a given transaction ID.
-	GetTxHex(txid string) (string, error)
-
-	// Broadcast broadcasts one or more raw transactions to the network.
-	// Returns the transaction ID of the first transaction on success.
-	Broadcast(txs ...string) (string, error)
-
-	// GetTxs retrieves all transactions associated with a given address.
-	GetTxs(addr string) ([]tx, error)
-
-	// GetTxOutspends returns the spent status of all outputs for a given transaction.
-	GetTxOutspends(tx string) ([]spentStatus, error)
-
-	// GetUtxos retrieves all unspent transaction outputs (UTXOs) for a given address.
-	GetUtxos(addr string) ([]Utxo, error)
-
-	// GetRedeemedVtxosBalance calculates the redeemed virtual UTXO balance for an address
-	// considering the unilateral exit delay.
-	GetRedeemedVtxosBalance(
-		addr string, unilateralExitDelay arklib.RelativeLocktime,
-	) (uint64, map[int64]uint64, error)
-
-	// GetTxBlockTime returns whether a transaction is confirmed and its block time.
-	GetTxBlockTime(txid string) (confirmed bool, blocktime int64, err error)
-
-	// BaseUrl returns the base URL of the explorer service.
-	BaseUrl() string
-
-	// GetFeeRate retrieves the current recommended fee rate in sat/vB.
-	GetFeeRate() (float64, error)
-
-	// GetConnectionCount returns the number of active WebSocket connections.
-	GetConnectionCount() int
-
-	// GetSubscribedAddresses returns a list of all currently subscribed addresses.
-	GetSubscribedAddresses() []string
-
-	// IsAddressSubscribed checks if a specific address is currently subscribed.
-	IsAddressSubscribed(address string) bool
-
-	// GetAddressesEvents returns a channel that receives onchain address events
-	// (new UTXOs, spent UTXOs, confirmed UTXOs) for all subscribed addresses.
-	GetAddressesEvents() <-chan types.OnchainAddressEvent
-
-	// SubscribeForAddresses subscribes to address updates via WebSocket connections.
-	// Addresses are automatically distributed across multiple connections using hash-based routing.
-	// Subscriptions are batched to prevent overwhelming individual connections.
-	// Duplicate subscriptions are automatically prevented via instance-scoped deduplication.
-	SubscribeForAddresses(addresses []string) error
-
-	// UnsubscribeForAddresses removes address subscriptions and updates the WebSocket connections.
-	UnsubscribeForAddresses(addresses []string) error
-
-	// Stop gracefully shuts down the explorer, closing all WebSocket connections and channels.
-	Stop()
-}
-
 // addressData stores cached UTXO data for an address to detect changes during polling.
 type addressData struct {
 	hash  []byte
-	utxos []Utxo
+	utxos []explorer.Utxo
 }
 
 type explorerSvc struct {
@@ -173,7 +109,7 @@ type explorerSvc struct {
 // Example:
 //
 // svc, err := explorer.NewExplorer("https://mempool.space/api", arklib.Bitcoin, explorer.WithTracker(true))
-func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (Explorer, error) {
+func NewExplorer(baseUrl string, net arklib.Network, opts ...Option) (explorer.Explorer, error) {
 	if len(baseUrl) == 0 {
 		baseUrl, ok := defaultExplorerUrls[net.Name]
 		if !ok {
@@ -395,7 +331,7 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 	return e.broadcastPackage(txs...)
 }
 
-func (e *explorerSvc) GetTxs(addr string) ([]tx, error) {
+func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 	resp, err := http.Get(fmt.Sprintf("%s/address/%s/txs", e.baseUrl, addr))
 	if err != nil {
 		return nil, err
@@ -409,12 +345,12 @@ func (e *explorerSvc) GetTxs(addr string) ([]tx, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get txs: %s", string(body))
 	}
-	payload := []tx{}
+	payload := txs{}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
 
-	return payload, nil
+	return payload.toList(), nil
 }
 
 func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
@@ -540,7 +476,7 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 	return nil
 }
 
-func (e *explorerSvc) GetTxOutspends(txid string) ([]spentStatus, error) {
+func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error) {
 	resp, err := http.Get(fmt.Sprintf("%s/tx/%s/outspends", e.baseUrl, txid))
 	if err != nil {
 		return nil, err
@@ -556,14 +492,21 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]spentStatus, error) {
 		return nil, fmt.Errorf("failed to get txs: %s", string(body))
 	}
 
-	spentStatuses := make([]spentStatus, 0)
-	if err := json.Unmarshal(body, &spentStatuses); err != nil {
+	res := make([]spentStatus, 0)
+	if err := json.Unmarshal(body, &res); err != nil {
 		return nil, err
+	}
+	spentStatuses := make([]explorer.SpentStatus, 0, len(res))
+	for _, s := range res {
+		spentStatuses = append(spentStatuses, explorer.SpentStatus{
+			Spent:   s.Spent,
+			SpentBy: s.SpentBy,
+		})
 	}
 	return spentStatuses, nil
 }
 
-func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
+func (e *explorerSvc) GetUtxos(addr string) ([]explorer.Utxo, error) {
 	decoded, err := btcutil.DecodeAddress(addr, nil)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %s", err)
@@ -588,7 +531,7 @@ func (e *explorerSvc) GetUtxos(addr string) ([]Utxo, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get utxos: %s", string(body))
 	}
-	utxos := []Utxo{}
+	utxos := []explorer.Utxo{}
 	if err := json.Unmarshal(body, &utxos); err != nil {
 		return nil, err
 	}
@@ -773,7 +716,7 @@ func (e *explorerSvc) trackWithPolling(ctx context.Context) {
 			for addr, data := range e.subscribedMap {
 				hashCopy := make([]byte, len(data.hash))
 				copy(hashCopy, data.hash)
-				utxosCopy := make([]Utxo, len(data.utxos))
+				utxosCopy := make([]explorer.Utxo, len(data.utxos))
 				copy(utxosCopy, data.utxos)
 
 				subscribedMap[addr] = addressData{
@@ -900,9 +843,11 @@ func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addres
 	})
 }
 
-func (e *explorerSvc) sendAddressEventFromPolling(ctx context.Context, oldUtxos, newUtxos []Utxo) {
-	indexedOldUtxos := make(map[string]Utxo, 0)
-	indexedNewUtxos := make(map[string]Utxo, 0)
+func (e *explorerSvc) sendAddressEventFromPolling(
+	ctx context.Context, oldUtxos, newUtxos []explorer.Utxo,
+) {
+	indexedOldUtxos := make(map[string]explorer.Utxo, 0)
+	indexedNewUtxos := make(map[string]explorer.Utxo, 0)
 	for _, oldUtxo := range oldUtxos {
 		indexedOldUtxos[fmt.Sprintf("%s:%d", oldUtxo.Txid, oldUtxo.Vout)] = oldUtxo
 	}
