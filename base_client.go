@@ -58,13 +58,13 @@ type arkClient struct {
 	client   client.TransportClient
 	indexer  indexer.Indexer
 
-	restoreLock    *sync.Mutex
-	restoreCh      chan error
-	restoreDone    bool
-	restoreErr     error
-	readyListeners *readyListeners
-	stopRestore    context.CancelFunc
-	stopWatch      context.CancelFunc
+	syncMu        *sync.Mutex
+	syncCh        chan error
+	syncDone      bool
+	syncErr       error
+	syncListeners *syncListeners
+	stopRestore   context.CancelFunc
+	stopWatch     context.CancelFunc
 
 	verbose bool
 }
@@ -96,13 +96,13 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 	}
 
 	if cfgData.WithTransactionFeed {
-		a.restoreDone = false
-		a.restoreErr = nil
-		a.restoreCh = make(chan error)
-		a.restoreLock = &sync.Mutex{}
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncCh = make(chan error)
+		a.syncMu = &sync.Mutex{}
 
 		go func() {
-			err := <-a.restoreCh
+			err := <-a.syncCh
 			a.setRestored(err)
 		}()
 
@@ -113,8 +113,8 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			a.stopRestore = cancel
 
 			err := a.refreshDb(ctx)
-			a.restoreCh <- err
-			close(a.restoreCh)
+			a.syncCh <- err
+			close(a.syncCh)
 
 			ctx, cancel = context.WithCancel(context.Background())
 			a.stopWatch = cancel
@@ -135,17 +135,17 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	}
 	go func() {
 		a.explorer.Stop()
-		a.restoreDone = false
-		a.restoreErr = nil
+		a.syncDone = false
+		a.syncErr = nil
 		if a.stopRestore != nil {
 			a.stopRestore()
 		}
 		if a.stopWatch != nil {
 			a.stopWatch()
 		}
-		if a.readyListeners != nil {
-			a.readyListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
-			a.readyListeners.clear()
+		if a.syncListeners != nil {
+			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
+			a.syncListeners.clear()
 		}
 	}()
 	return nil
@@ -258,17 +258,17 @@ func (a *arkClient) Reset(ctx context.Context) {
 	a.indexer.Close()
 	a.explorer.Stop()
 
-	a.restoreDone = false
-	a.restoreErr = nil
+	a.syncDone = false
+	a.syncErr = nil
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
 	if a.stopRestore != nil {
 		a.stopRestore()
 	}
-	if a.readyListeners != nil {
-		a.readyListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
-		a.readyListeners.clear()
+	if a.syncListeners != nil {
+		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
+		a.syncListeners.clear()
 	}
 	if a.store != nil {
 		a.store.Clean(ctx)
@@ -280,17 +280,17 @@ func (a *arkClient) Stop() {
 	a.indexer.Close()
 	a.explorer.Stop()
 
-	a.restoreDone = false
-	a.restoreErr = nil
+	a.syncDone = false
+	a.syncErr = nil
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
 	if a.stopRestore != nil {
 		a.stopRestore()
 	}
-	if a.readyListeners != nil {
-		a.readyListeners.broadcast(fmt.Errorf("service stopped while restoring"))
-		a.readyListeners.clear()
+	if a.syncListeners != nil {
+		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
+		a.syncListeners.clear()
 	}
 
 	a.store.Close()
@@ -345,28 +345,28 @@ func (a *arkClient) NotifyIncomingFunds(ctx context.Context, addr string) ([]typ
 	return event.NewVtxos, nil
 }
 
-func (a *arkClient) IsReady(ctx context.Context) <-chan types.ReadyEvent {
+func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 	if !a.WithTransactionFeed {
 		return nil
 	}
 
-	if a.restoreDone {
-		ch := make(chan types.ReadyEvent, 1)
+	if a.syncDone {
+		ch := make(chan types.SyncEvent, 1)
 		go func() {
-			ch <- types.ReadyEvent{
-				Ready: a.restoreErr == nil,
-				Err:   a.restoreErr,
+			ch <- types.SyncEvent{
+				Synced: a.syncErr == nil,
+				Err:    a.syncErr,
 			}
 		}()
 		return ch
 	}
 
-	ch := make(chan types.ReadyEvent, 1)
+	ch := make(chan types.SyncEvent, 1)
 	go func() {
-		if a.readyListeners == nil {
-			a.readyListeners = newReadyListeners()
+		if a.syncListeners == nil {
+			a.syncListeners = newReadyListeners()
 		}
-		a.readyListeners.add(ch)
+		a.syncListeners.add(ch)
 	}()
 	return ch
 }
@@ -637,9 +637,9 @@ func (a *arkClient) safeCheck() error {
 	if a.wallet.IsLocked() {
 		return fmt.Errorf("wallet is locked")
 	}
-	if a.WithTransactionFeed && !a.restoreDone {
-		if a.restoreErr != nil {
-			return fmt.Errorf("failed to restore wallet: %s", a.restoreErr)
+	if a.WithTransactionFeed && !a.syncDone {
+		if a.syncErr != nil {
+			return fmt.Errorf("failed to restore wallet: %s", a.syncErr)
 		}
 		return fmt.Errorf("wallet is still syncing")
 	}
@@ -647,14 +647,14 @@ func (a *arkClient) safeCheck() error {
 }
 
 func (a *arkClient) setRestored(err error) {
-	a.restoreLock.Lock()
-	defer a.restoreLock.Unlock()
+	a.syncMu.Lock()
+	defer a.syncMu.Unlock()
 
-	a.restoreDone = true
-	a.restoreErr = err
+	a.syncDone = true
+	a.syncErr = err
 
-	a.readyListeners.broadcast(err)
-	a.readyListeners.clear()
+	a.syncListeners.broadcast(err)
+	a.syncListeners.clear()
 
 }
 
@@ -722,37 +722,37 @@ func filterByOutpoints(vtxos []types.Vtxo, outpoints []types.Outpoint) []types.V
 	return filtered
 }
 
-type readyListeners struct {
+type syncListeners struct {
 	lock      *sync.RWMutex
-	listeners map[chan types.ReadyEvent]struct{}
+	listeners map[chan types.SyncEvent]struct{}
 }
 
-func newReadyListeners() *readyListeners {
-	return &readyListeners{
+func newReadyListeners() *syncListeners {
+	return &syncListeners{
 		lock:      &sync.RWMutex{},
-		listeners: make(map[chan types.ReadyEvent]struct{}),
+		listeners: make(map[chan types.SyncEvent]struct{}),
 	}
 }
 
-func (l *readyListeners) add(ch chan types.ReadyEvent) {
+func (l *syncListeners) add(ch chan types.SyncEvent) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	l.listeners[ch] = struct{}{}
 }
 
-func (l *readyListeners) broadcast(err error) {
+func (l *syncListeners) broadcast(err error) {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 	for ch := range l.listeners {
-		ch <- types.ReadyEvent{Ready: err == nil, Err: err}
+		ch <- types.SyncEvent{Synced: err == nil, Err: err}
 	}
 }
 
-func (l *readyListeners) clear() {
+func (l *syncListeners) clear() {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	for ch := range l.listeners {
 		close(ch)
 	}
-	l.listeners = make(map[chan types.ReadyEvent]struct{})
+	l.listeners = make(map[chan types.SyncEvent]struct{})
 }

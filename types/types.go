@@ -308,7 +308,7 @@ type OnchainAddressEvent struct {
 	Replacements   map[string]string // replacedTxid -> replacementTxid
 }
 
-type ReadyEvent struct {
-	Ready bool
-	Err   error
+type SyncEvent struct {
+	Synced bool
+	Err    error
 }
