@@ -296,22 +296,39 @@ func (a *arkClient) getBalanceFromExplorer(
 			}
 		}()
 
-		getDelayedBalance := func(addr string) {
+		getDelayedBalance := func(addr string, relativeLocktime arklib.RelativeLocktime) {
 			defer wg.Done()
 
-			// spendableBalance, lockedBalance, err := a.explorer.GetRedeemedVtxosBalance(
-			// 	addr, a.UnilateralExitDelay,
-			// )
-			// if err != nil {
-			// 	chRes <- balanceRes{err: err}
-			// 	return
-			// }
+			utxos, err := a.explorer.GetUtxos(addr)
+			if err != nil {
+				chRes <- balanceRes{err: err}
+				return
+			}
 
-			// chRes <- balanceRes{
-			// 	onchainSpendableBalance: spendableBalance,
-			// 	onchainLockedBalance:    lockedBalance,
-			// 	err:                     err,
-			// }
+			now := time.Now()
+			delay := time.Duration(relativeLocktime.Seconds()) * time.Second
+			spendableBalance := uint64(0)
+			lockedBalance := make(map[int64]uint64)
+			for _, utxo := range utxos {
+				if !utxo.Status.Confirmed {
+					lockedBalance[now.Add(delay).Unix()] += utxo.Amount
+					continue
+				}
+
+				blocktime := time.Unix(utxo.Status.BlockTime, 0)
+				if now.After(blocktime.Add(delay)) {
+					spendableBalance += utxo.Amount
+					continue
+				}
+
+				lockedBalance[blocktime.Add(delay).Unix()] += utxo.Amount
+			}
+
+			chRes <- balanceRes{
+				onchainSpendableBalance: spendableBalance,
+				onchainLockedBalance:    lockedBalance,
+				err:                     err,
+			}
 		}
 
 		go func() {
@@ -332,8 +349,8 @@ func (a *arkClient) getBalanceFromExplorer(
 			chRes <- balanceRes{onchainSpendableBalance: totalOnchainBalance}
 		}()
 
-		go getDelayedBalance(boardingAddr.Address)
-		go getDelayedBalance(redeemAddr.Address)
+		go getDelayedBalance(boardingAddr.Address, a.BoardingExitDelay)
+		go getDelayedBalance(redeemAddr.Address, a.UnilateralExitDelay)
 	}
 
 	wg.Wait()
