@@ -109,3 +109,39 @@ type RBFTxn struct {
 	TxId       string
 	ReplacedBy string
 }
+
+// addressData stores cached UTXO data for an address to detect changes during polling.
+type addressData struct {
+	hash  []byte
+	utxos []utxo
+}
+
+type utxo struct {
+	Txid   string `json:"txid"`
+	Vout   uint32 `json:"vout"`
+	Amount uint64 `json:"value"`
+	Script string `json:"scriptpubkey"`
+	Status struct {
+		Confirmed bool  `json:"confirmed"`
+		BlockTime int64 `json:"block_time"`
+	} `json:"status"`
+}
+
+type utxos []utxo
+
+func (u utxos) toUtxoList() []explorer.Utxo {
+	utxos := make([]explorer.Utxo, 0)
+	for _, utxo := range u {
+		utxos = append(utxos, explorer.Utxo{
+			Txid:   utxo.Txid,
+			Vout:   utxo.Vout,
+			Amount: utxo.Amount,
+			Status: explorer.ConfirmedStatus{
+				Confirmed: utxo.Status.Confirmed,
+				BlockTime: utxo.Status.BlockTime,
+			},
+			Script: utxo.Script,
+		})
+	}
+	return utxos
+}

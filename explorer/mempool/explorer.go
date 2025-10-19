@@ -80,12 +80,6 @@ var (
 	}
 )
 
-// addressData stores cached UTXO data for an address to detect changes during polling.
-type addressData struct {
-	hash  []byte
-	utxos []explorer.Utxo
-}
-
 type explorerSvc struct {
 	cache         *utils.Cache[string]
 	baseUrl       string
@@ -508,40 +502,11 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error
 }
 
 func (e *explorerSvc) GetUtxos(addr string) ([]explorer.Utxo, error) {
-	decoded, err := btcutil.DecodeAddress(addr, nil)
-	if err != nil {
-		return nil, fmt.Errorf("invalid address: %s", err)
-	}
-
-	outputScript, err := txscript.PayToAddrScript(decoded)
-	if err != nil {
-		return nil, fmt.Errorf("invalid address: %s", err)
-	}
-
-	resp, err := http.Get(fmt.Sprintf("%s/address/%s/utxo", e.baseUrl, addr))
+	utxos, err := e.getUtxos(addr)
 	if err != nil {
 		return nil, err
 	}
-
-	// nolint:all
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get utxos: %s", string(body))
-	}
-	utxos := []explorer.Utxo{}
-	if err := json.Unmarshal(body, &utxos); err != nil {
-		return nil, err
-	}
-
-	for i := range utxos {
-		utxos[i].Script = hex.EncodeToString(outputScript)
-	}
-
-	return utxos, nil
+	return utxos.toUtxoList(), nil
 }
 
 func (e *explorerSvc) GetRedeemedVtxosBalance(
@@ -718,7 +683,7 @@ func (e *explorerSvc) trackWithPolling(ctx context.Context) {
 			for addr, data := range e.subscribedMap {
 				hashCopy := make([]byte, len(data.hash))
 				copy(hashCopy, data.hash)
-				utxosCopy := make([]explorer.Utxo, len(data.utxos))
+				utxosCopy := make([]utxo, len(data.utxos))
 				copy(utxosCopy, data.utxos)
 
 				subscribedMap[addr] = addressData{
@@ -732,7 +697,7 @@ func (e *explorerSvc) trackWithPolling(ctx context.Context) {
 				continue
 			}
 			for addr, oldUtxos := range subscribedMap {
-				newUtxos, err := e.GetUtxos(addr)
+				newUtxos, err := e.getUtxos(addr)
 				if err != nil {
 					log.WithError(err).Error("explorer: failed to poll explorer")
 					go e.listeners.broadcast(types.OnchainAddressEvent{
@@ -755,6 +720,43 @@ func (e *explorerSvc) trackWithPolling(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (e *explorerSvc) getUtxos(addr string) (utxos, error) {
+	decoded, err := btcutil.DecodeAddress(addr, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %s", err)
+	}
+
+	outputScript, err := txscript.PayToAddrScript(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %s", err)
+	}
+
+	resp, err := http.Get(fmt.Sprintf("%s/address/%s/utxo", e.baseUrl, addr))
+	if err != nil {
+		return nil, err
+	}
+
+	// nolint:all
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get utxos: %s", string(body))
+	}
+	utxos := []utxo{}
+	if err := json.Unmarshal(body, &utxos); err != nil {
+		return nil, err
+	}
+
+	for i := range utxos {
+		utxos[i].Script = hex.EncodeToString(outputScript)
+	}
+
+	return utxos, nil
 }
 
 func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
@@ -846,10 +848,10 @@ func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addres
 }
 
 func (e *explorerSvc) sendAddressEventFromPolling(
-	ctx context.Context, oldUtxos, newUtxos []explorer.Utxo,
+	ctx context.Context, oldUtxos, newUtxos []utxo,
 ) {
-	indexedOldUtxos := make(map[string]explorer.Utxo, 0)
-	indexedNewUtxos := make(map[string]explorer.Utxo, 0)
+	indexedOldUtxos := make(map[string]utxo, 0)
+	indexedNewUtxos := make(map[string]utxo, 0)
 	for _, oldUtxo := range oldUtxos {
 		indexedOldUtxos[fmt.Sprintf("%s:%d", oldUtxo.Txid, oldUtxo.Vout)] = oldUtxo
 	}
