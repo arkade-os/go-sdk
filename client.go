@@ -2446,8 +2446,9 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 		filteredVtxos := make([]types.Vtxo, 0)
 		for _, vtxo := range allVtxos {
 			expiryDuration := vtxo.ExpiresAt.Sub(vtxo.CreatedAt)
-			expectedRemainingExpiry := int64(expiryDuration) * opts.ExpiryPercentage / 100
-			maxExpiryDate := time.Now().Add(time.Duration(expectedRemainingExpiry) * time.Second)
+			ratio := float64(opts.ExpiryPercentage) / 100.0
+			expectedRemainingExpiry := math.Ceil(float64(expiryDuration) * ratio)
+			maxExpiryDate := time.Now().Add(time.Duration(expectedRemainingExpiry))
 
 			if vtxo.ExpiresAt.Before(maxExpiryDate) {
 				filteredVtxos = append(filteredVtxos, vtxo)
