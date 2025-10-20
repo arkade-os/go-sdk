@@ -349,9 +349,9 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 	if !a.WithTransactionFeed {
 		return nil
 	}
+	ch := make(chan types.SyncEvent, 1)
 
 	if a.syncDone {
-		ch := make(chan types.SyncEvent, 1)
 		go func() {
 			ch <- types.SyncEvent{
 				Synced: a.syncErr == nil,
@@ -361,13 +361,7 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 		return ch
 	}
 
-	ch := make(chan types.SyncEvent, 1)
-	go func() {
-		if a.syncListeners == nil {
-			a.syncListeners = newReadyListeners()
-		}
-		a.syncListeners.add(ch)
-	}()
+	a.syncListeners.add(ch)
 	return ch
 }
 

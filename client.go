@@ -57,6 +57,10 @@ func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error)
 		opt(client)
 	}
 
+	syncListeners := newReadyListeners()
+
+	client.syncListeners = syncListeners
+
 	return client, nil
 }
 
@@ -106,13 +110,16 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, fmt.Errorf("failed to setup wallet: %s", err)
 	}
 
+	syncListeners := newReadyListeners()
+
 	client := &arkClient{
-		Config:   cfgData,
-		wallet:   walletSvc,
-		store:    sdkStore,
-		explorer: explorerSvc,
-		client:   clientSvc,
-		indexer:  indexerSvc,
+		Config:        cfgData,
+		wallet:        walletSvc,
+		store:         sdkStore,
+		explorer:      explorerSvc,
+		client:        clientSvc,
+		indexer:       indexerSvc,
+		syncListeners: syncListeners,
 	}
 	for _, opt := range opts {
 		opt(client)
