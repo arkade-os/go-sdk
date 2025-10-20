@@ -166,8 +166,8 @@ func (a *arkClient) Dump(ctx context.Context) (string, error) {
 }
 
 func (a *arkClient) Receive(ctx context.Context) (string, string, string, error) {
-	if err := a.safeCheck(); err != nil {
-		return "", "", "", err
+	if a.wallet == nil {
+		return "", "", "", fmt.Errorf("wallet not initialized")
 	}
 
 	onchainAddr, offchainAddr, boardingAddr, err := a.wallet.NewAddress(ctx, false)
