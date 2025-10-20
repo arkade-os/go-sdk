@@ -19,6 +19,12 @@ type SettleOptions struct {
 	EventsCh chan<- any
 }
 
+func newDefaultSettleOptions() *SettleOptions {
+	return &SettleOptions{
+		ExpiryPercentage: 10, // default to 10%
+	}
+}
+
 // name alias, sub-dust vtxos are recoverable vtxos
 var WithSubDustVtxos = WithRecoverableVtxos
 

@@ -377,7 +377,7 @@ func (a *arkClient) RedeemNotes(
 
 	amount := uint64(0)
 
-	options := &SettleOptions{}
+	options := newDefaultSettleOptions()
 	for _, opt := range opts {
 		if err := opt(options); err != nil {
 			return "", err
@@ -518,9 +518,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
 
-	options := &SettleOptions{
-		ExpiryPercentage: 10, // default to 10%
-	}
+	options := newDefaultSettleOptions()
 	for _, opt := range opts {
 		if err := opt(options); err != nil {
 			return "", err
@@ -1790,7 +1788,7 @@ func (a *arkClient) selectFunds(
 func (a *arkClient) sendOffchain(
 	ctx context.Context, computeVtxoExpiry bool, receivers []types.Receiver, settleOpts ...Option,
 ) (string, error) {
-	options := &SettleOptions{}
+	options := newDefaultSettleOptions()
 	for _, opt := range settleOpts {
 		if err := opt(options); err != nil {
 			return "", err
