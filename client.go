@@ -518,7 +518,9 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
 
-	options := &SettleOptions{}
+	options := &SettleOptions{
+		ExpiryPercentage: 10, // default to 10%
+	}
 	for _, opt := range opts {
 		if err := opt(options); err != nil {
 			return "", err
@@ -533,7 +535,11 @@ func (a *arkClient) CollaborativeExit(
 	receivers := []types.Receiver{{To: addr, Amount: amount}}
 
 	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount,
+		ctx, amount, CoinSelectOptions{
+			WithExpirySorting:      computeVtxoExpiry,
+			SelectRecoverableVtxos: options.SelectRecoverableVtxos,
+			ExpiryPercentage:       options.ExpiryPercentage,
+		},
 	)
 	if err != nil {
 		return "", err
@@ -1720,7 +1726,7 @@ func (a *arkClient) completeUnilateralExit(ctx context.Context, to string) (stri
 }
 
 func (a *arkClient) selectFunds(
-	ctx context.Context, computeVtxoExpiry bool, selectRecoverableVtxos bool, amount uint64,
+	ctx context.Context, amount uint64, opts CoinSelectOptions,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
@@ -1731,11 +1737,7 @@ func (a *arkClient) selectFunds(
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
-	opts := &CoinSelectOptions{
-		WithExpirySorting:      computeVtxoExpiry,
-		SelectRecoverableVtxos: selectRecoverableVtxos,
-	}
-	spendableVtxos, err := a.getVtxos(ctx, opts)
+	spendableVtxos, err := a.getVtxos(ctx, &opts)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -1781,7 +1783,7 @@ func (a *arkClient) selectFunds(
 	}
 
 	return utils.CoinSelect(
-		boardingUtxos, vtxos, amount, a.Dust, computeVtxoExpiry,
+		boardingUtxos, vtxos, amount, a.Dust, opts.WithExpirySorting,
 	)
 }
 
@@ -1830,7 +1832,11 @@ func (a *arkClient) sendOffchain(
 
 	// coinselect boarding utxos and vtxos
 	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers,
+		ctx, sumOfReceivers, CoinSelectOptions{
+			WithExpirySorting:      computeVtxoExpiry,
+			SelectRecoverableVtxos: options.SelectRecoverableVtxos,
+			ExpiryPercentage:       options.ExpiryPercentage,
+		},
 	)
 	if err != nil {
 		return "", err
@@ -2437,6 +2443,22 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 	}
 
 	allVtxos := append(recoverableVtxos, spendableVtxos...)
+
+	if opts != nil && opts.ExpiryPercentage > 0 {
+		filteredVtxos := make([]types.Vtxo, 0)
+		for _, vtxo := range allVtxos {
+			expiryDuration := vtxo.ExpiresAt.Sub(vtxo.CreatedAt)
+			expectedRemainingExpiry := int64(expiryDuration) * opts.ExpiryPercentage / 100
+			maxExpiryDate := time.Now().Add(time.Duration(expectedRemainingExpiry) * time.Second)
+
+			if vtxo.ExpiresAt.Before(maxExpiryDate) {
+				filteredVtxos = append(filteredVtxos, vtxo)
+			}
+		}
+
+		allVtxos = filteredVtxos
+	}
+
 	if opts == nil || !opts.WithExpirySorting {
 		return allVtxos, nil
 	}
