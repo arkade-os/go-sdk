@@ -1795,10 +1795,6 @@ func (a *arkClient) sendOffchain(
 		}
 	}
 
-	if a.wallet.IsLocked() {
-		return "", fmt.Errorf("wallet is locked")
-	}
-
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
 	outputs := make([]types.Receiver, 0)
 	sumOfReceivers := uint64(0)
