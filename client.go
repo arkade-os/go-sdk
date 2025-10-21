@@ -2217,7 +2217,8 @@ func (a *arkClient) getOffchainBalance(
 ) (uint64, map[int64]uint64, error) {
 	amountByExpiration := make(map[int64]uint64, 0)
 	opts := &CoinSelectOptions{
-		WithExpirySorting: computeVtxoExpiration,
+		WithExpirySorting:      computeVtxoExpiration,
+		SelectRecoverableVtxos: true,
 	}
 	vtxos, err := a.getVtxos(ctx, opts)
 	if err != nil {
