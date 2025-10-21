@@ -348,6 +348,40 @@ func (a *arkClient) SendOffChain(
 	// TODO store signed ark tx client side ?
 	arkTxid, _, signedCheckpointTxs, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
 	if err != nil {
+		// Handle VTXO_ALREADY_SPENT error by update the vtxo state in order to be able to resubmit the transaction
+		// TODO drop this once the client has the proper fix
+		if strings.Contains(err.Error(), "VTXO_ALREADY_SPENT") {
+			outpoints := make([]types.Outpoint, 0, len(spendableVtxos))
+			for _, input := range inputs {
+				outpoints = append(outpoints, types.Outpoint{
+					Txid: input.Outpoint.Txid,
+					VOut: input.Outpoint.VOut,
+				})
+			}
+
+			opts := &indexer.GetVtxosRequestOption{}
+			opts.WithOutpoints(outpoints)
+			currentState, err := a.indexer.GetVtxos(ctx, *opts)
+			if err != nil {
+				return "", err
+			}
+
+			spentByVtxos := make(map[string]map[types.Outpoint]string, 0)
+			for _, vtxo := range currentState.Vtxos {
+				if vtxo.Spent {
+					if _, ok := spentByVtxos[vtxo.ArkTxid]; !ok {
+						spentByVtxos[vtxo.ArkTxid] = make(map[types.Outpoint]string, 0)
+					}
+					spentByVtxos[vtxo.ArkTxid][vtxo.Outpoint] = vtxo.SpentBy
+				}
+			}
+
+			for spendTxid, outpointsMap := range spentByVtxos {
+				if _, err = a.store.VtxoStore().SpendVtxos(ctx, outpointsMap, spendTxid); err != nil {
+					return "", err
+				}
+			}
+		}
 		return "", err
 	}
 
