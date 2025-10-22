@@ -148,14 +148,6 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		if a.stopRestore != nil {
 			a.stopRestore()
 		}
-		if a.stopWatch != nil {
-			a.stopWatch()
-		}
-		if a.syncListeners != nil {
-			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
-			a.syncListeners.clear()
-		}
-
 		if a.utxoBroadcaster != nil {
 			a.utxoBroadcaster.Close()
 		}
@@ -164,6 +156,13 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		}
 		if a.txBroadcaster != nil {
 			a.txBroadcaster.Close()
+		}
+		if a.stopWatch != nil {
+			a.stopWatch()
+		}
+		if a.syncListeners != nil {
+			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
+			a.syncListeners.clear()
 		}
 	}()
 	return nil
@@ -284,6 +283,16 @@ func (a *arkClient) Reset(ctx context.Context) {
 
 	a.syncDone = false
 	a.syncErr = nil
+
+	if a.utxoBroadcaster != nil {
+		a.utxoBroadcaster.Close()
+	}
+	if a.vtxoBroadcaster != nil {
+		a.vtxoBroadcaster.Close()
+	}
+	if a.txBroadcaster != nil {
+		a.txBroadcaster.Close()
+	}
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
@@ -306,16 +315,6 @@ func (a *arkClient) Stop() {
 
 	a.syncDone = false
 	a.syncErr = nil
-	if a.stopWatch != nil {
-		a.stopWatch()
-	}
-	if a.stopRestore != nil {
-		a.stopRestore()
-	}
-	if a.syncListeners != nil {
-		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
-		a.syncListeners.clear()
-	}
 
 	if a.utxoBroadcaster != nil {
 		a.utxoBroadcaster.Close()
@@ -325,6 +324,16 @@ func (a *arkClient) Stop() {
 	}
 	if a.txBroadcaster != nil {
 		a.txBroadcaster.Close()
+	}
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	if a.stopRestore != nil {
+		a.stopRestore()
+	}
+	if a.syncListeners != nil {
+		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
+		a.syncListeners.clear()
 	}
 
 	a.store.Close()
