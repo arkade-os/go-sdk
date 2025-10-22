@@ -395,13 +395,13 @@ func (a *arkClient) SendOffChain(
 	for i, vtxo := range selectedCoins {
 		if len(signedCheckpointTxs) <= i {
 			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
-			return "", nil
+			return arkTxid, nil
 		}
 
 		checkpointTx, err := psbt.NewFromRawBytes(strings.NewReader(signedCheckpointTxs[i]), true)
 		if err != nil {
 			log.Warnf("failed to parse checkpoint tx: %s, skipping marking vtxo as spent", err)
-			return "", nil
+			return arkTxid, nil
 		}
 
 		vtxo.Vtxo.Spent = true
@@ -413,7 +413,7 @@ func (a *arkClient) SendOffChain(
 
 	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
 		log.Warnf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
-		return "", nil
+		return arkTxid, nil
 	}
 
 	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
@@ -435,7 +435,7 @@ func (a *arkClient) SendOffChain(
 		},
 	}); err != nil {
 		log.Warnf("failed to add transactions: %s, skipping marking transactions as settled", err)
-		return "", nil
+		return arkTxid, nil
 	}
 
 	return arkTxid, nil
