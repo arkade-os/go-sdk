@@ -148,15 +148,6 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		if a.stopRestore != nil {
 			a.stopRestore()
 		}
-		if a.utxoBroadcaster != nil {
-			a.utxoBroadcaster.Close()
-		}
-		if a.vtxoBroadcaster != nil {
-			a.vtxoBroadcaster.Close()
-		}
-		if a.txBroadcaster != nil {
-			a.txBroadcaster.Close()
-		}
 		if a.stopWatch != nil {
 			a.stopWatch()
 		}
@@ -284,15 +275,6 @@ func (a *arkClient) Reset(ctx context.Context) {
 	a.syncDone = false
 	a.syncErr = nil
 
-	if a.utxoBroadcaster != nil {
-		a.utxoBroadcaster.Close()
-	}
-	if a.vtxoBroadcaster != nil {
-		a.vtxoBroadcaster.Close()
-	}
-	if a.txBroadcaster != nil {
-		a.txBroadcaster.Close()
-	}
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
@@ -316,15 +298,6 @@ func (a *arkClient) Stop() {
 	a.syncDone = false
 	a.syncErr = nil
 
-	if a.utxoBroadcaster != nil {
-		a.utxoBroadcaster.Close()
-	}
-	if a.vtxoBroadcaster != nil {
-		a.vtxoBroadcaster.Close()
-	}
-	if a.txBroadcaster != nil {
-		a.txBroadcaster.Close()
-	}
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
@@ -705,10 +678,19 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			if a.utxoBroadcaster != nil {
+				a.utxoBroadcaster.Close()
+			}
+			if a.vtxoBroadcaster != nil {
+				a.vtxoBroadcaster.Close()
+			}
+			if a.txBroadcaster != nil {
+				a.txBroadcaster.Close()
+			}
 			return
 		case event, ok := <-a.store.UtxoStore().GetEventChannel():
 			if !ok {
-				return
+				continue
 			}
 			go func() {
 				closedListeners := a.utxoBroadcaster.Publish(event)
@@ -721,7 +703,7 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 			}()
 		case event, ok := <-a.store.VtxoStore().GetEventChannel():
 			if !ok {
-				return
+				continue
 			}
 			go func() {
 				closedListeners := a.vtxoBroadcaster.Publish(event)
@@ -734,7 +716,7 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 			}()
 		case event, ok := <-a.store.TransactionStore().GetEventChannel():
 			if !ok {
-				return
+				continue
 			}
 			go func() {
 				closedListeners := a.txBroadcaster.Publish(event)
