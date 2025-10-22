@@ -66,6 +66,10 @@ type arkClient struct {
 	stopRestore   context.CancelFunc
 	stopWatch     context.CancelFunc
 
+	utxoBroadcaster *utils.Broadcaster[types.UtxoEvent]
+	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
+	txBroadcaster   *utils.Broadcaster[types.TransactionEvent]
+
 	verbose bool
 }
 
@@ -100,6 +104,9 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		a.syncErr = nil
 		a.syncCh = make(chan error)
 		a.syncMu = &sync.Mutex{}
+		a.utxoBroadcaster = utils.NewBroadcaster[types.UtxoEvent]()
+		a.vtxoBroadcaster = utils.NewBroadcaster[types.VtxoEvent]()
+		a.txBroadcaster = utils.NewBroadcaster[types.TransactionEvent]()
 
 		go func() {
 			err := <-a.syncCh
@@ -120,6 +127,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			a.stopWatch = cancel
 			go a.listenForArkTxs(ctx)
 			go a.listenForOnchainTxs(ctx)
+			go a.listenDbEvents(ctx)
 		}()
 	}
 
@@ -146,6 +154,16 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		if a.syncListeners != nil {
 			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
 			a.syncListeners.clear()
+		}
+
+		if a.utxoBroadcaster != nil {
+			a.utxoBroadcaster.Close()
+		}
+		if a.vtxoBroadcaster != nil {
+			a.vtxoBroadcaster.Close()
+		}
+		if a.txBroadcaster != nil {
+			a.txBroadcaster.Close()
 		}
 	}()
 	return nil
@@ -225,23 +243,29 @@ func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	return offchainAddr.Address, nil
 }
 
-func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
-	if a.store != nil && a.store.TransactionStore() != nil {
-		return a.store.TransactionStore().GetEventChannel()
+func (a *arkClient) GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent {
+	if a.WithTransactionFeed {
+		if a.txBroadcaster != nil {
+			return a.txBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
 
 func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
-	if a.store != nil && a.store.VtxoStore() != nil {
-		return a.store.VtxoStore().GetEventChannel()
+	if a.WithTransactionFeed {
+		if a.vtxoBroadcaster != nil {
+			return a.vtxoBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
 
 func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
-	if a.store != nil && a.store.UtxoStore() != nil {
-		return a.store.UtxoStore().GetEventChannel()
+	if a.WithTransactionFeed {
+		if a.utxoBroadcaster != nil {
+			return a.utxoBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
@@ -291,6 +315,16 @@ func (a *arkClient) Stop() {
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
 		a.syncListeners.clear()
+	}
+
+	if a.utxoBroadcaster != nil {
+		a.utxoBroadcaster.Close()
+	}
+	if a.vtxoBroadcaster != nil {
+		a.vtxoBroadcaster.Close()
+	}
+	if a.txBroadcaster != nil {
+		a.txBroadcaster.Close()
 	}
 
 	a.store.Close()
@@ -656,6 +690,54 @@ func (a *arkClient) setRestored(err error) {
 	a.syncListeners.broadcast(err)
 	a.syncListeners.clear()
 
+}
+
+func (a *arkClient) listenDbEvents(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-a.store.UtxoStore().GetEventChannel():
+			if !ok {
+				return
+			}
+			go func() {
+				closedListeners := a.utxoBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send utxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		case event, ok := <-a.store.VtxoStore().GetEventChannel():
+			if !ok {
+				return
+			}
+			go func() {
+				closedListeners := a.vtxoBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send vtxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		case event, ok := <-a.store.TransactionStore().GetEventChannel():
+			if !ok {
+				return
+			}
+			go func() {
+				closedListeners := a.txBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send utxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		}
+	}
 }
 
 func getClient(
