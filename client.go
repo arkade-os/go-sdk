@@ -274,7 +274,9 @@ func (a *arkClient) SendOffChain(
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
-	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{WithExpirySorting: withExpiryCoinselect})
+	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
+		WithExpirySorting: withExpiryCoinselect,
+	})
 	if err != nil {
 		return "", err
 	}
