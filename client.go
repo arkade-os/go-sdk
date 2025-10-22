@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -2435,9 +2436,10 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 
 	recoverableVtxos := make([]types.Vtxo, 0)
 	if opts != nil && opts.SelectRecoverableVtxos {
-		for _, vtxo := range spendableVtxos {
+		for i, vtxo := range spendableVtxos {
 			if vtxo.IsRecoverable() {
 				recoverableVtxos = append(recoverableVtxos, vtxo)
+				spendableVtxos = slices.Delete(spendableVtxos, i, i+1)
 			}
 		}
 	}
