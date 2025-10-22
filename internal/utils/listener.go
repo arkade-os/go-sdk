@@ -18,6 +18,9 @@ func NewBroadcaster[T any]() *Broadcaster[T] {
 }
 
 func (l *Broadcaster[T]) Subscribe(buf int) <-chan T {
+	if buf == 0 {
+		buf = 64
+	}
 	ch := make(chan T, buf)
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -78,6 +81,9 @@ func (l *Broadcaster[T]) remove(chs []chan T) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, ch := range chs {
+		if _, ok := l.listeners[ch]; !ok {
+			continue
+		}
 		close(ch)
 		delete(l.listeners, ch)
 	}
