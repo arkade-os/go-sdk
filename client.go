@@ -385,6 +385,10 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	if !a.WithTransactionFeed {
+		return arkTxid, nil
+	}
+
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 
 	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
