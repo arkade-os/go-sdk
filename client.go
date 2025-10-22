@@ -214,6 +214,9 @@ func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string
 		return "", err
 	}
 
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
@@ -233,6 +236,9 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 		return "", err
 	}
 
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
 	if _, err := btcutil.DecodeAddress(to, nil); err != nil {
 		return "", fmt.Errorf("invalid receiver address '%s': must be onchain", to)
 	}
@@ -246,6 +252,9 @@ func (a *arkClient) SendOffChain(
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
+
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
 
 	if len(receivers) <= 0 {
 		return "", fmt.Errorf("missing receivers")
@@ -524,6 +533,9 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
@@ -568,6 +580,9 @@ func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) 
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
+
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
 
 	return a.sendOffchain(ctx, false, nil, opts...)
 }
