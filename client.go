@@ -2424,21 +2424,24 @@ func (a *arkClient) getExpiredBoardingUtxos(
 }
 
 func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]types.Vtxo, error) {
-	spendableVtxos, _, err := a.ListVtxos(ctx)
+	spendable, _, err := a.ListVtxos(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	if opts != nil && len(opts.OutpointsFilter) > 0 {
-		spendableVtxos = filterByOutpoints(spendableVtxos, opts.OutpointsFilter)
+		spendable = filterByOutpoints(spendable, opts.OutpointsFilter)
 	}
 
 	recoverableVtxos := make([]types.Vtxo, 0)
+	spendableVtxos := make([]types.Vtxo, 0, len(spendable))
 	if opts != nil && opts.SelectRecoverableVtxos {
-		for _, vtxo := range spendableVtxos {
+		for _, vtxo := range spendable {
 			if vtxo.IsRecoverable() {
 				recoverableVtxos = append(recoverableVtxos, vtxo)
+				continue
 			}
+			spendableVtxos = append(spendableVtxos, vtxo)
 		}
 	}
 
