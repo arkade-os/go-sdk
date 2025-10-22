@@ -585,11 +585,17 @@ func (h *defaultBatchEventsHandler) OnBatchFinalization(
 	var forfeits []string
 	var signedCommitmentTx string
 
+	withoutRecoverable := make([]client.TapscriptsVtxo, 0, len(h.vtxos))
+	for _, vtxo := range h.vtxos {
+		if !vtxo.IsRecoverable() {
+			withoutRecoverable = append(withoutRecoverable, vtxo)
+		}
+	}
+
 	// if we spend vtxos, we must create and sign forfeits.
-	if len(h.vtxos) > 0 {
+	if len(withoutRecoverable) > 0 && connectorTree != nil {
 		signedForfeits, err := h.createAndSignForfeits(
-			ctx,
-			h.vtxos, connectorTree.Leaves(),
+			ctx, withoutRecoverable, connectorTree.Leaves(),
 		)
 		if err != nil {
 			return err
@@ -720,17 +726,21 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 			)
 		}
 
-		if err := connectorTree.Validate(); err != nil {
-			return err
+		if connectorTree != nil {
+			if err := connectorTree.Validate(); err != nil {
+				return err
+			}
 		}
 
-		connectorsLeaves := connectorTree.Leaves()
-		if len(connectorsLeaves) != len(h.vtxos) {
-			return fmt.Errorf(
-				"unexpected num of connectors received: expected %d, got %d",
-				len(h.vtxos),
-				len(connectorsLeaves),
-			)
+		if connectorTree != nil {
+			connectorsLeaves := connectorTree.Leaves()
+			if len(connectorsLeaves) != len(h.vtxos) {
+				return fmt.Errorf(
+					"unexpected num of connectors received: expected %d, got %d",
+					len(h.vtxos),
+					len(connectorsLeaves),
+				)
+			}
 		}
 	}
 

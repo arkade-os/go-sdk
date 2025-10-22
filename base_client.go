@@ -492,7 +492,6 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
-
 	explorerOpts := []mempool_explorer.Option{
 		mempool_explorer.WithTracker(args.WithTransactionFeed),
 	}
@@ -617,14 +616,20 @@ func (a *arkClient) listVtxosFromIndexer(
 
 	resp, err := a.indexer.GetVtxos(ctx, opt)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
 
 	for _, vtxo := range resp.Vtxos {
-		if vtxo.Spent || vtxo.Swept || vtxo.Unrolled {
+		if vtxo.IsRecoverable() {
+			spendableVtxos = append(spendableVtxos, vtxo)
+			continue
+		}
+
+		if vtxo.Spent || vtxo.Unrolled {
 			spentVtxos = append(spentVtxos, vtxo)
 			continue
 		}
+
 		spendableVtxos = append(spendableVtxos, vtxo)
 	}
 	return

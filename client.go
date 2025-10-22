@@ -274,16 +274,17 @@ func (a *arkClient) SendOffChain(
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
-	opts := &CoinSelectOptions{
-		WithExpirySorting: withExpiryCoinselect,
-	}
-	spendableVtxos, err := a.getVtxos(ctx, opts)
+	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{WithExpirySorting: withExpiryCoinselect})
 	if err != nil {
 		return "", err
 	}
 
 	for _, offchainAddr := range offchainAddrs {
 		for _, v := range spendableVtxos {
+			if v.IsRecoverable() {
+				continue
+			}
+
 			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
 			if err != nil {
 				return "", err
@@ -666,24 +667,22 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
-			myScripts := make(map[string]struct{})
+			myPubkeys := make(map[string]struct{})
 			for _, addr := range offchainAddrs {
 				// nolint
 				decoded, _ := arklib.DecodeAddressV0(addr.Address)
-				// nolint
-				vtxoScript, _ := script.P2TRScript(decoded.VtxoTapKey)
-				myScripts[hex.EncodeToString(vtxoScript)] = struct{}{}
+				myPubkeys[hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))] = struct{}{}
 			}
 
 			if event.CommitmentTx != nil {
-				if err := a.handleCommitmentTx(ctx, myScripts, event.CommitmentTx); err != nil {
+				if err := a.handleCommitmentTx(ctx, myPubkeys, event.CommitmentTx); err != nil {
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
 			}
 
 			if event.ArkTx != nil {
-				if err := a.handleArkTx(ctx, myScripts, event.ArkTx); err != nil {
+				if err := a.handleArkTx(ctx, myPubkeys, event.ArkTx); err != nil {
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
@@ -2416,21 +2415,18 @@ func (a *arkClient) getExpiredBoardingUtxos(
 }
 
 func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]types.Vtxo, error) {
-	spendableVtxos, spentVtxos, err := a.ListVtxos(ctx)
+	spendableVtxos, _, err := a.ListVtxos(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	if opts != nil && len(opts.OutpointsFilter) > 0 {
 		spendableVtxos = filterByOutpoints(spendableVtxos, opts.OutpointsFilter)
-		if opts.SelectRecoverableVtxos {
-			spentVtxos = filterByOutpoints(spentVtxos, opts.OutpointsFilter)
-		}
 	}
 
 	recoverableVtxos := make([]types.Vtxo, 0)
 	if opts != nil && opts.SelectRecoverableVtxos {
-		for _, vtxo := range spentVtxos {
+		for _, vtxo := range spendableVtxos {
 			if vtxo.IsRecoverable() {
 				recoverableVtxos = append(recoverableVtxos, vtxo)
 			}
@@ -2506,7 +2502,9 @@ func (a *arkClient) handleCommitmentTx(
 	txsToSettle := make([]string, 0)
 
 	for _, vtxo := range commitmentTx.SpendableVtxos {
-		if _, ok := myPubkeys[vtxo.Script]; ok {
+		// remove opcodes from P2TR script
+		tapkey := vtxo.Script[4:]
+		if _, ok := myPubkeys[tapkey]; ok {
 			vtxosToAdd = append(vtxosToAdd, vtxo)
 		}
 	}
@@ -2663,14 +2661,16 @@ func (a *arkClient) handleCommitmentTx(
 }
 
 func (a *arkClient) handleArkTx(
-	ctx context.Context, myScripts map[string]struct{}, arkTx *client.TxNotification,
+	ctx context.Context, myPubkeys map[string]struct{}, arkTx *client.TxNotification,
 ) error {
 	vtxosToAdd := make([]types.Vtxo, 0)
 	vtxosToSpend := make(map[types.Outpoint]string)
 	txsToAdd := make([]types.Transaction, 0)
 
 	for _, vtxo := range arkTx.SpendableVtxos {
-		if _, ok := myScripts[vtxo.Script]; ok {
+		// remove opcodes from P2TR script
+		tapkey := vtxo.Script[4:]
+		if _, ok := myPubkeys[tapkey]; ok {
 			vtxosToAdd = append(vtxosToAdd, vtxo)
 		}
 	}
