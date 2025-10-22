@@ -364,11 +364,12 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	// TODO store signed ark tx client side ?
 	arkTxid, _, signedCheckpointTxs, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
 	if err != nil {
 		return "", err
 	}
+
+	// TODO verify if the server correctly signed the ark transaction and the checkpoints
 
 	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
 
@@ -382,6 +383,55 @@ func (a *arkClient) SendOffChain(
 
 	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
 		return "", err
+	}
+
+	// mark vtxos as spent and add transaction to DB before unlocking the mutex
+
+	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
+	for i, vtxo := range selectedCoins {
+		if len(signedCheckpointTxs) <= i {
+			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
+			return "", nil
+		}
+
+		checkpointTx, err := psbt.NewFromRawBytes(strings.NewReader(signedCheckpointTxs[i]), true)
+		if err != nil {
+			log.Warnf("failed to parse checkpoint tx: %s, skipping marking vtxo as spent", err)
+			return "", nil
+		}
+
+		vtxo.Vtxo.Spent = true
+		vtxo.Vtxo.SpentBy = signedCheckpointTxs[i]
+		vtxo.Vtxo.ArkTxid = arkTxid
+		vtxo.Vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
+		spentVtxos = append(spentVtxos, vtxo.Vtxo)
+	}
+
+	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
+		log.Warnf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
+		return "", nil
+	}
+
+	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
+
+	amount := uint64(0)
+	for _, vtxo := range selectedCoins {
+		amount += vtxo.Vtxo.Amount
+	}
+
+	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
+		{
+			TransactionKey: types.TransactionKey{
+				ArkTxid: arkTx,
+			},
+			Amount:    amount,
+			Type:      types.TxSent,
+			CreatedAt: time.Now(),
+			Hex:       arkTx,
+		},
+	}); err != nil {
+		log.Warnf("failed to add transactions: %s, skipping marking transactions as settled", err)
+		return "", nil
 	}
 
 	return arkTxid, nil
@@ -584,7 +634,7 @@ func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) 
 	a.coinSelectionLock.Lock()
 	defer a.coinSelectionLock.Unlock()
 
-	return a.sendOffchain(ctx, false, nil, opts...)
+	return a.settle(ctx, false, nil, opts...)
 }
 
 func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]types.Transaction, error) {
@@ -1808,7 +1858,7 @@ func (a *arkClient) selectFunds(
 	)
 }
 
-func (a *arkClient) sendOffchain(
+func (a *arkClient) settle(
 	ctx context.Context, computeVtxoExpiry bool, receivers []types.Receiver, settleOpts ...Option,
 ) (string, error) {
 	options := &SettleOptions{}
