@@ -419,7 +419,7 @@ func (a *arkClient) SendOffChain(
 
 	amount := uint64(0)
 	for _, vtxo := range selectedCoins {
-		amount += vtxo.Vtxo.Amount
+		amount += vtxo.Amount
 	}
 
 	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
