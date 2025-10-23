@@ -425,7 +425,7 @@ func (a *arkClient) SendOffChain(
 	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
 		{
 			TransactionKey: types.TransactionKey{
-				ArkTxid: arkTx,
+				ArkTxid: arkTxid,
 			},
 			Amount:    amount,
 			Type:      types.TxSent,
