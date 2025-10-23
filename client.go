@@ -365,7 +365,9 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
+	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(
+		ctx, signedArkTx, checkpointTxs,
+	)
 	if err != nil {
 		return "", err
 	}
