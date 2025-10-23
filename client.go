@@ -3125,6 +3125,22 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 		return fmt.Errorf("invalid offchain tx : txids mismatch")
 	}
 
+	if len(original.Inputs) != len(signed.Inputs) {
+		return fmt.Errorf(
+			"input count mismatch: expected %d, got %d",
+			len(original.Inputs),
+			len(signed.Inputs),
+		)
+	}
+
+	if len(original.UnsignedTx.TxIn) != len(signed.UnsignedTx.TxIn) {
+		return fmt.Errorf(
+			"transaction input count mismatch: expected %d, got %d",
+			len(original.UnsignedTx.TxIn),
+			len(signed.UnsignedTx.TxIn),
+		)
+	}
+
 	prevouts := make(map[wire.OutPoint]*wire.TxOut)
 
 	for inputIndex, signedInput := range signed.Inputs {
