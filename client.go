@@ -249,10 +249,12 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 func (a *arkClient) SendOffChain(
 	ctx context.Context, withExpiryCoinselect bool, receivers []types.Receiver,
 ) (string, error) {
+	fmt.Println("SAFE CHECK")
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
 
+	fmt.Println("LOCK")
 	a.coinSelectionLock.Lock()
 	defer a.coinSelectionLock.Unlock()
 
@@ -260,6 +262,7 @@ func (a *arkClient) SendOffChain(
 		return "", fmt.Errorf("missing receivers")
 	}
 
+	fmt.Println("GET ADDRESSES")
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return "", err
@@ -268,6 +271,7 @@ func (a *arkClient) SendOffChain(
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
 	sumOfReceivers := uint64(0)
 
+	fmt.Println("PARSE ADDRESSES")
 	for _, receiver := range receivers {
 		if receiver.IsOnchain() {
 			return "", fmt.Errorf("all receiver addresses must be offchain addresses")
@@ -289,6 +293,7 @@ func (a *arkClient) SendOffChain(
 		sumOfReceivers += receiver.Amount
 	}
 
+	fmt.Println("GET VTXOS")
 	vtxos := make([]client.TapscriptsVtxo, 0)
 	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
 		WithExpirySorting: withExpiryCoinselect,
@@ -317,6 +322,7 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
+	fmt.Println("COIN SELECT")
 	// do not include boarding utxos
 	_, selectedCoins, changeAmount, err := utils.CoinSelect(
 		nil, vtxos, sumOfReceivers, a.Dust, withExpiryCoinselect,
@@ -333,6 +339,7 @@ func (a *arkClient) SendOffChain(
 
 	inputs := make([]arkTxInput, 0, len(selectedCoins))
 
+	fmt.Println("INPUTS")
 	for _, coin := range selectedCoins {
 		vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
 		if err != nil {
@@ -354,16 +361,19 @@ func (a *arkClient) SendOffChain(
 		})
 	}
 
+	fmt.Println("BUILD TX")
 	arkTx, checkpointTxs, err := buildOffchainTx(inputs, receivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
 
+	fmt.Println("SIGN TX")
 	signedArkTx, err := a.wallet.SignTransaction(ctx, a.explorer, arkTx)
 	if err != nil {
 		return "", err
 	}
 
+	fmt.Println("SUBMIT TX")
 	arkTxid, _, signedCheckpointTxs, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
 	if err != nil {
 		return "", err
@@ -371,6 +381,7 @@ func (a *arkClient) SendOffChain(
 
 	// TODO verify if the server correctly signed the ark transaction and the checkpoints
 
+	fmt.Println("SIGN TX")
 	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
 
 	for _, checkpoint := range signedCheckpointTxs {
@@ -381,6 +392,7 @@ func (a *arkClient) SendOffChain(
 		finalCheckpoints = append(finalCheckpoints, signedTx)
 	}
 
+	fmt.Println("FINALIZE TX")
 	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
 		return "", err
 	}
@@ -390,7 +402,7 @@ func (a *arkClient) SendOffChain(
 	}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-
+	fmt.Println("UPDATE DB")
 	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
 	for i, vtxo := range selectedCoins {
 		if len(signedCheckpointTxs) <= i {
@@ -436,7 +448,7 @@ func (a *arkClient) SendOffChain(
 		log.Warnf("failed to add transactions: %s, skipping marking transactions as settled", err)
 		return arkTxid, nil
 	}
-
+	fmt.Println("DONE")
 	return arkTxid, nil
 }
 
