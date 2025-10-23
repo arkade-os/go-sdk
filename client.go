@@ -404,10 +404,10 @@ func (a *arkClient) SendOffChain(
 			return arkTxid, nil
 		}
 
-		vtxo.Vtxo.Spent = true
-		vtxo.Vtxo.SpentBy = signedCheckpointTxs[i]
-		vtxo.Vtxo.ArkTxid = arkTxid
-		vtxo.Vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
+		vtxo.Spent = true
+		vtxo.SpentBy = signedCheckpointTxs[i]
+		vtxo.ArkTxid = arkTxid
+		vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
 		spentVtxos = append(spentVtxos, vtxo.Vtxo)
 	}
 
@@ -420,7 +420,7 @@ func (a *arkClient) SendOffChain(
 
 	amount := uint64(0)
 	for _, vtxo := range selectedCoins {
-		amount += vtxo.Vtxo.Amount
+		amount += vtxo.Amount
 	}
 
 	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
