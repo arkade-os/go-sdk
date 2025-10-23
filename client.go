@@ -405,7 +405,6 @@ func (a *arkClient) SendOffChain(
 		}
 
 		vtxo.Vtxo.Spent = true
-		vtxo.Vtxo.SpentBy = signedCheckpointTxs[i]
 		vtxo.Vtxo.ArkTxid = arkTxid
 		vtxo.Vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
 		spentVtxos = append(spentVtxos, vtxo.Vtxo)
