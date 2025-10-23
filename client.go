@@ -3068,7 +3068,9 @@ func toOnchainAddress(arkAddress string, network arklib.Network) (string, error)
 	return addr.String(), nil
 }
 
-func verifySignedCheckpoints(originalCheckpoints, signedCheckpoints []string, signerpubkey *btcec.PublicKey) error {
+func verifySignedCheckpoints(
+	originalCheckpoints, signedCheckpoints []string, signerpubkey *btcec.PublicKey,
+) error {
 	// index by txid
 	indexedOriginalCheckpoints := make(map[string]*psbt.Packet)
 	indexedSignedCheckpoints := make(map[string]*psbt.Packet)
@@ -3143,7 +3145,10 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 	for inputIndex, signedInput := range signed.Inputs {
 		orignalInput := original.Inputs[inputIndex]
 		if len(orignalInput.TaprootLeafScript) == 0 {
-			return fmt.Errorf("original input %d has no taproot leaf script, cannot verify signature", inputIndex)
+			return fmt.Errorf(
+				"original input %d has no taproot leaf script, cannot verify signature",
+				inputIndex,
+			)
 		}
 
 		// check that every input has the signer's signature
