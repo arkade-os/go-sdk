@@ -214,6 +214,9 @@ func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string
 		return "", err
 	}
 
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
@@ -233,6 +236,9 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 		return "", err
 	}
 
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
 	if _, err := btcutil.DecodeAddress(to, nil); err != nil {
 		return "", fmt.Errorf("invalid receiver address '%s': must be onchain", to)
 	}
@@ -246,6 +252,9 @@ func (a *arkClient) SendOffChain(
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
+
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
 
 	if len(receivers) <= 0 {
 		return "", fmt.Errorf("missing receivers")
@@ -355,11 +364,12 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	// TODO store signed ark tx client side ?
 	arkTxid, _, signedCheckpointTxs, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
 	if err != nil {
 		return "", err
 	}
+
+	// TODO verify if the server correctly signed the ark transaction and the checkpoints
 
 	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
 
@@ -373,6 +383,58 @@ func (a *arkClient) SendOffChain(
 
 	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
 		return "", err
+	}
+
+	if !a.WithTransactionFeed {
+		return arkTxid, nil
+	}
+
+	// mark vtxos as spent and add transaction to DB before unlocking the mutex
+
+	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
+	for i, vtxo := range selectedCoins {
+		if len(signedCheckpointTxs) <= i {
+			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
+			return arkTxid, nil
+		}
+
+		checkpointTx, err := psbt.NewFromRawBytes(strings.NewReader(signedCheckpointTxs[i]), true)
+		if err != nil {
+			log.Warnf("failed to parse checkpoint tx: %s, skipping marking vtxo as spent", err)
+			return arkTxid, nil
+		}
+
+		vtxo.Spent = true
+		vtxo.ArkTxid = arkTxid
+		vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
+		spentVtxos = append(spentVtxos, vtxo.Vtxo)
+	}
+
+	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
+		log.Warnf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
+		return arkTxid, nil
+	}
+
+	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
+
+	amount := uint64(0)
+	for _, vtxo := range selectedCoins {
+		amount += vtxo.Amount
+	}
+
+	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
+		{
+			TransactionKey: types.TransactionKey{
+				ArkTxid: arkTxid,
+			},
+			Amount:    amount,
+			Type:      types.TxSent,
+			CreatedAt: time.Now(),
+			Hex:       arkTx,
+		},
+	}); err != nil {
+		log.Warnf("failed to add transactions: %s, skipping marking transactions as settled", err)
+		return arkTxid, nil
 	}
 
 	return arkTxid, nil
@@ -524,6 +586,9 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
@@ -569,7 +634,10 @@ func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) 
 		return "", err
 	}
 
-	return a.sendOffchain(ctx, false, nil, opts...)
+	a.coinSelectionLock.Lock()
+	defer a.coinSelectionLock.Unlock()
+
+	return a.settle(ctx, false, nil, opts...)
 }
 
 func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]types.Transaction, error) {
@@ -1793,7 +1861,7 @@ func (a *arkClient) selectFunds(
 	)
 }
 
-func (a *arkClient) sendOffchain(
+func (a *arkClient) settle(
 	ctx context.Context, computeVtxoExpiry bool, receivers []types.Receiver, settleOpts ...Option,
 ) (string, error) {
 	options := &SettleOptions{}
@@ -2443,6 +2511,9 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 			}
 			spendableVtxos = append(spendableVtxos, vtxo)
 		}
+	} else {
+		spendableVtxos = make([]types.Vtxo, len(spendable))
+		copy(spendableVtxos, spendable)
 	}
 
 	allVtxos := append(recoverableVtxos, spendableVtxos...)
