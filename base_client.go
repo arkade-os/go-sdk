@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -66,7 +67,12 @@ type arkClient struct {
 	stopRestore   context.CancelFunc
 	stopWatch     context.CancelFunc
 
-	verbose bool
+	utxoBroadcaster *utils.Broadcaster[types.UtxoEvent]
+	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
+	txBroadcaster   *utils.Broadcaster[types.TransactionEvent]
+
+	coinSelectionLock sync.Mutex
+	verbose           bool
 }
 
 func (a *arkClient) GetVersion() string {
@@ -100,6 +106,9 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		a.syncErr = nil
 		a.syncCh = make(chan error)
 		a.syncMu = &sync.Mutex{}
+		a.utxoBroadcaster = utils.NewBroadcaster[types.UtxoEvent]()
+		a.vtxoBroadcaster = utils.NewBroadcaster[types.VtxoEvent]()
+		a.txBroadcaster = utils.NewBroadcaster[types.TransactionEvent]()
 
 		go func() {
 			err := <-a.syncCh
@@ -120,6 +129,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			a.stopWatch = cancel
 			go a.listenForArkTxs(ctx)
 			go a.listenForOnchainTxs(ctx)
+			go a.listenDbEvents(ctx)
 		}()
 	}
 
@@ -225,23 +235,29 @@ func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	return offchainAddr.Address, nil
 }
 
-func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
-	if a.store != nil && a.store.TransactionStore() != nil {
-		return a.store.TransactionStore().GetEventChannel()
+func (a *arkClient) GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent {
+	if a.Config != nil && a.WithTransactionFeed {
+		if a.txBroadcaster != nil {
+			return a.txBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
 
 func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
-	if a.store != nil && a.store.VtxoStore() != nil {
-		return a.store.VtxoStore().GetEventChannel()
+	if a.Config != nil && a.WithTransactionFeed {
+		if a.vtxoBroadcaster != nil {
+			return a.vtxoBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
 
 func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
-	if a.store != nil && a.store.UtxoStore() != nil {
-		return a.store.UtxoStore().GetEventChannel()
+	if a.Config != nil && a.WithTransactionFeed {
+		if a.utxoBroadcaster != nil {
+			return a.utxoBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
@@ -260,6 +276,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 
 	a.syncDone = false
 	a.syncErr = nil
+
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
@@ -282,6 +299,7 @@ func (a *arkClient) Stop() {
 
 	a.syncDone = false
 	a.syncErr = nil
+
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
@@ -349,9 +367,9 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 	if !a.WithTransactionFeed {
 		return nil
 	}
+	ch := make(chan types.SyncEvent, 1)
 
 	if a.syncDone {
-		ch := make(chan types.SyncEvent, 1)
 		go func() {
 			ch <- types.SyncEvent{
 				Synced: a.syncErr == nil,
@@ -361,13 +379,7 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 		return ch
 	}
 
-	ch := make(chan types.SyncEvent, 1)
-	go func() {
-		if a.syncListeners == nil {
-			a.syncListeners = newReadyListeners()
-		}
-		a.syncListeners.add(ch)
-	}()
+	a.syncListeners.add(ch)
 	return ch
 }
 
@@ -492,7 +504,6 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
-
 	explorerOpts := []mempool_explorer.Option{
 		mempool_explorer.WithTracker(args.WithTransactionFeed),
 	}
@@ -617,14 +628,20 @@ func (a *arkClient) listVtxosFromIndexer(
 
 	resp, err := a.indexer.GetVtxos(ctx, opt)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
 
 	for _, vtxo := range resp.Vtxos {
-		if vtxo.Spent || vtxo.Swept || vtxo.Unrolled {
+		if vtxo.IsRecoverable() {
+			spendableVtxos = append(spendableVtxos, vtxo)
+			continue
+		}
+
+		if vtxo.Spent || vtxo.Unrolled {
 			spentVtxos = append(spentVtxos, vtxo)
 			continue
 		}
+
 		spendableVtxos = append(spendableVtxos, vtxo)
 	}
 	return
@@ -656,6 +673,64 @@ func (a *arkClient) setRestored(err error) {
 	a.syncListeners.broadcast(err)
 	a.syncListeners.clear()
 
+}
+
+func (a *arkClient) listenDbEvents(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			time.Sleep(100 * time.Millisecond)
+			if a.utxoBroadcaster != nil {
+				a.utxoBroadcaster.Close()
+			}
+			if a.vtxoBroadcaster != nil {
+				a.vtxoBroadcaster.Close()
+			}
+			if a.txBroadcaster != nil {
+				a.txBroadcaster.Close()
+			}
+			return
+		case event, ok := <-a.store.UtxoStore().GetEventChannel():
+			if !ok {
+				continue
+			}
+			go func() {
+				closedListeners := a.utxoBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send utxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		case event, ok := <-a.store.VtxoStore().GetEventChannel():
+			if !ok {
+				continue
+			}
+			go func() {
+				closedListeners := a.vtxoBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send vtxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		case event, ok := <-a.store.TransactionStore().GetEventChannel():
+			if !ok {
+				continue
+			}
+			go func() {
+				closedListeners := a.txBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send utxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		}
+	}
 }
 
 func getClient(
