@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -235,7 +236,7 @@ func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 }
 
 func (a *arkClient) GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent {
-	if a.WithTransactionFeed {
+	if a.Config != nil && a.WithTransactionFeed {
 		if a.txBroadcaster != nil {
 			return a.txBroadcaster.Subscribe(0)
 		}
@@ -244,7 +245,7 @@ func (a *arkClient) GetTransactionEventChannel(ctx context.Context) <-chan types
 }
 
 func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
-	if a.WithTransactionFeed {
+	if a.Config != nil && a.WithTransactionFeed {
 		if a.vtxoBroadcaster != nil {
 			return a.vtxoBroadcaster.Subscribe(0)
 		}
@@ -253,7 +254,7 @@ func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEven
 }
 
 func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
-	if a.WithTransactionFeed {
+	if a.Config != nil && a.WithTransactionFeed {
 		if a.utxoBroadcaster != nil {
 			return a.utxoBroadcaster.Subscribe(0)
 		}
@@ -678,6 +679,7 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			time.Sleep(100 * time.Millisecond)
 			if a.utxoBroadcaster != nil {
 				a.utxoBroadcaster.Close()
 			}
