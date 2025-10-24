@@ -83,6 +83,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 							"0000000000000000000000000000000000000000000000000000000000000000",
 						},
 					})
+				fmt.Println("JBASKKKAKBJAKB", err)
 				if err != nil {
 					// nolint:errcheck
 					pingConn.Close()
@@ -101,6 +102,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		if err != nil {
 			return err
 		}
+		fmt.Println("DIO BOIA")
 		return nil
 	})
 
