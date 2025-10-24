@@ -495,6 +495,7 @@ func (a *grpcClient) GetSubscription(
 				if ok {
 					switch st.Code() {
 					case codes.Canceled:
+						fmt.Println("SUBS STREAM CLOSED!!")
 						return
 					case codes.Unknown:
 						errMsg := st.Message()
@@ -502,10 +503,11 @@ func (a *grpcClient) GetSubscription(
 						if strings.Contains(errMsg, cloudflare524Error) {
 							stream, err = a.svc().GetSubscription(ctx, req)
 							if err != nil {
+								fmt.Println("SUBS STREAM UNKNOWN STATUS!!")
 								eventsCh <- &indexer.ScriptEvent{Err: err}
 								return
 							}
-
+							fmt.Println("CONTINUE???")
 							continue
 						}
 					}
