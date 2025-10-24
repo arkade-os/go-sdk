@@ -75,6 +75,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 			case <-ticker.C:
 				pingConn, err := grpc.NewClient(serverUrl, option)
 				if err != nil {
+					fmt.Println("PING CONN ERR", err)
 					continue
 				}
 				// we use GetInfo to check if the server is ready
@@ -96,6 +97,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		defer client.connMu.Unlock()
 		client.conn, err = grpc.NewClient(serverUrl, option)
 		if err != nil {
+			fmt.Println("CONN ERR", err)
 			return err
 		}
 		return nil
@@ -387,7 +389,9 @@ func (c *grpcClient) GetTransactionsStream(
 		defer close(eventsCh)
 
 		for {
+			fmt.Println("LISTENING TX STREAM")
 			resp, err := stream.Recv()
+			fmt.Println("RECEIVED ERR?", err)
 			if err != nil {
 				if err == io.EOF {
 					eventsCh <- client.TransactionEvent{Err: client.ErrConnectionClosedByServer}
@@ -397,8 +401,10 @@ func (c *grpcClient) GetTransactionsStream(
 				if ok {
 					switch st.Code() {
 					case codes.Canceled:
+						fmt.Println("IS CANCELED")
 						return
 					case codes.Unknown:
+						fmt.Println("IS UNKNOWNN")
 						errMsg := st.Message()
 						// Check if it's a 524 error during stream reading
 						if strings.Contains(errMsg, cloudflare524Error) {
@@ -412,6 +418,7 @@ func (c *grpcClient) GetTransactionsStream(
 						}
 					}
 				}
+				fmt.Println("SEND ERROR")
 				eventsCh <- client.TransactionEvent{Err: err}
 				return
 			}
