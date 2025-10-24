@@ -301,7 +301,9 @@ func (a *arkClient) SendOffChain(
 	if err != nil {
 		return "", err
 	}
+	fmt.Println("AAHKABVAJKBAKJB")
 
+	fmt.Println("LOOP ADDRESSES")
 	for _, offchainAddr := range offchainAddrs {
 		for _, v := range spendableVtxos {
 			if v.IsRecoverable() {
