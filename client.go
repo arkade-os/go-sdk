@@ -736,14 +736,12 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("stopping ark tx listener")
 			return
 		case event, ok := <-eventChan:
 			if !ok {
 				continue
 			}
 			if errors.Is(event.Err, io.EOF) {
-				closeFunc()
 				return
 			}
 
@@ -778,8 +776,6 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 					continue
 				}
 			}
-		case <-ctx.Done():
-			return
 		}
 	}
 }
