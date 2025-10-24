@@ -316,14 +316,12 @@ func (a *arkClient) Stop() {
 
 func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, error) {
 	if a.WithTransactionFeed {
-		fmt.Println("OK")
 		if err := a.safeCheck(); err != nil {
 			return nil, nil, err
 		}
 		return a.store.VtxoStore().GetAllVtxos(ctx)
 	}
 
-	fmt.Println("NOT OK")
 	return a.listVtxosFromIndexer(ctx)
 }
 

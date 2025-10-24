@@ -65,34 +65,34 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		// wait for the arkd server to be ready by pinging it every 5 seconds
 		ticker := time.NewTicker(time.Second * 5)
 		defer ticker.Stop()
-		isUnlocked := false
-		for !isUnlocked {
+		for {
+			pingConn, err := grpc.NewClient(serverUrl, option)
+			if err != nil {
+				goto wait
+			}
+			// we use GetVirtualTxs with a dummy txid to check if the server is ready
+			// we know that if this RPC returns an error, the server is not unlocked yet
+			_, err = arkv1.NewIndexerServiceClient(pingConn).
+				GetVirtualTxs(ctx, &arkv1.GetVirtualTxsRequest{
+					Txids: []string{
+						"0000000000000000000000000000000000000000000000000000000000000000",
+					},
+				})
+			if err != nil {
+				// nolint:errcheck
+				pingConn.Close()
+				goto wait
+			}
+
+			// nolint:errcheck
+			pingConn.Close()
+			break
+
+		wait:
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-ticker.C:
-				pingConn, err := grpc.NewClient(serverUrl, option)
-				if err != nil {
-					continue
-				}
-				// we use GetVirtualTxs with a dummy txid to check if the server is ready
-				// we know that if this RPC returns an error, the server is not unlocked yet
-				_, err = arkv1.NewIndexerServiceClient(pingConn).
-					GetVirtualTxs(ctx, &arkv1.GetVirtualTxsRequest{
-						Txids: []string{
-							"0000000000000000000000000000000000000000000000000000000000000000",
-						},
-					})
-				fmt.Println("JBASKKKAKBJAKB", err)
-				if err != nil {
-					// nolint:errcheck
-					pingConn.Close()
-					continue
-				}
-
-				// nolint:errcheck
-				pingConn.Close()
-				isUnlocked = true
 			}
 		}
 
@@ -102,7 +102,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		if err != nil {
 			return err
 		}
-		fmt.Println("DIO BOIA")
+		fmt.Println("RECONNECTED")
 		return nil
 	})
 

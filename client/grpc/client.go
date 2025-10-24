@@ -63,34 +63,36 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		client.connMu.Lock()
 		// nolint:errcheck
 		client.conn.Close()
+		fmt.Println("AAAAAAA")
 		client.connMu.Unlock()
 
 		// wait for the arkd server to be ready by pinging it every 5 seconds
 		ticker := time.NewTicker(time.Second * 5)
 		defer ticker.Stop()
-		isUnlocked := false
-		for !isUnlocked {
+		for {
+			pingConn, err := grpc.NewClient(serverUrl, option)
+			if err != nil {
+				fmt.Println("PING CONN ERR", err)
+				goto wait
+			}
+			// we use GetInfo to check if the server is ready
+			// we know that if this RPC returns an error, the server is not unlocked yet
+			_, err = arkv1.NewArkServiceClient(pingConn).GetInfo(ctx, &arkv1.GetInfoRequest{})
+			if err != nil {
+				// nolint:errcheck
+				pingConn.Close()
+				goto wait
+			}
+
+			// nolint:errcheck
+			pingConn.Close()
+			break
+
+		wait:
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-ticker.C:
-				pingConn, err := grpc.NewClient(serverUrl, option)
-				if err != nil {
-					fmt.Println("PING CONN ERR", err)
-					continue
-				}
-				// we use GetInfo to check if the server is ready
-				// we know that if this RPC returns an error, the server is not unlocked yet
-				_, err = arkv1.NewArkServiceClient(pingConn).GetInfo(ctx, &arkv1.GetInfoRequest{})
-				if err != nil {
-					// nolint:errcheck
-					pingConn.Close()
-					continue
-				}
-
-				// nolint:errcheck
-				pingConn.Close()
-				isUnlocked = true
 			}
 		}
 
