@@ -59,7 +59,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		fmt.Println("INDEXER RECONNNNNNN")
 		client.connMu.Lock()
 		// nolint:errcheck
-		client.conn.Close()
+		// client.conn.Close()
 		fmt.Println("PORPPWOP")
 		client.connMu.Unlock()
 
