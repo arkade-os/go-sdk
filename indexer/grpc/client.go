@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
 
@@ -47,7 +48,9 @@ func NewClient(serverUrl, id string) (indexer.Indexer, error) {
 
 	option := grpc.WithTransportCredentials(creds)
 
-	conn, err := grpc.NewClient(serverUrl, option)
+	conn, err := grpc.NewClient(serverUrl, option, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time: 10 * time.Second,
+	}))
 	if err != nil {
 		return nil, err
 	}
