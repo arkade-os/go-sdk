@@ -38,7 +38,7 @@ type ArkClient interface {
 	CollaborativeExit(
 		ctx context.Context, addr string, amount uint64, withExpiryCoinselect bool, opts ...Option,
 	) (string, error)
-	Unroll(ctx context.Context) error
+	Unroll(ctx context.Context, outpointsFilter []types.Outpoint) ([]string, error)
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
