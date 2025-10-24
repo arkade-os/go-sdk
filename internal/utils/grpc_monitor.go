@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -21,6 +22,7 @@ func MonitorGrpcConn(
 			return
 		default:
 			if conn.WaitForStateChange(ctx, conn.GetState()) {
+				fmt.Println("CONN STATUS CHANGED", conn.GetState())
 				if conn.GetState() == connectivity.Ready {
 					// first time we see the connection is ready, we don't want to reconnect
 					if !firstReadySeen {

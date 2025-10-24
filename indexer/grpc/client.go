@@ -56,6 +56,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
 
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
+		fmt.Println("INDEXER RECONNNNNNN")
 		client.connMu.Lock()
 		// nolint:errcheck
 		client.conn.Close()

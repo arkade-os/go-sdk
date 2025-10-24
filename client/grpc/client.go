@@ -59,6 +59,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
 
 	go utils.MonitorGrpcConn(monitoringCtx, conn, func(ctx context.Context) error {
+		fmt.Println("RECONNNNNNN")
 		client.connMu.Lock()
 		// nolint:errcheck
 		client.conn.Close()
