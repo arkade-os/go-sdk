@@ -13,6 +13,7 @@ import (
 	"github.com/arkade-os/go-sdk/indexer"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -20,7 +21,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const cloudflare524Error = "524"
+const (
+	initialDelay       = 1 * time.Second
+	maxDelay           = 60 * time.Second
+	multiplier         = 2.0
+	cloudflare524Error = "524"
+)
 
 type grpcClient struct {
 	conn             *grpc.ClientConn
@@ -53,57 +59,65 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	}
 
 	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
-	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
+	client := &grpcClient{
+		conn:             conn,
+		connMu:           sync.RWMutex{},
+		monitoringCancel: monitoringCancel,
+	}
 
+	// Monitor the same connection - gRPC will handle reconnection internally
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
-		client.connMu.Lock()
-		// nolint:errcheck
-		client.conn.Close()
-		client.connMu.Unlock()
-
-		// wait for the arkd server to be ready by pinging it every 5 seconds
-		ticker := time.NewTicker(time.Second * 5)
-		defer ticker.Stop()
-		isUnlocked := false
-		for !isUnlocked {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-				pingConn, err := grpc.NewClient(serverUrl, option)
-				if err != nil {
-					continue
-				}
-				// we use GetVirtualTxs with a dummy txid to check if the server is ready
-				// we know that if this RPC returns an error, the server is not unlocked yet
-				_, err = arkv1.NewIndexerServiceClient(pingConn).
-					GetVirtualTxs(ctx, &arkv1.GetVirtualTxsRequest{
-						Txids: []string{
-							"0000000000000000000000000000000000000000000000000000000000000000",
-						},
-					})
-				if err != nil {
-					// nolint:errcheck
-					pingConn.Close()
-					continue
-				}
-
-				// nolint:errcheck
-				pingConn.Close()
-				isUnlocked = true
-			}
+		// Wait for the server to be actually ready for requests
+		if err := client.waitForServerReady(ctx, serverUrl, option); err != nil {
+			return fmt.Errorf("server not ready after reconnection: %w", err)
 		}
 
-		client.connMu.Lock()
-		defer client.connMu.Unlock()
-		client.conn, err = grpc.NewClient(serverUrl, option)
-		if err != nil {
-			return err
-		}
+		// Optionally: trigger any application-level state refresh here
+		// e.g., resubscribe to streams, refresh cache, etc.
+
 		return nil
 	})
 
 	return client, nil
+}
+
+// Separate helper method to check if server is ready with exponential backoff
+func (c *grpcClient) waitForServerReady(ctx context.Context, serverUrl string, option grpc.DialOption) error {
+	delay := initialDelay
+	attempt := 0
+
+	// Create a temporary client to test the server
+	testClient := arkv1.NewIndexerServiceClient(c.conn)
+
+	for {
+		attempt++
+
+		// Use a short timeout for each ping attempt
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := testClient.GetVirtualTxs(pingCtx, &arkv1.GetVirtualTxsRequest{
+			Txids: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			},
+		})
+		cancel()
+
+		if err == nil {
+			// Server responded successfully
+			log.Debugf("connection restored after %d attempt(s)", attempt)
+			return nil
+		}
+
+		log.Debugf("connection not ready (attempt %d), retrying in %v: %v\n", attempt, delay, err)
+
+		// Wait with exponential backoff before retrying
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+			// Increase delay for next attempt
+			delay = min(time.Duration(float64(delay)*multiplier), maxDelay)
+		}
+	}
 }
 
 func (a *grpcClient) svc() arkv1.IndexerServiceClient {
