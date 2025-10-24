@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -23,6 +24,7 @@ func MonitorGrpcConn(
 
 			if conn.WaitForStateChange(ctx, currentState) {
 				newState := conn.GetState()
+				fmt.Println("CONN STATE", currentState, newState)
 
 				// Track if we've seen the initial Ready state
 				if newState == connectivity.Ready && !firstReadySeen {
