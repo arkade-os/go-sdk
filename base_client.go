@@ -745,7 +745,7 @@ func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
 		return nil, fmt.Errorf("invalid client type")
 	}
 	if clientType == GrpcClient {
-		return grpcindexer.NewClient(serverUrl)
+		return grpcindexer.NewClient(serverUrl, "sdk")
 	}
 	return restindexer.NewClient(serverUrl)
 }

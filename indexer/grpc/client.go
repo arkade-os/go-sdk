@@ -28,7 +28,7 @@ type grpcClient struct {
 	monitoringCancel context.CancelFunc
 }
 
-func NewClient(serverUrl string) (indexer.Indexer, error) {
+func NewClient(serverUrl, id string) (indexer.Indexer, error) {
 	if len(serverUrl) <= 0 {
 		return nil, fmt.Errorf("missing server url")
 	}
@@ -56,7 +56,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
 
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
-		fmt.Println("INDEXER RECONNNNNNN")
+		fmt.Println("INDEXER RECONNNNNNN", id)
 		client.connMu.Lock()
 		// nolint:errcheck
 		oldConn := client.conn
