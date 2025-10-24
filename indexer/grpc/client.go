@@ -60,6 +60,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		client.connMu.Lock()
 		// nolint:errcheck
 		client.conn.Close()
+		fmt.Println("PORPPWOP")
 		client.connMu.Unlock()
 
 		// wait for the arkd server to be ready by pinging it every 5 seconds
