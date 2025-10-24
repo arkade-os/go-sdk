@@ -480,14 +480,23 @@ func (a *arkClient) RedeemNotes(
 	return a.joinBatchWithRetry(ctx, notes, receiversOutput, *options, nil, nil)
 }
 
-func (a *arkClient) Unroll(ctx context.Context) error {
+func (a *arkClient) Unroll(
+	ctx context.Context,
+	outpointsFilter []types.Outpoint,
+) ([]string, error) {
 	if err := a.safeCheck(); err != nil {
-		return err
+		return nil, err
 	}
 
-	vtxos, err := a.getVtxos(ctx, nil)
+	vtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
+		OutpointsFilter: outpointsFilter,
+	})
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	if len(vtxos) == 0 {
+		return nil, nil
 	}
 
 	totalVtxosAmount := uint64(0)
@@ -501,10 +510,10 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 
 	redeemBranches, err := a.getRedeemBranches(ctx, vtxos)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	isWaitingForConfirmation := false
+	waitingForConfirmation := make([]redemption.ErrPendingConfirmation, 0)
 
 	for _, branch := range redeemBranches {
 		nextTx, err := branch.NextRedeemTx()
@@ -514,11 +523,11 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 				// print only, do not make the function to fail
 				// continue to try other branches
 				log.Debug(err.Error())
-				isWaitingForConfirmation = true
+				waitingForConfirmation = append(waitingForConfirmation, err)
 				continue
 			}
 
-			return err
+			return nil, err
 		}
 
 		if _, ok := transactionsMap[nextTx]; !ok {
@@ -528,34 +537,46 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 	}
 
 	if len(transactions) == 0 {
-		if isWaitingForConfirmation {
-			return ErrWaitingForConfirmation
+		if len(waitingForConfirmation) > 0 {
+			txids := make([]string, 0, len(waitingForConfirmation))
+			for _, err := range waitingForConfirmation {
+				txids = append(txids, err.Txid)
+			}
+
+			return nil, fmt.Errorf(
+				"exit is running, waiting for confirmation(s): %s",
+				strings.Join(txids, ", "),
+			)
 		}
 
-		return nil
+		return nil, nil
 	}
+
+	packageResponses := make([]string, 0, len(transactions))
 
 	for _, parent := range transactions {
 		var parentTx wire.MsgTx
 		if err := parentTx.Deserialize(hex.NewDecoder(strings.NewReader(parent))); err != nil {
-			return err
+			return nil, err
 		}
 
 		child, err := a.bumpAnchorTx(ctx, &parentTx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// broadcast the package (parent + child)
 		packageResponse, err := a.explorer.Broadcast(parent, child)
 		if err != nil {
-			return err
+			return nil, err
 		}
+
+		packageResponses = append(packageResponses, packageResponse)
 
 		log.Debugf("package broadcasted: %s", packageResponse)
 	}
 
-	return nil
+	return packageResponses, nil
 }
 
 func (a *arkClient) CompleteUnroll(
@@ -1539,6 +1560,7 @@ func (a *arkClient) bumpAnchorTx(ctx context.Context, parent *wire.MsgTx) (strin
 	selectedCoins := make([]explorer.Utxo, 0)
 	selectedAmount := uint64(0)
 	amountToSelect := int64(fees) - txutils.ANCHOR_VALUE
+	uncomfirmedBalance := uint64(0)
 	for _, addr := range addresses {
 		utxos, err := a.explorer.GetUtxos(addr)
 		if err != nil {
@@ -1546,6 +1568,11 @@ func (a *arkClient) bumpAnchorTx(ctx context.Context, parent *wire.MsgTx) (strin
 		}
 
 		for _, utxo := range utxos {
+			if !utxo.Status.Confirmed {
+				uncomfirmedBalance += utxo.Amount
+				continue
+			}
+
 			selectedCoins = append(selectedCoins, utxo)
 			selectedAmount += utxo.Amount
 			amountToSelect -= int64(selectedAmount)
@@ -1556,7 +1583,10 @@ func (a *arkClient) bumpAnchorTx(ctx context.Context, parent *wire.MsgTx) (strin
 	}
 
 	if amountToSelect > 0 {
-		return "", fmt.Errorf("not enough funds to select %d", amountToSelect)
+		return "", fmt.Errorf(
+			"not enough confirmed funds to select %d (uncomfirmed balance: %d)",
+			amountToSelect, uncomfirmedBalance,
+		)
 	}
 
 	changeAmount := selectedAmount - fees
