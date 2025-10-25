@@ -65,7 +65,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
 		// Wait for the server to be actually ready for requests
-		if err := client.waitForServerReady(ctx, serverUrl, option); err != nil {
+		if err := client.waitForServerReady(ctx); err != nil {
 			return fmt.Errorf("server not ready after reconnection: %w", err)
 		}
 
@@ -78,7 +78,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	return client, nil
 }
 
-func (c *grpcClient) waitForServerReady(ctx context.Context, serverUrl string, option grpc.DialOption) error {
+func (c *grpcClient) waitForServerReady(ctx context.Context) error {
 	delay := initialDelay
 	attempt := 0
 
