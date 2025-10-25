@@ -27,6 +27,7 @@ import (
 	"github.com/arkade-os/go-sdk/redemption"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -364,12 +365,21 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	arkTxid, _, signedCheckpointTxs, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
+	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(
+		ctx, signedArkTx, checkpointTxs,
+	)
 	if err != nil {
 		return "", err
 	}
 
-	// TODO verify if the server correctly signed the ark transaction and the checkpoints
+	// validate and verify transactions returned by the server
+	if err := verifySignedArk(arkTx, signedArkTx, a.SignerPubKey); err != nil {
+		return "", err
+	}
+
+	if err := verifySignedCheckpoints(checkpointTxs, signedCheckpointTxs, a.SignerPubKey); err != nil {
+		return "", err
+	}
 
 	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
 
@@ -3056,4 +3066,142 @@ func toOnchainAddress(arkAddress string, network arklib.Network) (string, error)
 	}
 
 	return addr.String(), nil
+}
+
+func verifySignedCheckpoints(
+	originalCheckpoints, signedCheckpoints []string, signerpubkey *btcec.PublicKey,
+) error {
+	// index by txid
+	indexedOriginalCheckpoints := make(map[string]*psbt.Packet)
+	indexedSignedCheckpoints := make(map[string]*psbt.Packet)
+
+	for _, cp := range originalCheckpoints {
+		originalPtx, err := psbt.NewFromRawBytes(strings.NewReader(cp), true)
+		if err != nil {
+			return err
+		}
+		indexedOriginalCheckpoints[originalPtx.UnsignedTx.TxID()] = originalPtx
+	}
+
+	for _, cp := range signedCheckpoints {
+		signedPtx, err := psbt.NewFromRawBytes(strings.NewReader(cp), true)
+		if err != nil {
+			return err
+		}
+		indexedSignedCheckpoints[signedPtx.UnsignedTx.TxID()] = signedPtx
+	}
+
+	for txid, originalPtx := range indexedOriginalCheckpoints {
+		signedPtx, ok := indexedSignedCheckpoints[txid]
+		if !ok {
+			return fmt.Errorf("signed checkpoint %s not found", txid)
+		}
+		if err := verifyOffchainPsbt(originalPtx, signedPtx, signerpubkey); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func verifySignedArk(original, signed string, signerPubKey *btcec.PublicKey) error {
+	originalPtx, err := psbt.NewFromRawBytes(strings.NewReader(original), true)
+	if err != nil {
+		return err
+	}
+
+	signedPtx, err := psbt.NewFromRawBytes(strings.NewReader(signed), true)
+	if err != nil {
+		return err
+	}
+
+	return verifyOffchainPsbt(originalPtx, signedPtx, signerPubKey)
+}
+
+func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.PublicKey) error {
+	xonlySigner := schnorr.SerializePubKey(signerpubkey)
+
+	if original.UnsignedTx.TxID() != signed.UnsignedTx.TxID() {
+		return fmt.Errorf("invalid offchain tx : txids mismatch")
+	}
+
+	if len(original.Inputs) != len(signed.Inputs) {
+		return fmt.Errorf(
+			"input count mismatch: expected %d, got %d",
+			len(original.Inputs),
+			len(signed.Inputs),
+		)
+	}
+
+	if len(original.UnsignedTx.TxIn) != len(signed.UnsignedTx.TxIn) {
+		return fmt.Errorf(
+			"transaction input count mismatch: expected %d, got %d",
+			len(original.UnsignedTx.TxIn),
+			len(signed.UnsignedTx.TxIn),
+		)
+	}
+
+	prevouts := make(map[wire.OutPoint]*wire.TxOut)
+
+	for inputIndex, signedInput := range signed.Inputs {
+
+		if signedInput.WitnessUtxo == nil {
+			return fmt.Errorf("witness utxo not found for input %d", inputIndex)
+		}
+
+		// fill prevouts map with the original witness data
+		previousOutpoint := original.UnsignedTx.TxIn[inputIndex].PreviousOutPoint
+		prevouts[previousOutpoint] = original.Inputs[inputIndex].WitnessUtxo
+	}
+
+	prevoutFetcher := txscript.NewMultiPrevOutFetcher(prevouts)
+	txsigHashes := txscript.NewTxSigHashes(original.UnsignedTx, prevoutFetcher)
+
+	// loop over every input and check that the signer's signature is present and valid
+	for inputIndex, signedInput := range signed.Inputs {
+		orignalInput := original.Inputs[inputIndex]
+		if len(orignalInput.TaprootLeafScript) == 0 {
+			return fmt.Errorf(
+				"original input %d has no taproot leaf script, cannot verify signature",
+				inputIndex,
+			)
+		}
+
+		// check that every input has the signer's signature
+		var signerSig *psbt.TaprootScriptSpendSig
+
+		for _, sig := range signedInput.TaprootScriptSpendSig {
+			if bytes.Equal(sig.XOnlyPubKey, xonlySigner) {
+				signerSig = sig
+				break
+			}
+		}
+
+		if signerSig == nil {
+			return fmt.Errorf("signer signature not found for input %d", inputIndex)
+		}
+
+		sig, err := schnorr.ParseSignature(signerSig.Signature)
+		if err != nil {
+			return fmt.Errorf("failed to parse signer signature for input %d: %s", inputIndex, err)
+		}
+
+		// verify the signature
+		message, err := txscript.CalcTapscriptSignaturehash(
+			txsigHashes,
+			signedInput.SighashType,
+			original.UnsignedTx,
+			inputIndex,
+			prevoutFetcher,
+			txscript.NewBaseTapLeaf(orignalInput.TaprootLeafScript[0].Script),
+		)
+		if err != nil {
+			return err
+		}
+
+		if !sig.Verify(message, signerpubkey) {
+			return fmt.Errorf("invalid signer signature for input %d", inputIndex)
+		}
+	}
+	return nil
 }
