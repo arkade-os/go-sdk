@@ -324,6 +324,50 @@ func (q *Queries) SelectAllVtxos(ctx context.Context) ([]Vtxo, error) {
 	return items, nil
 }
 
+const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid
+FROM vtxo
+WHERE spent = false AND swept = false AND unrolled = false
+`
+
+func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]Vtxo, error) {
+	rows, err := q.db.QueryContext(ctx, selectSpendableVtxos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Vtxo
+	for rows.Next() {
+		var i Vtxo
+		if err := rows.Scan(
+			&i.Txid,
+			&i.Vout,
+			&i.Script,
+			&i.Amount,
+			&i.CommitmentTxids,
+			&i.SpentBy,
+			&i.Spent,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.Preconfirmed,
+			&i.Swept,
+			&i.SettledBy,
+			&i.Unrolled,
+			&i.ArkTxid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectTxs = `-- name: SelectTxs :many
 SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by FROM tx
 WHERE txid IN (/*SLICE:txids*/?)

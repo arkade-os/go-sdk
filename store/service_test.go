@@ -404,6 +404,14 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
 
+		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		require.NoError(t, err)
+		require.Len(t, spendable, len(testVtxos))
+		for _, v := range spendable {
+			require.False(t, v.Spent)
+			require.False(t, v.Unrolled)
+		}
+
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
 		require.Equal(t, testVtxos, vtxos)

@@ -236,6 +236,20 @@ func (v *vtxoRepository) GetVtxos(
 	return vtxos, nil
 }
 
+func (v *vtxoRepository) GetSpendableVtxos(
+	ctx context.Context,
+) (spendable []types.Vtxo, err error) {
+	rows, err := v.querier.SelectSpendableVtxos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		vtxo := rowToVtxo(row)
+		spendable = append(spendable, vtxo)
+	}
+	return spendable, nil
+}
+
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
 	return v.eventCh
 }

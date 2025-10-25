@@ -314,6 +314,25 @@ func (a *arkClient) Stop() {
 	a.store.Close()
 }
 
+func (a *arkClient) ListSpendableVtxos(ctx context.Context) ([]types.Vtxo, error) {
+	if a.WithTransactionFeed {
+		if err := a.safeCheck(); err != nil {
+			return nil, err
+		}
+		spendable, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return spendable, nil
+	}
+
+	spendable, _, err := a.listVtxosFromIndexer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return spendable, nil
+}
+
 func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, error) {
 	if a.WithTransactionFeed {
 		if err := a.safeCheck(); err != nil {

@@ -20,6 +20,11 @@ SELECT *
 FROM vtxo
 WHERE txid = :txid AND vout = :vout;
 
+-- name: SelectSpendableVtxos :many
+SELECT *
+FROM vtxo
+WHERE spent = false AND unrolled = false;
+
 -- name: CleanVtxos :exec
 DELETE FROM vtxo;
 
