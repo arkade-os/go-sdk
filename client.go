@@ -416,6 +416,10 @@ func (a *arkClient) SendOffChain(
 			commitmentTxids[commitmentTxid] = struct{}{}
 		}
 
+		if vtxo.ExpiresAt.IsZero() {
+			continue
+		}
+
 		if smallestExpiration.IsZero() {
 			smallestExpiration = vtxo.ExpiresAt
 			continue
@@ -424,6 +428,11 @@ func (a *arkClient) SendOffChain(
 		if smallestExpiration.After(vtxo.ExpiresAt) {
 			smallestExpiration = vtxo.ExpiresAt
 		}
+	}
+
+	if smallestExpiration.IsZero() {
+		log.Warnf("no expiration time found, skipping adding change vtxo")
+		return arkTxid, nil
 	}
 
 	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
