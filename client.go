@@ -464,8 +464,7 @@ func (a *arkClient) SendOffChain(
 			{
 				Outpoint: types.Outpoint{
 					Txid: arkTxid,
-					// the change vtxo is the last receiver but not the last output because of the anchor output
-					VOut: uint32(len(receivers) - 2),
+					VOut: uint32(len(receivers) - 1),
 				},
 				Amount:          changeAmount,
 				Unrolled:        false,
