@@ -2572,7 +2572,7 @@ func (a *arkClient) getExpiredBoardingUtxos(
 }
 
 func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]types.Vtxo, error) {
-	spendable, _, err := a.ListVtxos(ctx)
+	spendable, err := a.ListSpendableVtxos(ctx)
 	if err != nil {
 		return nil, err
 	}
