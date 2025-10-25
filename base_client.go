@@ -71,8 +71,7 @@ type arkClient struct {
 	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
 	txBroadcaster   *utils.Broadcaster[types.TransactionEvent]
 
-	coinSelectionLock sync.Mutex
-	verbose           bool
+	verbose bool
 }
 
 func (a *arkClient) GetVersion() string {
