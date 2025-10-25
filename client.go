@@ -392,6 +392,9 @@ func (a *arkClient) SendOffChain(
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 
 	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
+	spentAmount := uint64(0)
+	commitmentTxids := make(map[string]struct{}, 0)
+	smallestExpiration := time.Time{}
 	for i, vtxo := range selectedCoins {
 		if len(signedCheckpointTxs) <= i {
 			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
@@ -408,6 +411,19 @@ func (a *arkClient) SendOffChain(
 		vtxo.ArkTxid = arkTxid
 		vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
 		spentVtxos = append(spentVtxos, vtxo.Vtxo)
+		spentAmount += vtxo.Amount
+		for _, commitmentTxid := range vtxo.CommitmentTxids {
+			commitmentTxids[commitmentTxid] = struct{}{}
+		}
+
+		if smallestExpiration.IsZero() {
+			smallestExpiration = vtxo.ExpiresAt
+			continue
+		}
+
+		if smallestExpiration.After(vtxo.ExpiresAt) {
+			smallestExpiration = vtxo.ExpiresAt
+		}
 	}
 
 	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
@@ -417,19 +433,60 @@ func (a *arkClient) SendOffChain(
 
 	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
 
-	amount := uint64(0)
-	for _, vtxo := range selectedCoins {
-		amount += vtxo.Amount
+	createdAt := time.Now()
+
+	if changeAmount > 0 {
+		// subtract the change amount from the spent amount
+		spentAmount -= changeAmount
+
+		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
+		if err != nil {
+			return "", err
+		}
+
+		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
+		if err != nil {
+			return "", err
+		}
+
+		commitmentTxidsList := make([]string, 0, len(commitmentTxids))
+		for commitmentTxid := range commitmentTxids {
+			commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
+		}
+
+		// save change vtxo to DB
+		if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
+			{
+				Outpoint: types.Outpoint{
+					Txid: arkTxid,
+					// the change vtxo is the last receiver but not the last output because of the anchor output
+					VOut: uint32(len(receivers) - 2),
+				},
+				Amount:          changeAmount,
+				Unrolled:        false,
+				Spent:           false,
+				Swept:           false,
+				Preconfirmed:    true,
+				CreatedAt:       createdAt,
+				ExpiresAt:       smallestExpiration,
+				Script:          hex.EncodeToString(changeScript),
+				CommitmentTxids: commitmentTxidsList,
+			},
+		}); err != nil {
+			log.Warnf("failed to add change vtxo: %s, skipping marking change vtxo as spent", err)
+			return arkTxid, nil
+		}
 	}
 
+	// save sent transaction to DB
 	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
 		{
 			TransactionKey: types.TransactionKey{
 				ArkTxid: arkTxid,
 			},
-			Amount:    amount,
+			Amount:    spentAmount,
 			Type:      types.TxSent,
-			CreatedAt: time.Now(),
+			CreatedAt: createdAt,
 			Hex:       arkTx,
 		},
 	}); err != nil {
