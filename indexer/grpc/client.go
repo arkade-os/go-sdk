@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	initialDelay       = 1 * time.Second
+	initialDelay       = 5 * time.Second
 	maxDelay           = 60 * time.Second
 	multiplier         = 2.0
 	cloudflare524Error = "524"
@@ -72,7 +72,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 			return fmt.Errorf("server not ready after reconnection: %w", err)
 		}
 
-		// Optionally: trigger any application-level state refresh here
+		// TODO: trigger any application-level state refresh here
 		// e.g., resubscribe to streams, refresh cache, etc.
 
 		return nil
@@ -81,7 +81,6 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	return client, nil
 }
 
-// Separate helper method to check if server is ready with exponential backoff
 func (c *grpcClient) waitForServerReady(ctx context.Context, serverUrl string, option grpc.DialOption) error {
 	delay := initialDelay
 	attempt := 0
