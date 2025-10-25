@@ -444,7 +444,12 @@ func (a *arkClient) SendOffChain(
 			return "", err
 		}
 
-		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
+		var changeScript []byte
+		if changeAmount < a.Dust {
+			changeScript, err = script.SubDustScript(changeAddr.VtxoTapKey)
+		} else {
+			changeScript, err = script.P2TRScript(changeAddr.VtxoTapKey)
+		}
 		if err != nil {
 			return "", err
 		}
