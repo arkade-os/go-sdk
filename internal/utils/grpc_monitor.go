@@ -34,16 +34,16 @@ func MonitorGrpcConn(
 				}
 
 				// Mark as disconnected when we hit a failure state
-				if newState == connectivity.TransientFailure || newState == connectivity.Shutdown {
+				if !wasDisconnected && newState == connectivity.TransientFailure || newState == connectivity.Shutdown {
 					wasDisconnected = true
+					if err := onReconnect(ctx); err != nil {
+						logrus.WithError(err).Error("failed to reconnect to grpc server")
+					}
 				}
 
 				// Only trigger callback if we're recovering from a disconnection
 				if newState == connectivity.Ready && wasDisconnected {
 					wasDisconnected = false
-					if err := onReconnect(ctx); err != nil {
-						logrus.WithError(err).Error("failed to reconnect to grpc server")
-					}
 				}
 			}
 		}
