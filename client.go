@@ -473,7 +473,7 @@ func (a *arkClient) SendOffChain(
 				CommitmentTxids: commitmentTxidsList,
 			},
 		}); err != nil {
-			log.Warnf("failed to add change vtxo: %s, skipping marking change vtxo as spent", err)
+			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
 			return arkTxid, nil
 		}
 	}
@@ -490,7 +490,7 @@ func (a *arkClient) SendOffChain(
 			Hex:       arkTx,
 		},
 	}); err != nil {
-		log.Warnf("failed to add transactions: %s, skipping marking transactions as settled", err)
+		log.Warnf("failed to add transactions: %s, skipping adding sent transaction", err)
 		return arkTxid, nil
 	}
 
