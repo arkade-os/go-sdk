@@ -478,7 +478,7 @@ func (a *arkClient) SendOffChain(
 				Amount:          changeAmount,
 				Unrolled:        false,
 				Spent:           false,
-				Swept:           false,
+				Swept:           changeAmount < a.Dust, // make it recoverable if change is sub-dust
 				Preconfirmed:    true,
 				CreatedAt:       createdAt,
 				ExpiresAt:       smallestExpiration,
