@@ -31,6 +31,7 @@ var (
 		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		ForfeitAddress:      "bcrt1qzvqj",
 		CheckpointTapscript: "abcdefghijklmnopqrtuvxyz",
+		InfoDigest:          "test-info-digest",
 	}
 
 	testUtxos = []types.Utxo{
