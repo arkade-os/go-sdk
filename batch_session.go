@@ -257,7 +257,7 @@ func JoinBatchSession(
 					continue
 				}
 
-				if vtxoTree == nil {
+				if options.signVtxoTree && vtxoTree == nil {
 					return "", fmt.Errorf("vtxo tree not initialized")
 				}
 
@@ -699,14 +699,7 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 		); err != nil {
 			return err
 		}
-	}
 
-	// validate it contains our outputs
-	if err := validateReceivers(h.Network, commitmentPtx, h.receivers, vtxoTree); err != nil {
-		return err
-	}
-
-	if len(h.vtxos) > 0 {
 		rootParentTxid := vtxoTree.Root.UnsignedTx.TxIn[0].PreviousOutPoint.Hash.String()
 		rootParentVout := vtxoTree.Root.UnsignedTx.TxIn[0].PreviousOutPoint.Index
 
@@ -725,7 +718,14 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 				0,
 			)
 		}
+	}
 
+	// validate it contains our outputs
+	if err := validateReceivers(h.Network, commitmentPtx, h.receivers, vtxoTree); err != nil {
+		return err
+	}
+
+	if len(h.vtxos) > 0 {
 		if connectorTree != nil {
 			if err := connectorTree.Validate(); err != nil {
 				return err
