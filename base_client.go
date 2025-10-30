@@ -54,7 +54,9 @@ func WithVerbose() ClientOption {
 // WithRefreshDb enables periodic refresh of the db when WithTransactionFeed is set
 func WithRefreshDb(interval time.Duration) ClientOption {
 	return func(c *arkClient) {
-		c.refreshDbInterval = interval
+		if interval > 0 {
+			c.refreshDbInterval = interval
+		}
 	}
 }
 
