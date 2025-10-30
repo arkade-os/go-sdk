@@ -51,6 +51,13 @@ func WithVerbose() ClientOption {
 	}
 }
 
+// WithRefreshDb enables periodic refresh of the db when WithTransactionFeed is set
+func WithRefreshDb(interval time.Duration) ClientOption {
+	return func(c *arkClient) {
+		c.refreshDbInterval = interval
+	}
+}
+
 type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
@@ -59,13 +66,14 @@ type arkClient struct {
 	client   client.TransportClient
 	indexer  indexer.Indexer
 
-	syncMu        *sync.Mutex
-	syncCh        chan error
-	syncDone      bool
-	syncErr       error
-	syncListeners *syncListeners
-	stopRestore   context.CancelFunc
-	stopWatch     context.CancelFunc
+	syncMu            *sync.Mutex
+	syncCh            chan error
+	syncDone          bool
+	syncErr           error
+	syncListeners     *syncListeners
+	stopRestore       context.CancelFunc
+	stopWatch         context.CancelFunc
+	refreshDbInterval time.Duration
 
 	utxoBroadcaster *utils.Broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
@@ -138,19 +146,18 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			go a.listenDbEvents(ctxStream)
 
 			// start periodic refresh db
-			interval := time.Minute
-			if cfgData.ExplorerTrackingPollInterval > 0 {
-				interval = cfgData.ExplorerTrackingPollInterval
-			}
-			go a.periodicRefreshDb(ctxPoll, interval)
+			go a.periodicRefreshDb(ctxPoll)
 		}()
 	}
 
 	return nil
 }
 
-func (a *arkClient) periodicRefreshDb(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
+func (a *arkClient) periodicRefreshDb(ctx context.Context) {
+	if a.refreshDbInterval == 0 {
+		return
+	}
+	ticker := time.NewTicker(a.refreshDbInterval)
 	defer ticker.Stop()
 	for {
 		select {
