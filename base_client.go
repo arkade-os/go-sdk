@@ -124,15 +124,44 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			a.syncCh <- err
 			close(a.syncCh)
 
-			ctx, cancel = context.WithCancel(context.Background())
-			a.stopWatch = cancel
-			go a.listenForArkTxs(ctx)
-			go a.listenForOnchainTxs(ctx)
-			go a.listenDbEvents(ctx)
+			ctxBg := context.Background()
+			ctxStream, cancelStream := context.WithCancel(ctxBg)
+			ctxPoll, cancelPoll := context.WithCancel(ctxBg)
+			a.stopWatch = func() {
+				cancelStream()
+				cancelPoll()
+			}
+
+			// start listening to stream events
+			go a.listenForArkTxs(ctxStream)
+			go a.listenForOnchainTxs(ctxStream)
+			go a.listenDbEvents(ctxStream)
+
+			// start periodic refresh db
+			interval := time.Minute
+			if cfgData.ExplorerTrackingPollInterval > 0 {
+				interval = cfgData.ExplorerTrackingPollInterval
+			}
+			go a.periodicRefreshDb(ctxPoll, interval)
 		}()
 	}
 
 	return nil
+}
+
+func (a *arkClient) periodicRefreshDb(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := a.refreshDb(ctx); err != nil {
+				log.WithError(err).Error("failed to refresh db")
+			}
+		}
+	}
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {
