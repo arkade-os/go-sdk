@@ -281,6 +281,9 @@ func (a *arkClient) SendOffChain(
 		sumOfReceivers += receiver.Amount
 	}
 
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
 	vtxos := make([]client.TapscriptsVtxo, 0)
 	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
 		WithExpirySorting: withExpiryCoinselect,
@@ -556,6 +559,9 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
 	vtxos, err := a.getVtxos(ctx, nil)
 	if err != nil {
 		return err
@@ -674,6 +680,9 @@ func (a *arkClient) CollaborativeExit(
 	}
 
 	receivers := []types.Receiver{{To: addr, Amount: amount}}
+
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
 
 	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
 		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount,
@@ -954,9 +963,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(txsToAdd) > 0 {
+				a.dbMu.Lock()
 				count, err := a.store.TransactionStore().AddTransactions(
 					ctx, txsToAdd,
 				)
+				a.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to add new boarding transactions")
 					continue
@@ -967,9 +978,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(txsToConfirm) > 0 {
+				a.dbMu.Lock()
 				count, err := a.store.TransactionStore().ConfirmTransactions(
 					ctx, txsToConfirm, time.Now(),
 				)
+				a.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to update boarding transactions")
 					continue
@@ -980,8 +993,10 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(update.Replacements) > 0 {
+				a.dbMu.Lock()
 				count, err := a.store.TransactionStore().RbfTransactions(ctx, update.Replacements)
 				if err != nil {
+					a.dbMu.Unlock()
 					log.WithError(err).Error("failed to update rbf boarding transactions")
 					continue
 				}
@@ -1022,6 +1037,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						}
 					}
 				}
+				a.dbMu.Unlock()
 			}
 
 			if len(update.NewUtxos) > 0 {
@@ -1055,7 +1071,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					})
 				}
 
+				a.dbMu.Lock()
 				count, err := a.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
+				a.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to add new boarding utxos")
 					continue
@@ -1064,8 +1082,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					log.Debugf("added %d new boarding utxo(s)", count)
 				}
 			}
+
 			if len(utxosToConfirm) > 0 {
+				a.dbMu.Lock()
 				count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
+				a.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to add new boarding utxos")
 					continue
@@ -1075,7 +1096,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				}
 			}
 			if len(utxosToSpend) > 0 {
+				a.dbMu.Lock()
 				count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+				a.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to mark boarding utxos as spent")
 					continue
@@ -1094,6 +1117,9 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
+
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
 
 	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.listVtxosFromIndexer(ctx)
@@ -1170,6 +1196,10 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
+
+	// TODO make DB queries transactional
+
+	// TODO goroutines
 
 	// Update tx history in db.
 	if err := a.refreshTxDb(ctx, history); err != nil {
@@ -1706,6 +1736,9 @@ func (a *arkClient) sendExpiredBoardingUtxos(ctx context.Context, to string) (st
 		return "", err
 	}
 
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
 	utxos, err := a.getExpiredBoardingUtxos(ctx, nil)
 	if err != nil {
 		return "", err
@@ -1968,6 +2001,9 @@ func (a *arkClient) settle(
 		})
 		sumOfReceivers += receiver.Amount
 	}
+
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
 
 	// coinselect boarding utxos and vtxos
 	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
@@ -2644,6 +2680,9 @@ func (a *arkClient) getBoardingTxs(ctx context.Context) ([]types.Transaction, er
 func (a *arkClient) handleCommitmentTx(
 	ctx context.Context, myPubkeys map[string]struct{}, commitmentTx *client.TxNotification,
 ) error {
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
 	vtxosToAdd := make([]types.Vtxo, 0)
 	vtxosToSpend := make(map[types.Outpoint]string, 0)
 	txsToAdd := make([]types.Transaction, 0)
@@ -2811,6 +2850,9 @@ func (a *arkClient) handleCommitmentTx(
 func (a *arkClient) handleArkTx(
 	ctx context.Context, myPubkeys map[string]struct{}, arkTx *client.TxNotification,
 ) error {
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
 	vtxosToAdd := make([]types.Vtxo, 0)
 	vtxosToSpend := make(map[types.Outpoint]string)
 	txsToAdd := make([]types.Transaction, 0)
