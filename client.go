@@ -53,7 +53,7 @@ func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error)
 		return nil, ErrAlreadyInitialized
 	}
 
-	client := &arkClient{store: sdkStore}
+	client := &arkClient{store: sdkStore, syncMu: &sync.Mutex{}}
 	for _, opt := range opts {
 		opt(client)
 	}
@@ -121,6 +121,7 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		client:        clientSvc,
 		indexer:       indexerSvc,
 		syncListeners: syncListeners,
+		syncMu:        &sync.Mutex{},
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -183,6 +184,7 @@ func LoadArkClientWithWallet(
 		explorer: explorerSvc,
 		client:   clientSvc,
 		indexer:  indexerSvc,
+		syncMu:   &sync.Mutex{},
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -1425,7 +1427,6 @@ func (a *arkClient) getBalanceFromStore(
 	if err != nil {
 		return nil, err
 	}
-
 	now := time.Now()
 
 	for _, utxo := range utxos {
