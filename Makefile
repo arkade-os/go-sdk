@@ -55,3 +55,12 @@ migrate:
 sqlc:
 	@echo "gen sql..."
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
+
+regtest:
+	@echo "Starting regtest..."
+	@docker compose -f test/docker/docker-compose.yml down
+	@docker compose -f test/docker/docker-compose.yml up -d --build
+	@go run test/docker/setup.go
+
+integrationtest:
+	@go test -v -count=1 -race ./test/e2e
