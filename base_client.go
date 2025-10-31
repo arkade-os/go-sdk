@@ -51,6 +51,15 @@ func WithVerbose() ClientOption {
 	}
 }
 
+// WithRefreshDb enables periodic refresh of the db when WithTransactionFeed is set
+func WithRefreshDb(interval time.Duration) ClientOption {
+	return func(c *arkClient) {
+		if interval > 0 {
+			c.refreshDbInterval = interval
+		}
+	}
+}
+
 type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
@@ -59,13 +68,16 @@ type arkClient struct {
 	client   client.TransportClient
 	indexer  indexer.Indexer
 
-	syncMu        *sync.Mutex
-	syncCh        chan error
-	syncDone      bool
-	syncErr       error
-	syncListeners *syncListeners
-	stopRestore   context.CancelFunc
-	stopWatch     context.CancelFunc
+	syncMu *sync.Mutex
+	// TODO drop the channel
+	syncCh            chan error
+	syncDone          bool
+	syncErr           error
+	syncListeners     *syncListeners
+	stopRestore       context.CancelFunc
+	stopWatch         context.CancelFunc
+	refreshDbInterval time.Duration
+	dbMu              *sync.Mutex
 
 	utxoBroadcaster *utils.Broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
@@ -85,13 +97,13 @@ func (a *arkClient) GetConfigData(_ context.Context) (*types.Config, error) {
 	return a.Config, nil
 }
 
-func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
+func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	cfgData, err := a.GetConfigData(ctx)
 	if err != nil {
 		return err
 	}
 
-	if _, err := a.wallet.Unlock(ctx, pasword); err != nil {
+	if _, err := a.wallet.Unlock(ctx, password); err != nil {
 		return err
 	}
 
@@ -105,6 +117,7 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 		a.syncErr = nil
 		a.syncCh = make(chan error)
 		a.syncMu = &sync.Mutex{}
+		a.dbMu = &sync.Mutex{}
 		a.utxoBroadcaster = utils.NewBroadcaster[types.UtxoEvent]()
 		a.vtxoBroadcaster = utils.NewBroadcaster[types.VtxoEvent]()
 		a.txBroadcaster = utils.NewBroadcaster[types.TransactionEvent]()
@@ -124,11 +137,21 @@ func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
 			a.syncCh <- err
 			close(a.syncCh)
 
-			ctx, cancel = context.WithCancel(context.Background())
-			a.stopWatch = cancel
-			go a.listenForArkTxs(ctx)
-			go a.listenForOnchainTxs(ctx)
-			go a.listenDbEvents(ctx)
+			ctxBg := context.Background()
+			ctxStream, cancelStream := context.WithCancel(ctxBg)
+			ctxPoll, cancelPoll := context.WithCancel(ctxBg)
+			a.stopWatch = func() {
+				cancelStream()
+				cancelPoll()
+			}
+
+			// start listening to stream events
+			go a.listenForArkTxs(ctxStream)
+			go a.listenForOnchainTxs(ctxStream)
+			go a.listenDbEvents(ctxStream)
+
+			// start periodic refresh db
+			go a.periodicRefreshDb(ctxPoll)
 		}()
 	}
 
@@ -747,6 +770,24 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 					)
 				}
 			}()
+		}
+	}
+}
+
+func (a *arkClient) periodicRefreshDb(ctx context.Context) {
+	if a.refreshDbInterval == 0 {
+		return
+	}
+	ticker := time.NewTicker(a.refreshDbInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := a.refreshDb(ctx); err != nil {
+				log.WithError(err).Error("failed to refresh db")
+			}
 		}
 	}
 }
