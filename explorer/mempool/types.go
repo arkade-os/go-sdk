@@ -1,6 +1,14 @@
 package mempool_explorer
 
-import "github.com/arkade-os/go-sdk/explorer"
+import (
+	"bytes"
+	"crypto/sha256"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/arkade-os/go-sdk/explorer"
+)
 
 type spentStatus struct {
 	Spent   bool   `json:"spent"`
@@ -127,6 +135,18 @@ type utxo struct {
 	} `json:"status"`
 }
 
+func (u utxo) hash() []byte {
+	buf := bytes.Buffer{}
+	buf.WriteString(u.Txid)
+	buf.WriteString(strconv.Itoa(int(u.Vout)))
+	buf.WriteString(strconv.FormatUint(u.Amount, 10))
+	buf.WriteString(u.Script)
+	buf.WriteString(strconv.FormatBool(u.Status.Confirmed))
+	buf.WriteString(strconv.FormatInt(u.Status.BlockTime, 10))
+	hash := sha256.Sum256(buf.Bytes())
+	return hash[:]
+}
+
 type utxos []utxo
 
 func (u utxos) toUtxoList() []explorer.Utxo {
@@ -144,4 +164,21 @@ func (u utxos) toUtxoList() []explorer.Utxo {
 		})
 	}
 	return utxos
+}
+
+func (u utxos) hash() []byte {
+	// order the utxos by txid and vout
+	sort.Slice(u, func(i, j int) bool {
+		txidCmp := strings.Compare(u[i].Txid, u[j].Txid)
+		if txidCmp == 0 {
+			return u[i].Vout < u[j].Vout
+		}
+		return txidCmp < 0
+	})
+	buf := bytes.Buffer{}
+	for _, utxo := range u {
+		buf.Write(utxo.hash())
+	}
+	hash := sha256.Sum256(buf.Bytes())
+	return hash[:]
 }
