@@ -62,5 +62,9 @@ regtest:
 	@docker compose -f test/docker/docker-compose.yml up -d --build
 	@go run test/docker/setup.go
 
+regtestdown:
+	@echo "Stopping regtest..."
+	@docker compose -f test/docker/docker-compose.yml down
+
 integrationtest:
 	@go test -v -count=1 -race ./test/e2e

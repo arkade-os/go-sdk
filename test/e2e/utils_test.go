@@ -1,4 +1,4 @@
-package e2e_test
+package e2e
 
 import (
 	"bytes"
@@ -29,6 +29,7 @@ func setupClient(t *testing.T) arksdk.ArkClient {
 	appDataStore, err := store.NewStore(store.Config{
 		ConfigStoreType:  types.InMemoryStore,
 		AppDataStoreType: types.KVStore,
+		BaseDir:          t.TempDir(),
 	})
 	require.NoError(t, err)
 
@@ -67,31 +68,36 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 }
 
 func faucetOffchain(t *testing.T, client arksdk.ArkClient, amount float64) types.Vtxo {
-	_, offchainAddr, _, err := client.Receive(t.Context())
+	ctx := t.Context()
+	_, offchainAddr, _, err := client.Receive(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, offchainAddr)
 
 	note := generateNote(t, uint64(amount*1e8))
 
+	aliceVtxoCh := client.GetVtxoEventChannel(ctx)
+
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	var incomingFunds []types.Vtxo
-	var incomingErr error
+	var vtxo types.Vtxo
 	go func() {
-		incomingFunds, incomingErr = client.NotifyIncomingFunds(t.Context(), offchainAddr)
-		wg.Done()
+		defer wg.Done()
+		for event := range aliceVtxoCh {
+			if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
+				continue
+			}
+			vtxo = event.Vtxos[0]
+			break
+		}
 	}()
 
-	txid, err := client.RedeemNotes(t.Context(), []string{note})
+	txid, err := client.RedeemNotes(ctx, []string{note})
 	require.NoError(t, err)
 	require.NotEmpty(t, txid)
 
 	wg.Wait()
 
-	require.NoError(t, incomingErr)
-	require.NotEmpty(t, incomingFunds)
-
-	return incomingFunds[0]
+	return vtxo
 }
 
 func generateNote(t *testing.T, amount uint64) string {
@@ -182,4 +188,9 @@ func runCommand(name string, arg ...string) (string, error) {
 func newCommand(name string, arg ...string) *exec.Cmd {
 	cmd := exec.Command(name, arg...)
 	return cmd
+}
+
+func generateBlocks(n int) error {
+	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
+	return err
 }
