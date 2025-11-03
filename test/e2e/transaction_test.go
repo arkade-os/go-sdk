@@ -282,7 +282,7 @@ func TestOffchainTx(t *testing.T) {
 				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
 					continue
 				}
-				bobSecondVtxo = event.Vtxos[0]
+				bobSettledVtxo = event.Vtxos[0]
 				break
 			}
 		}()
