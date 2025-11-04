@@ -45,13 +45,8 @@ func TestCollaborativeExit(t *testing.T) {
 			var bobUtxo types.Utxo
 			go func() {
 				defer wg.Done()
-				for event := range bobUtxoCh {
-					if len(event.Utxos) == 0 || event.Type != types.UtxosConfirmed {
-						continue
-					}
-					bobUtxo = event.Utxos[0]
-					break
-				}
+				event := <-bobUtxoCh
+				bobUtxo = event.Utxos[0]
 			}()
 
 			// Send to Bob's onchain address
@@ -62,7 +57,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.NoError(t, generateBlocks(1))
 
 			wg.Wait()
-			require.Equal(t, uint64(21000), bobUtxo.Amount)
+			require.Equal(t, 21000, int(bobUtxo.Amount))
 
 			prevTotalBalance := int(aliceBalance.OffchainBalance.Total)
 			aliceBalance, err = alice.Balance(ctx, false)
@@ -110,13 +105,8 @@ func TestCollaborativeExit(t *testing.T) {
 			var bobUtxo types.Utxo
 			go func() {
 				defer wg.Done()
-				for event := range bobUtxoCh {
-					if len(event.Utxos) == 0 || event.Type != types.UtxosConfirmed {
-						continue
-					}
-					bobUtxo = event.Utxos[0]
-					break
-				}
+				event := <-bobUtxoCh
+				bobUtxo = event.Utxos[0]
 			}()
 
 			// Send all to Bob's onchain address
@@ -127,7 +117,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.NoError(t, generateBlocks(1))
 
 			wg.Wait()
-			require.Equal(t, uint64(21000), bobUtxo.Amount)
+			require.Equal(t, 21000, int(bobUtxo.Amount))
 
 			aliceBalance, err = alice.Balance(ctx, false)
 			require.NoError(t, err)
@@ -190,20 +180,15 @@ func TestUnilateralExit(t *testing.T) {
 		var aliceUtxo types.Utxo
 		go func() {
 			defer wg.Done()
-			for event := range aliceUtxoCh {
-				if len(event.Utxos) == 0 || event.Type != types.UtxosConfirmed {
-					continue
-				}
-				aliceUtxo = event.Utxos[0]
-				break
-			}
+			event := <-aliceUtxoCh
+			aliceUtxo = event.Utxos[0]
 		}()
 
 		// Faucet onchain addr to cover network fees for the unroll.
 		faucetOnchain(t, aliceOnchainAddr, 0.0001)
 
 		wg.Wait()
-		require.Equal(t, uint64(10000), aliceUtxo.Amount)
+		require.Equal(t, 10000, int(aliceUtxo.Amount))
 
 		for {
 			err = alice.Unroll(ctx)
@@ -272,7 +257,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(21000), vtxoToUnroll.Amount)
+		require.Equal(t, 21000, int(vtxoToUnroll.Amount))
 
 		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 		wg = &sync.WaitGroup{}
@@ -280,20 +265,15 @@ func TestUnilateralExit(t *testing.T) {
 		var bobUtxo types.Utxo
 		go func() {
 			defer wg.Done()
-			for event := range bobUtxoCh {
-				if len(event.Utxos) == 0 || event.Type != types.UtxosConfirmed {
-					continue
-				}
-				bobUtxo = event.Utxos[0]
-				break
-			}
+			event := <-bobUtxoCh
+			bobUtxo = event.Utxos[0]
 		}()
 
 		// Fund Bob's onchain wallet to cover network fees for the unroll
 		faucetOnchain(t, bobOnchainAddr, 0.0001)
 
 		wg.Wait()
-		require.Equal(t, uint64(10000), bobUtxo.Amount)
+		require.Equal(t, 10000, int(bobUtxo.Amount))
 
 		for {
 			err = bob.Unroll(ctx)

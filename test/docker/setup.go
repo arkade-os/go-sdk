@@ -32,7 +32,7 @@ func setupArkd() error {
 		Timeout: 15 * time.Second,
 	}
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	fmt.Println("waiting for arkd to be ready...")
 	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)

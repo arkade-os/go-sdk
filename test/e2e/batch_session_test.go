@@ -31,25 +31,14 @@ func TestBatchSession(t *testing.T) {
 		var aliceConfirmedUtxo, bobConfirmedUtxo types.Utxo
 		go func() {
 			defer receiveWg.Done()
-			for event := range aliceUtxoCh {
-				if len(event.Utxos) == 0 || event.Type != types.UtxosConfirmed {
-					continue
-				}
-
-				aliceConfirmedUtxo = event.Utxos[0]
-				break
-			}
+			event := <-aliceUtxoCh
+			aliceConfirmedUtxo = event.Utxos[0]
 		}()
 
 		go func() {
 			defer receiveWg.Done()
-			for event := range bobUtxoCh {
-				if len(event.Utxos) == 0 || event.Type != types.UtxosConfirmed {
-					continue
-				}
-				bobConfirmedUtxo = event.Utxos[0]
-				break
-			}
+			event := <-bobUtxoCh
+			bobConfirmedUtxo = event.Utxos[0]
 		}()
 
 		// Faucet Alice and Bob boarding addresses
@@ -58,8 +47,8 @@ func TestBatchSession(t *testing.T) {
 
 		receiveWg.Wait()
 
-		require.Equal(t, uint64(21000), aliceConfirmedUtxo.Amount)
-		require.Equal(t, uint64(21000), bobConfirmedUtxo.Amount)
+		require.Equal(t, 21000, int(aliceConfirmedUtxo.Amount))
+		require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
 
 		aliceBalance, err := alice.Balance(t.Context(), false)
 		require.NoError(t, err)
@@ -120,8 +109,8 @@ func TestBatchSession(t *testing.T) {
 
 		wg.Wait()
 
-		require.Equal(t, uint64(21000), aliceVtxo.Amount)
-		require.Equal(t, uint64(21000), bobVtxo.Amount)
+		require.Equal(t, 21000, int(aliceVtxo.Amount))
+		require.Equal(t, 21000, int(bobVtxo.Amount))
 		require.NoError(t, aliceBatchErr)
 		require.NoError(t, bobBatchErr)
 		require.NotEmpty(t, aliceCommitmentTx)
@@ -131,14 +120,14 @@ func TestBatchSession(t *testing.T) {
 		aliceBalance, err = alice.Balance(t.Context(), false)
 		require.NoError(t, err)
 		require.NotNil(t, aliceBalance)
-		require.NotZero(t, int(aliceBalance.OffchainBalance.Total))
+		require.GreaterOrEqual(t, int(aliceBalance.OffchainBalance.Total), 21000)
 
 		bobBalance, err = bob.Balance(t.Context(), false)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
-		require.NotZero(t, int(bobBalance.OffchainBalance.Total))
+		require.GreaterOrEqual(t, int(bobBalance.OffchainBalance.Total), 21000)
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 
 		// Alice and Bob refresh their VTXOs by joining another batch together
 		wg.Add(4)
@@ -176,8 +165,8 @@ func TestBatchSession(t *testing.T) {
 
 		wg.Wait()
 
-		require.Equal(t, uint64(21000), aliceRefreshVtxo.Amount)
-		require.Equal(t, uint64(21000), bobRefreshVtxo.Amount)
+		require.Equal(t, 21000, int(aliceRefreshVtxo.Amount))
+		require.Equal(t, 21000, int(bobRefreshVtxo.Amount))
 		require.NotEqual(t, aliceVtxo.Outpoint, aliceRefreshVtxo.Outpoint)
 		require.NotEqual(t, bobVtxo.Outpoint, bobRefreshVtxo.Outpoint)
 		require.NoError(t, aliceBatchErr)
@@ -189,14 +178,14 @@ func TestBatchSession(t *testing.T) {
 		aliceBalance, err = alice.Balance(t.Context(), false)
 		require.NoError(t, err)
 		require.NotNil(t, aliceBalance)
-		require.NotZero(t, int(aliceBalance.OffchainBalance.Total))
+		require.GreaterOrEqual(t, int(aliceBalance.OffchainBalance.Total), 21000)
 		require.Zero(t, int(aliceBalance.OnchainBalance.SpendableAmount))
 		require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
 		bobBalance, err = bob.Balance(t.Context(), false)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
-		require.NotZero(t, int(bobBalance.OffchainBalance.Total))
+		require.GreaterOrEqual(t, int(bobBalance.OffchainBalance.Total), 21000)
 		require.Zero(t, int(bobBalance.OnchainBalance.SpendableAmount))
 		require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 	})
@@ -241,7 +230,7 @@ func TestBatchSession(t *testing.T) {
 		require.NotEmpty(t, commitmentTx)
 
 		wg.Wait()
-		require.Equal(t, uint64(21000+2100), aliceVtxo.Amount)
+		require.Equal(t, 21000+2100, int(aliceVtxo.Amount))
 
 		balance, err = alice.Balance(ctx, false)
 		require.NoError(t, err)
@@ -250,11 +239,11 @@ func TestBatchSession(t *testing.T) {
 		require.Empty(t, balance.OnchainBalance.LockedAmount)
 		require.Zero(t, int(balance.OnchainBalance.SpendableAmount))
 
-		_, err = alice.RedeemNotes(t.Context(), []string{note1})
+		_, err = alice.RedeemNotes(ctx, []string{note1})
 		require.Error(t, err)
-		_, err = alice.RedeemNotes(t.Context(), []string{note2})
+		_, err = alice.RedeemNotes(ctx, []string{note2})
 		require.Error(t, err)
-		_, err = alice.RedeemNotes(t.Context(), []string{note1, note2})
+		_, err = alice.RedeemNotes(ctx, []string{note1, note2})
 		require.Error(t, err)
 	})
 }

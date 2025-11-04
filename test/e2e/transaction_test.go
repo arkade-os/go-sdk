@@ -43,7 +43,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(1000), bobVtxo1.Amount)
+		require.Equal(t, 1000, int(bobVtxo1.Amount))
 
 		bobVtxos, _, err := bob.ListVtxos(ctx)
 		require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(10000), bobVtxo2.Amount)
+		require.Equal(t, 10000, int(bobVtxo2.Amount))
 
 		bobVtxos, _, err = bob.ListVtxos(ctx)
 		require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(10000), bobVtxo3.Amount)
+		require.Equal(t, 10000, int(bobVtxo3.Amount))
 
 		bobVtxos, _, err = bob.ListVtxos(ctx)
 		require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(10000), bobVtxo4.Amount)
+		require.Equal(t, 10000, int(bobVtxo4.Amount))
 
 		bobVtxos, _, err = bob.ListVtxos(ctx)
 		require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestOffchainTx(t *testing.T) {
 			}})
 			require.NoError(t, err)
 			wg.Wait()
-			require.Equal(t, uint64(amount), bobVtxo.Amount)
+			require.Equal(t, amount, int(bobVtxo.Amount))
 		}
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
@@ -191,14 +191,13 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(numInputs*amount), aliceVtxo.Amount)
+		require.Equal(t, numInputs*amount, int(aliceVtxo.Amount))
 	})
 
 	// In this test Alice sends to Bob a sub-dust VTXO. Bob can't spend or settle his VTXO.
 	// He must receive other offchain funds to be able to settle them into a non-sub-dust that
 	// can be spent
 	t.Run("sub dust", func(t *testing.T) {
-		t.Skip("revert once arkd fix is released: https://github.com/arkade-os/arkd/pull/795")
 		ctx := t.Context()
 		alice := setupClient(t)
 		bob := setupClient(t)
@@ -237,7 +236,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(100), bobVtxo.Amount)
+		require.Equal(t, 100, int(bobVtxo.Amount))
 
 		_, err = bob.SendOffChain(ctx, false, []types.Receiver{{
 			To:     aliceOffchainAddr,
@@ -271,7 +270,7 @@ func TestOffchainTx(t *testing.T) {
 
 		wg.Wait()
 
-		require.Equal(t, uint64(1000), bobSecondVtxo.Amount)
+		require.Equal(t, 1000, int(bobSecondVtxo.Amount))
 
 		// bob can now settle VTXO because he collected enough funds to settle it
 		wg.Add(1)
@@ -291,6 +290,6 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		wg.Wait()
-		require.Equal(t, uint64(1000+100), bobSettledVtxo.Amount)
+		require.Equal(t, 1000+100, int(bobSettledVtxo.Amount))
 	})
 }

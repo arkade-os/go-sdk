@@ -908,7 +908,6 @@ func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []utxo) {
 
 			if newUtxo.Status.Confirmed {
 				utxo.CreatedAt = time.Unix(newUtxo.Status.BlockTime, 0)
-				confirmedUtxos = append(confirmedUtxos, utxo)
 			}
 
 			receivedUtxos = append(receivedUtxos, utxo)

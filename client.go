@@ -1083,15 +1083,24 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						continue
 					}
 
+					var spendableAt time.Time
+					if !u.CreatedAt.IsZero() {
+						spendableAt = u.CreatedAt.Add(
+							time.Duration(address.delay.Seconds()) * time.Second,
+						)
+					}
+
 					utxosToAdd = append(utxosToAdd, types.Utxo{
-						Outpoint:   u.Outpoint,
-						Amount:     u.Amount,
-						Script:     u.Script,
-						Delay:      address.delay,
-						Spent:      false,
-						SpentBy:    "",
-						Tx:         txHex,
-						Tapscripts: address.tapscripts,
+						Outpoint:    u.Outpoint,
+						Amount:      u.Amount,
+						Script:      u.Script,
+						Delay:       address.delay,
+						Spent:       false,
+						SpentBy:     "",
+						Tx:          txHex,
+						Tapscripts:  address.tapscripts,
+						CreatedAt:   u.CreatedAt,
+						SpendableAt: spendableAt,
 					})
 				}
 

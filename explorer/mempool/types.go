@@ -168,7 +168,7 @@ func (u utxos) toUtxoList() []explorer.Utxo {
 
 func (u utxos) hash() []byte {
 	// order the utxos by txid and vout
-	sort.Slice(u, func(i, j int) bool {
+	sort.SliceStable(u, func(i, j int) bool {
 		txidCmp := strings.Compare(u[i].Txid, u[j].Txid)
 		if txidCmp == 0 {
 			return u[i].Vout < u[j].Vout
