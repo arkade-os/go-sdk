@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/arkade-os/go-sdk/types"
@@ -26,90 +25,81 @@ func TestOffchainTx(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		var bobVtxo1 types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobVtxo1 = event.Vtxos[0]
-				break
-			}
-		}()
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{To: bobAddress, Amount: 1000}})
+		txid, err := alice.SendOffChain(
+			ctx,
+			false,
+			[]types.Receiver{{To: bobAddress, Amount: 1000}},
+		)
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by bob vtxo channel should be the added event
+		// related to the offchain send
+		bobVtxoEvent := <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobVtxo1 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 1000, int(bobVtxo1.Amount))
+		require.Equal(t, txid, bobVtxo1.Txid)
 
 		bobVtxos, _, err := bob.ListVtxos(ctx)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 1)
 
-		wg.Add(1)
-		var bobVtxo2 types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobVtxo2 = event.Vtxos[0]
-				break
-			}
-		}()
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{To: bobAddress, Amount: 10000}})
+		txid, err = alice.SendOffChain(
+			ctx,
+			false,
+			[]types.Receiver{{To: bobAddress, Amount: 10000}},
+		)
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by bob vtxo channel should be the added event
+		// related to the offchain send
+		bobVtxoEvent = <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobVtxo2 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 10000, int(bobVtxo2.Amount))
+		require.Equal(t, txid, bobVtxo2.Txid)
 
 		bobVtxos, _, err = bob.ListVtxos(ctx)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 2)
 
-		wg.Add(1)
-		var bobVtxo3 types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobVtxo3 = event.Vtxos[0]
-				break
-			}
-		}()
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{To: bobAddress, Amount: 10000}})
+		txid, err = alice.SendOffChain(
+			ctx,
+			false,
+			[]types.Receiver{{To: bobAddress, Amount: 10000}},
+		)
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by bob vtxo channel should be the added event
+		// related to the offchain send
+		bobVtxoEvent = <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobVtxo3 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 10000, int(bobVtxo3.Amount))
+		require.Equal(t, txid, bobVtxo3.Txid)
 
 		bobVtxos, _, err = bob.ListVtxos(ctx)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 3)
 
-		wg.Add(1)
-		var bobVtxo4 types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobVtxo4 = event.Vtxos[0]
-				break
-			}
-		}()
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{To: bobAddress, Amount: 10000}})
+		txid, err = alice.SendOffChain(
+			ctx,
+			false,
+			[]types.Receiver{{To: bobAddress, Amount: 10000}},
+		)
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by bob vtxo channel should be the added event
+		// related to the offchain send
+		bobVtxoEvent = <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobVtxo4 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 10000, int(bobVtxo4.Amount))
+		require.Equal(t, txid, bobVtxo4.Txid)
 
 		bobVtxos, _, err = bob.ListVtxos(ctx)
 		require.NoError(t, err)
@@ -144,54 +134,40 @@ func TestOffchainTx(t *testing.T) {
 		faucetOffchain(t, alice, 0.001)
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
-		wg := &sync.WaitGroup{}
 
 		for range numInputs {
-			wg.Add(1)
-			var bobVtxo types.Vtxo
-			go func() {
-				defer wg.Done()
-				for event := range bobVtxoCh {
-					if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-						continue
-					}
-					bobVtxo = event.Vtxos[0]
-					break
-				}
-			}()
-
-			_, err := alice.SendOffChain(ctx, false, []types.Receiver{{
+			txid, err := alice.SendOffChain(ctx, false, []types.Receiver{{
 				To:     bobOffchainAddr,
 				Amount: amount,
 			}})
 			require.NoError(t, err)
-			wg.Wait()
+
+			// next event received by bob vtxo channel should be the added event
+			// related to the offchain send
+			bobVtxoEvent := <-bobVtxoCh
+			require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+			require.Len(t, bobVtxoEvent.Vtxos, 1)
+			bobVtxo := bobVtxoEvent.Vtxos[0]
 			require.Equal(t, amount, int(bobVtxo.Amount))
+			require.Equal(t, txid, bobVtxo.Txid)
 		}
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 
-		wg.Add(1)
-		var aliceVtxo types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range aliceVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				aliceVtxo = event.Vtxos[0]
-				break
-			}
-		}()
-
-		_, err = bob.SendOffChain(ctx, false, []types.Receiver{{
+		txid, err := bob.SendOffChain(ctx, false, []types.Receiver{{
 			To:     aliceOffchainAddr,
 			Amount: numInputs * amount,
 		}})
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by alice vtxo channel should be the added event
+		// related to the offchain send
+		aliceVtxoEvent := <-aliceVtxoCh
+		require.Equal(t, aliceVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, aliceVtxoEvent.Vtxos, 1)
+		aliceVtxo := aliceVtxoEvent.Vtxos[0]
 		require.Equal(t, numInputs*amount, int(aliceVtxo.Amount))
+		require.Equal(t, txid, aliceVtxo.Txid)
 	})
 
 	// In this test Alice sends to Bob a sub-dust VTXO. Bob can't spend or settle his VTXO.
@@ -214,30 +190,22 @@ func TestOffchainTx(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-
-		var bobVtxo types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobVtxo = event.Vtxos[0]
-				break
-			}
-		}()
-
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{
+		txid, err := alice.SendOffChain(ctx, false, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 100, // Sub-dust amount
 		}})
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by bob vtxo channel should be the added event
+		// related to the offchain send
+		bobVtxoEvent := <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobVtxo := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 100, int(bobVtxo.Amount))
+		require.Equal(t, txid, bobVtxo.Txid)
 
+		// bob can't spend subdust VTXO via ark tx
 		_, err = bob.SendOffChain(ctx, false, []types.Receiver{{
 			To:     aliceOffchainAddr,
 			Amount: 100,
@@ -249,47 +217,31 @@ func TestOffchainTx(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to register intent")
 
-		wg.Add(1)
-		var bobSecondVtxo types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobSecondVtxo = event.Vtxos[0]
-				break
-			}
-		}()
-
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{
+		txid, err = alice.SendOffChain(ctx, false, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 1000, // Another sub-dust amount
 		}})
 		require.NoError(t, err)
 
-		wg.Wait()
-
+		// next event received by bob vtxo channel should be the added event
+		// related to the offchain send
+		bobVtxoEvent = <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobSecondVtxo := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 1000, int(bobSecondVtxo.Amount))
+		require.Equal(t, txid, bobSecondVtxo.Txid)
 
 		// bob can now settle VTXO because he collected enough funds to settle it
-		wg.Add(1)
-		var bobSettledVtxo types.Vtxo
-		go func() {
-			defer wg.Done()
-			for event := range bobVtxoCh {
-				if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
-					continue
-				}
-				bobSettledVtxo = event.Vtxos[0]
-				break
-			}
-		}()
-
 		_, err = bob.Settle(ctx)
 		require.NoError(t, err)
 
-		wg.Wait()
+		// next event received by bob vtxo channel should be the added event
+		// related to the settlement
+		bobVtxoEvent = <-bobVtxoCh
+		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Len(t, bobVtxoEvent.Vtxos, 1)
+		bobSettledVtxo := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 1000+100, int(bobSettledVtxo.Amount))
 	})
 }
