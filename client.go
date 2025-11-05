@@ -663,6 +663,14 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
+	infos, err := a.client.GetInfo(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// only 1 output
+	fees := infos.Fees.IntentFees.OnchainOutput
+
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
@@ -685,7 +693,7 @@ func (a *arkClient) CollaborativeExit(
 	defer a.dbMu.Unlock()
 
 	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount,
+		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees,
 	)
 	if err != nil {
 		return "", err
