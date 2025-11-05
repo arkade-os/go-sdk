@@ -112,12 +112,13 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		log.SetLevel(log.ErrorLevel)
 	}
 
+	a.dbMu = &sync.Mutex{}
+
 	if cfgData.WithTransactionFeed {
 		a.syncDone = false
 		a.syncErr = nil
 		a.syncCh = make(chan error)
 		a.syncMu = &sync.Mutex{}
-		a.dbMu = &sync.Mutex{}
 		a.utxoBroadcaster = utils.NewBroadcaster[types.UtxoEvent]()
 		a.vtxoBroadcaster = utils.NewBroadcaster[types.VtxoEvent]()
 		a.txBroadcaster = utils.NewBroadcaster[types.TransactionEvent]()
