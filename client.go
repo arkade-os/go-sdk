@@ -2834,24 +2834,28 @@ func (a *arkClient) handleCommitmentTx(
 		}
 	} else {
 		if len(txsToSettle) <= 0 {
-			amount := uint64(0)
+			sumIns := uint64(0)
 			for _, v := range myVtxos {
-				amount += v.Amount
+				sumIns += v.Amount
 			}
+			sumOuts := uint64(0)
 			for _, v := range vtxosToAdd {
-				amount -= v.Amount
+				sumOuts += v.Amount
 			}
 
-			txsToAdd = append(txsToAdd, types.Transaction{
-				TransactionKey: types.TransactionKey{
-					CommitmentTxid: commitmentTx.Txid,
-				},
-				Amount:    uint64(amount),
-				Type:      types.TxSent,
-				Settled:   true,
-				CreatedAt: time.Now(),
-				Hex:       commitmentTx.Tx,
-			})
+			if sumIns >= sumOuts {
+				amount := sumIns - sumOuts
+				txsToAdd = append(txsToAdd, types.Transaction{
+					TransactionKey: types.TransactionKey{
+						CommitmentTxid: commitmentTx.Txid,
+					},
+					Amount:    amount,
+					Type:      types.TxSent,
+					Settled:   true,
+					CreatedAt: time.Now(),
+					Hex:       commitmentTx.Tx,
+				})
+			}
 		}
 	}
 
