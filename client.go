@@ -2819,7 +2819,7 @@ func (a *arkClient) handleCommitmentTx(
 			for _, tx := range pendingBoardingTxs {
 				settledBoardingAmount += tx.Amount
 			}
-			if vtxosToAddAmount > 0 && vtxosToAddAmount < settledBoardingAmount {
+			if vtxosToAddAmount > 0 && vtxosToAddAmount <= settledBoardingAmount {
 				txsToAdd = append(txsToAdd, types.Transaction{
 					TransactionKey: types.TransactionKey{
 						CommitmentTxid: commitmentTx.Txid,
@@ -2842,19 +2842,16 @@ func (a *arkClient) handleCommitmentTx(
 				amount -= v.Amount
 			}
 
-			if amount > 0 {
-				txsToAdd = append(txsToAdd, types.Transaction{
-					TransactionKey: types.TransactionKey{
-						CommitmentTxid: commitmentTx.Txid,
-					},
-					Amount:    amount,
-					Type:      types.TxSent,
-					Settled:   true,
-					CreatedAt: time.Now(),
-					Hex:       commitmentTx.Tx,
-				})
-			}
-
+			txsToAdd = append(txsToAdd, types.Transaction{
+				TransactionKey: types.TransactionKey{
+					CommitmentTxid: commitmentTx.Txid,
+				},
+				Amount:    uint64(amount),
+				Type:      types.TxSent,
+				Settled:   true,
+				CreatedAt: time.Now(),
+				Hex:       commitmentTx.Tx,
+			})
 		}
 	}
 
