@@ -55,18 +55,6 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentTxid)
 
-	// should receive the commitment tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	commitmentTx := event.Txs[0]
-	require.Equal(t, types.TxSent, commitmentTx.Type)
-	require.Equal(t, 0, int(commitmentTx.Amount))
-	require.NotEmpty(t, commitmentTx.Hex)
-	require.Equal(t, commitmentTx.CommitmentTxid, commitmentTxid)
-	require.Empty(t, commitmentTx.ArkTxid)
-	require.Empty(t, commitmentTx.BoardingTxid)
-
 	// should receive the boarding settled tx event
 	event = <-aliceTxChan
 	require.Equal(t, types.TxsSettled, event.Type)
@@ -83,10 +71,8 @@ func TestTransactionHistory(t *testing.T) {
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
-	require.Len(t, history, 2)
-
-	requireTxEqual(t, settledBoardingTx, history[1])
-	requireTxEqual(t, commitmentTx, history[0])
+	require.Len(t, history, 1)
+	requireTxEqual(t, settledBoardingTx, history[0])
 
 	// should receive the vtxo added event
 	vtxoEvent := <-vtxoCh
@@ -103,44 +89,30 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
 	require.True(t, utxoEvent.Utxos[0].Spent)
 
-	// alice its vtxo
+	// alice refresh its vtxo
 	commitmentRefreshTxid, err := alice.Settle(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentRefreshTxid)
 
-	// should receive the commitment tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	refreshTx := event.Txs[0]
-	require.Equal(t, types.TxSent, refreshTx.Type)
-	require.Equal(t, 0, int(refreshTx.Amount))
-	require.NotEmpty(t, refreshTx.Hex)
-	require.Equal(t, commitmentRefreshTxid, refreshTx.CommitmentTxid)
-	require.Empty(t, refreshTx.ArkTxid)
-	require.Empty(t, refreshTx.BoardingTxid)
-
-	// should receive the new vtxo event
+	// should receive the vtxo added event
 	vtxoEvent = <-vtxoCh
 	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 	require.Len(t, vtxoEvent.Vtxos, 1)
 	require.Equal(t, 21000, int(vtxoEvent.Vtxos[0].Amount))
 	require.False(t, vtxoEvent.Vtxos[0].Spent)
 
-	// should receive the spent vtxo event
+	// should receive the vtxo spent event
 	vtxoEvent = <-vtxoCh
 	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 	require.Len(t, vtxoEvent.Vtxos, 1)
 	require.Equal(t, 21000, int(vtxoEvent.Vtxos[0].Amount))
 	require.True(t, vtxoEvent.Vtxos[0].Spent)
 
-	// check history matches
+	// check history didn't change, we should not see commitment refresh tx in history
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
-	require.Len(t, history, 3)
-	requireTxEqual(t, refreshTx, history[0])
-	requireTxEqual(t, commitmentTx, history[1])
-	requireTxEqual(t, settledBoardingTx, history[2])
+	require.Len(t, history, 1)
+	requireTxEqual(t, settledBoardingTx, history[0])
 
 	// alice sends funds to bob
 	bob := setupClient(t)
@@ -166,11 +138,9 @@ func TestTransactionHistory(t *testing.T) {
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
-	require.Len(t, history, 4)
+	require.Len(t, history, 2)
 	requireTxEqual(t, offchainTx, history[0])
-	requireTxEqual(t, refreshTx, history[1])
-	requireTxEqual(t, commitmentTx, history[2])
-	requireTxEqual(t, settledBoardingTx, history[3])
+	requireTxEqual(t, settledBoardingTx, history[1])
 
 	// wait for bob to receive the tx
 	vtxoEvent = <-bobVtxoCh
@@ -202,12 +172,10 @@ func TestTransactionHistory(t *testing.T) {
 	// check history matches
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
-	require.Len(t, history, 5)
+	require.Len(t, history, 3)
 	requireTxEqual(t, offchainReceivedTx, history[0])
 	requireTxEqual(t, offchainTx, history[1])
-	requireTxEqual(t, refreshTx, history[2])
-	requireTxEqual(t, commitmentTx, history[3])
-	requireTxEqual(t, settledBoardingTx, history[4])
+	requireTxEqual(t, settledBoardingTx, history[2])
 }
 
 func requireTxEqual(t *testing.T, expected, actual types.Transaction) {
