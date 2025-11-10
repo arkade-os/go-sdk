@@ -53,7 +53,7 @@ func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error)
 		return nil, ErrAlreadyInitialized
 	}
 
-	client := &arkClient{store: sdkStore}
+	client := &arkClient{store: sdkStore, syncMu: &sync.Mutex{}}
 	for _, opt := range opts {
 		opt(client)
 	}
@@ -121,6 +121,7 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		client:        clientSvc,
 		indexer:       indexerSvc,
 		syncListeners: syncListeners,
+		syncMu:        &sync.Mutex{},
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -183,6 +184,7 @@ func LoadArkClientWithWallet(
 		explorer: explorerSvc,
 		client:   clientSvc,
 		indexer:  indexerSvc,
+		syncMu:   &sync.Mutex{},
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -567,6 +569,10 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
+	if len(vtxos) == 0 {
+		return fmt.Errorf("no vtxos to unroll")
+	}
+
 	totalVtxosAmount := uint64(0)
 	for _, vtxo := range vtxos {
 		totalVtxosAmount += vtxo.Amount
@@ -627,6 +633,24 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		packageResponse, err := a.explorer.Broadcast(parent, child)
 		if err != nil {
 			return err
+		}
+
+		if a.WithTransactionFeed {
+			parentTxid := parentTx.TxID()
+			vtxosToUpdate := make([]types.Vtxo, 0, len(vtxos))
+			for _, vtxo := range vtxos {
+				if vtxo.Txid == parentTxid {
+					vtxo.Unrolled = true
+					vtxosToUpdate = append(vtxosToUpdate, vtxo)
+				}
+			}
+			count, err := a.store.VtxoStore().UpdateVtxos(ctx, vtxosToUpdate)
+			if err != nil {
+				return fmt.Errorf("failed to update vtxos: %w", err)
+			}
+			if count > 0 {
+				log.Debugf("marked %d vtxos as unrolled", count)
+			}
 		}
 
 		log.Debugf("package broadcasted: %s", packageResponse)
@@ -1087,15 +1111,24 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						continue
 					}
 
+					var spendableAt time.Time
+					if !u.CreatedAt.IsZero() {
+						spendableAt = u.CreatedAt.Add(
+							time.Duration(address.delay.Seconds()) * time.Second,
+						)
+					}
+
 					utxosToAdd = append(utxosToAdd, types.Utxo{
-						Outpoint:   u.Outpoint,
-						Amount:     u.Amount,
-						Script:     u.Script,
-						Delay:      address.delay,
-						Spent:      false,
-						SpentBy:    "",
-						Tx:         txHex,
-						Tapscripts: address.tapscripts,
+						Outpoint:    u.Outpoint,
+						Amount:      u.Amount,
+						Script:      u.Script,
+						Delay:       address.delay,
+						Spent:       false,
+						SpentBy:     "",
+						Tx:          txHex,
+						Tapscripts:  address.tapscripts,
+						CreatedAt:   u.CreatedAt,
+						SpendableAt: spendableAt,
 					})
 				}
 
@@ -1453,7 +1486,6 @@ func (a *arkClient) getBalanceFromStore(
 	if err != nil {
 		return nil, err
 	}
-
 	now := time.Now()
 
 	for _, utxo := range utxos {
@@ -2268,20 +2300,34 @@ func (a *arkClient) joinBatchWithRetry(
 		return "", err
 	}
 
-	proofTx, message, err := a.makeRegisterIntent(
-		inputs, exitLeaves, outputs, signerPubKeys, arkFields,
-	)
-	if err != nil {
-		return "", err
+	deleteIntent := func() {
+		proof, message, err := a.makeDeleteIntent(inputs, exitLeaves, arkFields)
+		if err != nil {
+			log.WithError(err).Warn("failed to create delete intent proof")
+			return
+		}
+
+		err = a.client.DeleteIntent(ctx, proof, message)
+		if err != nil {
+			log.WithError(err).Warn("failed to delete intent")
+			return
+		}
 	}
 
 	maxRetry := 3
 	retryCount := 0
 	var batchErr error
 	for retryCount < maxRetry {
-		intentID, err := a.client.RegisterIntent(ctx, proofTx, message)
+		proofTx, message, err := a.makeRegisterIntent(
+			inputs, exitLeaves, outputs, signerPubKeys, arkFields,
+		)
 		if err != nil {
 			return "", err
+		}
+
+		intentID, err := a.client.RegisterIntent(ctx, proofTx, message)
+		if err != nil {
+			return "", fmt.Errorf("failed to register intent: %w", err)
 		}
 
 		log.Debugf("registered inputs and outputs with request id: %s", intentID)
@@ -2291,6 +2337,7 @@ func (a *arkClient) joinBatchWithRetry(
 			options.EventsCh, options.CancelCh,
 		)
 		if err != nil {
+			deleteIntent()
 			log.WithError(err).Warn("batch failed, retrying...")
 			retryCount++
 			time.Sleep(100 * time.Millisecond)
@@ -2835,7 +2882,6 @@ func (a *arkClient) handleCommitmentTx(
 					Hex:       commitmentTx.Tx,
 				})
 			}
-
 		}
 	}
 

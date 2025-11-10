@@ -168,8 +168,12 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	}
 	go func() {
 		a.explorer.Stop()
-		a.syncDone = false
-		a.syncErr = nil
+		if a.WithTransactionFeed {
+			a.syncMu.Lock()
+			a.syncDone = false
+			a.syncErr = nil
+			a.syncMu.Unlock()
+		}
 		if a.stopRestore != nil {
 			a.stopRestore()
 		}
@@ -297,8 +301,12 @@ func (a *arkClient) Reset(ctx context.Context) {
 	a.indexer.Close()
 	a.explorer.Stop()
 
-	a.syncDone = false
-	a.syncErr = nil
+	if a.WithTransactionFeed {
+		a.syncMu.Lock()
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncMu.Unlock()
+	}
 
 	if a.stopWatch != nil {
 		a.stopWatch()
@@ -320,8 +328,12 @@ func (a *arkClient) Stop() {
 	a.indexer.Close()
 	a.explorer.Stop()
 
-	a.syncDone = false
-	a.syncErr = nil
+	if a.WithTransactionFeed {
+		a.syncMu.Lock()
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncMu.Unlock()
+	}
 
 	if a.stopWatch != nil {
 		a.stopWatch()
@@ -411,11 +423,16 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 	}
 	ch := make(chan types.SyncEvent, 1)
 
-	if a.syncDone {
+	a.syncMu.Lock()
+	syncDone := a.syncDone
+	syncErr := a.syncErr
+	a.syncMu.Unlock()
+
+	if syncDone {
 		go func() {
 			ch <- types.SyncEvent{
-				Synced: a.syncErr == nil,
-				Err:    a.syncErr,
+				Synced: syncErr == nil,
+				Err:    syncErr,
 			}
 		}()
 		return ch
@@ -696,11 +713,17 @@ func (a *arkClient) safeCheck() error {
 	if a.wallet.IsLocked() {
 		return fmt.Errorf("wallet is locked")
 	}
-	if a.WithTransactionFeed && !a.syncDone {
-		if a.syncErr != nil {
-			return fmt.Errorf("failed to restore wallet: %s", a.syncErr)
+	if a.WithTransactionFeed {
+		a.syncMu.Lock()
+		syncDone := a.syncDone
+		syncErr := a.syncErr
+		a.syncMu.Unlock()
+		if !syncDone {
+			if syncErr != nil {
+				return fmt.Errorf("failed to restore wallet: %s", syncErr)
+			}
+			return fmt.Errorf("wallet is still syncing")
 		}
-		return fmt.Errorf("wallet is still syncing")
 	}
 	return nil
 }
