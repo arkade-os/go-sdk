@@ -711,8 +711,6 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("invalid onchain address")
 	}
 
-	receivers := []types.Receiver{{To: addr, Amount: amount}}
-
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
@@ -742,6 +740,8 @@ func (a *arkClient) CollaborativeExit(
 	if err != nil {
 		return "", err
 	}
+
+	receivers := []types.Receiver{{To: addr, Amount: amount}}
 
 	if changeAmount > 0 {
 		_, offchainAddr, _, err := a.wallet.NewAddress(ctx, true)
