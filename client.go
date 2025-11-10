@@ -663,13 +663,13 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	infos, err := a.client.GetInfo(ctx)
+	info, err := a.client.GetInfo(ctx)
 	if err != nil {
 		return "", err
 	}
 
 	// only 1 output
-	fees := infos.Fees.IntentFees.OnchainOutput
+	fees := info.Fees.IntentFees.OnchainOutput
 
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
@@ -691,6 +691,26 @@ func (a *arkClient) CollaborativeExit(
 
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
+
+	getVtxosOpts := &CoinSelectOptions{
+		WithExpirySorting:      false,
+		SelectRecoverableVtxos: options.SelectRecoverableVtxos,
+	}
+	spendableVtxos, err := a.getVtxos(ctx, getVtxosOpts)
+	if err != nil {
+		return "", err
+	}
+	balance := uint64(0)
+	for _, vtxo := range spendableVtxos {
+		balance += vtxo.Amount
+	}
+	if balance < amount {
+		return "", fmt.Errorf("not enough funds to cover amount %d", amount)
+	}
+	// send all case: substract fees from exited amount
+	if amount == balance {
+		amount -= fees
+	}
 
 	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
 		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees,
