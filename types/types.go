@@ -91,6 +91,8 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
+	IsSeal          bool
+	AssetAmount     uint64
 }
 
 func (v Vtxo) String() string {
@@ -311,4 +313,12 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
+}
+
+type AssetCreationParams struct {
+	Name      string
+	Symbol    string
+	Quantity  uint64
+	Decimals  uint8
+	Immutable bool
 }

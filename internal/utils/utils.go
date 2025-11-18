@@ -24,7 +24,7 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func CoinSelect(
+func CoinSelectNormal(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,
 	amount,
@@ -34,6 +34,14 @@ func CoinSelect(
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
+
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+	for _, vtxo := range vtxos {
+		if vtxo.IsSeal {
+			filteredVtxos = append(filteredVtxos, vtxo)
+		}
+	}
+	vtxos = filteredVtxos
 
 	if sortByExpirationTime {
 		// sort vtxos by expiration (older first)
@@ -83,6 +91,50 @@ func CoinSelect(
 	}
 
 	return selectedBoarding, selected, change, nil
+}
+
+func CoinSelectSeals(
+	vtxos []client.TapscriptsVtxo,
+	amount,
+	dust uint64,
+	sortByExpirationTime bool,
+) ([]client.TapscriptsVtxo, uint64, error) {
+	selected := make([]client.TapscriptsVtxo, 0)
+	selectedAmount := uint64(0)
+
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+	for _, vtxo := range vtxos {
+		if vtxo.IsSeal {
+			filteredVtxos = append(filteredVtxos, vtxo)
+		}
+	}
+
+	vtxos = filteredVtxos
+
+	if sortByExpirationTime {
+		// sort vtxos by expiration (older first)
+		sort.SliceStable(vtxos, func(i, j int) bool {
+			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+		})
+
+	}
+
+	for _, vtxo := range vtxos {
+		if selectedAmount >= amount {
+			break
+		}
+
+		selected = append(selected, vtxo)
+		selectedAmount += vtxo.AssetAmount
+	}
+
+	if selectedAmount < amount {
+		return nil, 0, fmt.Errorf("not enough funds to cover amount %d", amount)
+	}
+
+	change := selectedAmount - amount
+
+	return selected, change, nil
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (
