@@ -73,6 +73,7 @@ func (s *configStore) AddData(ctx context.Context, data types.Config) error {
 		VtxoMinAmount:       fmt.Sprintf("%d", data.VtxoMinAmount),
 		VtxoMaxAmount:       fmt.Sprintf("%d", data.VtxoMaxAmount),
 		CheckpointTapscript: data.CheckpointTapscript,
+		InfoDigest:          data.InfoDigest,
 		Fees: feeData{
 			TxFeeRate: fmt.Sprintf("%.1f", data.Fees.TxFeeRate),
 			IntentFees: intentFeeData{
