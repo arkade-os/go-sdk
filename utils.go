@@ -210,6 +210,8 @@ func buildAssetCreationTx(
 		Inputs:        []asset.AssetInput{},
 		Metadata:      assetMeta,
 		Immutable:     assetParams.Immutable,
+		Version:       asset.AssetVersion,
+		Magic:         asset.AssetMagic,
 	}
 
 	genesisId, err := deriveGenesisId(vtxos)
