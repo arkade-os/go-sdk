@@ -255,11 +255,11 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 
 	sealAddr := offchainAddrs[0]
 
-	receiverAmouunt := uint64(0)
+	receiverAmouunt := a.Dust
 
 	receiver := types.Receiver{
 		To:     sealAddr.Address,
-		Amount: a.Dust,
+		Amount: receiverAmouunt,
 	}
 
 	a.dbMu.Lock()
@@ -302,6 +302,11 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		return "", err
 	}
 
+	// do not process subdust change for asset creation
+	if changeAmount > 0 && changeAmount < a.Dust {
+		return "", fmt.Errorf("change amount %d is below dust threshold %d", changeAmount, a.Dust)
+	}
+
 	var changeReceiver *types.Receiver
 
 	if changeAmount > 0 {
@@ -341,7 +346,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 	var assetId [32]byte
 	copy(assetId[:], assetIdSlice)
 
-	arkTx, checkpointTxs, err := buildAssetCreationTx(inputs, assetId, receiver, changeReceiver, params, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, asset, err := buildAssetCreationTx(inputs, assetId, receiver, changeReceiver, params, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -444,17 +449,13 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		// subtract the change amount from the spent amount
 		spentAmount -= changeAmount
 
+		// TODO (Joshua): We do process Sub-Dust change here
 		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
 		if err != nil {
 			return "", err
 		}
 
-		var changeScript []byte
-		if changeAmount < a.Dust {
-			changeScript, err = script.SubDustScript(changeAddr.VtxoTapKey)
-		} else {
-			changeScript, err = script.P2TRScript(changeAddr.VtxoTapKey)
-		}
+		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
 		if err != nil {
 			return "", err
 		}
@@ -469,7 +470,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 			{
 				Outpoint: types.Outpoint{
 					Txid: arkTxid,
-					VOut: uint32(1),
+					VOut: uint32(0),
 				},
 				Amount:          a.Dust,
 				Unrolled:        false,
@@ -480,8 +481,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 				ExpiresAt:       smallestExpiration,
 				Script:          hex.EncodeToString(changeScript),
 				CommitmentTxids: commitmentTxidsList,
-				IsSeal:          true,
-				AssetAmount:     params.Quantity,
+				Asset:           asset,
 			},
 		}); err != nil {
 			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
@@ -549,10 +549,6 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	sumOfReceivers := uint64(0)
 
 	for _, receiver := range receivers {
-		if receiver.IsOnchain() {
-			return "", fmt.Errorf("all receiver addresses must be offchain addresses")
-		}
-
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", fmt.Errorf("invalid receiver address: %s", err)
@@ -601,7 +597,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	}
 
 	// select seals
-	selectedSealCoins, changeAmount, err := utils.CoinSelectSeals(
+	selectedSealCoins, assetChangeAmount, err := utils.CoinSelectSeals(
 		vtxos, sumOfReceivers, a.Dust, false,
 	)
 
@@ -609,9 +605,9 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		return "", err
 	}
 
-	if changeAmount > 0 {
+	if assetChangeAmount > 0 {
 		receivers = append(receivers, types.Receiver{
-			To: offchainAddrs[0].Address, Amount: changeAmount,
+			To: offchainAddrs[0].Address, Amount: assetChangeAmount,
 		})
 	}
 
@@ -678,7 +674,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		})
 	}
 
-	arkTx, checkpointTxs, err := buildAssetTransferTx(sealInputs, spendInputs, assetId, receivers, changeBtcReceiver, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, asset, err := buildAssetTransferTx(sealInputs, spendInputs, assetId, receivers, changeBtcReceiver, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -723,12 +719,13 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-
-	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
+	spentVtxos := make([]types.Vtxo, 0, len(selectedSealCoins)+len(selectedSpendCoins))
 	spentAmount := uint64(0)
 	commitmentTxids := make(map[string]struct{}, 0)
 	smallestExpiration := time.Time{}
-	for i, vtxo := range selectedCoins {
+	totalSelectedCoins := append(selectedSealCoins, selectedSpendCoins...)
+
+	for i, vtxo := range totalSelectedCoins {
 		if len(signedCheckpointTxs) <= i {
 			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
 			return arkTxid, nil
@@ -777,21 +774,17 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 
 	createdAt := time.Now()
 
-	if changeAmount > 0 {
-		// subtract the change amount from the spent amount
-		spentAmount -= changeAmount
+	// If Asset Change exists, save change vtxo to DB
+	if assetChangeAmount > 0 {
+		// subtract the asset change amount from the spent amount
+		spentAmount -= assetChangeAmount
 
 		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
 		if err != nil {
 			return "", err
 		}
 
-		var changeScript []byte
-		if changeAmount < a.Dust {
-			changeScript, err = script.SubDustScript(changeAddr.VtxoTapKey)
-		} else {
-			changeScript, err = script.P2TRScript(changeAddr.VtxoTapKey)
-		}
+		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
 		if err != nil {
 			return "", err
 		}
@@ -808,10 +801,53 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 					Txid: arkTxid,
 					VOut: uint32(len(receivers) - 1),
 				},
-				Amount:          changeAmount,
+				Amount:          assetChangeAmount,
 				Unrolled:        false,
 				Spent:           false,
-				Swept:           changeAmount < a.Dust, // make it recoverable if change is sub-dust
+				Swept:           false,
+				Preconfirmed:    true,
+				CreatedAt:       createdAt,
+				ExpiresAt:       smallestExpiration,
+				Script:          hex.EncodeToString(changeScript),
+				CommitmentTxids: commitmentTxidsList,
+				Asset:           asset,
+			},
+		}); err != nil {
+			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
+			return arkTxid, nil
+		}
+	}
+	if spendChangeAmount > 0 {
+		// subtract the change amount from the spent amount
+		spentAmount -= spendChangeAmount
+
+		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
+		if err != nil {
+			return "", err
+		}
+
+		// TODO (Joshua): We do process Sub-Dust change here
+		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
+		if err != nil {
+			return "", err
+		}
+
+		commitmentTxidsList := make([]string, 0, len(commitmentTxids))
+		for commitmentTxid := range commitmentTxids {
+			commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
+		}
+
+		// save change vtxo to DB
+		if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
+			{
+				Outpoint: types.Outpoint{
+					Txid: arkTxid,
+					VOut: uint32(len(receivers) + 1),
+				},
+				Amount:          spendChangeAmount,
+				Unrolled:        false,
+				Spent:           false,
+				Swept:           spendChangeAmount < a.Dust, // make it recoverable if change is sub-dust
 				Preconfirmed:    true,
 				CreatedAt:       createdAt,
 				ExpiresAt:       smallestExpiration,

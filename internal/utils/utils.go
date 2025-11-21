@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,7 +38,7 @@ func CoinSelectNormal(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, vtxo := range vtxos {
-		if vtxo.IsSeal {
+		if vtxo.Asset == nil {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -104,7 +105,7 @@ func CoinSelectSeals(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, vtxo := range vtxos {
-		if vtxo.IsSeal {
+		if vtxo.Asset != nil {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -124,8 +125,20 @@ func CoinSelectSeals(
 			break
 		}
 
+		vtxoScriptInBytes, err := hex.DecodeString(vtxo.Script)
+		if err != nil {
+			return nil, 0, err
+		}
+
 		selected = append(selected, vtxo)
-		selectedAmount += vtxo.AssetAmount
+		var sealAmount uint64
+		for _, output := range vtxo.Asset.Outputs {
+			if bytes.Equal(output.PublicKey.SerializeCompressed()[2:], vtxoScriptInBytes[2:]) {
+				sealAmount = output.Amount
+				break
+			}
+		}
+		selectedAmount += sealAmount
 	}
 
 	if selectedAmount < amount {

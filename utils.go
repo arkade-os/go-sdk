@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,11 +37,6 @@ import (
 type arkTxInput struct {
 	client.TapscriptsVtxo
 	ForfeitLeafHash chainhash.Hash
-}
-
-type arkAssetTxInput struct {
-	arkTxInput
-	asset asset.Asset
 }
 
 func validateReceivers(
@@ -130,20 +126,20 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 func buildAssetCreationTx(
 	vtxos []arkTxInput, assetId [32]byte, receiver types.Receiver, change *types.Receiver, assetParams types.AssetCreationParams, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, error) {
+) (string, []string, *asset.Asset, error) {
 	if len(vtxos) <= 0 {
-		return "", nil, fmt.Errorf("missing vtxos")
+		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
 
 	ins := make([]offchain.VtxoInput, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
+			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
 		}
 
 		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		vtxoOutpoint := &wire.OutPoint{
@@ -153,22 +149,22 @@ func buildAssetCreationTx(
 
 		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		_, vtxoTree, err := vtxoScript.TapTree()
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		tapscript := &waddrmgr.Tapscript{
@@ -183,15 +179,15 @@ func buildAssetCreationTx(
 			RevealedTapscripts: vtxo.Tapscripts,
 		})
 	}
-
-	outs := make([]*wire.TxOut, 0)
-
 	sealAddr, err := arklib.DecodeAddressV0(receiver.To)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	sealAddrScript, err := script.SubDustScript(sealAddr.VtxoTapKey)
+	sealAddrScript, err := script.P2TRScript(sealAddr.VtxoTapKey)
+	if err != nil {
+		return "", nil, nil, err
+	}
 
 	assetMeta := make([]asset.Metadata, 0)
 	assetMeta = append(assetMeta, asset.Metadata{
@@ -208,33 +204,37 @@ func buildAssetCreationTx(
 	})
 
 	assetDetails := asset.Asset{
-		AssetId:        assetId,
-		Outputs:        []asset.AssetOutput{{PublicKey: *sealAddr.VtxoTapKey, Amount: assetParams.Quantity}},
-		ControlOutputs: []asset.AssetOutput{{PublicKey: *sealAddr.VtxoTapKey, Amount: assetParams.Quantity}},
-		Inputs:         []asset.AssetInput{},
-		Metadata:       assetMeta,
-		Immutable:      assetParams.Immutable,
+		AssetId:       assetId,
+		Outputs:       []asset.AssetOutput{{PublicKey: *sealAddr.VtxoTapKey, Amount: assetParams.Quantity, Vout: 0}},
+		ControlPubkey: sealAddr.VtxoTapKey,
+		Inputs:        []asset.AssetInput{},
+		Metadata:      assetMeta,
+		Immutable:     assetParams.Immutable,
 	}
 
-	assetOpretScript, err := assetDetails.Encode()
+	genesisId, err := deriveGenesisId(vtxos)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	outs = append(outs, &wire.TxOut{
-		Value:    int64(dustLimit),
-		PkScript: assetOpretScript,
-	})
+	assetOpretOut, err := assetDetails.EncodeOpret(genesisId)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	outs := make([]*wire.TxOut, 0)
 
 	outs = append(outs, &wire.TxOut{
 		Value:    int64(receiver.Amount),
 		PkScript: sealAddrScript,
 	})
 
+	outs = append(outs, &assetOpretOut)
+
 	if change != nil {
-		changeAddrScript, err := script.SubDustScript(sealAddr.VtxoTapKey)
+		changeAddrScript, err := script.P2TRScript(sealAddr.VtxoTapKey)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		outs = append(outs, &wire.TxOut{
@@ -245,51 +245,53 @@ func buildAssetCreationTx(
 
 	arkPtx, checkpointPtxs, err := offchain.BuildTxs(ins, outs, serverUnrollScript)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	arkTx, err := arkPtx.B64Encode()
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	checkpointTxs := make([]string, 0, len(checkpointPtxs))
 	for _, ptx := range checkpointPtxs {
 		tx, err := ptx.B64Encode()
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, nil
+	return arkTx, checkpointTxs, &assetDetails, nil
 
 }
 
 func buildAssetTransferTx(
-	sealVtxos []arkAssetTxInput, spendVtxos []arkTxInput, assetId [32]byte, receivers []types.Receiver, change *types.Receiver, assetParams types.AssetCreationParams, serverUnrollScript []byte,
+	sealVtxos []arkTxInput, otherVtxos []arkTxInput, assetId [32]byte, receivers []types.Receiver, change *types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, error) {
+) (string, []string, *asset.Asset, error) {
 	if len(sealVtxos) <= 0 {
-		return "", nil, fmt.Errorf("missing vtxos")
+		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
 
-	if len(spendVtxos) <= 0 {
-		return "", nil, fmt.Errorf("missing spend vtxos")
+	if len(otherVtxos) <= 0 {
+		return "", nil, nil, fmt.Errorf("missing spend vtxos")
 	}
 
-	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(spendVtxos))
+	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(otherVtxos))
 
-	newAssets := sealVtxos[0].asset
+	newAsset := sealVtxos[0].Vtxo.Asset
+	newAssetInputs := make([]asset.AssetInput, 0)
+	newAssetOutputs := make([]asset.AssetOutput, 0)
 
 	for _, vtxo := range sealVtxos {
 		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
+			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
 		}
 
 		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		vtxoOutpoint := &wire.OutPoint{
@@ -299,22 +301,22 @@ func buildAssetTransferTx(
 
 		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		_, vtxoTree, err := vtxoScript.TapTree()
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		tapscript := &waddrmgr.Tapscript{
@@ -331,35 +333,36 @@ func buildAssetTransferTx(
 
 		buf, err := hex.DecodeString(vtxo.Script)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 		pubkeyBytes := buf[2:]
 
 		pubkey, err := schnorr.ParsePubKey(pubkeyBytes)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
-		for _, out := range vtxo.asset.Outputs {
+		for _, out := range vtxo.Asset.Outputs {
 			if out.PublicKey == *pubkey {
 				assetInput := asset.AssetInput{
-					Txid:   vtxoOutpoint.Hash[:],
-					Vout:   0,
-					Amount: out.Amount,
+					Txid: vtxoOutpoint.Hash[:],
+					Vout: out.Vout,
 				}
-				newAssets.Inputs = append(newAssets.Inputs, assetInput)
+				newAssetInputs = append(newAssetInputs, assetInput)
 			}
 		}
 	}
 
-	for _, vtxo := range spendVtxos {
+	newAsset.Inputs = newAssetInputs
+
+	for _, vtxo := range otherVtxos {
 		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
+			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
 		}
 
 		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		vtxoOutpoint := &wire.OutPoint{
@@ -369,22 +372,22 @@ func buildAssetTransferTx(
 
 		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		_, vtxoTree, err := vtxoScript.TapTree()
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		tapscript := &waddrmgr.Tapscript{
@@ -405,18 +408,12 @@ func buildAssetTransferTx(
 	for _, receiver := range receivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
-		var newVtxoScript []byte
-
-		if receiver.Amount < dustLimit {
-			newVtxoScript, err = script.SubDustScript(addr.VtxoTapKey)
-		} else {
-			newVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
-		}
+		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 
 		outs = append(outs, &wire.TxOut{
@@ -424,57 +421,106 @@ func buildAssetTransferTx(
 			PkScript: newVtxoScript,
 		})
 
-		newAssets.Outputs = append(newAssets.Outputs, asset.AssetOutput{
+		newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
 			PublicKey: *addr.VtxoTapKey,
 			Amount:    receiver.Amount,
 		})
 
 	}
 
-	assetOpretScript, err := newAssets.Encode()
+	newAsset.Outputs = newAssetOutputs
+
+	batchCommitmentId, err := deriveGenesisId(sealVtxos)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	outs = append(outs, &wire.TxOut{
-		Value:    int64(dustLimit),
-		PkScript: assetOpretScript,
-	})
+	assetOpretScript, err := newAsset.EncodeOpret(batchCommitmentId)
+	if err != nil {
+		return "", nil, nil, err
+	}
 
-	outs = append(outs, &wire.TxOut{
-		Value:    int64(receiver.Amount),
-		PkScript: sealAddrScript,
-	})
+	outs = append(outs, &assetOpretScript)
 
 	if change != nil {
+		var changeVtxoScript []byte
+		var err error
+
+		addr, err := arklib.DecodeAddressV0(change.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		if change.Amount < dustLimit {
+			changeVtxoScript, err = script.SubDustScript(addr.VtxoTapKey)
+		} else {
+			changeVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
+		}
+		if err != nil {
+			return "", nil, nil, err
+		}
 
 		outs = append(outs, &wire.TxOut{
 			Value:    int64(change.Amount),
-			PkScript: changeAddr.,
+			PkScript: changeVtxoScript,
 		})
 	}
 
 	arkPtx, checkpointPtxs, err := offchain.BuildTxs(ins, outs, serverUnrollScript)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	arkTx, err := arkPtx.B64Encode()
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	checkpointTxs := make([]string, 0, len(checkpointPtxs))
 	for _, ptx := range checkpointPtxs {
 		tx, err := ptx.B64Encode()
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, nil
+	return arkTx, checkpointTxs, newAsset, nil
+}
 
+func deriveGenesisId(inputVtxos []arkTxInput) ([]byte, error) {
+
+	if len(inputVtxos) == 0 {
+		return nil, fmt.Errorf("empty input")
+	}
+
+	sort.Slice(inputVtxos, func(i, j int) bool {
+		cmp := strings.Compare(inputVtxos[i].Txid, inputVtxos[j].Txid)
+
+		if cmp < 0 {
+			return true
+		}
+		if cmp > 0 {
+			return false
+		}
+		// TxId equal, compare Vout
+		return inputVtxos[i].Outpoint.VOut < inputVtxos[j].Outpoint.VOut
+	})
+
+	// Take the smallest outpoint after sorting
+	smallest := inputVtxos[0]
+
+	h := sha256.New()
+
+	for _, txid := range smallest.CommitmentTxids {
+		decodedTxid, err := hex.DecodeString(txid)
+		if err != nil {
+			return nil, err
+		}
+		h.Write(decodedTxid)
+	}
+
+	return h.Sum(nil), nil
 }
 
 func buildOffchainTx(
