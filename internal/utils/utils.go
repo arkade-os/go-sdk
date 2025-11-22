@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,13 +19,14 @@ import (
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func CoinSelect(
+func CoinSelectNormal(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,
 	amount,
@@ -34,6 +36,14 @@ func CoinSelect(
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
+
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+	for _, vtxo := range vtxos {
+		if vtxo.Asset == nil {
+			filteredVtxos = append(filteredVtxos, vtxo)
+		}
+	}
+	vtxos = filteredVtxos
 
 	if sortByExpirationTime {
 		// sort vtxos by expiration (older first)
@@ -83,6 +93,72 @@ func CoinSelect(
 	}
 
 	return selectedBoarding, selected, change, nil
+}
+
+func CoinSelectSeals(
+	vtxos []client.TapscriptsVtxo,
+	amount uint64,
+	assetID [32]byte,
+	dust uint64,
+	sortByExpirationTime bool,
+) ([]client.TapscriptsVtxo, uint64, error) {
+	selected := make([]client.TapscriptsVtxo, 0)
+	selectedAmount := uint64(0)
+
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+	for _, vtxo := range vtxos {
+		fmt.Printf("this is saved vtxo %+v: ", vtxo)
+
+		if vtxo.Asset != nil && bytes.Equal(vtxo.Asset.AssetId[:], assetID[:]) {
+			filteredVtxos = append(filteredVtxos, vtxo)
+		}
+	}
+
+	vtxos = filteredVtxos
+
+	if sortByExpirationTime {
+		// sort vtxos by expiration (older first)
+		sort.SliceStable(vtxos, func(i, j int) bool {
+			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+		})
+
+	}
+
+	for _, vtxo := range vtxos {
+		if selectedAmount >= amount {
+			break
+		}
+
+		vtxoScriptInBytes, err := hex.DecodeString(vtxo.Script)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		vtxoKey, err := schnorr.ParsePubKey(vtxoScriptInBytes[2:])
+		if err != nil {
+			return nil, 0, err
+		}
+
+		fmt.Printf("reached here %+v", vtxo.Asset)
+
+		for _, output := range vtxo.Asset.Outputs {
+			if output.PublicKey.IsEqual(vtxoKey) {
+				selected = append(selected, vtxo)
+				selectedAmount += output.Amount
+				fmt.Printf("select amount %d from vtxo %s\n", output.Amount, vtxo.Outpoint)
+				break
+			}
+		}
+
+	}
+
+	if selectedAmount < amount {
+		return nil, 0, fmt.Errorf("not enough funds to cover amount %d", amount)
+	}
+
+	change := selectedAmount - amount
+
+	return selected, change, nil
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (

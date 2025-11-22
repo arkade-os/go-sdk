@@ -7,6 +7,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -91,6 +92,7 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
+	Asset           *asset.Asset
 }
 
 func (v Vtxo) String() string {
@@ -311,4 +313,12 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
+}
+
+type AssetCreationParams struct {
+	Name      string
+	Symbol    string
+	Quantity  uint64
+	Decimals  uint8
+	Immutable bool
 }

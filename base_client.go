@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
@@ -22,6 +24,7 @@ import (
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
 	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -704,6 +707,61 @@ func (a *arkClient) listVtxosFromIndexer(
 		spendableVtxos = append(spendableVtxos, vtxo)
 	}
 	return
+}
+
+func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
+	vtxos []types.Vtxo,
+) ([]types.Vtxo, error) {
+	if a.wallet == nil {
+		return nil, ErrNotInitialized
+	}
+
+	vtxoMap := make(map[string][]types.Vtxo)
+	txids := make([]string, 0, len(vtxos))
+
+	for _, vtxo := range vtxos {
+		vtxoMap[vtxo.Txid] = append(vtxoMap[vtxo.Txid], vtxo)
+		txids = append(txids, vtxo.Txid)
+	}
+
+	transactions, err := a.indexer.GetVirtualTxs(ctx, txids)
+	if err != nil {
+		return nil, err
+	}
+
+	finalVtxos := make([]types.Vtxo, 0)
+
+	for _, tx := range transactions.Txs {
+		txPacket, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, output := range txPacket.UnsignedTx.TxOut {
+			txId := txPacket.UnsignedTx.TxID()
+
+			if !asset.IsAsset(output.PkScript) {
+				for _, vtxo := range vtxoMap[txId] {
+					finalVtxos = append(finalVtxos, vtxo)
+				}
+				continue
+			}
+
+			var newAsset *asset.Asset
+			err := newAsset.DecodeTlv(output.PkScript)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, vtxo := range vtxoMap[txId] {
+				vtxo.Asset = newAsset
+				finalVtxos = append(finalVtxos, vtxo)
+			}
+			break
+		}
+	}
+
+	return finalVtxos, nil
 }
 
 func (a *arkClient) safeCheck() error {
