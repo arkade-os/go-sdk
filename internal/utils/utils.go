@@ -19,6 +19,7 @@ import (
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -96,7 +97,8 @@ func CoinSelectNormal(
 
 func CoinSelectSeals(
 	vtxos []client.TapscriptsVtxo,
-	amount,
+	amount uint64,
+	assetID [32]byte,
 	dust uint64,
 	sortByExpirationTime bool,
 ) ([]client.TapscriptsVtxo, uint64, error) {
@@ -105,7 +107,9 @@ func CoinSelectSeals(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, vtxo := range vtxos {
-		if vtxo.Asset != nil {
+		fmt.Printf("this is saved vtxo %+v: ", vtxo)
+
+		if vtxo.Asset != nil && bytes.Equal(vtxo.Asset.AssetId[:], assetID[:]) {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -130,15 +134,22 @@ func CoinSelectSeals(
 			return nil, 0, err
 		}
 
-		selected = append(selected, vtxo)
-		var sealAmount uint64
+		vtxoKey, err := schnorr.ParsePubKey(vtxoScriptInBytes[2:])
+		if err != nil {
+			return nil, 0, err
+		}
+
+		fmt.Printf("reached here %+v", vtxo.Asset)
+
 		for _, output := range vtxo.Asset.Outputs {
-			if bytes.Equal(output.PublicKey.SerializeCompressed()[2:], vtxoScriptInBytes[2:]) {
-				sealAmount = output.Amount
+			if output.PublicKey.IsEqual(vtxoKey) {
+				selected = append(selected, vtxo)
+				selectedAmount += output.Amount
+				fmt.Printf("select amount %d from vtxo %s\n", output.Amount, vtxo.Outpoint)
 				break
 			}
 		}
-		selectedAmount += sealAmount
+
 	}
 
 	if selectedAmount < amount {

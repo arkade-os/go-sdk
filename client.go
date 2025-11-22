@@ -338,13 +338,16 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		})
 	}
 
-	assetIdSlice, err := hex.DecodeString(vtxos[0].ArkTxid)
+	assetIdSlice, err := hex.DecodeString(inputs[0].Txid)
 	if err != nil {
 		return "", err
 	}
 
 	var assetId [32]byte
 	copy(assetId[:], assetIdSlice)
+
+	assetIdInHex := hex.EncodeToString(assetId[:])
+	fmt.Printf("asset id: %s", assetIdInHex)
 
 	arkTx, checkpointTxs, asset, err := buildAssetCreationTx(inputs, assetId, receiver, changeReceiver, params, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
@@ -443,13 +446,18 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 
 	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
 
+	commitmentTxidsList := make([]string, 0, len(commitmentTxids))
+	for commitmentTxid := range commitmentTxids {
+		commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
+	}
+
 	createdAt := time.Now()
 
 	if changeAmount > 0 {
 		// subtract the change amount from the spent amount
 		spentAmount -= changeAmount
 
-		// TODO (Joshua): We do process Sub-Dust change here
+		// TODO (Joshua): We do not process Sub-Dust change here
 		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
 		if err != nil {
 			return "", err
@@ -458,34 +466,6 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
 		if err != nil {
 			return "", err
-		}
-
-		commitmentTxidsList := make([]string, 0, len(commitmentTxids))
-		for commitmentTxid := range commitmentTxids {
-			commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
-		}
-
-		// save seal vtxo to DB
-		if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
-			{
-				Outpoint: types.Outpoint{
-					Txid: arkTxid,
-					VOut: uint32(0),
-				},
-				Amount:          a.Dust,
-				Unrolled:        false,
-				Spent:           false,
-				Swept:           false, // make it recoverable if change is sub-dust
-				Preconfirmed:    true,
-				CreatedAt:       createdAt,
-				ExpiresAt:       smallestExpiration,
-				Script:          hex.EncodeToString(changeScript),
-				CommitmentTxids: commitmentTxidsList,
-				Asset:           asset,
-			},
-		}); err != nil {
-			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
-			return arkTxid, nil
 		}
 
 		// save change vtxo to DB
@@ -509,6 +489,39 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
 			return arkTxid, nil
 		}
+	}
+
+	receiverAddr, err := arklib.DecodeAddressV0(receiver.To)
+	if err != nil {
+		return "", err
+	}
+
+	receiverScript, err := script.P2TRScript(receiverAddr.VtxoTapKey)
+	if err != nil {
+		return "", err
+	}
+
+	// save seal vtxo to DB
+	if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
+		{
+			Outpoint: types.Outpoint{
+				Txid: arkTxid,
+				VOut: uint32(0),
+			},
+			Amount:          a.Dust,
+			Unrolled:        false,
+			Spent:           false,
+			Swept:           false, // make it recoverable if change is sub-dust
+			Preconfirmed:    true,
+			CreatedAt:       createdAt,
+			ExpiresAt:       smallestExpiration,
+			Script:          hex.EncodeToString(receiverScript),
+			CommitmentTxids: commitmentTxidsList,
+			Asset:           asset,
+		},
+	}); err != nil {
+		log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
+		return arkTxid, nil
 	}
 
 	// save sent transaction to DB
@@ -569,6 +582,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	defer a.dbMu.Unlock()
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
+
 	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
 		WithExpirySorting: false,
 	})
@@ -598,7 +612,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 
 	// select seals
 	selectedSealCoins, assetChangeAmount, err := utils.CoinSelectSeals(
-		vtxos, sumOfReceivers, a.Dust, false,
+		vtxos, sumOfReceivers, assetId, a.Dust, false,
 	)
 
 	if err != nil {
@@ -634,7 +648,6 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		})
 	}
 
-	// spend input
 	_, selectedSpendCoins, spendChangeAmount, err := utils.CoinSelectNormal(
 		nil, vtxos, a.Dust, a.Dust, false,
 	)
@@ -3306,6 +3319,11 @@ func (a *arkClient) getExpiredBoardingUtxos(
 
 func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]types.Vtxo, error) {
 	spendable, err := a.ListSpendableVtxos(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	spendable, err = a.InsertAssetIntoVtxos(ctx, spendable)
 	if err != nil {
 		return nil, err
 	}

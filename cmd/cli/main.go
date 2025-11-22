@@ -41,6 +41,7 @@ func main() {
 		&sendCommand,
 		&balanceCommand,
 		&createAssetCommand,
+		&sendAssetCommand,
 		&redeemCommand,
 		&notesCommand,
 		&recoverCommand,
@@ -105,6 +106,11 @@ var (
 		Name:  "amount",
 		Usage: "amount to send in sats",
 	}
+	assetIdFlag = &cli.StringFlag{
+		Name:  "asset-id",
+		Usage: "asset id to send",
+	}
+
 	assetQuantityFlag = &cli.Uint64Flag{
 		Name:  "quantity",
 		Usage: "quantity of asset to create",
@@ -231,6 +237,15 @@ var (
 			return createAsset(ctx)
 		},
 		Flags: []cli.Flag{passwordFlag, assetNameFlag, assetQuantityFlag, assetSymbolFlag, assetImmutableFlag},
+	}
+
+	sendAssetCommand = cli.Command{
+		Name:  "send-asset",
+		Usage: "Send asset offchain",
+		Action: func(ctx *cli.Context) error {
+			return sendAsset(ctx)
+		},
+		Flags: []cli.Flag{passwordFlag, assetIdFlag, toFlag, amountFlag},
 	}
 
 	redeemCommand = cli.Command{
@@ -428,6 +443,44 @@ func createAsset(ctx *cli.Context) error {
 		return err
 	}
 	return printJSON(map[string]string{"txid": arkTxid})
+}
+
+func sendAsset(ctx *cli.Context) error {
+	assetIDHex := ctx.String(assetIdFlag.Name)
+	assetFlagReceiver := ctx.String(toFlag.Name)
+	amount := ctx.Uint64(amountFlag.Name)
+	if assetIDHex == "" || assetFlagReceiver == "" || amount == 0 {
+		return fmt.Errorf("missing asset id or receivers")
+	}
+
+	assetIDBytes, err := hex.DecodeString(assetIDHex)
+	if err != nil {
+		return fmt.Errorf("invalid asset id: %v", err)
+	}
+	if len(assetIDBytes) != 32 {
+		return fmt.Errorf("invalid asset id length")
+	}
+	var assetID [32]byte
+	copy(assetID[:], assetIDBytes)
+
+	receivers := []types.Receiver{
+		{To: assetFlagReceiver, Amount: amount},
+	}
+
+	password, err := readPassword(ctx)
+	if err != nil {
+		return err
+	}
+	if err := arkSdkClient.Unlock(ctx.Context, string(password)); err != nil {
+		return err
+	}
+
+	arkTxid, err := arkSdkClient.SendAsset(ctx.Context, assetID, receivers)
+	if err != nil {
+		return err
+	}
+	return printJSON(map[string]string{"txid": arkTxid})
+
 }
 
 func balance(ctx *cli.Context) error {

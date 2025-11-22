@@ -30,6 +30,9 @@ type ArkClient interface {
 	CreateAsset(
 		ctx context.Context, params types.AssetCreationParams,
 	) (string, error)
+	SendAsset(
+		ctx context.Context, assetID [32]byte, receivers []types.Receiver,
+	) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 		outputs []types.Receiver, cosignersPublicKeys []string,
