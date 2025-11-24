@@ -381,9 +381,11 @@ func (a *grpcClient) GetPendingTx(
 	proof, message string,
 ) ([]client.AcceptedOffchainTx, error) {
 	req := &arkv1.GetPendingTxRequest{
-		Intent: &arkv1.Intent{
-			Message: message,
-			Proof:   proof,
+		Identifier: &arkv1.GetPendingTxRequest_Intent{
+			Intent: &arkv1.Intent{
+				Message: message,
+				Proof:   proof,
+			},
 		},
 	}
 
