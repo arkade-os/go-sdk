@@ -910,7 +910,7 @@ func (a *arkClient) finalizeTx(
 	for _, checkpoint := range acceptedTx.SignedCheckpointTxs {
 		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
 		if err != nil {
-			return "", nil
+			return "", err
 		}
 		finalCheckpoints = append(finalCheckpoints, signedTx)
 	}
