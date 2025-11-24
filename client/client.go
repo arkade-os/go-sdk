@@ -45,7 +45,7 @@ type TransportClient interface {
 	) error
 	GetEventStream(ctx context.Context, topics []string) (<-chan BatchEventChannel, func(), error)
 	SubmitTx(ctx context.Context, signedArkTx string, checkpointTxs []string) (
-		// TODO SubmitTx shoud return AcceptedOffchainTx struct
+		// TODO SubmitTx should return AcceptedOffchainTx struct
 		arkTxid, finalArkTx string, signedCheckpointTxs []string, err error,
 	)
 	FinalizeTx(ctx context.Context, arkTxid string, finalCheckpointTxs []string) error
