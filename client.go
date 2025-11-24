@@ -878,24 +878,39 @@ func (a *arkClient) FinalizePendingTxs(
 		return nil, err
 	}
 
-	proofTx, message, err := a.makeGetPendingTxIntent(inputs, exitLeaves, arkFields)
-	if err != nil {
-		return nil, err
-	}
+	txids := make([]string, 0)
+	const MAX_INPUTS_PER_INTENT = 20
 
-	pendingTxs, err := a.client.GetPendingTx(ctx, proofTx, message)
-	if err != nil {
-		return nil, err
-	}
-
-	txids := make([]string, 0, len(pendingTxs))
-	for _, tx := range pendingTxs {
-		txid, err := a.finalizeTx(ctx, tx)
-		if err != nil {
-			log.WithError(err).Errorf("failed to finalize pending tx: %s", tx.Txid)
-			continue
+	for i := 0; i < len(inputs); i += MAX_INPUTS_PER_INTENT {
+		end := i + MAX_INPUTS_PER_INTENT
+		if end > len(inputs) {
+			end = len(inputs)
 		}
-		txids = append(txids, txid)
+		inputsSubset := inputs[i:end]
+		exitLeavesSubset := exitLeaves[i:end]
+		arkFieldsSubset := arkFields[i:end]
+		proofTx, message, err := a.makeGetPendingTxIntent(
+			inputsSubset,
+			exitLeavesSubset,
+			arkFieldsSubset,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pendingTxs, err := a.client.GetPendingTx(ctx, proofTx, message)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, tx := range pendingTxs {
+			txid, err := a.finalizeTx(ctx, tx)
+			if err != nil {
+				log.WithError(err).Errorf("failed to finalize pending tx: %s", tx.Txid)
+				continue
+			}
+			txids = append(txids, txid)
+		}
 	}
 
 	return txids, nil
