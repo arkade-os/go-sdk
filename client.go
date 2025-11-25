@@ -377,22 +377,17 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
-
-	for _, checkpoint := range signedCheckpointTxs {
-		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
-		if err != nil {
-			return "", nil
-		}
-		finalCheckpoints = append(finalCheckpoints, signedTx)
-	}
-
-	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
+	txid, err := a.finalizeTx(ctx, client.AcceptedOffchainTx{
+		Txid:                arkTxid,
+		FinalArkTx:          signedArkTx,
+		SignedCheckpointTxs: signedCheckpointTxs,
+	})
+	if err != nil {
 		return "", err
 	}
 
 	if !a.WithTransactionFeed {
-		return arkTxid, nil
+		return txid, nil
 	}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
@@ -834,6 +829,104 @@ func (a *arkClient) DeleteIntent(
 	}
 
 	return a.client.DeleteIntent(ctx, proofTx, message)
+}
+
+func (a *arkClient) FinalizePendingTxs(
+	ctx context.Context, createdAfter *time.Time,
+) ([]string, error) {
+	if err := a.safeCheck(); err != nil {
+		return nil, err
+	}
+
+	vtxos, err := a.listPendingSpentVtxosFromIndexer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// filter out swept vtxos and optionally filter by date
+	filtered := make([]types.Vtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		if createdAfter != nil && !createdAfter.IsZero() {
+			if !vtxo.CreatedAt.After(*createdAfter) {
+				continue
+			}
+		}
+		filtered = append(filtered, vtxo)
+	}
+
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+
+	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, filtered)
+	if err != nil {
+		return nil, err
+	}
+
+	inputs, exitLeaves, arkFields, err := toIntentInputs(
+		nil, vtxosWithTapscripts, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	txids := make([]string, 0)
+	const MAX_INPUTS_PER_INTENT = 20
+
+	for i := 0; i < len(inputs); i += MAX_INPUTS_PER_INTENT {
+		end := i + MAX_INPUTS_PER_INTENT
+		if end > len(inputs) {
+			end = len(inputs)
+		}
+		inputsSubset := inputs[i:end]
+		exitLeavesSubset := exitLeaves[i:end]
+		arkFieldsSubset := arkFields[i:end]
+		proofTx, message, err := a.makeGetPendingTxIntent(
+			inputsSubset,
+			exitLeavesSubset,
+			arkFieldsSubset,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pendingTxs, err := a.client.GetPendingTx(ctx, proofTx, message)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, tx := range pendingTxs {
+			txid, err := a.finalizeTx(ctx, tx)
+			if err != nil {
+				log.WithError(err).Errorf("failed to finalize pending tx: %s", tx.Txid)
+				continue
+			}
+			txids = append(txids, txid)
+		}
+	}
+
+	return txids, nil
+}
+
+func (a *arkClient) finalizeTx(
+	ctx context.Context,
+	acceptedTx client.AcceptedOffchainTx,
+) (string, error) {
+	finalCheckpoints := make([]string, 0, len(acceptedTx.SignedCheckpointTxs))
+
+	for _, checkpoint := range acceptedTx.SignedCheckpointTxs {
+		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
+		if err != nil {
+			return "", err
+		}
+		finalCheckpoints = append(finalCheckpoints, signedTx)
+	}
+
+	if err := a.client.FinalizeTx(ctx, acceptedTx.Txid, finalCheckpoints); err != nil {
+		return "", err
+	}
+
+	return acceptedTx.Txid, nil
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
@@ -2115,6 +2208,22 @@ func (a *arkClient) makeRegisterIntent(
 	}
 
 	return a.makeIntent(message, inputs, outputsTxOut, leafProofs, arkFields)
+}
+
+func (a *arkClient) makeGetPendingTxIntent(
+	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
+) (string, string, error) {
+	message, err := intent.GetPendingTxMessage{
+		BaseMessage: intent.BaseMessage{
+			Type: intent.IntentMessageTypeGetPendingTx,
+		},
+		ExpireAt: time.Now().Add(10 * time.Minute).Unix(), // valid for 10 minutes
+	}.Encode()
+	if err != nil {
+		return "", "", err
+	}
+
+	return a.makeIntent(message, inputs, nil, leafProofs, arkFields)
 }
 
 func (a *arkClient) makeDeleteIntent(

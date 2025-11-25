@@ -376,6 +376,35 @@ func (a *grpcClient) FinalizeTx(
 	return nil
 }
 
+func (a *grpcClient) GetPendingTx(
+	ctx context.Context,
+	proof, message string,
+) ([]client.AcceptedOffchainTx, error) {
+	req := &arkv1.GetPendingTxRequest{
+		Identifier: &arkv1.GetPendingTxRequest_Intent{
+			Intent: &arkv1.Intent{
+				Message: message,
+				Proof:   proof,
+			},
+		},
+	}
+
+	resp, err := a.svc().GetPendingTx(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingTxs := make([]client.AcceptedOffchainTx, 0, len(resp.GetPendingTxs()))
+	for _, tx := range resp.GetPendingTxs() {
+		pendingTxs = append(pendingTxs, client.AcceptedOffchainTx{
+			Txid:                tx.GetArkTxid(),
+			FinalArkTx:          tx.GetFinalArkTx(),
+			SignedCheckpointTxs: tx.GetSignedCheckpointTxs(),
+		})
+	}
+	return pendingTxs, nil
+}
+
 func (c *grpcClient) GetTransactionsStream(
 	ctx context.Context,
 ) (<-chan client.TransactionEvent, func(), error) {

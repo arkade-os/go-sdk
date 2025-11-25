@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"time"
 
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -52,6 +53,7 @@ type ArkClient interface {
 	RedeemNotes(ctx context.Context, notes []string, opts ...Option) (string, error)
 	SignTransaction(ctx context.Context, tx string) (string, error)
 	NotifyIncomingFunds(ctx context.Context, address string) ([]types.Vtxo, error)
+	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
 }
