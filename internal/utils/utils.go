@@ -44,6 +44,7 @@ func CoinSelectNormal(
 		}
 	}
 	vtxos = filteredVtxos
+	fmt.Printf("length of vtxos %d", len(vtxos))
 
 	if sortByExpirationTime {
 		// sort vtxos by expiration (older first)
@@ -107,8 +108,6 @@ func CoinSelectSeals(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, vtxo := range vtxos {
-		fmt.Printf("this is saved vtxo %+v: ", vtxo)
-
 		if vtxo.Asset != nil && bytes.Equal(vtxo.Asset.AssetId[:], assetID[:]) {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
@@ -138,8 +137,6 @@ func CoinSelectSeals(
 		if err != nil {
 			return nil, 0, err
 		}
-
-		fmt.Printf("reached here %+v", vtxo.Asset)
 
 		for _, output := range vtxo.Asset.Outputs {
 			if output.PublicKey.IsEqual(vtxoKey) {

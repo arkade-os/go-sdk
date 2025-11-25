@@ -345,10 +345,14 @@ func buildAssetTransferTx(
 		}
 
 		for _, out := range vtxo.Asset.Outputs {
-			if out.PublicKey == *pubkey {
+			if out.PublicKey.IsEqual(pubkey) {
+				txId := vtxoOutpoint.Hash.CloneBytes()
+				reverseBytes(txId)
+
 				assetInput := asset.AssetInput{
-					Txid: vtxoOutpoint.Hash[:],
-					Vout: out.Vout,
+					Txid:   txId,
+					Vout:   out.Vout,
+					Amount: out.Amount,
 				}
 				newAssetInputs = append(newAssetInputs, assetInput)
 			}
@@ -356,6 +360,8 @@ func buildAssetTransferTx(
 	}
 
 	newAsset.Inputs = newAssetInputs
+
+	fmt.Printf("This is the new asset ")
 
 	for _, vtxo := range otherVtxos {
 		if len(vtxo.Tapscripts) <= 0 {
@@ -407,7 +413,7 @@ func buildAssetTransferTx(
 
 	outs := make([]*wire.TxOut, 0)
 
-	for _, receiver := range receivers {
+	for i, receiver := range receivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, nil, err
@@ -426,6 +432,7 @@ func buildAssetTransferTx(
 		newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
 			PublicKey: *addr.VtxoTapKey,
 			Amount:    receiver.Amount,
+			Vout:      uint32(i),
 		})
 
 	}
@@ -708,6 +715,12 @@ func extractCollaborativePath(tapscripts []string) ([]byte, *arklib.TaprootMerkl
 	}
 
 	return pkScript, leafProof, nil
+}
+
+func reverseBytes(b []byte) {
+	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
+		b[i], b[j] = b[j], b[i]
+	}
 }
 
 // convert regular coins (boarding, vtxos or notes) to intent proof inputs

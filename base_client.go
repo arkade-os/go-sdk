@@ -724,6 +724,10 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 		txids = append(txids, vtxo.Txid)
 	}
 
+	if len(txids) == 0 {
+		return vtxos, nil
+	}
+
 	transactions, err := a.indexer.GetVirtualTxs(ctx, txids)
 	if err != nil {
 		return nil, err
@@ -737,27 +741,41 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 			return nil, err
 		}
 
-		for _, output := range txPacket.UnsignedTx.TxOut {
-			txId := txPacket.UnsignedTx.TxID()
+		var newAsset *asset.Asset
 
-			if !asset.IsAsset(output.PkScript) {
-				for _, vtxo := range vtxoMap[txId] {
-					finalVtxos = append(finalVtxos, vtxo)
+		txId := txPacket.UnsignedTx.TxID()
+
+		// asset follow RGB convection, the asset output is after the seals outputs
+
+		var assetIndex int
+
+		for i, output := range txPacket.UnsignedTx.TxOut {
+
+			if asset.IsAsset(output.PkScript) {
+				asset, _, err := asset.DecodeAssetFromOpret(output.PkScript)
+				if err != nil {
+					log.WithError(err).Error("failed to decode asset from vtxo script")
+					continue
 				}
-				continue
+				newAsset = asset
+				assetIndex = i
+
+				break
 			}
 
-			var newAsset *asset.Asset
-			err := newAsset.DecodeTlv(output.PkScript)
-			if err != nil {
-				return nil, err
-			}
+		}
 
-			for _, vtxo := range vtxoMap[txId] {
+		if newAsset == nil {
+			finalVtxos = append(finalVtxos, vtxoMap[txId]...)
+			println("adding to no asset")
+			continue
+		}
+
+		for _, vtxo := range vtxoMap[txId] {
+			if int(vtxo.VOut) < assetIndex {
 				vtxo.Asset = newAsset
-				finalVtxos = append(finalVtxos, vtxo)
 			}
-			break
+			finalVtxos = append(finalVtxos, vtxo)
 		}
 	}
 
