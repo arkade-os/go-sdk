@@ -248,7 +248,9 @@ func (a *restClient) GetVtxos(
 	req := a.svc.IndexerServiceAPI.IndexerServiceGetVtxos(ctx).
 		SpendableOnly(opt.GetSpendableOnly()).
 		SpentOnly(opt.GetSpentOnly()).
-		RecoverableOnly(opt.GetRecoverableOnly())
+		RecoverableOnly(opt.GetRecoverableOnly()).
+		PendingOnly(opt.GetPendingOnly())
+
 	if len(opt.GetOutpoints()) > 0 {
 		req = req.Outpoints(opt.GetOutpoints())
 	}

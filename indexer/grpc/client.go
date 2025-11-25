@@ -355,6 +355,7 @@ func (a *grpcClient) GetVtxos(
 		SpendableOnly:   opt.GetSpendableOnly(),
 		SpentOnly:       opt.GetSpentOnly(),
 		RecoverableOnly: opt.GetRecoverableOnly(),
+		PendingOnly:     opt.GetPendingOnly(),
 		Page:            page,
 	}
 

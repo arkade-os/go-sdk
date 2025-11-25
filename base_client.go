@@ -706,6 +706,40 @@ func (a *arkClient) listVtxosFromIndexer(
 	return
 }
 
+func (a *arkClient) listPendingSpentVtxosFromIndexer(ctx context.Context) ([]types.Vtxo, error) {
+	if a.wallet == nil {
+		return nil, ErrNotInitialized
+	}
+
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	scripts := make([]string, 0, len(offchainAddrs))
+	for _, addr := range offchainAddrs {
+		decoded, err := arklib.DecodeAddressV0(addr.Address)
+		if err != nil {
+			return nil, err
+		}
+		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
+		if err != nil {
+			return nil, err
+		}
+		scripts = append(scripts, hex.EncodeToString(vtxoScript))
+	}
+	opt := indexer.GetVtxosRequestOption{}
+	opt.WithPendingOnly()
+	if err = opt.WithScripts(scripts); err != nil {
+		return nil, err
+	}
+	resp, err := a.indexer.GetVtxos(ctx, opt)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Vtxos, nil
+}
+
 func (a *arkClient) safeCheck() error {
 	if a.wallet == nil {
 		return fmt.Errorf("wallet not initialized")

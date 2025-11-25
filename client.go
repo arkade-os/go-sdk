@@ -832,38 +832,30 @@ func (a *arkClient) DeleteIntent(
 }
 
 func (a *arkClient) FinalizePendingTxs(
-	ctx context.Context,
-	createdAfter *time.Time,
+	ctx context.Context, createdAfter *time.Time,
 ) ([]string, error) {
 	if err := a.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	spendable, spent, err := a.ListVtxos(ctx)
+	vtxos, err := a.listPendingSpentVtxosFromIndexer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	vtxos := append(spendable, spent...)
-
 	// filter out swept vtxos and optionally filter by date
 	filtered := make([]types.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		if vtxo.Swept {
-			continue
-		}
-
 		if createdAfter != nil && !createdAfter.IsZero() {
 			if !vtxo.CreatedAt.After(*createdAfter) {
 				continue
 			}
 		}
-
 		filtered = append(filtered, vtxo)
 	}
 
 	if len(filtered) == 0 {
-		return []string{}, nil
+		return nil, nil
 	}
 
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, filtered)
