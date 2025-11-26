@@ -253,6 +253,13 @@ type Receiver struct {
 	Amount uint64
 }
 
+type TeleportReceiver struct {
+	Receiver
+	PreimageHash string
+	AssetAmount  uint64
+	AssetId      string
+}
+
 func (r Receiver) IsOnchain() bool {
 	_, err := btcutil.DecodeAddress(r.To, nil)
 	return err == nil

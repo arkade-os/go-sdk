@@ -746,6 +746,8 @@ func toIntentInputs(
 
 		signingLeaves = append(signingLeaves, leafProof)
 
+		isSeal := coin.Asset != nil
+
 		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
 			Sequence: wire.MaxTxInSequenceNum,
@@ -753,6 +755,7 @@ func toIntentInputs(
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
 			},
+			IsSeal: isSeal,
 		})
 
 		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
@@ -760,7 +763,12 @@ func toIntentInputs(
 			return nil, nil, nil, err
 		}
 
-		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
+		vtxoSealField, err := txutils.AssetSealVtxoField.Encode(isSeal)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		arkFields = append(arkFields, []*psbt.Unknown{taptreeField, vtxoSealField})
 	}
 
 	for _, coin := range boardingUtxos {
@@ -915,25 +923,46 @@ func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
 	return opts, nil
 }
 
-func registerIntentMessage(outputs []types.Receiver, cosignersPublicKeys []string) (
+func createRegisterIntentMessage(outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string) (
 	string, []*wire.TxOut, error,
 ) {
 	validAt := time.Now()
 	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
 	onchainOutputsIndexes := make([]int, 0)
+	assetOutputsIndexes := make([]intent.AssetOutput, 0)
 
-	for i, output := range outputs {
+	outputCounter := 0
+
+	for _, output := range outputs {
 		txOut, isOnchain, err := output.ToTxOut()
 		if err != nil {
 			return "", nil, err
 		}
 
 		if isOnchain {
-			onchainOutputsIndexes = append(onchainOutputsIndexes, i)
+			onchainOutputsIndexes = append(onchainOutputsIndexes, outputCounter)
 		}
 
 		outputsTxOut = append(outputsTxOut, txOut)
+
+		outputCounter++
+	}
+
+	for _, output := range teleportOutputs {
+		txOut, _, err := output.ToTxOut()
+		if err != nil {
+			return "", nil, err
+		}
+		assetOutputsIndexes = append(assetOutputsIndexes, intent.AssetOutput{
+			AssetOutputIndex: outputCounter,
+			AssetId:          output.AssetId,
+			Amount:           output.AssetAmount,
+		})
+
+		outputsTxOut = append(outputsTxOut, txOut)
+
+		outputCounter++
 	}
 
 	message, err := intent.RegisterMessage{
@@ -941,6 +970,7 @@ func registerIntentMessage(outputs []types.Receiver, cosignersPublicKeys []strin
 			Type: intent.IntentMessageTypeRegister,
 		},
 		OnchainOutputIndexes: onchainOutputsIndexes,
+		AssetOutputIndexes:   assetOutputsIndexes,
 		ExpireAt:             expireAt,
 		ValidAt:              validAt.Unix(),
 		CosignersPublicKeys:  cosignersPublicKeys,
@@ -1033,4 +1063,13 @@ func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
 		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: expiry}
 	}
 	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
+}
+
+func GetAssetOutput(output []asset.AssetOutput, vout uint32) (*asset.AssetOutput, error) {
+	for _, out := range output {
+		if out.Vout == vout {
+			return &out, nil
+		}
+	}
+	return nil, fmt.Errorf("output not found for vout %d", vout)
 }

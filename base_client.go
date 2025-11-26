@@ -767,7 +767,6 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 
 		if newAsset == nil {
 			finalVtxos = append(finalVtxos, vtxoMap[txId]...)
-			println("adding to no asset")
 			continue
 		}
 

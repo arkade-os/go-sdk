@@ -35,7 +35,7 @@ type ArkClient interface {
 	) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
-		outputs []types.Receiver, cosignersPublicKeys []string,
+		outputs []types.Receiver, teleportOutput []types.TeleportReceiver, cosignersPublicKeys []string,
 	) (intentID string, err error)
 	DeleteIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,

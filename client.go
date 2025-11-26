@@ -3,6 +3,8 @@ package arksdk
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1204,7 +1206,7 @@ func (a *arkClient) RedeemNotes(
 		Amount: amount,
 	}}
 
-	return a.joinBatchWithRetry(ctx, notes, receiversOutput, *options, nil, nil)
+	return a.joinBatchWithRetry(ctx, notes, receiversOutput, nil, *options, nil, nil)
 }
 
 func (a *arkClient) Unroll(ctx context.Context) error {
@@ -1385,8 +1387,8 @@ func (a *arkClient) CollaborativeExit(
 		amount -= fees
 	}
 
-	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees,
+	boardingUtxos, vtxos, _, changeAmount, err := a.selectFunds(
+		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees, nil,
 	)
 	if err != nil {
 		return "", err
@@ -1406,7 +1408,7 @@ func (a *arkClient) CollaborativeExit(
 		})
 	}
 
-	return a.joinBatchWithRetry(ctx, nil, receivers, *options, vtxos, boardingUtxos)
+	return a.joinBatchWithRetry(ctx, nil, receivers, nil, *options, vtxos, boardingUtxos)
 }
 
 func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) {
@@ -1438,7 +1440,7 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]types.Transact
 
 func (a *arkClient) RegisterIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
-	outputs []types.Receiver, cosignersPublicKeys []string,
+	outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string,
 ) (string, error) {
 	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
@@ -1454,7 +1456,7 @@ func (a *arkClient) RegisterIntent(
 	}
 
 	proofTx, message, err := a.makeRegisterIntent(
-		inputs, tapLeaves, outputs, cosignersPublicKeys, arkFields,
+		inputs, tapLeaves, outputs, teleportOutputs, cosignersPublicKeys, arkFields,
 	)
 	if err != nil {
 		return "", err
@@ -2618,14 +2620,14 @@ func (a *arkClient) completeUnilateralExit(ctx context.Context, to string) (stri
 }
 
 func (a *arkClient) selectFunds(
-	ctx context.Context, computeVtxoExpiry bool, selectRecoverableVtxos bool, amount uint64,
-) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
+	ctx context.Context, computeVtxoExpiry bool, selectRecoverableVtxos bool, amount uint64, assetId []byte,
+) ([]types.Utxo, []client.TapscriptsVtxo, []client.TapscriptsVtxo, uint64, error) {
 	_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, 0, err
 	}
 	if len(offchainAddrs) <= 0 {
-		return nil, nil, 0, fmt.Errorf("no offchain addresses found")
+		return nil, nil, nil, 0, fmt.Errorf("no offchain addresses found")
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
@@ -2635,14 +2637,19 @@ func (a *arkClient) selectFunds(
 	}
 	spendableVtxos, err := a.getVtxos(ctx, opts)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, 0, err
+	}
+
+	modifiedSpendableVtxos, err := a.InsertAssetIntoVtxos(ctx, spendableVtxos)
+	if err != nil {
+		return nil, nil, nil, 0, err
 	}
 
 	for _, offchainAddr := range offchainAddrs {
-		for _, v := range spendableVtxos {
+		for _, v := range modifiedSpendableVtxos {
 			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
 			if err != nil {
-				return nil, nil, 0, err
+				return nil, nil, nil, 0, err
 			}
 
 			if vtxoAddr == offchainAddr.Address {
@@ -2654,33 +2661,48 @@ func (a *arkClient) selectFunds(
 		}
 	}
 
-	boardingUtxos, err := a.getClaimableBoardingUtxos(ctx, boardingAddrs, nil)
-	if err != nil {
-		return nil, nil, 0, err
+	normalVtxos := make([]client.TapscriptsVtxo, 0)
+	sealVtxos := make([]client.TapscriptsVtxo, 0)
+	for _, v := range vtxos {
+		if v.Asset == nil {
+			normalVtxos = append(normalVtxos, v)
+		} else {
+			sealVtxos = append(sealVtxos, v)
+		}
 	}
 
-	var selectedBoardingCoins []types.Utxo
-	var selectedCoins []client.TapscriptsVtxo
+	boardingUtxos, err := a.getClaimableBoardingUtxos(ctx, boardingAddrs, nil)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
 
 	// if no receivers, self send all selected coins
 	if amount <= 0 {
-		selectedBoardingCoins = boardingUtxos
-		selectedCoins = vtxos
-
-		amount := uint64(0)
-		for _, utxo := range boardingUtxos {
-			amount += utxo.Amount
-		}
-		for _, utxo := range vtxos {
-			amount += utxo.Amount
-		}
-
-		return selectedBoardingCoins, selectedCoins, 0, nil
+		return boardingUtxos, normalVtxos, sealVtxos, 0, nil
 	}
 
-	return utils.CoinSelectNormal(
+	if assetId != nil {
+		var arr [32]byte
+		copy(arr[:], assetId)
+
+		selectedCoins, changeAmount, err := utils.CoinSelectSeals(
+			sealVtxos, amount, arr, a.Dust, computeVtxoExpiry,
+		)
+		if err != nil {
+			return nil, nil, nil, 0, err
+		}
+
+		return nil, nil, selectedCoins, changeAmount, nil
+	}
+
+	boardingCoins, selectedCoins, changeAmount, err := utils.CoinSelectNormal(
 		boardingUtxos, vtxos, amount, a.Dust, computeVtxoExpiry,
 	)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
+	return boardingCoins, selectedCoins, nil, changeAmount, nil
 }
 
 func (a *arkClient) settle(
@@ -2695,6 +2717,9 @@ func (a *arkClient) settle(
 
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
 	outputs := make([]types.Receiver, 0)
+	teleportOutputs := make([]types.TeleportReceiver, 0)
+	teleportPreimages := make(map[string]types.TeleportReceiver, 0)
+
 	sumOfReceivers := uint64(0)
 
 	// validate receivers and create outputs
@@ -2730,8 +2755,8 @@ func (a *arkClient) settle(
 	defer a.dbMu.Unlock()
 
 	// coinselect boarding utxos and vtxos
-	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers,
+	boardingUtxos, normalVtxos, sealVtxos, changeAmount, err := a.selectFunds(
+		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers, nil,
 	)
 	if err != nil {
 		return "", err
@@ -2748,7 +2773,7 @@ func (a *arkClient) settle(
 		for _, utxo := range boardingUtxos {
 			amount += utxo.Amount
 		}
-		for _, utxo := range vtxos {
+		for _, utxo := range normalVtxos {
 			amount += utxo.Amount
 		}
 
@@ -2756,6 +2781,51 @@ func (a *arkClient) settle(
 			To:     offchainAddr.Address,
 			Amount: amount,
 		})
+
+		groupedSeals := utils.GroupBy(sealVtxos, func(v client.TapscriptsVtxo) string {
+			return hex.EncodeToString(v.Asset.AssetId[:])
+		})
+
+		for assetId, seals := range groupedSeals {
+			assetAmount := uint64(0)
+			sealAmount := seals[0].Amount
+			for i, seal := range seals {
+				sealAssetOutput, err := GetAssetOutput(seal.Asset.Outputs, seal.VOut)
+				if err != nil {
+					return "", fmt.Errorf("failed to get asset output: %s", err)
+				}
+				assetAmount += sealAssetOutput.Amount
+
+				// add remaining dust to change
+				if i == 0 {
+					continue
+				}
+				changeAmount += seal.Amount
+			}
+
+			var teleportPreimage [32]byte
+			_, err := rand.Read(teleportPreimage[:])
+			if err != nil {
+				return "", fmt.Errorf("failed to generate teleport preimage: %s", err)
+			}
+
+			hash := sha256.Sum256(teleportPreimage[:])
+			preimageHash := hex.EncodeToString(hash[:])
+
+			teleportOutput := types.TeleportReceiver{
+				Receiver: types.Receiver{
+					To:     offchainAddr.Address,
+					Amount: sealAmount,
+				},
+				AssetAmount:  assetAmount,
+				AssetId:      assetId,
+				PreimageHash: preimageHash,
+			}
+
+			teleportOutputs = append(teleportOutputs, teleportOutput)
+
+			teleportPreimages[hex.EncodeToString(teleportPreimage[:])] = teleportOutput
+		}
 	}
 
 	// add change output if any
@@ -2766,14 +2836,18 @@ func (a *arkClient) settle(
 		})
 	}
 
-	return a.joinBatchWithRetry(ctx, nil, outputs, *options, vtxos, boardingUtxos)
+	totalVtxos := make([]client.TapscriptsVtxo, 0)
+	totalVtxos = append(totalVtxos, normalVtxos...)
+	totalVtxos = append(totalVtxos, sealVtxos...)
+
+	return a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, totalVtxos, boardingUtxos)
 }
 
 func (a *arkClient) makeRegisterIntent(
 	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof,
-	outputs []types.Receiver, cosignersPublicKeys []string, arkFields [][]*psbt.Unknown,
+	outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string, arkFields [][]*psbt.Unknown,
 ) (string, string, error) {
-	message, outputsTxOut, err := registerIntentMessage(outputs, cosignersPublicKeys)
+	message, outputsTxOut, err := createRegisterIntentMessage(outputs, teleportOutputs, cosignersPublicKeys)
 	if err != nil {
 		return "", "", err
 	}
@@ -2825,6 +2899,12 @@ func (a *arkClient) makeIntent(
 		}
 
 		proof.Inputs[i] = input
+	}
+
+	for _, in := range proof.Inputs {
+		for _, value := range in.Unknowns {
+			fmt.Printf("this is the value %+v", value.Value)
+		}
 	}
 
 	unsignedProofTx, err := proof.B64Encode()
@@ -2949,7 +3029,7 @@ func (a *arkClient) populateVtxosWithTapscripts(
 }
 
 func (a *arkClient) joinBatchWithRetry(
-	ctx context.Context, notes []string, outputs []types.Receiver, options SettleOptions,
+	ctx context.Context, notes []string, outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, options SettleOptions,
 	selectedCoins []client.TapscriptsVtxo, selectedBoardingCoins []types.Utxo,
 ) (string, error) {
 	inputs, exitLeaves, arkFields, err := toIntentInputs(
@@ -2983,7 +3063,7 @@ func (a *arkClient) joinBatchWithRetry(
 	var batchErr error
 	for retryCount < maxRetry {
 		proofTx, message, err := a.makeRegisterIntent(
-			inputs, exitLeaves, outputs, signerPubKeys, arkFields,
+			inputs, exitLeaves, outputs, teleportOutputs, signerPubKeys, arkFields,
 		)
 		if err != nil {
 			return "", err
@@ -2997,7 +3077,8 @@ func (a *arkClient) joinBatchWithRetry(
 		log.Debugf("registered inputs and outputs with request id: %s", intentID)
 
 		commitmentTxid, err := a.handleBatchEvents(
-			ctx, intentID, selectedCoins, notes, selectedBoardingCoins, outputs, signerSessions,
+			ctx, intentID, selectedCoins, notes, selectedBoardingCoins, outputs, teleportOutputs,
+			signerSessions,
 			options.EventsCh, options.CancelCh,
 		)
 		if err != nil {
@@ -3018,7 +3099,7 @@ func (a *arkClient) joinBatchWithRetry(
 func (a *arkClient) handleBatchEvents(
 	ctx context.Context,
 	intentId string, vtxos []client.TapscriptsVtxo, notes []string, boardingUtxos []types.Utxo,
-	receivers []types.Receiver, signerSessions []tree.SignerSession,
+	receivers []types.Receiver, teleportReceivers []types.TeleportReceiver, signerSessions []tree.SignerSession,
 	replayEventsCh chan<- any, cancelCh <-chan struct{},
 ) (string, error) {
 	topics := make([]string, 0)
@@ -3047,11 +3128,8 @@ func (a *arkClient) handleBatchEvents(
 	// skip only if there is no offchain output
 	skipVtxoTreeSigning := true
 
-	for _, receiver := range receivers {
-		if _, err := arklib.DecodeAddressV0(receiver.To); err == nil {
-			skipVtxoTreeSigning = false
-			break
-		}
+	if len(teleportReceivers) > 0 || len(receivers) > 0 {
+		skipVtxoTreeSigning = false
 	}
 
 	options := []BatchSessionOption{WithCancel(cancelCh)}
@@ -3074,7 +3152,7 @@ func (a *arkClient) handleBatchEvents(
 	}
 
 	batchEventsHandler := newBatchEventsHandler(
-		a, intentId, vtxos, boardingUtxos, receivers, signerSessions,
+		a, intentId, vtxos, boardingUtxos, receivers, teleportReceivers, signerSessions,
 	)
 
 	commitmentTxid, err := JoinBatchSession(ctx, eventsCh, batchEventsHandler, options...)

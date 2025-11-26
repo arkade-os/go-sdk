@@ -370,3 +370,14 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 		chunkCh <- ChunkJSONStream{Msg: msg}
 	}
 }
+
+func GroupBy[T any](items []T, keyFn func(T) string) map[string][]T {
+	result := make(map[string][]T)
+
+	for _, item := range items {
+		key := keyFn(item)
+		result[key] = append(result[key], item)
+	}
+
+	return result
+}
