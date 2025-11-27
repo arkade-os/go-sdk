@@ -2233,7 +2233,7 @@ func (a *arkClient) makeDeleteIntent(
 		BaseMessage: intent.BaseMessage{
 			Type: intent.IntentMessageTypeDelete,
 		},
-		ExpireAt: time.Now().Add(2 * time.Minute).Unix(),
+		ExpireAt: 0,
 	}.Encode()
 	if err != nil {
 		return "", "", err
