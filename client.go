@@ -616,7 +616,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	}
 
 	// select seals
-	selectedSealCoins, assetChangeAmount, err := utils.CoinSelectSeals(
+	selectedSealCoins, assetChangeAmount, controlKeyPresent, err := utils.CoinSelectSeals(
 		vtxos, sumOfReceivers, assetId, a.Dust, false,
 	)
 
@@ -624,10 +624,37 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		return "", err
 	}
 
+	// Ensure there is leftover change is sent back to control key if present
+	if controlKeyPresent && assetChangeAmount == 0 {
+		return "", fmt.Errorf("not enough funds to cover amount %d with control key present", sumOfReceivers)
+	}
+
 	if assetChangeAmount > 0 {
-		receivers = append(receivers, types.Receiver{
-			To: offchainAddrs[0].Address, Amount: assetChangeAmount,
-		})
+		// If control Key Present ensure you return to control Key
+		if controlKeyPresent {
+			assetControlKey := selectedSealCoins[0].Asset.ControlPubkey
+			assetControlAddr := arklib.Address{
+				HRP:        a.Network.Addr,
+				Signer:     a.SignerPubKey,
+				VtxoTapKey: assetControlKey,
+				Version:    0,
+			}
+
+			encodedAddress, err := assetControlAddr.EncodeV0()
+			if err != nil {
+				return "", err
+			}
+
+			receivers = append(receivers, types.Receiver{
+				To:     encodedAddress,
+				Amount: assetChangeAmount,
+			})
+		} else {
+			receivers = append(receivers, types.Receiver{
+				To: offchainAddrs[0].Address, Amount: assetChangeAmount,
+			})
+		}
+
 	}
 
 	sealInputs := make([]arkTxInput, 0, len(selectedSealCoins))
@@ -896,6 +923,208 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 
 	return arkTxid, nil
 
+}
+
+func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action types.AssetManagementType, amount uint64, params types.AssetModificationParams) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	vtxos := make([]client.TapscriptsVtxo, 0)
+
+	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
+		WithExpirySorting: false,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	for _, offchainAddr := range offchainAddrs {
+		for _, v := range spendableVtxos {
+			if v.IsRecoverable() {
+				continue
+			}
+
+			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
+			if err != nil {
+				return "", err
+			}
+
+			if vtxoAddr == offchainAddr.Address {
+				vtxos = append(vtxos, client.TapscriptsVtxo{
+					Vtxo:       v,
+					Tapscripts: offchainAddr.Tapscripts,
+				})
+			}
+		}
+	}
+	sealInputs := make([]arkTxInput, 0)
+	sealOutputs := make([]types.Receiver, 0)
+
+	if action == types.AssetManagementTypeMint {
+		// select seals
+		controlSeal, sealAmount, err := utils.FetchControlSeal(
+			vtxos, assetId,
+		)
+
+		if err != nil {
+			return "", err
+		}
+
+		if controlSeal == nil {
+			return "", fmt.Errorf("asset control seal already exists for asset %x", assetId)
+		}
+
+		vtxoScript, err := script.ParseVtxoScript(controlSeal.Tapscripts)
+		if err != nil {
+			return "", err
+		}
+
+		forfeitClosure := vtxoScript.ForfeitClosures()[0]
+
+		forfeitScript, err := forfeitClosure.Script()
+		if err != nil {
+			return "", err
+		}
+
+		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+
+		sealInput := arkTxInput{
+			*controlSeal,
+			forfeitLeaf.TapHash(),
+		}
+
+		sealInputs = append(sealInputs, sealInput)
+
+		assetControlKey := controlSeal.Asset.ControlPubkey
+		assetControlAddr := arklib.Address{
+			HRP:        a.Network.Addr,
+			Signer:     a.SignerPubKey,
+			VtxoTapKey: assetControlKey,
+			Version:    0,
+		}
+
+		encodedAddress, err := assetControlAddr.EncodeV0()
+		if err != nil {
+			return "", err
+		}
+
+		sealOutputs = append(sealOutputs, types.Receiver{
+			To:     encodedAddress,
+			Amount: amount + sealAmount,
+		})
+
+	} else {
+
+		// select seals
+		selectedSealCoins, assetChangeAmount, controlKeyPresent, err := utils.CoinSelectSeals(
+			vtxos, amount, assetId, a.Dust, false,
+		)
+
+		if err != nil {
+			return "", err
+		}
+
+		if !controlKeyPresent {
+			return "", fmt.Errorf("asset control seal not found for asset %x", assetId)
+		}
+
+		if assetChangeAmount == 0 {
+			return "", fmt.Errorf("not enough funds to cover amount %d with control key present", amount)
+		}
+
+		for _, coin := range selectedSealCoins {
+			vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
+			if err != nil {
+				return "", err
+			}
+
+			forfeitClosure := vtxoScript.ForfeitClosures()[0]
+
+			forfeitScript, err := forfeitClosure.Script()
+			if err != nil {
+				return "", err
+			}
+
+			forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+
+			sealInputs = append(sealInputs, arkTxInput{
+				coin,
+				forfeitLeaf.TapHash(),
+			})
+		}
+
+		assetControlKey := selectedSealCoins[0].Asset.ControlPubkey
+		assetControlAddr := arklib.Address{
+			HRP:        a.Network.Addr,
+			Signer:     a.SignerPubKey,
+			VtxoTapKey: assetControlKey,
+			Version:    0,
+		}
+
+		encodedAddress, err := assetControlAddr.EncodeV0()
+		if err != nil {
+			return "", err
+		}
+
+		sealOutputs = append(sealOutputs, types.Receiver{
+			To:     encodedAddress,
+			Amount: assetChangeAmount,
+		})
+
+	}
+
+	arkTx, checkpointTxs, _, err := buildAssetModificationTx(sealInputs, assetId, sealOutputs, params, a.CheckpointExitPath(), a.Dust)
+	if err != nil {
+		return "", err
+	}
+
+	signedArkTx, err := a.wallet.SignTransaction(ctx, a.explorer, arkTx)
+	if err != nil {
+		return "", err
+	}
+
+	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(
+		ctx, signedArkTx, checkpointTxs,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	// validate and verify transactions returned by the server
+	if err := verifySignedArk(arkTx, signedArkTx, a.SignerPubKey); err != nil {
+		return "", err
+	}
+
+	if err := verifySignedCheckpoints(checkpointTxs, signedCheckpointTxs, a.SignerPubKey); err != nil {
+		return "", err
+	}
+
+	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
+
+	for _, checkpoint := range signedCheckpointTxs {
+		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
+		if err != nil {
+			return "", nil
+		}
+		finalCheckpoints = append(finalCheckpoints, signedTx)
+	}
+
+	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
+		return "", err
+	}
+
+	if !a.WithTransactionFeed {
+		return arkTxid, nil
+	}
+
+	// TODO (Joshua): Mark VTXO's to make it stateful please
+	return arkTxid, nil
 }
 
 func (a *arkClient) SendOffChain(
@@ -2687,7 +2916,7 @@ func (a *arkClient) selectFunds(
 		var arr [32]byte
 		copy(arr[:], assetId)
 
-		selectedCoins, changeAmount, err := utils.CoinSelectSeals(
+		selectedCoins, changeAmount, _, err := utils.CoinSelectSeals(
 			sealVtxos, amount, arr, a.Dust, computeVtxoExpiry,
 		)
 		if err != nil {
@@ -2832,14 +3061,9 @@ func (a *arkClient) settle(
 				return "", fmt.Errorf("invalid offchain address: %s", err)
 			}
 
-			userPubKey, err := a.wallet.GetPublicKey(ctx)
-			if err != nil {
-				return "", fmt.Errorf("failed to get client public key: %s", err)
-			}
-
 			unilateralExitDelay := deriveTimelock(uint32(serverInfo.UnilateralExitDelay))
 
-			teleportScript := NewTeleportVtxoScript(userPubKey, owner.Signer, teleportPreimage[:], unilateralExitDelay)
+			teleportScript := NewTeleportVtxoScript(clientPubkey, owner.Signer, teleportPreimage[:], unilateralExitDelay)
 			teleportKey, _, err := teleportScript.TapTree()
 			if err != nil {
 				return "", fmt.Errorf("failed to get teleport taproot key: %s", err)

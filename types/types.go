@@ -267,6 +267,16 @@ type TeleportScript struct {
 	ClaimClousure    *script.ConditionMultisigClosure
 }
 
+type AssetManagementType uint
+
+const (
+	AssetManagementTypeMint AssetManagementType = iota
+	AssetManagementTypeBurn
+)
+
+type AssetManagementAction struct {
+}
+
 func (r Receiver) IsOnchain() bool {
 	_, err := btcutil.DecodeAddress(r.To, nil)
 	return err == nil
@@ -335,4 +345,9 @@ type AssetCreationParams struct {
 	Quantity  uint64
 	Decimals  uint8
 	Immutable bool
+}
+
+type AssetModificationParams struct {
+	Name   string
+	Symbol string
 }
