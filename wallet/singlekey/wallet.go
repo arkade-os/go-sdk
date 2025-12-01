@@ -110,6 +110,14 @@ func (w *singlekeyWallet) IsLocked() bool {
 	return w.privateKey == nil
 }
 
+func (w *singlekeyWallet) GetPublicKey() (*btcec.PublicKey, error) {
+	if w.walletData == nil {
+		return nil, fmt.Errorf("wallet not initialized")
+	}
+
+	return w.walletData.PubKey, nil
+}
+
 func (w *singlekeyWallet) Dump(ctx context.Context) (string, error) {
 	if w.walletData == nil {
 		return "", fmt.Errorf("wallet not initialized")

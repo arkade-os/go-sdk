@@ -958,6 +958,7 @@ func createRegisterIntentMessage(outputs []types.Receiver, teleportOutputs []typ
 			AssetOutputIndex: outputCounter,
 			AssetId:          output.AssetId,
 			Amount:           output.AssetAmount,
+			TeleportPubkey:   output.AssetReceiverPubkey,
 		})
 
 		outputsTxOut = append(outputsTxOut, txOut)
@@ -1072,4 +1073,44 @@ func GetAssetOutput(output []asset.AssetOutput, vout uint32) (*asset.AssetOutput
 		}
 	}
 	return nil, fmt.Errorf("output not found for vout %d", vout)
+}
+
+func NewTeleportVtxoScript(
+	owner, signer *btcec.PublicKey, teleportPreimage []byte, exitDelay arklib.RelativeLocktime,
+) types.TeleportScript {
+
+	preimageHash := sha256.Sum256(teleportPreimage)
+	teleportPreimageHash := preimageHash[:]
+
+	preimageCondition, _ := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_SHA256).
+		AddData(teleportPreimageHash).
+		AddOp(txscript.OP_EQUAL).
+		Script()
+
+	claimConditionClosure := &script.ConditionMultisigClosure{
+		Condition: preimageCondition,
+		MultisigClosure: script.MultisigClosure{
+			PubKeys: []*btcec.PublicKey{owner, signer},
+		},
+	}
+
+	unilateralDelayCLosure := &script.CSVMultisigClosure{
+		MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{owner}},
+		Locktime:        exitDelay,
+	}
+
+	tapScriptVtxos := &script.TapscriptsVtxoScript{
+		Closures: []script.Closure{
+			claimConditionClosure,
+			unilateralDelayCLosure,
+		},
+	}
+
+	return types.TeleportScript{
+		TapscriptsVtxoScript: tapScriptVtxos,
+		TeleportPreimage:     teleportPreimage,
+		ClaimClousure:        claimConditionClosure,
+	}
+
 }

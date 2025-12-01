@@ -19,6 +19,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
+	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
@@ -37,6 +38,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	log "github.com/sirupsen/logrus"
@@ -2715,10 +2717,15 @@ func (a *arkClient) settle(
 		}
 	}
 
+	serverInfo, err := a.client.GetInfo(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get server info: %s", err)
+	}
+
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
 	outputs := make([]types.Receiver, 0)
 	teleportOutputs := make([]types.TeleportReceiver, 0)
-	teleportPreimages := make(map[string]types.TeleportReceiver, 0)
+	teleportPreimages := make(map[string]types.TeleportScript, 0)
 
 	sumOfReceivers := uint64(0)
 
@@ -2767,6 +2774,11 @@ func (a *arkClient) settle(
 		return "", err
 	}
 
+	clientPubkey, err := a.wallet.GetPublicKey(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	// if no outputs, self send all selected coins
 	if len(outputs) <= 0 {
 		amount := uint64(0)
@@ -2777,10 +2789,12 @@ func (a *arkClient) settle(
 			amount += utxo.Amount
 		}
 
-		outputs = append(outputs, types.Receiver{
-			To:     offchainAddr.Address,
-			Amount: amount,
-		})
+		if amount > a.Dust {
+			outputs = append(outputs, types.Receiver{
+				To:     offchainAddr.Address,
+				Amount: amount,
+			})
+		}
 
 		groupedSeals := utils.GroupBy(sealVtxos, func(v client.TapscriptsVtxo) string {
 			return hex.EncodeToString(v.Asset.AssetId[:])
@@ -2790,6 +2804,9 @@ func (a *arkClient) settle(
 			assetAmount := uint64(0)
 			sealAmount := seals[0].Amount
 			for i, seal := range seals {
+
+				fmt.Printf("Seal amount %+v", sealAmount)
+
 				sealAssetOutput, err := GetAssetOutput(seal.Asset.Outputs, seal.VOut)
 				if err != nil {
 					return "", fmt.Errorf("failed to get asset output: %s", err)
@@ -2808,23 +2825,56 @@ func (a *arkClient) settle(
 			if err != nil {
 				return "", fmt.Errorf("failed to generate teleport preimage: %s", err)
 			}
-
 			hash := sha256.Sum256(teleportPreimage[:])
-			preimageHash := hex.EncodeToString(hash[:])
+
+			owner, err := arklib.DecodeAddressV0(offchainAddr.Address)
+			if err != nil {
+				return "", fmt.Errorf("invalid offchain address: %s", err)
+			}
+
+			userPubKey, err := a.wallet.GetPublicKey(ctx)
+			if err != nil {
+				return "", fmt.Errorf("failed to get client public key: %s", err)
+			}
+
+			unilateralExitDelay := deriveTimelock(uint32(serverInfo.UnilateralExitDelay))
+
+			teleportScript := NewTeleportVtxoScript(userPubKey, owner.Signer, teleportPreimage[:], unilateralExitDelay)
+			teleportKey, _, err := teleportScript.TapTree()
+			if err != nil {
+				return "", fmt.Errorf("failed to get teleport taproot key: %s", err)
+			}
+
+			teleportAddresss := arklib.Address{
+				HRP:        owner.HRP,
+				Signer:     owner.Signer,
+				Version:    owner.Version,
+				VtxoTapKey: teleportKey,
+			}
+			encodedTeleportAddress, err := teleportAddresss.EncodeV0()
+			if err != nil {
+				return "", fmt.Errorf("failed to encode teleport address: %s", err)
+			}
 
 			teleportOutput := types.TeleportReceiver{
 				Receiver: types.Receiver{
-					To:     offchainAddr.Address,
+					To:     encodedTeleportAddress,
 					Amount: sealAmount,
 				},
-				AssetAmount:  assetAmount,
-				AssetId:      assetId,
-				PreimageHash: preimageHash,
+				AssetAmount:         assetAmount,
+				AssetId:             assetId,
+				PreimageHash:        hex.EncodeToString(hash[:]),
+				AssetReceiverPubkey: hex.EncodeToString(schnorr.SerializePubKey(clientPubkey)),
 			}
 
 			teleportOutputs = append(teleportOutputs, teleportOutput)
 
-			teleportPreimages[hex.EncodeToString(teleportPreimage[:])] = teleportOutput
+			teleportPkScript, err := teleportAddresss.GetPkScript()
+			if err != nil {
+				return "", fmt.Errorf("failed to get teleport pkScript: %s", err)
+			}
+
+			teleportPreimages[hex.EncodeToString(teleportPkScript)] = teleportScript
 		}
 	}
 
@@ -2840,7 +2890,60 @@ func (a *arkClient) settle(
 	totalVtxos = append(totalVtxos, normalVtxos...)
 	totalVtxos = append(totalVtxos, sealVtxos...)
 
-	return a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, totalVtxos, boardingUtxos)
+	fmt.Printf("The total vtxos are %d", len(outputs))
+	var wg sync.WaitGroup
+
+	// subscribe to teleport outputs before broadcasting commitment tx
+	if len(teleportOutputs) > 0 {
+		teleportScripts := make([]string, 0)
+		for script, _ := range teleportPreimages {
+			teleportScripts = append(teleportScripts, script)
+		}
+		subscriptionId, err := a.indexer.SubscribeForScripts(ctx, "", teleportScripts)
+		if err != nil {
+			return "", fmt.Errorf("failed to subscribe for teleport scripts: %s", err)
+		}
+		fmt.Printf("subscribed to teleport outputs with subscription id %s", subscriptionId)
+
+		wg.Add(len(teleportScripts))
+
+		fmt.Printf("these are scripts %+v", teleportScripts)
+
+		go func(teleportPreimages map[string]types.TeleportScript, subscriptionId string) {
+			subscriptionChannel, closeFn, err := a.indexer.GetSubscription(ctx, subscriptionId)
+			if err != nil {
+				fmt.Printf("failed to get subscription channel: %s", err)
+				return
+			}
+			defer closeFn()
+
+			for msg := range subscriptionChannel {
+				if msg.Err != nil {
+					fmt.Printf("error in subscription channel: %s", msg.Err)
+					continue
+				}
+
+				for _, vtxo := range msg.NewVtxos {
+					if preimage, ok := teleportPreimages[vtxo.Script]; ok {
+						err := a.claimTeleportOutput(ctx, vtxo, preimage)
+						if err != nil {
+							fmt.Printf("failed to claim teleport output: %s", err)
+						}
+					}
+					wg.Done()
+				}
+			}
+		}(teleportPreimages, subscriptionId)
+	}
+
+	commitmentId, err := a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, totalVtxos, boardingUtxos)
+	if err != nil {
+		return "", fmt.Errorf("failed to join batch: %s", err)
+	}
+
+	wg.Wait()
+
+	return commitmentId, nil
 }
 
 func (a *arkClient) makeRegisterIntent(
@@ -2899,12 +3002,6 @@ func (a *arkClient) makeIntent(
 		}
 
 		proof.Inputs[i] = input
-	}
-
-	for _, in := range proof.Inputs {
-		for _, value := range in.Unknowns {
-			fmt.Printf("this is the value %+v", value.Value)
-		}
 	}
 
 	unsignedProofTx, err := proof.B64Encode()
@@ -3793,6 +3890,228 @@ func (a *arkClient) handleArkTx(
 	return nil
 }
 
+func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vtxoScript types.TeleportScript) error {
+
+	clousureScripts := make([]string, 0)
+	for _, closure := range vtxoScript.Closures {
+		if script, err := closure.Script(); err == nil {
+			clousureScripts = append(clousureScripts, hex.EncodeToString(script))
+		}
+	}
+
+	claimClosure := vtxoScript.ClaimClousure
+
+	myAddr, err := a.NewOffchainAddress(ctx)
+	if err != nil {
+		return err
+	}
+
+	decodedAddr, err := arklib.DecodeAddressV0(myAddr)
+	if err != nil {
+		return err
+	}
+
+	pkScript, err := script.P2TRScript(decodedAddr.VtxoTapKey)
+	if err != nil {
+		return err
+	}
+
+	vtxoTxHash, err := chainhash.NewHashFromStr(vtxo.Txid)
+	if err != nil {
+		return err
+	}
+
+	vtxoOutpoint := &wire.OutPoint{
+		Hash:  *vtxoTxHash,
+		Index: vtxo.VOut,
+	}
+
+	_, tapTree, err := vtxoScript.TapTree()
+	if err != nil {
+		return err
+	}
+
+	claimScript, err := claimClosure.Script()
+	if err != nil {
+		return err
+	}
+
+	leafProof, err := tapTree.GetTaprootMerkleProof(
+		txscript.NewBaseTapLeaf(claimScript).TapHash(),
+	)
+	if err != nil {
+		return err
+	}
+
+	ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
+	if err != nil {
+		return err
+	}
+
+	tapScript := &waddrmgr.Tapscript{
+		RevealedScript: leafProof.Script,
+		ControlBlock:   ctrlBlock,
+	}
+
+	checkpointExitScript, err := hex.DecodeString(a.Config.CheckpointTapscript)
+	if err != nil {
+		return err
+	}
+
+	assetOutput, err := a.claimTeleportAsset(ctx, vtxoTxHash.String(), *decodedAddr.VtxoTapKey, vtxo.CommitmentTxids[0])
+	if err != nil {
+		return err
+	}
+
+	arkTx, checkpoints, err := offchain.BuildTxs(
+		[]offchain.VtxoInput{
+			{
+				RevealedTapscripts: clousureScripts,
+				Outpoint:           vtxoOutpoint,
+				Amount:             int64(vtxo.Amount),
+				Tapscript:          tapScript,
+			},
+		},
+		[]*wire.TxOut{
+			{
+				Value:    int64(vtxo.Amount),
+				PkScript: pkScript,
+			}, assetOutput,
+		},
+		checkpointExitScript,
+	)
+	if err != nil {
+		return err
+	}
+
+	signTransaction := func(tx *psbt.Packet) (string, error) {
+		// add the preimage to the checkpoint input
+		if err := txutils.SetArkPsbtField(tx, 0, txutils.ConditionWitnessField, wire.TxWitness{vtxoScript.TeleportPreimage}); err != nil {
+			return "", err
+		}
+
+		encoded, err := tx.B64Encode()
+		if err != nil {
+			return "", err
+		}
+
+		return a.SignTransaction(ctx, encoded)
+	}
+
+	signedArkTx, err := signTransaction(arkTx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("This is the signed ArkTx: %s", signedArkTx)
+
+	checkpointTxs := make([]string, 0, len(checkpoints))
+	for _, ptx := range checkpoints {
+		tx, err := ptx.B64Encode()
+		if err != nil {
+			return err
+		}
+		checkpointTxs = append(checkpointTxs, tx)
+	}
+
+	clientPubKey, err := a.wallet.GetPublicKey(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = verifyFinalArkTx(signedArkTx, clientPubKey, getInputTapLeaves(arkTx))
+	if err != nil {
+		return err
+	}
+
+	arkTxid, finalArkTx, signedCheckpoints, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
+	if err != nil {
+		return err
+	}
+
+	if err := verifyFinalArkTx(finalArkTx, a.Config.SignerPubKey, getInputTapLeaves(arkTx)); err != nil {
+		return err
+	}
+
+	finalCheckpoints, err := verifyAndSignCheckpoints(signedCheckpoints, checkpoints, a.Config.SignerPubKey, signTransaction)
+	if err != nil {
+		return err
+	}
+
+	err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints)
+	if err != nil {
+		return fmt.Errorf("failed to finalize Teleport transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (a *arkClient) claimTeleportAsset(ctx context.Context, txId string, claimKey btcec.PublicKey, commitmentTxid string) (*wire.TxOut, error) {
+	res, err := a.indexer.GetVirtualTxs(ctx, []string{txId})
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Txs) == 0 {
+		return nil, fmt.Errorf("virtual transaction %s not found", txId)
+	}
+
+	virtualTx := res.Txs[0]
+
+	decodedTx, err := psbt.NewFromRawBytes(strings.NewReader(virtualTx), true)
+	if err != nil {
+		return nil, err
+	}
+
+	assetOutput := decodedTx.UnsignedTx.TxOut[1]
+
+	if assetOutput == nil || !asset.IsAsset(assetOutput.PkScript) {
+		return nil, fmt.Errorf("no asset output found in virtual transaction %s", txId)
+	}
+
+	assetDetails, _, err := asset.DecodeAssetFromOpret(assetOutput.PkScript)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// only one output in teleport Asset Output
+	assetDetailsOutput := assetDetails.Outputs[0]
+
+	decodedTxId, err := hex.DecodeString(txId)
+	if err != nil {
+		return nil, err
+	}
+
+	newAssetDetailsInput := asset.AssetInput{
+		Txid:   decodedTxId,
+		Vout:   assetDetailsOutput.Vout,
+		Amount: assetDetailsOutput.Amount,
+	}
+
+	newAssetDetailsOutput := asset.AssetOutput{
+		PublicKey: claimKey,
+		Vout:      0,
+		Amount:    assetDetailsOutput.Amount,
+	}
+
+	newAssetDetails := assetDetails
+	newAssetDetails.Inputs = []asset.AssetInput{newAssetDetailsInput}
+	newAssetDetails.Outputs = []asset.AssetOutput{newAssetDetailsOutput}
+
+	batchTxId, err := hex.DecodeString(commitmentTxid)
+	if err != nil {
+		return nil, err
+	}
+
+	assetTransferOpReturn, err := newAssetDetails.EncodeOpret(batchTxId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &assetTransferOpReturn, nil
+
+}
+
 func (a *arkClient) handleOptions(
 	options SettleOptions, inputs []intent.Input, notesInputs []string,
 ) ([]tree.SignerSession, []string, error) {
@@ -4140,4 +4459,146 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 		}
 	}
 	return nil
+}
+
+func deriveTimelock(timelock uint32) arklib.RelativeLocktime {
+	if timelock >= 512 {
+		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: timelock}
+	}
+
+	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: timelock}
+}
+
+func verifyFinalArkTx(
+	finalArkTx string, arkSigner *btcec.PublicKey, expectedTapLeaves map[int]txscript.TapLeaf,
+) error {
+	finalArkPtx, err := psbt.NewFromRawBytes(strings.NewReader(finalArkTx), true)
+	if err != nil {
+		return err
+	}
+
+	// verify that the ark signer has signed the ark tx
+	err = verifyInputSignatures(finalArkPtx, arkSigner, expectedTapLeaves)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func verifyInputSignatures(tx *psbt.Packet, pubkey *btcec.PublicKey, tapLeaves map[int]txscript.TapLeaf) error {
+	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
+
+	prevouts := make(map[wire.OutPoint]*wire.TxOut)
+	sigsToVerify := make(map[int]*psbt.TaprootScriptSpendSig)
+
+	for inputIndex, input := range tx.Inputs {
+		// collect previous outputs
+		if input.WitnessUtxo == nil {
+			return fmt.Errorf("input %d has no witness utxo, cannot verify signature", inputIndex)
+		}
+
+		outpoint := tx.UnsignedTx.TxIn[inputIndex].PreviousOutPoint
+		prevouts[outpoint] = input.WitnessUtxo
+
+		tapLeaf, ok := tapLeaves[inputIndex]
+		if !ok {
+			return fmt.Errorf("input %d has no tapscript leaf, cannot verify signature", inputIndex)
+		}
+
+		tapLeafHash := tapLeaf.TapHash()
+
+		// check if pubkey has a tapscript sig
+		hasSig := false
+		for _, sig := range input.TaprootScriptSpendSig {
+			if bytes.Equal(sig.XOnlyPubKey, xOnlyPubkey) && bytes.Equal(sig.LeafHash, tapLeafHash[:]) {
+				hasSig = true
+				sigsToVerify[inputIndex] = sig
+				break
+			}
+		}
+
+		if !hasSig {
+			return fmt.Errorf("input %d has no signature for pubkey %x", inputIndex, xOnlyPubkey)
+		}
+	}
+
+	prevoutFetcher := txscript.NewMultiPrevOutFetcher(prevouts)
+	txSigHashes := txscript.NewTxSigHashes(tx.UnsignedTx, prevoutFetcher)
+
+	for inputIndex, sig := range sigsToVerify {
+		msgHash, err := txscript.CalcTapscriptSignaturehash(
+			txSigHashes,
+			sig.SigHash,
+			tx.UnsignedTx,
+			inputIndex,
+			prevoutFetcher,
+			tapLeaves[inputIndex],
+		)
+		if err != nil {
+			return fmt.Errorf("failed to calculate tapscript signature hash: %w", err)
+		}
+
+		signature, err := schnorr.ParseSignature(sig.Signature)
+		if err != nil {
+			return fmt.Errorf("failed to parse signature: %w", err)
+		}
+
+		if !signature.Verify(msgHash, pubkey) {
+			return fmt.Errorf("input %d: invalid signature", inputIndex)
+		}
+	}
+
+	return nil
+}
+
+func getInputTapLeaves(tx *psbt.Packet) map[int]txscript.TapLeaf {
+	tapLeaves := make(map[int]txscript.TapLeaf)
+	for inputIndex, input := range tx.Inputs {
+		if input.TaprootLeafScript == nil {
+			continue
+		}
+		tapLeaves[inputIndex] = txscript.NewBaseTapLeaf(input.TaprootLeafScript[0].Script)
+	}
+	return tapLeaves
+}
+
+func verifyAndSignCheckpoints(
+	signedCheckpoints []string, myCheckpoints []*psbt.Packet,
+	arkSigner *btcec.PublicKey, sign func(tx *psbt.Packet) (string, error),
+) ([]string, error) {
+	finalCheckpoints := make([]string, 0, len(signedCheckpoints))
+	for _, checkpoint := range signedCheckpoints {
+		signedCheckpointPtx, err := psbt.NewFromRawBytes(strings.NewReader(checkpoint), true)
+		if err != nil {
+			return nil, err
+		}
+
+		// search for the checkpoint tx we initially created
+		var myCheckpointTx *psbt.Packet
+		for _, chk := range myCheckpoints {
+			if chk.UnsignedTx.TxID() == signedCheckpointPtx.UnsignedTx.TxID() {
+				myCheckpointTx = chk
+				break
+			}
+		}
+		if myCheckpointTx == nil {
+			return nil, fmt.Errorf("checkpoint tx not found")
+		}
+
+		// verify the server has signed the checkpoint tx
+		err = verifyInputSignatures(signedCheckpointPtx, arkSigner, getInputTapLeaves(myCheckpointTx))
+		if err != nil {
+			return nil, err
+		}
+
+		finalCheckpoint, err := sign(signedCheckpointPtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sign checkpoint transaction: %w", err)
+		}
+
+		finalCheckpoints = append(finalCheckpoints, finalCheckpoint)
+	}
+
+	return finalCheckpoints, nil
 }

@@ -255,9 +255,16 @@ type Receiver struct {
 
 type TeleportReceiver struct {
 	Receiver
-	PreimageHash string
-	AssetAmount  uint64
-	AssetId      string
+	PreimageHash        string
+	AssetAmount         uint64
+	AssetId             string
+	AssetReceiverPubkey string
+}
+
+type TeleportScript struct {
+	*script.TapscriptsVtxoScript
+	TeleportPreimage []byte
+	ClaimClousure    *script.ConditionMultisigClosure
 }
 
 func (r Receiver) IsOnchain() bool {
