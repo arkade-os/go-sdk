@@ -22,7 +22,7 @@ import (
 
 const (
 	password  = "secret"
-	serverUrl = "localhost:7070"
+	serverUrl = "127.0.0.1:7070"
 )
 
 func setupClient(t *testing.T) arksdk.ArkClient {
@@ -106,7 +106,7 @@ func generateNote(t *testing.T, amount uint64) string {
 	}
 
 	reqBody := bytes.NewReader([]byte(fmt.Sprintf(`{"amount": "%d"}`, amount)))
-	req, err := http.NewRequest("POST", "http://localhost:7071/v1/admin/note", reqBody)
+	req, err := http.NewRequest("POST", "http://127.0.0.1:7071/v1/admin/note", reqBody)
 	if err != nil {
 		t.Fatalf("failed to prepare note request: %s", err)
 	}
