@@ -270,32 +270,9 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	vtxos := make([]client.TapscriptsVtxo, 0)
-	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
-		WithExpirySorting: false,
-	})
+	vtxos, err := a.createTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
 		return "", err
-	}
-
-	for _, offchainAddr := range offchainAddrs {
-		for _, v := range spendableVtxos {
-			if v.IsRecoverable() {
-				continue
-			}
-
-			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
-			if err != nil {
-				return "", err
-			}
-
-			if vtxoAddr == offchainAddr.Address {
-				vtxos = append(vtxos, client.TapscriptsVtxo{
-					Vtxo:       v,
-					Tapscripts: offchainAddr.Tapscripts,
-				})
-			}
-		}
 	}
 
 	// do not include boarding utxos
@@ -323,23 +300,14 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 	inputs := make([]arkTxInput, 0, len(selectedCoins))
 
 	for _, coin := range selectedCoins {
-		vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
+		forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
 		if err != nil {
 			return "", err
 		}
-
-		forfeitClosure := vtxoScript.ForfeitClosures()[0]
-
-		forfeitScript, err := forfeitClosure.Script()
-		if err != nil {
-			return "", err
-		}
-
-		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
 
 		inputs = append(inputs, arkTxInput{
 			coin,
-			forfeitLeaf.TapHash(),
+			*forfeitLeafHash,
 		})
 	}
 
@@ -350,9 +318,6 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 
 	var assetId [32]byte
 	copy(assetId[:], assetIdSlice)
-
-	assetIdInHex := hex.EncodeToString(assetId[:])
-	fmt.Printf("asset id: %s", assetIdInHex)
 
 	arkTx, checkpointTxs, asset, err := buildAssetCreationTx(inputs, assetId, receiver, changeReceiver, params, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
@@ -586,37 +551,13 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	vtxos := make([]client.TapscriptsVtxo, 0)
-
-	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
-		WithExpirySorting: false,
-	})
+	vtxos, err := a.createTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
 		return "", err
 	}
 
-	for _, offchainAddr := range offchainAddrs {
-		for _, v := range spendableVtxos {
-			if v.IsRecoverable() {
-				continue
-			}
-
-			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
-			if err != nil {
-				return "", err
-			}
-
-			if vtxoAddr == offchainAddr.Address {
-				vtxos = append(vtxos, client.TapscriptsVtxo{
-					Vtxo:       v,
-					Tapscripts: offchainAddr.Tapscripts,
-				})
-			}
-		}
-	}
-
 	// select seals
-	selectedSealCoins, assetChangeAmount, controlKeyPresent, err := utils.CoinSelectSeals(
+	selectedSealCoins, assetChangeAmount, err := utils.CoinSelectSeals(
 		vtxos, sumOfReceivers, assetId, a.Dust, false,
 	)
 
@@ -624,59 +565,25 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		return "", err
 	}
 
-	// Ensure there is leftover change is sent back to control key if present
-	if controlKeyPresent && assetChangeAmount == 0 {
-		return "", fmt.Errorf("not enough funds to cover amount %d with control key present", sumOfReceivers)
-	}
-
 	if assetChangeAmount > 0 {
 		// If control Key Present ensure you return to control Key
-		if controlKeyPresent {
-			assetControlKey := selectedSealCoins[0].Asset.ControlPubkey
-			assetControlAddr := arklib.Address{
-				HRP:        a.Network.Addr,
-				Signer:     a.SignerPubKey,
-				VtxoTapKey: assetControlKey,
-				Version:    0,
-			}
-
-			encodedAddress, err := assetControlAddr.EncodeV0()
-			if err != nil {
-				return "", err
-			}
-
-			receivers = append(receivers, types.Receiver{
-				To:     encodedAddress,
-				Amount: assetChangeAmount,
-			})
-		} else {
-			receivers = append(receivers, types.Receiver{
-				To: offchainAddrs[0].Address, Amount: assetChangeAmount,
-			})
-		}
+		receivers = append(receivers, types.Receiver{
+			To: offchainAddrs[0].Address, Amount: assetChangeAmount,
+		})
 
 	}
 
 	sealInputs := make([]arkTxInput, 0, len(selectedSealCoins))
 
 	for _, coin := range selectedSealCoins {
-		vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
+		forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
 		if err != nil {
 			return "", err
 		}
-
-		forfeitClosure := vtxoScript.ForfeitClosures()[0]
-
-		forfeitScript, err := forfeitClosure.Script()
-		if err != nil {
-			return "", err
-		}
-
-		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
 
 		sealInputs = append(sealInputs, arkTxInput{
 			coin,
-			forfeitLeaf.TapHash(),
+			*forfeitLeafHash,
 		})
 	}
 
@@ -699,27 +606,18 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	spendInputs := make([]arkTxInput, 0, len(selectedSpendCoins))
 
 	for _, coin := range selectedSpendCoins {
-		vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
+		forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
 		if err != nil {
 			return "", err
 		}
-
-		forfeitClosure := vtxoScript.ForfeitClosures()[0]
-
-		forfeitScript, err := forfeitClosure.Script()
-		if err != nil {
-			return "", err
-		}
-
-		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
 
 		spendInputs = append(spendInputs, arkTxInput{
 			coin,
-			forfeitLeaf.TapHash(),
+			*forfeitLeafHash,
 		})
 	}
 
-	arkTx, checkpointTxs, asset, err := buildAssetTransferTx(sealInputs, spendInputs, assetId, receivers, changeBtcReceiver, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, asset, err := buildAssetTransferTx(sealInputs, spendInputs, receivers, changeBtcReceiver, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -935,41 +833,18 @@ func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action ty
 		return "", err
 	}
 
-	vtxos := make([]client.TapscriptsVtxo, 0)
-
-	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
-		WithExpirySorting: false,
-	})
+	vtxos, err := a.createTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
 		return "", err
 	}
 
-	for _, offchainAddr := range offchainAddrs {
-		for _, v := range spendableVtxos {
-			if v.IsRecoverable() {
-				continue
-			}
-
-			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
-			if err != nil {
-				return "", err
-			}
-
-			if vtxoAddr == offchainAddr.Address {
-				vtxos = append(vtxos, client.TapscriptsVtxo{
-					Vtxo:       v,
-					Tapscripts: offchainAddr.Tapscripts,
-				})
-			}
-		}
-	}
 	sealInputs := make([]arkTxInput, 0)
 	sealOutputs := make([]types.Receiver, 0)
 
 	if action == types.AssetManagementTypeMint {
 		// select seals
-		controlSeal, sealAmount, err := utils.FetchControlSeal(
-			vtxos, assetId,
+		normalAssetSeals, sealAmount, err := utils.CoinSelectSeals(
+			vtxos, 1, assetId, a.Dust, false,
 		)
 
 		if err != nil {
@@ -1001,7 +876,6 @@ func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action ty
 
 		sealInputs = append(sealInputs, sealInput)
 
-		assetControlKey := controlSeal.Asset.ControlPubkey
 		assetControlAddr := arklib.Address{
 			HRP:        a.Network.Addr,
 			Signer:     a.SignerPubKey,
@@ -4401,6 +4275,40 @@ func (a *arkClient) fetchTxHistory(ctx context.Context) ([]types.Transaction, er
 	})
 
 	return history, nil
+}
+
+func (a *arkClient) createTapscripVtxos(ctx context.Context, offchainAddrs []wallet.TapscriptsAddress) ([]client.TapscriptsVtxo, error) {
+	vtxos := make([]client.TapscriptsVtxo, 0)
+
+	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
+		WithExpirySorting: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, offchainAddr := range offchainAddrs {
+		for _, v := range spendableVtxos {
+			if v.IsRecoverable() {
+				continue
+			}
+
+			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
+			if err != nil {
+				return nil, err
+			}
+
+			if vtxoAddr == offchainAddr.Address {
+				vtxos = append(vtxos, client.TapscriptsVtxo{
+					Vtxo:       v,
+					Tapscripts: offchainAddr.Tapscripts,
+				})
+			}
+		}
+	}
+
+	return vtxos, nil
+
 }
 
 func (i *arkClient) vtxosToTxs(

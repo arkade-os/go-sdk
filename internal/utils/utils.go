@@ -102,13 +102,11 @@ func CoinSelectSeals(
 	assetID [32]byte,
 	dust uint64,
 	sortByExpirationTime bool,
-) ([]client.TapscriptsVtxo, uint64, bool, error) {
+) ([]client.TapscriptsVtxo, uint64, error) {
 	selected := make([]client.TapscriptsVtxo, 0)
 	selectedAmount := uint64(0)
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
-
-	isControlKeyPresent := false
 
 	for _, vtxo := range vtxos {
 		if vtxo.Asset != nil && bytes.Equal(vtxo.Asset.AssetId[:], assetID[:]) {
@@ -133,24 +131,16 @@ func CoinSelectSeals(
 
 		vtxoScriptInBytes, err := hex.DecodeString(vtxo.Script)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, 0, err
 		}
 
 		vtxoKey, err := schnorr.ParsePubKey(vtxoScriptInBytes[2:])
 		if err != nil {
-			return nil, 0, false, err
+			return nil, 0, err
 		}
 
 		for _, output := range vtxo.Asset.Outputs {
 			if output.PublicKey.IsEqual(vtxoKey) {
-
-				isControlSeal, err := isControlSeal(vtxo.Vtxo)
-				if err != nil {
-					return nil, 0, false, err
-				}
-				if isControlSeal {
-					isControlKeyPresent = true
-				}
 
 				selected = append(selected, vtxo)
 				selectedAmount += output.Amount
@@ -161,34 +151,12 @@ func CoinSelectSeals(
 	}
 
 	if selectedAmount < amount {
-		return nil, 0, isControlKeyPresent, fmt.Errorf("not enough funds to cover amount %d", amount)
+		return nil, 0, fmt.Errorf("not enough funds to cover amount %d", amount)
 	}
 
 	change := selectedAmount - amount
 
-	return selected, change, isControlKeyPresent, nil
-}
-
-func FetchControlSeal(vtxos []client.TapscriptsVtxo,
-	assetID [32]byte) (*client.TapscriptsVtxo, uint64, error) {
-	for _, vtxo := range vtxos {
-		if vtxo.Asset != nil && bytes.Equal(vtxo.Asset.AssetId[:], assetID[:]) {
-			for _, output := range vtxo.Asset.Outputs {
-				if output.Vout != vtxo.VOut {
-					continue
-				}
-				isControlSeal, err := isControlSeal(vtxo.Vtxo)
-				if err != nil {
-					return nil, 0, err
-				}
-				if isControlSeal {
-					return &vtxo, output.Amount, nil
-				}
-			}
-		}
-	}
-
-	return nil, 0, fmt.Errorf("no control seal found for asset %x", assetID)
+	return selected, change, nil
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (
@@ -413,27 +381,4 @@ func GroupBy[T any](items []T, keyFn func(T) string) map[string][]T {
 	}
 
 	return result
-}
-
-func isControlSeal(vtxo types.Vtxo) (bool, error) {
-	buf, err := hex.DecodeString(vtxo.Script)
-	if err != nil {
-		return false, err
-	}
-	pubkeyBytes := buf[2:]
-
-	pubkey, err := schnorr.ParsePubKey(pubkeyBytes)
-	if err != nil {
-		return false, err
-	}
-
-	vtxoAsset := vtxo.Asset
-	if vtxoAsset == nil {
-		return false, fmt.Errorf("vtxo has no asset")
-	}
-
-	if vtxoAsset.ControlPubkey.IsEqual(pubkey) {
-		return true, nil
-	}
-	return false, nil
 }

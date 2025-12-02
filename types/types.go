@@ -340,11 +340,10 @@ type SyncEvent struct {
 }
 
 type AssetCreationParams struct {
-	Name      string
-	Symbol    string
-	Quantity  uint64
-	Decimals  uint8
-	Immutable bool
+	Name           string
+	Symbol         string
+	Quantity       uint64
+	ControlAssetId [32]byte
 }
 
 type AssetModificationParams struct {

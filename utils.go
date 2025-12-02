@@ -200,20 +200,19 @@ func buildAssetCreationTx(
 		Key:   "symbol",
 		Value: assetParams.Symbol,
 	})
-	assetMeta = append(assetMeta, asset.Metadata{
-		Key:   "decimals",
-		Value: strconv.Itoa(int(assetParams.Decimals)),
-	})
 
 	assetDetails := asset.Asset{
-		AssetId:       assetId,
-		Outputs:       []asset.AssetOutput{{PublicKey: *controlKey, Amount: assetParams.Quantity, Vout: 0}},
-		ControlPubkey: controlKey,
-		Inputs:        []asset.AssetInput{},
-		Metadata:      assetMeta,
-		Immutable:     assetParams.Immutable,
-		Version:       asset.AssetVersion,
-		Magic:         asset.AssetMagic,
+		AssetId:        assetId,
+		Outputs:        []asset.AssetOutput{{PublicKey: *controlKey, Amount: assetParams.Quantity, Vout: 0}},
+		ControlAssetId: assetParams.ControlAssetId,
+		Inputs:         []asset.AssetInput{},
+		Metadata:       assetMeta,
+		Version:        asset.AssetVersion,
+		Magic:          asset.AssetMagic,
+	}
+
+	assetGroup := asset.AssetGroup{
+		NormalAsset: assetDetails,
 	}
 
 	genesisId, err := deriveGenesisId(vtxos)
@@ -221,7 +220,7 @@ func buildAssetCreationTx(
 		return "", nil, nil, err
 	}
 
-	assetOpretOut, err := assetDetails.EncodeOpret(genesisId)
+	assetOpretOut, err := assetGroup.EncodeOpret(genesisId)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -271,7 +270,7 @@ func buildAssetCreationTx(
 }
 
 func buildAssetTransferTx(
-	sealVtxos []arkTxInput, otherVtxos []arkTxInput, assetId [32]byte, receivers []types.Receiver, change *types.Receiver, serverUnrollScript []byte,
+	sealVtxos []arkTxInput, otherVtxos []arkTxInput, receivers []types.Receiver, change *types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
 	if len(sealVtxos) <= 0 {
@@ -289,70 +288,22 @@ func buildAssetTransferTx(
 	newAssetOutputs := make([]asset.AssetOutput, 0)
 
 	for _, vtxo := range sealVtxos {
-		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
-		}
-
-		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
+		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		vtxoOutpoint := &wire.OutPoint{
-			Hash:  *vtxoTxID,
-			Index: vtxo.VOut,
-		}
+		ins = append(ins, *in)
 
-		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		_, vtxoTree, err := vtxoScript.TapTree()
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		tapscript := &waddrmgr.Tapscript{
-			RevealedScript: leafProof.Script,
-			ControlBlock:   ctrlBlock,
-		}
-
-		ins = append(ins, offchain.VtxoInput{
-			Outpoint:           vtxoOutpoint,
-			Tapscript:          tapscript,
-			Amount:             int64(vtxo.Amount),
-			RevealedTapscripts: vtxo.Tapscripts,
-		})
-
-		buf, err := hex.DecodeString(vtxo.Script)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		pubkeyBytes := buf[2:]
-
-		pubkey, err := schnorr.ParsePubKey(pubkeyBytes)
+		pubkey, err := DerviePubKeyFromScript(vtxo.Script)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 		for _, out := range vtxo.Asset.Outputs {
 			if out.PublicKey.IsEqual(pubkey) {
-				txId := vtxoOutpoint.Hash.CloneBytes()
-				reverseBytes(txId)
-
 				assetInput := asset.AssetInput{
-					Txid:   txId,
+					Txid:   deriveTxId(in.Outpoint.Hash),
 					Vout:   out.Vout,
 					Amount: out.Amount,
 				}
@@ -366,51 +317,12 @@ func buildAssetTransferTx(
 	fmt.Printf("This is the new asset ")
 
 	for _, vtxo := range otherVtxos {
-		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
-		}
-
-		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
+		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		vtxoOutpoint := &wire.OutPoint{
-			Hash:  *vtxoTxID,
-			Index: vtxo.VOut,
-		}
-
-		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		_, vtxoTree, err := vtxoScript.TapTree()
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		tapscript := &waddrmgr.Tapscript{
-			RevealedScript: leafProof.Script,
-			ControlBlock:   ctrlBlock,
-		}
-
-		ins = append(ins, offchain.VtxoInput{
-			Outpoint:           vtxoOutpoint,
-			Tapscript:          tapscript,
-			Amount:             int64(vtxo.Amount),
-			RevealedTapscripts: vtxo.Tapscripts,
-		})
+		ins = append(ins, *in)
 	}
 
 	outs := make([]*wire.TxOut, 0)
@@ -446,7 +358,11 @@ func buildAssetTransferTx(
 		return "", nil, nil, err
 	}
 
-	assetOpretScript, err := newAsset.EncodeOpret(batchCommitmentId)
+	assetGroup := asset.AssetGroup{
+		NormalAsset: *newAsset,
+	}
+
+	assetOpretScript, err := assetGroup.EncodeOpret(batchCommitmentId)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -462,11 +378,8 @@ func buildAssetTransferTx(
 			return "", nil, nil, err
 		}
 
-		if change.Amount < dustLimit {
-			changeVtxoScript, err = script.SubDustScript(addr.VtxoTapKey)
-		} else {
-			changeVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
-		}
+		changeVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
+
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -499,8 +412,8 @@ func buildAssetTransferTx(
 	return arkTx, checkpointTxs, newAsset, nil
 }
 
-func buildAssetModificationTx(
-	sealVtxos []arkTxInput, assetId [32]byte, receivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
+func buildAssetModificationTx(controlVtxo arkTxInput,
+	sealVtxos []arkTxInput, assetId [32]byte, controlReceiver types.Receiver, assetReceivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
 	if len(sealVtxos) <= 0 {
@@ -514,70 +427,22 @@ func buildAssetModificationTx(
 	newAssetOutputs := make([]asset.AssetOutput, 0)
 
 	for _, vtxo := range sealVtxos {
-		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
-		}
-
-		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
+		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		vtxoOutpoint := &wire.OutPoint{
-			Hash:  *vtxoTxID,
-			Index: vtxo.VOut,
-		}
+		ins = append(ins, *in)
 
-		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		_, vtxoTree, err := vtxoScript.TapTree()
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		tapscript := &waddrmgr.Tapscript{
-			RevealedScript: leafProof.Script,
-			ControlBlock:   ctrlBlock,
-		}
-
-		ins = append(ins, offchain.VtxoInput{
-			Outpoint:           vtxoOutpoint,
-			Tapscript:          tapscript,
-			Amount:             int64(vtxo.Amount),
-			RevealedTapscripts: vtxo.Tapscripts,
-		})
-
-		buf, err := hex.DecodeString(vtxo.Script)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		pubkeyBytes := buf[2:]
-
-		pubkey, err := schnorr.ParsePubKey(pubkeyBytes)
+		pubkey, err := DerviePubKeyFromScript(vtxo.Script)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 		for _, out := range vtxo.Asset.Outputs {
 			if out.PublicKey.IsEqual(pubkey) {
-				txId := vtxoOutpoint.Hash.CloneBytes()
-				reverseBytes(txId)
-
 				assetInput := asset.AssetInput{
-					Txid:   txId,
+					Txid:   deriveTxId(in.Outpoint.Hash),
 					Vout:   out.Vout,
 					Amount: out.Amount,
 				}
@@ -588,11 +453,34 @@ func buildAssetModificationTx(
 
 	newAsset.Inputs = newAssetInputs
 
-	fmt.Printf("This is the new asset ")
+	conntrolAsset := controlVtxo.Asset
+
+	controlTxIn, err := createVtxoTxInput(controlVtxo)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	pubkey, err := DerviePubKeyFromScript(controlVtxo.Script)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	for _, out := range controlVtxo.Asset.Outputs {
+		if out.PublicKey.IsEqual(pubkey) {
+			assetInput := asset.AssetInput{
+				Txid:   deriveTxId(controlTxIn.Outpoint.Hash),
+				Vout:   out.Vout,
+				Amount: out.Amount,
+			}
+			conntrolAsset.Inputs = []asset.AssetInput{assetInput}
+		}
+	}
+
+	ins = append(ins, *controlTxIn)
 
 	outs := make([]*wire.TxOut, 0)
 
-	for i, receiver := range receivers {
+	for i, receiver := range assetReceivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, nil, err
@@ -621,17 +509,46 @@ func buildAssetModificationTx(
 	// Include the metadata modifications added
 	modifyAssetMetadata(newAsset, params)
 
+	{
+		controlAddr, err := arklib.DecodeAddressV0(controlReceiver.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		newVtxoScript, err := script.P2TRScript(controlAddr.VtxoTapKey)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		outs = append(outs, &wire.TxOut{
+			Value:    int64(dustLimit),
+			PkScript: newVtxoScript,
+		})
+
+		conntrolAsset.Outputs = []asset.AssetOutput{{
+			PublicKey: *controlAddr.VtxoTapKey,
+			Amount:    controlReceiver.Amount,
+			Vout:      0,
+		}}
+
+	}
+
 	batchCommitmentId, err := deriveGenesisId(sealVtxos)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
-	assetOpretScript, err := newAsset.EncodeOpret(batchCommitmentId)
+	assetGroup := asset.AssetGroup{
+		ControlAsset: conntrolAsset,
+		NormalAsset:  *newAsset,
+	}
+
+	assetGroupOpretScript, err := assetGroup.EncodeOpret(batchCommitmentId)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
-	outs = append(outs, &assetOpretScript)
+	outs = append(outs, &assetGroupOpretScript)
 
 	arkPtx, checkpointPtxs, err := offchain.BuildTxs(ins, outs, serverUnrollScript)
 	if err != nil {
@@ -1307,4 +1224,88 @@ func modifyAssetMetadata(assetData *asset.Asset, metdataParams types.AssetModifi
 			Value: metdataParams.Symbol,
 		})
 	}
+}
+
+func createVtxoTxInput(vtxo arkTxInput) (*offchain.VtxoInput, error) {
+	if len(vtxo.Tapscripts) <= 0 {
+		return nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
+	}
+
+	vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
+	if err != nil {
+		return nil, err
+	}
+
+	vtxoOutpoint := &wire.OutPoint{
+		Hash:  *vtxoTxID,
+		Index: vtxo.VOut,
+	}
+
+	vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
+	if err != nil {
+		return nil, err
+	}
+
+	_, vtxoTree, err := vtxoScript.TapTree()
+	if err != nil {
+		return nil, err
+	}
+
+	leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
+	if err != nil {
+		return nil, err
+	}
+
+	ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	tapscript := &waddrmgr.Tapscript{
+		RevealedScript: leafProof.Script,
+		ControlBlock:   ctrlBlock,
+	}
+
+	ofchainVtxoInput := offchain.VtxoInput{
+		Outpoint:           vtxoOutpoint,
+		Tapscript:          tapscript,
+		Amount:             int64(vtxo.Amount),
+		RevealedTapscripts: vtxo.Tapscripts,
+	}
+
+	return &ofchainVtxoInput, nil
+}
+
+func deriveTxId(hash chainhash.Hash) []byte {
+	txid := hash.CloneBytes()
+	reverseBytes(txid)
+	return txid
+}
+
+func DerviePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(scriptHex)
+	if err != nil {
+		return nil, err
+	}
+	pubkeyBytes := buf[2:]
+
+	return schnorr.ParsePubKey(pubkeyBytes)
+}
+
+func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
+	vtxoScript, err := script.ParseVtxoScript(tapScripts)
+	if err != nil {
+		return nil, err
+	}
+
+	forfeitClosure := vtxoScript.ForfeitClosures()[0]
+
+	forfeitScript, err := forfeitClosure.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	forfeitLeafHash := txscript.NewBaseTapLeaf(forfeitScript).TapHash()
+
+	return &forfeitLeafHash, nil
 }
