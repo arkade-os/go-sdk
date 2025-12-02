@@ -1,7 +1,7 @@
 package grpcclient
 
 import (
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -11,7 +11,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-// wrapper for GetEventStreamResponse and PingResponse
+// wrapper for GetEventStreamResponse
 type eventResponse interface {
 	GetBatchFailed() *arkv1.BatchFailedEvent
 	GetBatchStarted() *arkv1.BatchStartedEvent
@@ -19,6 +19,7 @@ type eventResponse interface {
 	GetBatchFinalized() *arkv1.BatchFinalizedEvent
 	GetTreeSigningStarted() *arkv1.TreeSigningStartedEvent
 	GetTreeNoncesAggregated() *arkv1.TreeNoncesAggregatedEvent
+	GetTreeNonces() *arkv1.TreeNoncesEvent
 	GetTreeTx() *arkv1.TreeTxEvent
 	GetTreeSignature() *arkv1.TreeSignatureEvent
 }
@@ -66,13 +67,40 @@ func (e event) toBatchEvent() (any, error) {
 	}
 
 	if ee := e.GetTreeNoncesAggregated(); ee != nil {
-		nonces := make(tree.TreeNonces)
-
-		if err := json.Unmarshal([]byte(ee.GetTreeNonces()), &nonces); err != nil {
+		nonces, err := tree.NewTreeNonces(ee.GetTreeNonces())
+		if err != nil {
 			return nil, err
 		}
 		return client.TreeNoncesAggregatedEvent{
 			Id:     ee.GetId(),
+			Nonces: nonces,
+		}, nil
+	}
+
+	if ee := e.GetTreeNonces(); ee != nil {
+		nonces := make(map[string]*tree.Musig2Nonce)
+		for pubkey, nonce := range ee.GetNonces() {
+			pubnonce, err := hex.DecodeString(nonce)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(pubnonce) != 66 {
+				return nil, fmt.Errorf(
+					"invalid nonce length expected 66 bytes got %d",
+					len(pubnonce),
+				)
+			}
+
+			nonces[pubkey] = &tree.Musig2Nonce{
+				PubNonce: [66]byte(pubnonce),
+			}
+		}
+
+		return client.TreeNoncesEvent{
+			Id:     ee.GetId(),
+			Topic:  ee.GetTopic(),
+			Txid:   ee.GetTxid(),
 			Nonces: nonces,
 		}, nil
 	}

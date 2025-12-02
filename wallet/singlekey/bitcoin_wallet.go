@@ -15,12 +15,12 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/vulpemventures/go-bip32"
 )
 
@@ -198,10 +198,6 @@ func (s *bitcoinWallet) SignTransaction(
 		if err := updater.AddInWitnessUtxo(utxo, i); err != nil {
 			return "", err
 		}
-
-		if err := updater.AddInSighashType(txscript.SigHashDefault, i); err != nil {
-			return "", err
-		}
 	}
 
 	prevouts := make(map[wire.OutPoint]*wire.TxOut)
@@ -305,15 +301,11 @@ func (w *bitcoinWallet) signTapscriptSpend(
 		}
 
 		if sign {
-			if err := updater.AddInSighashType(txscript.SigHashDefault, inputIndex); err != nil {
-				return err
-			}
-
 			hash := txscript.NewTapLeaf(leaf.LeafVersion, leaf.Script).TapHash()
 
 			preimage, err := txscript.CalcTapscriptSignaturehash(
 				txsighashes,
-				txscript.SigHashDefault,
+				input.SighashType,
 				updater.Upsbt.UnsignedTx,
 				inputIndex,
 				prevoutFetcher,
@@ -341,7 +333,7 @@ func (w *bitcoinWallet) signTapscriptSpend(
 					XOnlyPubKey: myPubkey,
 					LeafHash:    hash.CloneBytes(),
 					Signature:   sig.Serialize(),
-					SigHash:     txscript.SigHashDefault,
+					SigHash:     input.SighashType,
 				},
 			)
 		}
@@ -370,7 +362,7 @@ func (w *bitcoinWallet) signTaprootKeySpend(
 
 	preimage, err := txscript.CalcTaprootSignatureHash(
 		txsighashes,
-		txscript.SigHashDefault,
+		input.SighashType,
 		updater.Upsbt.UnsignedTx,
 		inputIndex,
 		prevoutFetcher,
@@ -433,7 +425,7 @@ func (w *bitcoinWallet) NewVtxoTreeSigner(
 		}
 	}
 
-	derivedPrivKey := secp256k1.PrivKeyFromBytes(currentKey.Key)
+	derivedPrivKey, _ := btcec.PrivKeyFromBytes(currentKey.Key)
 	return tree.NewTreeSignerSession(derivedPrivKey), nil
 }
 
@@ -503,9 +495,7 @@ func (w *bitcoinWallet) getArkAddresses(
 	netParams := utils.ToBitcoinNetwork(data.Network)
 
 	defaultVtxoScript := script.NewDefaultVtxoScript(
-		w.walletData.PubKey,
-		data.SignerPubKey,
-		data.UnilateralExitDelay,
+		w.walletData.PubKey, data.SignerPubKey, data.UnilateralExitDelay,
 	)
 
 	vtxoTapKey, _, err := defaultVtxoScript.TapTree()
@@ -520,9 +510,7 @@ func (w *bitcoinWallet) getArkAddresses(
 	}
 
 	boardingVtxoScript := script.NewDefaultVtxoScript(
-		w.walletData.PubKey,
-		data.SignerPubKey,
-		data.BoardingExitDelay,
+		w.walletData.PubKey, data.SignerPubKey, data.BoardingExitDelay,
 	)
 
 	boardingTapKey, _, err := boardingVtxoScript.TapTree()

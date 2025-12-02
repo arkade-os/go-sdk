@@ -20,12 +20,36 @@ func (q *Queries) CleanTxs(ctx context.Context) error {
 	return err
 }
 
+const cleanUtxos = `-- name: CleanUtxos :exec
+DELETE FROM utxo
+`
+
+func (q *Queries) CleanUtxos(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, cleanUtxos)
+	return err
+}
+
 const cleanVtxos = `-- name: CleanVtxos :exec
 DELETE FROM vtxo
 `
 
 func (q *Queries) CleanVtxos(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, cleanVtxos)
+	return err
+}
+
+const deleteUtxo = `-- name: DeleteUtxo :exec
+DELETE FROM utxo
+WHERE txid = ?1 AND vout = ?2
+`
+
+type DeleteUtxoParams struct {
+	Txid string
+	Vout int64
+}
+
+func (q *Queries) DeleteUtxo(ctx context.Context, arg DeleteUtxoParams) error {
+	_, err := q.db.ExecContext(ctx, deleteUtxo, arg.Txid, arg.Vout)
 	return err
 }
 
@@ -56,6 +80,45 @@ func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
 		arg.CreatedAt,
 		arg.Hex,
 		arg.SettledBy,
+	)
+	return err
+}
+
+const insertUtxo = `-- name: InsertUtxo :exec
+INSERT INTO utxo (
+    txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertUtxoParams struct {
+	Txid        string
+	Vout        int64
+	Script      string
+	Amount      int64
+	SpentBy     sql.NullString
+	Spent       bool
+	Tapscripts  sql.NullString
+	SpendableAt sql.NullInt64
+	CreatedAt   sql.NullInt64
+	DelayValue  sql.NullInt64
+	DelayType   sql.NullString
+	Tx          sql.NullString
+}
+
+func (q *Queries) InsertUtxo(ctx context.Context, arg InsertUtxoParams) error {
+	_, err := q.db.ExecContext(ctx, insertUtxo,
+		arg.Txid,
+		arg.Vout,
+		arg.Script,
+		arg.Amount,
+		arg.SpentBy,
+		arg.Spent,
+		arg.Tapscripts,
+		arg.SpendableAt,
+		arg.CreatedAt,
+		arg.DelayValue,
+		arg.DelayType,
+		arg.Tx,
 	)
 	return err
 }
@@ -179,12 +242,96 @@ func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
 	return items, nil
 }
 
+const selectAllUtxos = `-- name: SelectAllUtxos :many
+SELECT txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx from utxo
+`
+
+func (q *Queries) SelectAllUtxos(ctx context.Context) ([]Utxo, error) {
+	rows, err := q.db.QueryContext(ctx, selectAllUtxos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Utxo
+	for rows.Next() {
+		var i Utxo
+		if err := rows.Scan(
+			&i.Txid,
+			&i.Vout,
+			&i.Script,
+			&i.Amount,
+			&i.SpentBy,
+			&i.Spent,
+			&i.Tapscripts,
+			&i.SpendableAt,
+			&i.CreatedAt,
+			&i.DelayValue,
+			&i.DelayType,
+			&i.Tx,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectAllVtxos = `-- name: SelectAllVtxos :many
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid from vtxo
 `
 
 func (q *Queries) SelectAllVtxos(ctx context.Context) ([]Vtxo, error) {
 	rows, err := q.db.QueryContext(ctx, selectAllVtxos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Vtxo
+	for rows.Next() {
+		var i Vtxo
+		if err := rows.Scan(
+			&i.Txid,
+			&i.Vout,
+			&i.Script,
+			&i.Amount,
+			&i.CommitmentTxids,
+			&i.SpentBy,
+			&i.Spent,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.Preconfirmed,
+			&i.Swept,
+			&i.SettledBy,
+			&i.Unrolled,
+			&i.ArkTxid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid
+FROM vtxo
+WHERE spent = false AND swept = false AND unrolled = false
+`
+
+func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]Vtxo, error) {
+	rows, err := q.db.QueryContext(ctx, selectSpendableVtxos)
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +415,37 @@ func (q *Queries) SelectTxs(ctx context.Context, txids []string) ([]Tx, error) {
 	return items, nil
 }
 
+const selectUtxo = `-- name: SelectUtxo :one
+SELECT txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx
+FROM utxo
+WHERE txid = ?1 AND vout = ?2
+`
+
+type SelectUtxoParams struct {
+	Txid string
+	Vout int64
+}
+
+func (q *Queries) SelectUtxo(ctx context.Context, arg SelectUtxoParams) (Utxo, error) {
+	row := q.db.QueryRowContext(ctx, selectUtxo, arg.Txid, arg.Vout)
+	var i Utxo
+	err := row.Scan(
+		&i.Txid,
+		&i.Vout,
+		&i.Script,
+		&i.Amount,
+		&i.SpentBy,
+		&i.Spent,
+		&i.Tapscripts,
+		&i.SpendableAt,
+		&i.CreatedAt,
+		&i.DelayValue,
+		&i.DelayType,
+		&i.Tx,
+	)
+	return i, err
+}
+
 const selectVtxo = `-- name: SelectVtxo :one
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid
 FROM vtxo
@@ -304,15 +482,15 @@ func (q *Queries) SelectVtxo(ctx context.Context, arg SelectVtxoParams) (Vtxo, e
 const updateTx = `-- name: UpdateTx :exec
 UPDATE tx
 SET
-    created_at     = COALESCE(?1,     created_at),
-    settled    = COALESCE(?2,    settled),
-    settled_by    = COALESCE(?3,    settled_by)
+    created_at     = COALESCE(?1, created_at),
+    settled    = CASE WHEN ?2 IS TRUE THEN TRUE ELSE settled END,
+    settled_by    = COALESCE(?3, settled_by)
 WHERE txid = ?4
 `
 
 type UpdateTxParams struct {
 	CreatedAt sql.NullInt64
-	Settled   sql.NullBool
+	Settled   interface{}
 	SettledBy sql.NullString
 	Txid      string
 }
@@ -327,13 +505,44 @@ func (q *Queries) UpdateTx(ctx context.Context, arg UpdateTxParams) error {
 	return err
 }
 
+const updateUtxo = `-- name: UpdateUtxo :exec
+UPDATE utxo
+SET
+    spent = CASE WHEN ?1 IS TRUE THEN TRUE ELSE spent END,
+    spent_by = COALESCE(?2, spent_by),
+    created_at = COALESCE(?3, created_at),
+    spendable_at = COALESCE(?4, spendable_at)
+WHERE txid = ?5 AND vout = ?6
+`
+
+type UpdateUtxoParams struct {
+	Spent       interface{}
+	SpentBy     sql.NullString
+	CreatedAt   sql.NullInt64
+	SpendableAt sql.NullInt64
+	Txid        string
+	Vout        int64
+}
+
+func (q *Queries) UpdateUtxo(ctx context.Context, arg UpdateUtxoParams) error {
+	_, err := q.db.ExecContext(ctx, updateUtxo,
+		arg.Spent,
+		arg.SpentBy,
+		arg.CreatedAt,
+		arg.SpendableAt,
+		arg.Txid,
+		arg.Vout,
+	)
+	return err
+}
+
 const updateVtxo = `-- name: UpdateVtxo :exec
 UPDATE vtxo
 SET
     spent = true,
     spent_by = ?1,
-    settled_by = ?2,
-    ark_txid = ?3
+    settled_by = COALESCE(?2, settled_by),
+    ark_txid = COALESCE(?3, ark_txid)
 WHERE txid = ?4 AND vout = ?5
 `
 

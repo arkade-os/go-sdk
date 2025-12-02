@@ -13,14 +13,16 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/bip322"
+	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/go-sdk/client"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -35,9 +37,92 @@ type arkTxInput struct {
 	ForfeitLeafHash chainhash.Hash
 }
 
+func validateReceivers(
+	network arklib.Network, ptx *psbt.Packet, receivers []types.Receiver, vtxoTree *tree.TxTree,
+) error {
+	netParams := utils.ToBitcoinNetwork(network)
+	for _, receiver := range receivers {
+		isOnChain, onchainScript, err := utils.ParseBitcoinAddress(receiver.To, netParams)
+		if err != nil {
+			return fmt.Errorf("invalid receiver address: %s err = %s", receiver.To, err)
+		}
+
+		if isOnChain {
+			if err := validateOnchainReceiver(ptx, receiver, onchainScript); err != nil {
+				return err
+			}
+		} else {
+			if err := validateOffchainReceiver(vtxoTree, receiver); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateOnchainReceiver(
+	ptx *psbt.Packet, receiver types.Receiver, onchainScript []byte,
+) error {
+	found := false
+	for _, output := range ptx.UnsignedTx.TxOut {
+		if bytes.Equal(output.PkScript, onchainScript) {
+			if output.Value != int64(receiver.Amount) {
+				return fmt.Errorf(
+					"invalid collaborative exit output amount: got %d, want %d",
+					output.Value, receiver.Amount,
+				)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("collaborative exit output not found: %s", receiver.To)
+	}
+	return nil
+}
+
+func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) error {
+	found := false
+
+	rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
+	if err != nil {
+		return err
+	}
+
+	vtxoTapKey := schnorr.SerializePubKey(rcvAddr.VtxoTapKey)
+
+	leaves := vtxoTree.Leaves()
+	for _, leaf := range leaves {
+		for _, output := range leaf.UnsignedTx.TxOut {
+			if len(output.PkScript) == 0 {
+				continue
+			}
+
+			if bytes.Equal(output.PkScript[2:], vtxoTapKey) {
+				if output.Value != int64(receiver.Amount) {
+					continue
+				}
+
+				found = true
+				break
+			}
+		}
+
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("offchain send output not found: %s", receiver.To)
+	}
+
+	return nil
+}
+
 func buildOffchainTx(
-	vtxos []arkTxInput, receivers []types.Receiver,
-	serverUnrollScript *script.CSVMultisigClosure, dustLimit uint64,
+	vtxos []arkTxInput, receivers []types.Receiver, serverUnrollScript []byte, dustLimit uint64,
 ) (string, []string, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, fmt.Errorf("missing vtxos")
@@ -186,176 +271,168 @@ func inputsToDerivationPath(inputs []types.Outpoint, notesInputs []string) strin
 	return path
 }
 
-func extractExitPath(tapscripts []string) ([]byte, *arklib.TaprootMerkleProof, uint32, error) {
+func extractCollaborativePath(tapscripts []string) ([]byte, *arklib.TaprootMerkleProof, error) {
 	vtxoScript, err := script.ParseVtxoScript(tapscripts)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	exitClosures := vtxoScript.ExitClosures()
-	if len(exitClosures) <= 0 {
-		return nil, nil, 0, fmt.Errorf("no exit closures found")
+	forfeitClosures := vtxoScript.ForfeitClosures()
+	if len(forfeitClosures) <= 0 {
+		return nil, nil, fmt.Errorf("no exit closures found")
 	}
 
-	exitClosure := exitClosures[0].(*script.CSVMultisigClosure)
-
-	exitScript, err := exitClosure.Script()
+	forfeitClosure := forfeitClosures[0]
+	forfeitScript, err := forfeitClosure.Script()
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
 	taprootKey, taprootTree, err := vtxoScript.TapTree()
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	exitLeaf := txscript.NewBaseTapLeaf(exitScript)
-	leafProof, err := taprootTree.GetTaprootMerkleProof(exitLeaf.TapHash())
+	forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+	leafProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to get taproot merkle proof: %s", err)
+		return nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 	}
-
-	sequence, err := arklib.BIP68Sequence(exitClosure.Locktime)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
 	pkScript, err := script.P2TRScript(taprootKey)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	return pkScript, leafProof, sequence, nil
+	return pkScript, leafProof, nil
 }
 
-// convert inputs to BIP322 inputs and return all the data needed to sign and proof PSBT
-func toBIP322Inputs(
+// convert regular coins (boarding, vtxos or notes) to intent proof inputs
+// it also returns the necessary data used to sign the proof PSBT
+func toIntentInputs(
 	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo, notes []string,
-) ([]bip322.Input, []*arklib.TaprootMerkleProof, map[string][]string, map[int][]byte, error) {
-	inputs := make([]bip322.Input, 0, len(boardingUtxos)+len(vtxos))
-	exitLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
-	tapscripts := make(map[string][]string)
-	notesWitnesses := make(map[int][]byte)
+) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
+	inputs := make([]intent.Input, 0, len(boardingUtxos)+len(vtxos))
+	signingLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
+	arkFields := make([][]*psbt.Unknown, 0, len(boardingUtxos)+len(vtxos))
 
 	for _, coin := range vtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
-		tapscripts[outpoint.String()] = coin.Tapscripts
-
-		pkScript, leafProof, vtxoSequence, err := extractExitPath(coin.Tapscripts)
+		pkScript, leafProof, err := extractCollaborativePath(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		exitLeaves = append(exitLeaves, leafProof)
+		signingLeaves = append(signingLeaves, leafProof)
 
-		inputs = append(inputs, bip322.Input{
+		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
-			Sequence: vtxoSequence,
+			Sequence: wire.MaxTxInSequenceNum,
 			WitnessUtxo: &wire.TxOut{
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
 			},
 		})
+
+		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 	}
 
 	for _, coin := range boardingUtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
-		tapscripts[outpoint.String()] = coin.Tapscripts
-
-		pkScript, leafProof, vtxoSequence, err := extractExitPath(coin.Tapscripts)
+		pkScript, leafProof, err := extractCollaborativePath(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		exitLeaves = append(exitLeaves, leafProof)
+		signingLeaves = append(signingLeaves, leafProof)
 
-		inputs = append(inputs, bip322.Input{
+		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
-			Sequence: vtxoSequence,
+			Sequence: wire.MaxTxInSequenceNum,
 			WitnessUtxo: &wire.TxOut{
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
 			},
 		})
+
+		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 	}
 
 	nextInputIndex := len(inputs)
 	if nextInputIndex > 0 {
-		// if there is non-notes inputs, count the extra bip322 input
+		// if there is non-notes inputs, count the extra intent proof input
 		nextInputIndex++
 	}
 
 	for _, n := range notes {
 		parsedNote, err := note.NewNoteFromString(n)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		input, err := parsedNote.BIP322Input()
+		outpoint, input, err := parsedNote.IntentProofInput()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		inputs = append(inputs, *input)
+		inputs = append(inputs, intent.Input{
+			OutPoint: outpoint,
+			Sequence: wire.MaxTxInSequenceNum,
+			WitnessUtxo: &wire.TxOut{
+				Value:    input.WitnessUtxo.Value,
+				PkScript: input.WitnessUtxo.PkScript,
+			},
+		})
 
 		vtxoScript := parsedNote.VtxoScript()
 
 		_, taprootTree, err := vtxoScript.TapTree()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		exitScript, err := vtxoScript.Closures[0].Script()
+		forfeitScript, err := vtxoScript.Closures[0].Script()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		exitLeaf := txscript.NewBaseTapLeaf(exitScript)
-		leafProof, err := taprootTree.GetTaprootMerkleProof(exitLeaf.TapHash())
+		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
+		leafProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
+			return nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 		}
 
-		witness, err := vtxoScript.Closures[0].Witness(leafProof.ControlBlock, map[string][]byte{
-			"preimage": parsedNote.Preimage[:],
-		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to get witness: %s", err)
-		}
-
-		var witnessBuf bytes.Buffer
-		if err := psbt.WriteTxWitness(&witnessBuf, witness); err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to write witness: %s", err)
-		}
-
-		notesWitnesses[nextInputIndex] = witnessBuf.Bytes()
 		nextInputIndex++
 		// if the note vtxo is the first input, it will be used twice
 		if nextInputIndex == 1 {
-			notesWitnesses[nextInputIndex] = witnessBuf.Bytes()
 			nextInputIndex++
 		}
 
-		exitLeaves = append(exitLeaves, leafProof)
-		encodedVtxoScript, err := vtxoScript.Encode()
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
-		tapscripts[input.OutPoint.String()] = encodedVtxoScript
+		signingLeaves = append(signingLeaves, leafProof)
+		arkFields = append(arkFields, input.Unknowns)
 	}
 
-	return inputs, exitLeaves, tapscripts, notesWitnesses, nil
+	return inputs, signingLeaves, arkFields, nil
 }
+
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []VtxoDetails) {
 	nextExpiration := int64(0)
 	details := make([]VtxoDetails, 0)
@@ -412,58 +489,6 @@ func computeVSize(tx *wire.MsgTx) lntypes.VByte {
 	return lntypes.WeightUnit(uint64(weight)).ToVB()
 }
 
-// custom BIP322 finalizer function handling note vtxo inputs
-func finalizeWithNotes(notesWitnesses map[int][]byte) func(ptx *psbt.Packet) error {
-	return func(ptx *psbt.Packet) error {
-		for i, input := range ptx.Inputs {
-			witness, isNote := notesWitnesses[i]
-			if !isNote {
-				ok, err := psbt.MaybeFinalize(ptx, i)
-				if err != nil {
-					return fmt.Errorf("failed to finalize input %d: %s", i, err)
-				}
-				if !ok {
-					return fmt.Errorf("failed to finalize input %d", i)
-				}
-				continue
-			}
-
-			newInput := psbt.NewPsbtInput(nil, input.WitnessUtxo)
-			newInput.FinalScriptWitness = witness
-			ptx.Inputs[i] = *newInput
-		}
-
-		return nil
-	}
-}
-
-func handleBatchTreeSignature(
-	event client.TreeSignatureEvent, txTree *tree.TxTree,
-) error {
-	if event.BatchIndex != 0 {
-		return fmt.Errorf("batch index %d is not 0", event.BatchIndex)
-	}
-
-	decodedSig, err := hex.DecodeString(event.Signature)
-	if err != nil {
-		return fmt.Errorf("failed to decode signature: %s", err)
-	}
-
-	sig, err := schnorr.ParseSignature(decodedSig)
-	if err != nil {
-		return fmt.Errorf("failed to parse signature: %s", err)
-	}
-
-	return txTree.Apply(func(g *tree.TxTree) (bool, error) {
-		if g.Root.UnsignedTx.TxID() != event.Txid {
-			return true, nil
-		}
-
-		g.Root.Inputs[0].TaprootKeySpendSig = sig.Serialize()
-		return false, nil
-	})
-}
-
 func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
 	opts, ok := o.(*SettleOptions)
 	if !ok {
@@ -473,30 +498,13 @@ func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
 	return opts, nil
 }
 
-func registerIntentMessage(
-	inputs []bip322.Input, outputs []types.Receiver, tapscripts map[string][]string,
-	cosignersPublicKeys []string,
-) (string, []*wire.TxOut, error) {
+func registerIntentMessage(outputs []types.Receiver, cosignersPublicKeys []string) (
+	string, []*wire.TxOut, error,
+) {
 	validAt := time.Now()
 	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
 	onchainOutputsIndexes := make([]int, 0)
-	inputTapTrees := make([]string, 0)
-
-	for _, input := range inputs {
-		outpointStr := input.OutPoint.String()
-		tapscripts, ok := tapscripts[outpointStr]
-		if !ok {
-			return "", nil, fmt.Errorf("no tapscripts found for input %s", outpointStr)
-		}
-
-		encodedTapTree, err := txutils.TapTree(tapscripts).Encode()
-		if err != nil {
-			return "", nil, err
-		}
-
-		inputTapTrees = append(inputTapTrees, hex.EncodeToString(encodedTapTree))
-	}
 
 	for i, output := range outputs {
 		txOut, isOnchain, err := output.ToTxOut()
@@ -511,11 +519,10 @@ func registerIntentMessage(
 		outputsTxOut = append(outputsTxOut, txOut)
 	}
 
-	message, err := bip322.IntentMessage{
-		BaseIntentMessage: bip322.BaseIntentMessage{
-			Type: bip322.IntentMessageTypeRegister,
+	message, err := intent.RegisterMessage{
+		BaseMessage: intent.BaseMessage{
+			Type: intent.IntentMessageTypeRegister,
 		},
-		InputTapTrees:        inputTapTrees,
 		OnchainOutputIndexes: onchainOutputsIndexes,
 		ExpireAt:             expireAt,
 		ValidAt:              validAt.Unix(),
@@ -594,4 +601,19 @@ func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
 		return spentByVtxos[0]
 	}
 	return types.Vtxo{}
+}
+
+func ecPubkeyFromHex(pubkey string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(pubkey)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.ParsePubKey(buf)
+}
+
+func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
+	if expiry >= 512 {
+		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: expiry}
+	}
+	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
 }

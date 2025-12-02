@@ -1,31 +1,24 @@
-.PHONY: genrest test vet lint migrate sqlc
+.PHONY: proto genrest test vet lint migrate sqlc
 
-ark_client_dir = $(or $(REST_DIR),$(PWD)/client/rest/service)
-indexer_client_dir = $(or $(REST_DIR),$(PWD)/indexer/rest/service)
+ark_client_dir = $(or $(REST_DIR),client/rest/service)
+indexer_client_dir = $(or $(REST_DIR),indexer/rest/service)
 
 GOLANGCI_LINT ?= $(shell \
-	if command -v golangci-lint >/dev/null 2>&1; then \
-	  echo golangci-lint; \
-	else \
-	  echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:latest golangci-lint"; \
-	fi \
+	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.5.0 golangci-lint"; \
 )
 
-SWAGGER ?= $(shell \
-  if command -v swagger >/dev/null 2>&1; then \
-    echo swagger; \
-  else \
-    echo "docker run --rm \
-      -v $$(PWD):/work -w /work \
-      quay.io/goswagger/swagger:latest"; \
-  fi \
+SWAGGER = $(shell \
+	echo "docker run --rm \
+		-v $(shell pwd):/work -w /work \
+		openapitools/openapi-generator-cli:v7.16.0"; \
 )
 
 proto:
 	@echo "Compiling stubs..."
-	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate buf.build/arkade-os/arkd --exclude-path arkwallet/v1/bitcoin_wallet.proto
+	@docker build -q -t buf -f buf.Dockerfile . &> /dev/null
+	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate
 
-## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
+## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
 genrest:
 	@if [ "$(CI)" != "true" ]; then \
 		$(MAKE) proto; \
@@ -36,13 +29,13 @@ genrest:
 	@rm -rf $(ark_client_dir) $(indexer_client_dir)
 	@echo "Generating rest client from stub..."
 	@mkdir -p $(ark_client_dir) $(indexer_client_dir)
-	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/service.swagger.json -t $(ark_client_dir) --client-package=arkservice
-	@$(SWAGGER) generate client -f api-spec/openapi/swagger/ark/v1/indexer.swagger.json -t $(indexer_client_dir) --client-package=indexerservice
+	@$(SWAGGER) generate -i api-spec/openapi/swagger/ark/v1/service.openapi.json --skip-validate-spec -g go -o $(ark_client_dir) --global-property apis,models,apiDocs=false,apiTests=false,modelDocs=false,modelTests=false,supportingFiles=utils.go:configuration.go:client.go -t .openapi/templates
+	@$(SWAGGER) generate -i api-spec/openapi/swagger/ark/v1/indexer.openapi.json --skip-validate-spec -g go -o $(indexer_client_dir) --global-property apis,models,apiDocs=false,apiTests=false,modelDocs=false,modelTests=false,supportingFiles=utils.go:configuration.go:client.go -t .openapi/templates
 
-## test: runs unit tests
+## test: runs unit tests
 test:
 	@echo "Running unit tests..."
-	@go test -v -count=1 -race $$(go list ./... | grep -v '/test/wasm')
+	@go test -v -count=1 -race $$(go list ./... | grep -v '/test/wasm' | grep -v '/test/e2e')
 
 ## vet: code analysis
 vet:
@@ -52,7 +45,7 @@ vet:
 ## lint: lint codebase
 lint:
 	@echo "Linting code..."
-	@$(GOLANGCI_LINT) run --fix
+	@$(GOLANGCI_LINT) run --timeout 5m
 
 ## migrate: creates sqlite migration file(eg. make FILE=init migrate)
 migrate:
@@ -62,3 +55,16 @@ migrate:
 sqlc:
 	@echo "gen sql..."
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
+
+regtest:
+	@echo "Starting regtest..."
+	@docker compose -f test/docker/docker-compose.yml down
+	@docker compose -f test/docker/docker-compose.yml up -d --build
+	@go run test/docker/setup.go
+
+regtestdown:
+	@echo "Stopping regtest..."
+	@docker compose -f test/docker/docker-compose.yml down
+
+integrationtest:
+	@go test -v -count=1 -race ./test/e2e

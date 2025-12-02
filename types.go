@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"fmt"
+	"time"
 
 	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	restclient "github.com/arkade-os/go-sdk/client/rest"
@@ -21,13 +22,14 @@ var (
 )
 
 type InitArgs struct {
-	ClientType          string
-	WalletType          string
-	ServerUrl           string
-	Seed                string
-	Password            string
-	ExplorerURL         string
-	WithTransactionFeed bool
+	ClientType           string
+	WalletType           string
+	ServerUrl            string
+	Seed                 string
+	Password             string
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	WithTransactionFeed  bool
 }
 
 func (a InitArgs) validate() error {
@@ -57,17 +59,21 @@ func (a InitArgs) validate() error {
 	if len(a.Password) <= 0 {
 		return fmt.Errorf("missing password")
 	}
+
 	return nil
 }
 
 type InitWithWalletArgs struct {
-	ClientType          string
-	Wallet              wallet.WalletService
-	ServerUrl           string
-	Seed                string
-	Password            string
-	ExplorerURL         string
-	WithTransactionFeed bool
+	ClientType           string
+	Wallet               wallet.WalletService
+	ServerUrl            string
+	Seed                 string
+	Password             string
+	ExplorerURL          string
+	ExplorerPollInterval time.Duration
+	ExplorerBatchSize    uint32
+	ExplorerBatchDelay   time.Duration
+	WithTransactionFeed  bool
 }
 
 func (a InitWithWalletArgs) validate() error {
@@ -126,10 +132,14 @@ type balanceRes struct {
 }
 
 type CoinSelectOptions struct {
-	// If true, coin selector will select coins closest to expiry first.
+	// If true, coin selector will select coins closest to expiry first
 	WithExpirySorting bool
-	// If specified, coin selector will select only coins in the list.
+	// If specified, coin selector will select only coins in the list
 	OutpointsFilter []types.Outpoint
-	// If true, coin selector will select recoverable (swept but unspent) vtxos first.
+	// If true, coin selector will select recoverable (swept but unspent) vtxos first
 	SelectRecoverableVtxos bool
+	// If specified coin selector will select only vtxos below the given expiration threshold (seconds)
+	ExpiryThreshold int64
+	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
+	RecomputeExpiry bool
 }

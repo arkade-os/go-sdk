@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -18,9 +21,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const (
+	initialDelay       = 5 * time.Second
+	maxDelay           = 60 * time.Second
+	multiplier         = 2.0
+	cloudflare524Error = "524"
+)
+
 type grpcClient struct {
-	conn *grpc.ClientConn
-	svc  arkv1.IndexerServiceClient
+	conn             *grpc.ClientConn
+	connMu           sync.RWMutex
+	monitoringCancel context.CancelFunc
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -39,14 +50,79 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	if !strings.Contains(serverUrl, ":") {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
-	conn, err := grpc.NewClient(serverUrl, grpc.WithTransportCredentials(creds))
+
+	option := grpc.WithTransportCredentials(creds)
+
+	conn, err := grpc.NewClient(serverUrl, option)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := arkv1.NewIndexerServiceClient(conn)
+	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
+	client := &grpcClient{
+		conn:             conn,
+		connMu:           sync.RWMutex{},
+		monitoringCancel: monitoringCancel,
+	}
 
-	return &grpcClient{conn, svc}, nil
+	// Monitor the same connection - gRPC will handle reconnection internally
+	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
+		// Wait for the server to be actually ready for requests
+		if err := client.waitForServerReady(ctx); err != nil {
+			return fmt.Errorf("server not ready after reconnection: %w", err)
+		}
+
+		// TODO: trigger any application-level state refresh here
+		// e.g., resubscribe to streams, refresh cache, etc.
+
+		return nil
+	})
+
+	return client, nil
+}
+
+func (c *grpcClient) waitForServerReady(ctx context.Context) error {
+	delay := initialDelay
+	attempt := 0
+
+	// Create a temporary client to test the server
+	testClient := arkv1.NewIndexerServiceClient(c.conn)
+
+	for {
+		attempt++
+
+		// Use a short timeout for each ping attempt
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := testClient.GetVirtualTxs(pingCtx, &arkv1.GetVirtualTxsRequest{
+			Txids: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			},
+		})
+		cancel()
+
+		if err == nil {
+			// Server responded successfully
+			log.Debugf("connection restored after %d attempt(s)", attempt)
+			return nil
+		}
+
+		log.Debugf("connection not ready (attempt %d), retrying in %v: %v\n", attempt, delay, err)
+
+		// Wait with exponential backoff before retrying
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+			// Increase delay for next attempt
+			delay = min(time.Duration(float64(delay)*multiplier), maxDelay)
+		}
+	}
+}
+
+func (a *grpcClient) svc() arkv1.IndexerServiceClient {
+	a.connMu.RLock()
+	defer a.connMu.RUnlock()
+	return arkv1.NewIndexerServiceClient(a.conn)
 }
 
 func (a *grpcClient) GetCommitmentTx(
@@ -56,7 +132,7 @@ func (a *grpcClient) GetCommitmentTx(
 	req := &arkv1.GetCommitmentTxRequest{
 		Txid: txid,
 	}
-	resp, err := a.svc.GetCommitmentTx(ctx, req)
+	resp, err := a.svc().GetCommitmentTx(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +178,7 @@ func (a *grpcClient) GetVtxoTree(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoTree(ctx, req)
+	resp, err := a.svc().GetVtxoTree(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +250,7 @@ func (a *grpcClient) GetVtxoTreeLeaves(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoTreeLeaves(ctx, req)
+	resp, err := a.svc().GetVtxoTreeLeaves(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +286,7 @@ func (a *grpcClient) GetForfeitTxs(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetForfeitTxs(ctx, req)
+	resp, err := a.svc().GetForfeitTxs(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +314,7 @@ func (a *grpcClient) GetConnectors(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetConnectors(ctx, req)
+	resp, err := a.svc().GetConnectors(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -279,10 +355,11 @@ func (a *grpcClient) GetVtxos(
 		SpendableOnly:   opt.GetSpendableOnly(),
 		SpentOnly:       opt.GetSpentOnly(),
 		RecoverableOnly: opt.GetRecoverableOnly(),
+		PendingOnly:     opt.GetPendingOnly(),
 		Page:            page,
 	}
 
-	resp, err := a.svc.GetVtxos(ctx, req)
+	resp, err := a.svc().GetVtxos(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +395,7 @@ func (a *grpcClient) GetVtxoChain(
 		Page: page,
 	}
 
-	resp, err := a.svc.GetVtxoChain(ctx, req)
+	resp, err := a.svc().GetVtxoChain(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +447,7 @@ func (a *grpcClient) GetVirtualTxs(
 		Page:  page,
 	}
 
-	resp, err := a.svc.GetVirtualTxs(ctx, req)
+	resp, err := a.svc().GetVirtualTxs(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +469,7 @@ func (a *grpcClient) GetBatchSweepTxs(
 		},
 	}
 
-	resp, err := a.svc.GetBatchSweepTransactions(ctx, req)
+	resp, err := a.svc().GetBatchSweepTransactions(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -401,19 +478,19 @@ func (a *grpcClient) GetBatchSweepTxs(
 }
 
 func (a *grpcClient) GetSubscription(
-	ctx context.Context,
-	subscriptionId string,
+	ctx context.Context, subscriptionId string,
 ) (<-chan *indexer.ScriptEvent, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := a.svc.GetSubscription(ctx, &arkv1.GetSubscriptionRequest{
+	req := &arkv1.GetSubscriptionRequest{
 		SubscriptionId: subscriptionId,
-	})
+	}
+
+	stream, err := a.svc().GetSubscription(ctx, req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
-
 	eventsCh := make(chan *indexer.ScriptEvent)
 
 	go func() {
@@ -426,32 +503,57 @@ func (a *grpcClient) GetSubscription(
 					eventsCh <- &indexer.ScriptEvent{Err: fmt.Errorf("connection closed by server")}
 					return
 				}
-				if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
-					return
+
+				st, ok := status.FromError(err)
+				if ok {
+					switch st.Code() {
+					case codes.Canceled:
+						return
+					case codes.Unknown:
+						errMsg := st.Message()
+						// Check if it's a 524 error during stream reading
+						if strings.Contains(errMsg, cloudflare524Error) {
+							stream, err = a.svc().GetSubscription(ctx, req)
+							if err != nil {
+								eventsCh <- &indexer.ScriptEvent{Err: err}
+								return
+							}
+
+							continue
+						}
+					}
 				}
+
 				eventsCh <- &indexer.ScriptEvent{Err: err}
 				return
 			}
 
 			var checkpointTxs map[string]indexer.TxData
-			if len(resp.GetCheckpointTxs()) > 0 {
-				checkpointTxs = make(map[string]indexer.TxData)
-				for k, v := range resp.GetCheckpointTxs() {
-					checkpointTxs[k] = indexer.TxData{
-						Txid: v.GetTxid(),
-						Tx:   v.GetTx(),
+			var event *arkv1.IndexerSubscriptionEvent
+			switch data := resp.GetData().(type) {
+			case *arkv1.GetSubscriptionResponse_Event:
+				event = data.Event
+				if len(event.GetCheckpointTxs()) > 0 {
+					checkpointTxs = make(map[string]indexer.TxData)
+					for k, v := range event.GetCheckpointTxs() {
+						checkpointTxs[k] = indexer.TxData{
+							Txid: v.GetTxid(),
+							Tx:   v.GetTx(),
+						}
 					}
 				}
 			}
-
-			eventsCh <- &indexer.ScriptEvent{
-				Txid:          resp.GetTxid(),
-				Tx:            resp.GetTx(),
-				Scripts:       resp.GetScripts(),
-				NewVtxos:      newIndexerVtxos(resp.GetNewVtxos()),
-				SpentVtxos:    newIndexerVtxos(resp.GetSpentVtxos()),
-				CheckpointTxs: checkpointTxs,
+			if event != nil {
+				eventsCh <- &indexer.ScriptEvent{
+					Txid:          event.GetTxid(),
+					Tx:            event.GetTx(),
+					Scripts:       event.GetScripts(),
+					NewVtxos:      newIndexerVtxos(event.GetNewVtxos()),
+					SpentVtxos:    newIndexerVtxos(event.GetSpentVtxos()),
+					CheckpointTxs: checkpointTxs,
+				}
 			}
+
 		}
 	}()
 
@@ -476,7 +578,7 @@ func (a *grpcClient) SubscribeForScripts(
 		req.SubscriptionId = subscriptionId
 	}
 
-	resp, err := a.svc.SubscribeForScripts(ctx, req)
+	resp, err := a.svc().SubscribeForScripts(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -494,12 +596,18 @@ func (a *grpcClient) UnsubscribeForScripts(
 	if len(subscriptionId) > 0 {
 		req.SubscriptionId = subscriptionId
 	}
-	_, err := a.svc.UnsubscribeForScripts(ctx, req)
-	return err
+	_, err := a.svc().UnsubscribeForScripts(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *grpcClient) Close() {
-	// nolint
+	a.monitoringCancel()
+	a.connMu.Lock()
+	defer a.connMu.Unlock()
+	// nolint:errcheck
 	a.conn.Close()
 }
 

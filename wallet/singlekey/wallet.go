@@ -10,13 +10,13 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 type singlekeyWallet struct {
 	configStore types.ConfigStore
 	walletStore walletstore.WalletStore
-	privateKey  *secp256k1.PrivateKey
+	privateKey  *btcec.PrivateKey
 	walletData  *walletstore.WalletData
 }
 
@@ -27,7 +27,7 @@ func (w *singlekeyWallet) GetType() string {
 func (w *singlekeyWallet) Create(
 	_ context.Context, password, seed string,
 ) (string, error) {
-	var privateKey *secp256k1.PrivateKey
+	var privateKey *btcec.PrivateKey
 	if len(seed) <= 0 {
 		prvkey, err := utils.GenerateRandomPrivateKey()
 		if err != nil {
@@ -40,7 +40,7 @@ func (w *singlekeyWallet) Create(
 			return "", err
 		}
 
-		privateKey = secp256k1.PrivKeyFromBytes(prvkeyBytes)
+		privateKey, _ = btcec.PrivKeyFromBytes(prvkeyBytes)
 	}
 
 	pwd := []byte(password)
@@ -102,7 +102,7 @@ func (w *singlekeyWallet) Unlock(
 		return false, err
 	}
 
-	w.privateKey = secp256k1.PrivKeyFromBytes(privateKeyBytes)
+	w.privateKey, _ = btcec.PrivKeyFromBytes(privateKeyBytes)
 	return false, nil
 }
 

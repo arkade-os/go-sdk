@@ -1,13 +1,18 @@
 package utils
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/client"
@@ -16,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -32,9 +36,9 @@ func CoinSelect(
 	selectedAmount := uint64(0)
 
 	if sortByExpirationTime {
-		// sort vtxos by expiration (older first)
+		// sort vtxos by expiration (oldest last)
 		sort.SliceStable(vtxos, func(i, j int) bool {
-			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+			return !vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
 		})
 
 		sort.SliceStable(boardingUtxos, func(i, j int) bool {
@@ -144,7 +148,7 @@ func ToBitcoinNetwork(net arklib.Network) chaincfg.Params {
 	}
 }
 
-func GenerateRandomPrivateKey() (*secp256k1.PrivateKey, error) {
+func GenerateRandomPrivateKey() (*btcec.PrivateKey, error) {
 	prvkey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
@@ -239,4 +243,82 @@ func deriveKey(password, salt []byte) ([]byte, []byte, error) {
 	keySize := 32
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
 	return key, salt, nil
+}
+
+type ChunkJSONStream struct {
+	Msg []byte
+	Err error
+}
+
+func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
+	defer close(chunkCh)
+
+	httpClient := &http.Client{Timeout: time.Second * 0}
+
+	var resp *http.Response
+
+	for resp == nil {
+		var err error
+		resp, err = httpClient.Get(url)
+		if err != nil {
+			chunkCh <- ChunkJSONStream{Err: err}
+			return
+		}
+
+		// nolint:errcheck
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// handle 524 error by retrying
+			if resp.StatusCode == 524 {
+				//nolint:errcheck
+				resp.Body.Close()
+
+				resp = nil
+				continue
+			}
+
+			chunkCh <- ChunkJSONStream{Err: fmt.Errorf("got unexpected status %d code", resp.StatusCode)}
+			return
+		}
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		msg, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				err = client.ErrConnectionClosedByServer
+			}
+			chunkCh <- ChunkJSONStream{Err: err}
+			return
+		}
+		msg = bytes.Trim(msg, "\n")
+		chunkCh <- ChunkJSONStream{Msg: msg}
+	}
+}
+
+func FilterVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) []types.Vtxo {
+	now := time.Now()
+	threshold := time.Duration(expiryThreshold) * time.Second
+
+	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		// time until expiry
+		timeLeft := vtxo.ExpiresAt.Sub(now)
+
+		// if already expired or within threshold
+		if timeLeft <= threshold {
+			nearExpiry = append(nearExpiry, vtxo)
+		}
+	}
+
+	return nearExpiry
+}
+
+func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+	return vtxos
 }

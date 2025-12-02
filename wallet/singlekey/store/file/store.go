@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 const (
@@ -31,7 +31,7 @@ func (d walletData) decode() walletstore.WalletData {
 	encryptedPrvkey, _ := hex.DecodeString(d.EncryptedPrvkey)
 	passwordHash, _ := hex.DecodeString(d.PasswordHash)
 	buf, _ := hex.DecodeString(d.PubKey)
-	pubkey, _ := secp256k1.ParsePubKey(buf)
+	pubkey, _ := btcec.ParsePubKey(buf)
 	return walletstore.WalletData{
 		EncryptedPrvkey: encryptedPrvkey,
 		PasswordHash:    passwordHash,
@@ -39,8 +39,8 @@ func (d walletData) decode() walletstore.WalletData {
 	}
 }
 
-func (d walletData) asMap() map[string]string {
-	return map[string]string{
+func (d walletData) asMap() map[string]any {
+	return map[string]any{
 		"encrypted_private_key": d.EncryptedPrvkey,
 		"password_hash":         d.PasswordHash,
 		"pubkey":                d.PubKey,
@@ -125,7 +125,7 @@ func (s *fileStore) write(data *walletData) error {
 			return err
 		}
 	}
-	currentData := map[string]string{}
+	currentData := map[string]any{}
 	if len(file) > 0 {
 		if err := json.Unmarshal(file, &currentData); err != nil {
 			return fmt.Errorf("failed to read file store: %s", err)
@@ -177,8 +177,8 @@ func makeDirectoryIfNotExists(path string) error {
 	return nil
 }
 
-func merge(maps ...map[string]string) map[string]string {
-	merge := make(map[string]string, 0)
+func merge(maps ...map[string]any) map[string]any {
+	merge := make(map[string]any, 0)
 	for _, m := range maps {
 		for k, v := range m {
 			merge[k] = v

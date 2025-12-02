@@ -21,17 +21,17 @@ func TestWallet(t *testing.T) {
 	key, _ := btcec.NewPrivateKey()
 	password := "password"
 	testStoreData := sdktypes.Config{
-		ServerUrl:           "localhost:7070",
+		ServerUrl:           "127.0.0.1:7070",
 		SignerPubKey:        key.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,
 		ClientType:          client.GrpcClient,
 		Network:             arklib.BitcoinRegTest,
-		VtxoTreeExpiry:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		RoundInterval:       10,
+		SessionDuration:     10,
 		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		Dust:                1000,
 		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		ForfeitAddress:      "bcrt1qzvqj",
+		CheckpointTapscript: "",
 	}
 	tests := []struct {
 		name  string

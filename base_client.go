@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"sync"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
+	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
 	"github.com/arkade-os/go-sdk/indexer"
 	grpcindexer "github.com/arkade-os/go-sdk/indexer/grpc"
 	restindexer "github.com/arkade-os/go-sdk/indexer/rest"
@@ -19,7 +22,7 @@ import (
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
 	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -32,7 +35,7 @@ const (
 	FileStore     = types.FileStore
 	InMemoryStore = types.InMemoryStore
 	// explorer
-	BitcoinExplorer = explorer.BitcoinExplorer
+	BitcoinExplorer = mempool_explorer.BitcoinExplorer
 )
 
 var (
@@ -40,16 +43,22 @@ var (
 	ErrNotInitialized     = fmt.Errorf("client not initialized")
 )
 
-var (
-	defaultNetworks = utils.SupportedType[string]{
-		arklib.Bitcoin.Name:        "https://mempool.space/api",
-		arklib.BitcoinTestNet.Name: "https://mempool.space/testnet/api",
-		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
-		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
-		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
-		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
+type ClientOption func(*arkClient)
+
+func WithVerbose() ClientOption {
+	return func(c *arkClient) {
+		c.verbose = true
 	}
-)
+}
+
+// WithRefreshDb enables periodic refresh of the db when WithTransactionFeed is set
+func WithRefreshDb(interval time.Duration) ClientOption {
+	return func(c *arkClient) {
+		if interval > 0 {
+			c.refreshDbInterval = interval
+		}
+	}
+}
 
 type arkClient struct {
 	*types.Config
@@ -59,35 +68,124 @@ type arkClient struct {
 	client   client.TransportClient
 	indexer  indexer.Indexer
 
-	txStreamCtxCancel context.CancelFunc
+	syncMu *sync.Mutex
+	// TODO drop the channel
+	syncCh            chan error
+	syncDone          bool
+	syncErr           error
+	syncListeners     *syncListeners
+	stopRestore       context.CancelFunc
+	stopWatch         context.CancelFunc
+	refreshDbInterval time.Duration
+	dbMu              *sync.Mutex
+
+	utxoBroadcaster *utils.Broadcaster[types.UtxoEvent]
+	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
+	txBroadcaster   *utils.Broadcaster[types.TransactionEvent]
+
+	verbose bool
 }
 
 func (a *arkClient) GetVersion() string {
 	return Version
 }
 
-func (a *arkClient) GetConfigData(
-	_ context.Context,
-) (*types.Config, error) {
+func (a *arkClient) GetConfigData(_ context.Context) (*types.Config, error) {
 	if a.Config == nil {
 		return nil, fmt.Errorf("client sdk not initialized")
 	}
 	return a.Config, nil
 }
 
-func (a *arkClient) Unlock(ctx context.Context, pasword string) error {
-	if a.wallet == nil {
-		return fmt.Errorf("wallet not initialized")
+func (a *arkClient) Unlock(ctx context.Context, password string) error {
+	cfgData, err := a.GetConfigData(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := a.wallet.Unlock(ctx, pasword)
-	return err
+
+	if _, err := a.wallet.Unlock(ctx, password); err != nil {
+		return err
+	}
+
+	log.SetLevel(log.DebugLevel)
+	if !a.verbose {
+		log.SetLevel(log.ErrorLevel)
+	}
+
+	a.dbMu = &sync.Mutex{}
+
+	if cfgData.WithTransactionFeed {
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncCh = make(chan error)
+		a.syncMu = &sync.Mutex{}
+		a.utxoBroadcaster = utils.NewBroadcaster[types.UtxoEvent]()
+		a.vtxoBroadcaster = utils.NewBroadcaster[types.VtxoEvent]()
+		a.txBroadcaster = utils.NewBroadcaster[types.TransactionEvent]()
+
+		go func() {
+			err := <-a.syncCh
+			a.setRestored(err)
+		}()
+
+		go func() {
+			a.explorer.Start()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			a.stopRestore = cancel
+
+			err := a.refreshDb(ctx)
+			a.syncCh <- err
+			close(a.syncCh)
+
+			ctxBg := context.Background()
+			ctxStream, cancelStream := context.WithCancel(ctxBg)
+			ctxPoll, cancelPoll := context.WithCancel(ctxBg)
+			a.stopWatch = func() {
+				cancelStream()
+				cancelPoll()
+			}
+
+			// start listening to stream events
+			go a.listenForArkTxs(ctxStream)
+			go a.listenForOnchainTxs(ctxStream)
+			go a.listenDbEvents(ctxStream)
+
+			// start periodic refresh db
+			go a.periodicRefreshDb(ctxPoll)
+		}()
+	}
+
+	return nil
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {
 	if a.wallet == nil {
 		return fmt.Errorf("wallet not initialized")
 	}
-	return a.wallet.Lock(ctx)
+	if err := a.wallet.Lock(ctx); err != nil {
+		return err
+	}
+	go func() {
+		a.explorer.Stop()
+		if a.WithTransactionFeed {
+			a.syncMu.Lock()
+			a.syncDone = false
+			a.syncErr = nil
+			a.syncMu.Unlock()
+		}
+		if a.stopRestore != nil {
+			a.stopRestore()
+		}
+		if a.stopWatch != nil {
+			a.stopWatch()
+		}
+		if a.syncListeners != nil {
+			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
+			a.syncListeners.clear()
+		}
+	}()
+	return nil
 }
 
 func (a *arkClient) IsLocked(ctx context.Context) bool {
@@ -118,19 +216,75 @@ func (a *arkClient) Receive(ctx context.Context) (string, string, string, error)
 		boardingAddr.Address = ""
 	}
 
+	if a.WithTransactionFeed {
+		go func() {
+			if err := a.explorer.SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
+				log.WithError(err).Error("failed to subscribe for boarding address")
+			}
+		}()
+	}
+
 	return onchainAddr, offchainAddr.Address, boardingAddr.Address, nil
 }
 
-func (a *arkClient) GetTransactionEventChannel(_ context.Context) chan types.TransactionEvent {
-	if a.store != nil && a.store.TransactionStore() != nil {
-		return a.store.TransactionStore().GetEventChannel()
+func (a *arkClient) GetAddresses(
+	ctx context.Context,
+) ([]string, []string, []string, []string, error) {
+	if err := a.safeCheck(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	toStringList := func(l []wallet.TapscriptsAddress) []string {
+		res := make([]string, 0, len(l))
+		for _, v := range l {
+			res = append(res, v.Address)
+		}
+		return res
+	}
+
+	return onchainAddrs, toStringList(offchainAddrs),
+		toStringList(boardingAddrs), toStringList(redemptionAddrs), nil
+}
+
+func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+	_, offchainAddr, _, err := a.wallet.NewAddress(ctx, false)
+	if err != nil {
+		return "", err
+	}
+	return offchainAddr.Address, nil
+}
+
+func (a *arkClient) GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent {
+	if a.Config != nil && a.WithTransactionFeed {
+		if a.txBroadcaster != nil {
+			return a.txBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
 
-func (a *arkClient) GetVtxoEventChannel(_ context.Context) chan types.VtxoEvent {
-	if a.store != nil && a.store.VtxoStore() != nil {
-		return a.store.VtxoStore().GetEventChannel()
+func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
+	if a.Config != nil && a.WithTransactionFeed {
+		if a.vtxoBroadcaster != nil {
+			return a.vtxoBroadcaster.Subscribe(0)
+		}
+	}
+	return nil
+}
+
+func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
+	if a.Config != nil && a.WithTransactionFeed {
+		if a.utxoBroadcaster != nil {
+			return a.utxoBroadcaster.Subscribe(0)
+		}
 	}
 	return nil
 }
@@ -143,8 +297,26 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 }
 
 func (a *arkClient) Reset(ctx context.Context) {
-	if a.txStreamCtxCancel != nil {
-		a.txStreamCtxCancel()
+	a.client.Close()
+	a.indexer.Close()
+	a.explorer.Stop()
+
+	if a.WithTransactionFeed {
+		a.syncMu.Lock()
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncMu.Unlock()
+	}
+
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	if a.stopRestore != nil {
+		a.stopRestore()
+	}
+	if a.syncListeners != nil {
+		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
+		a.syncListeners.clear()
 	}
 	if a.store != nil {
 		a.store.Clean(ctx)
@@ -152,59 +324,64 @@ func (a *arkClient) Reset(ctx context.Context) {
 }
 
 func (a *arkClient) Stop() {
-	if a.txStreamCtxCancel != nil {
-		a.txStreamCtxCancel()
+	a.client.Close()
+	a.indexer.Close()
+	a.explorer.Stop()
+
+	if a.WithTransactionFeed {
+		a.syncMu.Lock()
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncMu.Unlock()
+	}
+
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	if a.stopRestore != nil {
+		a.stopRestore()
+	}
+	if a.syncListeners != nil {
+		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
+		a.syncListeners.clear()
 	}
 
 	a.store.Close()
 }
 
-func (a *arkClient) ListVtxos(ctx context.Context) (
-	spendableVtxos, spentVtxos []types.Vtxo, err error,
-) {
-	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
-	if err != nil {
-		return
-	}
-
-	scripts := make([]string, 0, len(offchainAddrs))
-	for _, addr := range offchainAddrs {
-		decoded, err := arklib.DecodeAddressV0(addr.Address)
+func (a *arkClient) ListSpendableVtxos(ctx context.Context) ([]types.Vtxo, error) {
+	if a.WithTransactionFeed {
+		if err := a.safeCheck(); err != nil {
+			return nil, err
+		}
+		spendable, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
-		if err != nil {
-			return nil, nil, err
-		}
-		scripts = append(scripts, hex.EncodeToString(vtxoScript))
-	}
-	opt := indexer.GetVtxosRequestOption{}
-	if err = opt.WithScripts(scripts); err != nil {
-		return
+		return spendable, nil
 	}
 
-	resp, err := a.indexer.GetVtxos(ctx, opt)
+	spendable, _, err := a.listVtxosFromIndexer(ctx)
 	if err != nil {
-		return
+		return nil, err
 	}
-
-	for _, vtxo := range resp.Vtxos {
-		if vtxo.Spent || vtxo.Swept || vtxo.Unrolled {
-			spentVtxos = append(spentVtxos, vtxo)
-			continue
-		}
-		spendableVtxos = append(spendableVtxos, vtxo)
-	}
-
-	return
+	return spendable, nil
 }
 
-func (a *arkClient) NotifyIncomingFunds(
-	ctx context.Context, addr string,
-) ([]types.Vtxo, error) {
-	if a.client == nil {
-		return nil, fmt.Errorf("wallet not initialized")
+func (a *arkClient) ListVtxos(ctx context.Context) ([]types.Vtxo, []types.Vtxo, error) {
+	if a.WithTransactionFeed {
+		if err := a.safeCheck(); err != nil {
+			return nil, nil, err
+		}
+		return a.store.VtxoStore().GetAllVtxos(ctx)
+	}
+
+	return a.listVtxosFromIndexer(ctx)
+}
+
+func (a *arkClient) NotifyIncomingFunds(ctx context.Context, addr string) ([]types.Vtxo, error) {
+	if err := a.safeCheck(); err != nil {
+		return nil, err
 	}
 
 	decoded, err := arklib.DecodeAddressV0(addr)
@@ -240,9 +417,32 @@ func (a *arkClient) NotifyIncomingFunds(
 	return event.NewVtxos, nil
 }
 
-func (a *arkClient) initWithWallet(
-	ctx context.Context, args InitWithWalletArgs,
-) error {
+func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
+	if !a.WithTransactionFeed {
+		return nil
+	}
+	ch := make(chan types.SyncEvent, 1)
+
+	a.syncMu.Lock()
+	syncDone := a.syncDone
+	syncErr := a.syncErr
+	a.syncMu.Unlock()
+
+	if syncDone {
+		go func() {
+			ch <- types.SyncEvent{
+				Synced: syncErr == nil,
+				Err:    syncErr,
+			}
+		}()
+		return ch
+	}
+
+	a.syncListeners.add(ch)
+	return ch
+}
+
+func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs) error {
 	if err := args.validate(); err != nil {
 		return fmt.Errorf("invalid args: %s", err)
 	}
@@ -259,7 +459,18 @@ func (a *arkClient) initWithWallet(
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
 
-	explorerSvc, err := getExplorer(args.ExplorerURL, info.Network)
+	explorerOpts := []mempool_explorer.Option{
+		mempool_explorer.WithTracker(args.WithTransactionFeed),
+	}
+	if args.ExplorerPollInterval > 0 {
+		explorerOpts = append(
+			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
+		)
+	}
+
+	explorerSvc, err := mempool_explorer.NewExplorer(
+		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -271,18 +482,14 @@ func (a *arkClient) initWithWallet(
 
 	network := utils.NetworkFromString(info.Network)
 
-	buf, err := hex.DecodeString(info.SignerPubKey)
+	signerPubkey, err := ecPubkeyFromHex(info.SignerPubKey)
 	if err != nil {
 		return fmt.Errorf("failed to parse signer pubkey: %s", err)
 	}
-	signerPubkey, err := secp256k1.ParsePubKey(buf)
-	if err != nil {
-		return fmt.Errorf("failed to parse server pubkey: %s", err)
-	}
 
-	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
-	if info.VtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
+	forfeitPubkey, err := ecPubkeyFromHex(info.ForfeitPubKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
 	}
 
 	unilateralExitDelayType := arklib.LocktimeTypeBlock
@@ -296,15 +503,13 @@ func (a *arkClient) initWithWallet(
 	}
 
 	storeData := types.Config{
-		ServerUrl:    args.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   args.Wallet.GetType(),
-		ClientType:   args.ClientType,
-		Network:      network,
-		VtxoTreeExpiry: arklib.RelativeLocktime{
-			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
-		},
-		RoundInterval: info.RoundInterval,
+		ServerUrl:       args.ServerUrl,
+		SignerPubKey:    signerPubkey,
+		ForfeitPubKey:   forfeitPubkey,
+		WalletType:      args.Wallet.GetType(),
+		ClientType:      args.ClientType,
+		Network:         network,
+		SessionDuration: info.SessionDuration,
 		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
 		},
@@ -312,17 +517,16 @@ func (a *arkClient) initWithWallet(
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
-		ForfeitAddress:          info.ForfeitAddress,
-		WithTransactionFeed:     args.WithTransactionFeed,
-		MarketHourStartTime:     info.MarketHourStartTime,
-		MarketHourEndTime:       info.MarketHourEndTime,
-		MarketHourPeriod:        info.MarketHourPeriod,
-		MarketHourRoundInterval: info.MarketHourRoundInterval,
-		ExplorerURL:             explorerSvc.BaseUrl(),
-		UtxoMinAmount:           info.UtxoMinAmount,
-		UtxoMaxAmount:           info.UtxoMaxAmount,
-		VtxoMinAmount:           info.VtxoMinAmount,
-		VtxoMaxAmount:           info.VtxoMaxAmount,
+		ForfeitAddress:               info.ForfeitAddress,
+		WithTransactionFeed:          args.WithTransactionFeed,
+		ExplorerURL:                  explorerSvc.BaseUrl(),
+		ExplorerTrackingPollInterval: args.ExplorerPollInterval,
+		UtxoMinAmount:                info.UtxoMinAmount,
+		UtxoMaxAmount:                info.UtxoMaxAmount,
+		VtxoMinAmount:                info.VtxoMinAmount,
+		VtxoMaxAmount:                info.VtxoMaxAmount,
+		CheckpointTapscript:          info.CheckpointTapscript,
+		Fees:                         info.Fees,
 	}
 	if err := a.store.ConfigStore().AddData(ctx, storeData); err != nil {
 		return err
@@ -343,9 +547,7 @@ func (a *arkClient) initWithWallet(
 	return nil
 }
 
-func (a *arkClient) init(
-	ctx context.Context, args InitArgs,
-) error {
+func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 	if err := args.validate(); err != nil {
 		return fmt.Errorf("invalid args: %s", err)
 	}
@@ -361,8 +563,18 @@ func (a *arkClient) init(
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %s", err)
 	}
+	explorerOpts := []mempool_explorer.Option{
+		mempool_explorer.WithTracker(args.WithTransactionFeed),
+	}
+	if args.ExplorerPollInterval > 0 {
+		explorerOpts = append(
+			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
+		)
+	}
 
-	explorerSvc, err := getExplorer(args.ExplorerURL, info.Network)
+	explorerSvc, err := mempool_explorer.NewExplorer(
+		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to setup explorer: %s", err)
 	}
@@ -374,18 +586,14 @@ func (a *arkClient) init(
 
 	network := utils.NetworkFromString(info.Network)
 
-	buf, err := hex.DecodeString(info.SignerPubKey)
+	signerPubkey, err := ecPubkeyFromHex(info.SignerPubKey)
 	if err != nil {
 		return fmt.Errorf("failed to parse signer pubkey: %s", err)
 	}
-	signerPubkey, err := secp256k1.ParsePubKey(buf)
-	if err != nil {
-		return fmt.Errorf("failed to parse server pubkey: %s", err)
-	}
 
-	vtxoTreeExpiryType := arklib.LocktimeTypeBlock
-	if info.VtxoTreeExpiry >= 512 {
-		vtxoTreeExpiryType = arklib.LocktimeTypeSecond
+	forfeitPubkey, err := ecPubkeyFromHex(info.ForfeitPubKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
 	}
 
 	unilateralExitDelayType := arklib.LocktimeTypeBlock
@@ -399,15 +607,13 @@ func (a *arkClient) init(
 	}
 
 	cfgData := types.Config{
-		ServerUrl:    args.ServerUrl,
-		SignerPubKey: signerPubkey,
-		WalletType:   args.WalletType,
-		ClientType:   args.ClientType,
-		Network:      network,
-		VtxoTreeExpiry: arklib.RelativeLocktime{
-			Type: vtxoTreeExpiryType, Value: uint32(info.VtxoTreeExpiry),
-		},
-		RoundInterval: info.RoundInterval,
+		ServerUrl:       args.ServerUrl,
+		SignerPubKey:    signerPubkey,
+		ForfeitPubKey:   forfeitPubkey,
+		WalletType:      args.WalletType,
+		ClientType:      args.ClientType,
+		Network:         network,
+		SessionDuration: info.SessionDuration,
 		UnilateralExitDelay: arklib.RelativeLocktime{
 			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
 		},
@@ -415,17 +621,16 @@ func (a *arkClient) init(
 		BoardingExitDelay: arklib.RelativeLocktime{
 			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
 		},
-		ExplorerURL:             explorerSvc.BaseUrl(),
-		ForfeitAddress:          info.ForfeitAddress,
-		WithTransactionFeed:     args.WithTransactionFeed,
-		MarketHourStartTime:     info.MarketHourStartTime,
-		MarketHourEndTime:       info.MarketHourEndTime,
-		MarketHourPeriod:        info.MarketHourPeriod,
-		MarketHourRoundInterval: info.MarketHourRoundInterval,
-		UtxoMinAmount:           info.UtxoMinAmount,
-		UtxoMaxAmount:           info.UtxoMaxAmount,
-		VtxoMinAmount:           info.VtxoMinAmount,
-		VtxoMaxAmount:           info.VtxoMaxAmount,
+		ExplorerURL:                  explorerSvc.BaseUrl(),
+		ExplorerTrackingPollInterval: args.ExplorerPollInterval,
+		ForfeitAddress:               info.ForfeitAddress,
+		WithTransactionFeed:          args.WithTransactionFeed,
+		UtxoMinAmount:                info.UtxoMinAmount,
+		UtxoMaxAmount:                info.UtxoMaxAmount,
+		VtxoMinAmount:                info.VtxoMinAmount,
+		VtxoMaxAmount:                info.VtxoMaxAmount,
+		CheckpointTapscript:          info.CheckpointTapscript,
+		Fees:                         info.Fees,
 	}
 	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
 	if err != nil {
@@ -451,6 +656,90 @@ func (a *arkClient) init(
 	return nil
 }
 
+func (a *arkClient) listVtxosFromIndexer(
+	ctx context.Context,
+) (spendableVtxos, spentVtxos []types.Vtxo, err error) {
+	if a.wallet == nil {
+		return nil, nil, ErrNotInitialized
+	}
+
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return
+	}
+
+	scripts := make([]string, 0, len(offchainAddrs))
+	for _, addr := range offchainAddrs {
+		decoded, err := arklib.DecodeAddressV0(addr.Address)
+		if err != nil {
+			return nil, nil, err
+		}
+		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		scripts = append(scripts, hex.EncodeToString(vtxoScript))
+	}
+	opt := indexer.GetVtxosRequestOption{}
+	if err = opt.WithScripts(scripts); err != nil {
+		return
+	}
+
+	resp, err := a.indexer.GetVtxos(ctx, opt)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, vtxo := range resp.Vtxos {
+		if vtxo.IsRecoverable() {
+			spendableVtxos = append(spendableVtxos, vtxo)
+			continue
+		}
+
+		if vtxo.Spent || vtxo.Unrolled {
+			spentVtxos = append(spentVtxos, vtxo)
+			continue
+		}
+
+		spendableVtxos = append(spendableVtxos, vtxo)
+	}
+	return
+}
+
+func (a *arkClient) listPendingSpentVtxosFromIndexer(ctx context.Context) ([]types.Vtxo, error) {
+	if a.wallet == nil {
+		return nil, ErrNotInitialized
+	}
+
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	scripts := make([]string, 0, len(offchainAddrs))
+	for _, addr := range offchainAddrs {
+		decoded, err := arklib.DecodeAddressV0(addr.Address)
+		if err != nil {
+			return nil, err
+		}
+		vtxoScript, err := script.P2TRScript(decoded.VtxoTapKey)
+		if err != nil {
+			return nil, err
+		}
+		scripts = append(scripts, hex.EncodeToString(vtxoScript))
+	}
+	opt := indexer.GetVtxosRequestOption{}
+	opt.WithPendingOnly()
+	if err = opt.WithScripts(scripts); err != nil {
+		return nil, err
+	}
+	resp, err := a.indexer.GetVtxos(ctx, opt)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Vtxos, nil
+}
+
 func (a *arkClient) safeCheck() error {
 	if a.wallet == nil {
 		return fmt.Errorf("wallet not initialized")
@@ -458,7 +747,107 @@ func (a *arkClient) safeCheck() error {
 	if a.wallet.IsLocked() {
 		return fmt.Errorf("wallet is locked")
 	}
+	if a.WithTransactionFeed {
+		a.syncMu.Lock()
+		syncDone := a.syncDone
+		syncErr := a.syncErr
+		a.syncMu.Unlock()
+		if !syncDone {
+			if syncErr != nil {
+				return fmt.Errorf("failed to restore wallet: %s", syncErr)
+			}
+			return fmt.Errorf("wallet is still syncing")
+		}
+	}
 	return nil
+}
+
+func (a *arkClient) setRestored(err error) {
+	a.syncMu.Lock()
+	defer a.syncMu.Unlock()
+
+	a.syncDone = true
+	a.syncErr = err
+
+	a.syncListeners.broadcast(err)
+	a.syncListeners.clear()
+
+}
+
+func (a *arkClient) listenDbEvents(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			time.Sleep(100 * time.Millisecond)
+			if a.utxoBroadcaster != nil {
+				a.utxoBroadcaster.Close()
+			}
+			if a.vtxoBroadcaster != nil {
+				a.vtxoBroadcaster.Close()
+			}
+			if a.txBroadcaster != nil {
+				a.txBroadcaster.Close()
+			}
+			return
+		case event, ok := <-a.store.UtxoStore().GetEventChannel():
+			if !ok {
+				continue
+			}
+			go func() {
+				closedListeners := a.utxoBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send utxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		case event, ok := <-a.store.VtxoStore().GetEventChannel():
+			if !ok {
+				continue
+			}
+			go func() {
+				closedListeners := a.vtxoBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send vtxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		case event, ok := <-a.store.TransactionStore().GetEventChannel():
+			if !ok {
+				continue
+			}
+			go func() {
+				closedListeners := a.txBroadcaster.Publish(event)
+				if closedListeners > 0 {
+					log.Warnf(
+						"failed to send utxo event to %d listeners and they've been removed",
+						closedListeners,
+					)
+				}
+			}()
+		}
+	}
+}
+
+func (a *arkClient) periodicRefreshDb(ctx context.Context) {
+	if a.refreshDbInterval == 0 {
+		return
+	}
+	ticker := time.NewTicker(a.refreshDbInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := a.refreshDb(ctx); err != nil {
+				log.WithError(err).Error("failed to refresh db")
+			}
+		}
+	}
 }
 
 func getClient(
@@ -466,16 +855,6 @@ func getClient(
 ) (client.TransportClient, error) {
 	factory := supportedClients[clientType]
 	return factory(serverUrl)
-}
-
-func getExplorer(explorerURL, network string) (explorer.Explorer, error) {
-	if explorerURL == "" {
-		var ok bool
-		if explorerURL, ok = defaultNetworks[network]; !ok {
-			return nil, fmt.Errorf("invalid network")
-		}
-	}
-	return explorer.NewExplorer(explorerURL, utils.NetworkFromString(network)), nil
 }
 
 func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
@@ -533,4 +912,39 @@ func filterByOutpoints(vtxos []types.Vtxo, outpoints []types.Outpoint) []types.V
 		}
 	}
 	return filtered
+}
+
+type syncListeners struct {
+	lock      *sync.RWMutex
+	listeners map[chan types.SyncEvent]struct{}
+}
+
+func newReadyListeners() *syncListeners {
+	return &syncListeners{
+		lock:      &sync.RWMutex{},
+		listeners: make(map[chan types.SyncEvent]struct{}),
+	}
+}
+
+func (l *syncListeners) add(ch chan types.SyncEvent) {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	l.listeners[ch] = struct{}{}
+}
+
+func (l *syncListeners) broadcast(err error) {
+	l.lock.RLock()
+	defer l.lock.RUnlock()
+	for ch := range l.listeners {
+		ch <- types.SyncEvent{Synced: err == nil, Err: err}
+	}
+}
+
+func (l *syncListeners) clear() {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	for ch := range l.listeners {
+		close(ch)
+	}
+	l.listeners = make(map[chan types.SyncEvent]struct{})
 }

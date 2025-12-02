@@ -35,7 +35,7 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 	return &vtxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
-		eventCh: make(chan types.VtxoEvent),
+		eventCh: make(chan types.VtxoEvent, 100),
 	}, nil
 }
 
@@ -149,13 +149,28 @@ func (s *vtxoStore) GetAllVtxos(
 	}
 
 	for _, vtxo := range allVtxos {
-		if vtxo.Spent {
+		if vtxo.Spent || vtxo.Unrolled {
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)
 		}
 	}
 	return
+}
+
+func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []types.Vtxo, err error) {
+	var allVtxos []types.Vtxo
+	err = s.db.Find(&allVtxos, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, vtxo := range allVtxos {
+		if !vtxo.Spent && !vtxo.Unrolled {
+			spendable = append(spendable, vtxo)
+		}
+	}
+	return spendable, nil
 }
 
 func (s *vtxoStore) GetVtxos(
@@ -178,7 +193,7 @@ func (s *vtxoStore) GetVtxos(
 	return vtxos, nil
 }
 
-func (s *vtxoStore) GetEventChannel() chan types.VtxoEvent {
+func (s *vtxoStore) GetEventChannel() <-chan types.VtxoEvent {
 	return s.eventCh
 }
 

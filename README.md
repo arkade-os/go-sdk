@@ -291,7 +291,7 @@ See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sd
 
 ## Full Example
 
-For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/arkade-os/go-sdk/blob/master/example/alice_to_bob.go).
+For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/arkade-os/go-sdk/blob/master/example/alice_to_bob/alice_to_bob.go).
 
 ## Support
 

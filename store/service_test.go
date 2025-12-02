@@ -17,20 +17,66 @@ import (
 
 var (
 	key, _         = btcec.NewPrivateKey()
+	forfeitkKey, _ = btcec.NewPrivateKey()
 	testConfigData = types.Config{
-		ServerUrl:           "localhost:7070",
+		ServerUrl:           "127.0.0.1:7070",
 		SignerPubKey:        key.PubKey(),
+		ForfeitPubKey:       forfeitkKey.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,
 		ClientType:          client.GrpcClient,
 		Network:             arklib.BitcoinRegTest,
-		VtxoTreeExpiry:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		RoundInterval:       10,
+		SessionDuration:     10,
 		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		Dust:                1000,
 		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		ForfeitAddress:      "bcrt1qzvqj",
+		CheckpointTapscript: "abcdefghijklmnopqrtuvxyz",
 	}
 
+	testUtxos = []types.Utxo{
+		{
+			Outpoint: types.Outpoint{
+				Txid: "0000000000000000000000000000000000000000000000000000000000000000",
+				VOut: 0,
+			},
+			Script:     "0000000000000000000000000000000000000000000000000000000000000001",
+			Amount:     1000,
+			Tapscripts: []string{"abcd", "0001"},
+			Tx:         "cccccc",
+			Delay:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 10},
+		},
+		{
+			Outpoint: types.Outpoint{
+				Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				VOut: 0,
+			},
+			Script: "0000000000000000000000000000000000000000000000000000000000000001",
+			Amount: 2000,
+			Tapscripts: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+				"aaaa",
+			},
+			Tx:    "0200000010",
+			Delay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
+		},
+	}
+	testUtxoKeys = []types.Outpoint{
+		{
+			Txid: "0000000000000000000000000000000000000000000000000000000000000000",
+			VOut: 0,
+		},
+		{
+			Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			VOut: 0,
+		},
+	}
+	testConfirmedUtxoKeys = map[types.Outpoint]int64{
+		testUtxoKeys[0]: time.Now().Unix(),
+		testUtxoKeys[1]: time.Now().Add(10 * time.Second).Unix(),
+	}
+	testSpendUtxoKeys = map[types.Outpoint]string{
+		testUtxoKeys[0]: "tx3",
+	}
 	testVtxos = []types.Vtxo{
 		{
 			Outpoint: types.Outpoint{
@@ -101,14 +147,8 @@ var (
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
 
-	testReplacedTxs = map[string]types.Transaction{
-		"0000000000000000000000000000000000000000000000000000000000000000": {
-			TransactionKey: types.TransactionKey{
-				BoardingTxid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			},
-			Amount: 5000,
-			Type:   types.TxReceived,
-		},
+	testReplacedTxs = map[string]string{
+		"0000000000000000000000000000000000000000000000000000000000000000": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	}
 	testReplacedTxids = []string{
 		"0000000000000000000000000000000000000000000000000000000000000000",
@@ -181,6 +221,7 @@ func TestService(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				svc, err := store.NewStore(tt.config)
 				require.NoError(t, err)
+				testUtxoStore(t, svc.UtxoStore(), tt.config.AppDataStoreType)
 				testVtxoStore(t, svc.VtxoStore(), tt.config.AppDataStoreType)
 				testTxStore(t, svc.TransactionStore(), tt.config.AppDataStoreType)
 				svc.Close()
@@ -224,6 +265,106 @@ func testConfigStore(t *testing.T, storeSvc types.ConfigStore) {
 	require.NoError(t, err)
 }
 
+func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
+	ctx := context.Background()
+
+	go func() {
+		eventCh := storeSvc.GetEventChannel()
+		for event := range eventCh {
+			switch event.Type {
+			case types.UtxosAdded:
+				log.Infof("%s store - utxos added: %d", storeType, len(event.Utxos))
+			case types.UtxosConfirmed:
+				log.Infof("%s store - utxos confirmed: %d", storeType, len(event.Utxos))
+			case types.UtxosSpent:
+				log.Infof("%s store - utxos spent: %d", storeType, len(event.Utxos))
+			}
+			for _, utxo := range event.Utxos {
+				log.Infof("%v", utxo)
+			}
+		}
+	}()
+
+	t.Run("add utxos", func(t *testing.T) {
+		spendable, spent, err := storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Empty(t, spendable)
+		require.Empty(t, spent)
+
+		count, err := storeSvc.AddUtxos(ctx, testUtxos)
+		require.NoError(t, err)
+		require.Equal(t, len(testUtxos), count)
+
+		count, err = storeSvc.AddUtxos(ctx, testUtxos)
+		require.NoError(t, err)
+		require.Zero(t, count)
+
+		spendable, spent, err = storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Len(t, spendable, len(testUtxos))
+		require.Empty(t, spent)
+
+		utxos, err := storeSvc.GetUtxos(ctx, testUtxoKeys)
+		require.NoError(t, err)
+		require.Equal(t, testUtxos, utxos)
+	})
+
+	t.Run("confirm utxos", func(t *testing.T) {
+		spendable, spent, err := storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(spendable))
+		require.Empty(t, spent)
+		for _, v := range spendable {
+			require.True(t, v.CreatedAt.IsZero())
+		}
+
+		count, err := storeSvc.ConfirmUtxos(ctx, testConfirmedUtxoKeys)
+		require.NoError(t, err)
+		require.Equal(t, len(testConfirmedUtxoKeys), count)
+
+		count, err = storeSvc.ConfirmUtxos(ctx, testConfirmedUtxoKeys)
+		require.NoError(t, err)
+		require.Zero(t, count)
+
+		spendable, spent, err = storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(spendable))
+		require.Empty(t, spent)
+		for _, v := range spendable {
+			require.False(t, v.CreatedAt.IsZero())
+			require.Equal(t, testConfirmedUtxoKeys[v.Outpoint], v.CreatedAt.Unix())
+		}
+	})
+
+	t.Run("spend utxos", func(t *testing.T) {
+		spendable, spent, err := storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 2, len(spendable))
+		require.Empty(t, spent)
+		for _, u := range spendable {
+			require.False(t, u.Spent)
+			require.Empty(t, u.SpentBy)
+		}
+
+		count, err := storeSvc.SpendUtxos(ctx, testSpendUtxoKeys)
+		require.NoError(t, err)
+		require.Equal(t, len(testSpendVtxoKeys), count)
+
+		count, err = storeSvc.SpendUtxos(ctx, testSpendUtxoKeys)
+		require.NoError(t, err)
+		require.Zero(t, count)
+
+		spendable, spent, err = storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(spent))
+		require.Equal(t, 1, len(spendable))
+		for _, u := range spent {
+			require.True(t, u.Spent)
+			require.Equal(t, testSpendUtxoKeys[u.Outpoint], u.SpentBy)
+		}
+	})
+}
+
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	ctx := context.Background()
 
@@ -262,6 +403,14 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
+
+		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		require.NoError(t, err)
+		require.Len(t, spendable, len(testVtxos))
+		for _, v := range spendable {
+			require.False(t, v.Spent)
+			require.False(t, v.Unrolled)
+		}
 
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
@@ -369,12 +518,10 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		require.NoError(t, err)
 		require.Empty(t, txs)
 
-		newTxids := []string{
-			testReplacedTxs[testReplacedTxids[0]].TransactionKey.String(),
-		}
+		newTxids := []string{testReplacedTxs[testReplacedTxids[0]]}
 		txs, err = storeSvc.GetTransactions(ctx, newTxids)
 		require.NoError(t, err)
-		require.Equal(t, testReplacedTxs[testReplacedTxids[0]], txs[0])
+		require.Equal(t, testReplacedTxs[testReplacedTxids[0]], txs[0].TransactionKey.String())
 	})
 
 	t.Run("confirm txs", func(t *testing.T) {

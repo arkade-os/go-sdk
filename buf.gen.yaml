@@ -1,18 +1,33 @@
-version: v1
+version: v2
+clean: true
 managed:
   enabled: true
-  go_package_prefix:
-    default: github.com/arkade-os/go-sdk/api-spec/protobuf/gen
-    except:
-      - buf.build/googleapis/googleapis
+  disable:
+    - file_option: go_package
+      module: buf.build/meshapi/grpc-api-gateway
+  override:
+    - file_option: go_package_prefix
+      value: github.com/arkade-os/go-sdk/api-spec/protobuf/gen
+inputs:
+  - git_repo: https://github.com/arkade-os/arkd.git
+    branch: master
+    subdir: api-spec/protobuf
+    exclude_paths:
+      - arkwallet/v1/bitcoin_wallet.proto
+      - ark/v1/admin.proto
+      - ark/v1/wallet.proto
+      - ark/v1/signer_manager.proto
+      - signer/v1/service.proto
 plugins:
-  # Golang
-  - plugin: go
+  - remote: buf.build/protocolbuffers/go:v1.36.7
     out: api-spec/protobuf/gen
     opt: paths=source_relative
-  - plugin: go-grpc
+  - remote: buf.build/grpc/go:v1.5.1
     out: api-spec/protobuf/gen
     opt: paths=source_relative,require_unimplemented_servers=false
-  #OpenApi
-  - plugin: openapiv2
+  - local: protoc-gen-openapiv3
     out: api-spec/openapi/swagger
+    opt:
+      - paths=source_relative
+      - openapi_config=./.openapi/openapi_config.yml
+      - log_level=trace

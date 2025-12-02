@@ -113,18 +113,22 @@ func (r *CovenantlessRedeemBranch) NextRedeemTx() (string, error) {
 				return "", err
 			}
 
-			conditionWitness, err := txutils.GetConditionWitness(input)
+			conditionWitnessFields, err := txutils.GetArkPsbtFields(
+				tx,
+				i,
+				txutils.ConditionWitnessField,
+			)
 			if err != nil {
 				return "", err
 			}
 
 			args := make(map[string][]byte)
-			if len(conditionWitness) > 0 {
+			if len(conditionWitnessFields) > 0 {
 				var conditionWitnessBytes bytes.Buffer
-				if err := psbt.WriteTxWitness(&conditionWitnessBytes, conditionWitness); err != nil {
+				if err := psbt.WriteTxWitness(&conditionWitnessBytes, conditionWitnessFields[0]); err != nil {
 					return "", err
 				}
-				args[string(txutils.CONDITION_WITNESS_KEY_PREFIX)] = conditionWitnessBytes.Bytes()
+				args[string(txutils.ArkFieldConditionWitness)] = conditionWitnessBytes.Bytes()
 			}
 
 			for _, sig := range input.TaprootScriptSpendSig {

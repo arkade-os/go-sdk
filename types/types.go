@@ -8,11 +8,11 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 const (
@@ -23,27 +23,49 @@ const (
 )
 
 type Config struct {
-	ServerUrl               string
-	SignerPubKey            *secp256k1.PublicKey
-	WalletType              string
-	ClientType              string
-	Network                 arklib.Network
-	VtxoTreeExpiry          arklib.RelativeLocktime
-	RoundInterval           int64
-	UnilateralExitDelay     arklib.RelativeLocktime
-	Dust                    uint64
-	BoardingExitDelay       arklib.RelativeLocktime
-	ExplorerURL             string
-	ForfeitAddress          string
-	WithTransactionFeed     bool
-	MarketHourStartTime     int64
-	MarketHourEndTime       int64
-	MarketHourPeriod        int64
-	MarketHourRoundInterval int64
-	UtxoMinAmount           int64
-	UtxoMaxAmount           int64
-	VtxoMinAmount           int64
-	VtxoMaxAmount           int64
+	ServerUrl                    string
+	SignerPubKey                 *btcec.PublicKey
+	ForfeitPubKey                *btcec.PublicKey
+	WalletType                   string
+	ClientType                   string
+	Network                      arklib.Network
+	SessionDuration              int64
+	UnilateralExitDelay          arklib.RelativeLocktime
+	Dust                         uint64
+	BoardingExitDelay            arklib.RelativeLocktime
+	ExplorerURL                  string
+	ExplorerTrackingPollInterval time.Duration
+	ForfeitAddress               string
+	WithTransactionFeed          bool
+	UtxoMinAmount                int64
+	UtxoMaxAmount                int64
+	VtxoMinAmount                int64
+	VtxoMaxAmount                int64
+	CheckpointTapscript          string
+	Fees                         FeeInfo
+}
+
+func (c Config) CheckpointExitPath() []byte {
+	// nolint
+	buf, _ := hex.DecodeString(c.CheckpointTapscript)
+	return buf
+}
+
+type FeeInfo struct {
+	IntentFees IntentFeeInfo
+	TxFeeRate  float64
+}
+
+type IntentFeeInfo struct {
+	OffchainInput  string
+	OffchainOutput string
+	OnchainInput   uint64
+	OnchainOutput  uint64
+}
+
+type DeprecatedSigner struct {
+	PubKey     *btcec.PublicKey
+	CutoffDate time.Time
 }
 
 type Outpoint struct {
@@ -81,7 +103,7 @@ func (v Vtxo) IsRecoverable() bool {
 	return v.Swept && !v.Spent
 }
 
-func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, error) {
+func (v Vtxo) Address(server *btcec.PublicKey, net arklib.Network) (string, error) {
 	buf, err := hex.DecodeString(v.Script)
 	if err != nil {
 		return "", err
@@ -102,6 +124,29 @@ func (v Vtxo) Address(server *secp256k1.PublicKey, net arklib.Network) (string, 
 	return a.EncodeV0()
 }
 
+type UtxoEventType int
+
+const (
+	UtxosAdded UtxoEventType = iota
+	UtxosConfirmed
+	UtxosReplaced
+	UtxosSpent
+)
+
+func (e UtxoEventType) String() string {
+	return map[UtxoEventType]string{
+		UtxosAdded:     "UTXOS_ADDED",
+		UtxosConfirmed: "UTXOS_CONFIRMED",
+		UtxosReplaced:  "UTXOS_REPLACED",
+		UtxosSpent:     "UTXOS_SPENT",
+	}[e]
+}
+
+type UtxoEvent struct {
+	Type  UtxoEventType
+	Utxos []Utxo
+}
+
 type VtxoEventType int
 
 const (
@@ -112,8 +157,9 @@ const (
 
 func (e VtxoEventType) String() string {
 	return map[VtxoEventType]string{
-		VtxosAdded: "VTXOS_ADDED",
-		VtxosSpent: "VTXOS_SPENT",
+		VtxosAdded:   "VTXOS_ADDED",
+		VtxosSpent:   "VTXOS_SPENT",
+		VtxosUpdated: "VTXOS_UPDATED",
 	}[e]
 }
 
@@ -180,15 +226,20 @@ type TransactionEvent struct {
 }
 
 type Utxo struct {
-	Txid        string
-	VOut        uint32
+	Outpoint
 	Amount      uint64
+	Script      string
 	Delay       arklib.RelativeLocktime
 	SpendableAt time.Time
 	CreatedAt   time.Time
 	Tapscripts  []string
 	Spent       bool
+	SpentBy     string
 	Tx          string
+}
+
+func (u Utxo) IsConfirmed() bool {
+	return !u.CreatedAt.IsZero()
 }
 
 func (u *Utxo) Sequence() (uint32, error) {
@@ -238,4 +289,26 @@ func (o Receiver) ToTxOut() (*wire.TxOut, bool, error) {
 		Value:    int64(o.Amount),
 		PkScript: pkScript,
 	}, isOnchain, nil
+}
+
+type OnchainOutput struct {
+	Outpoint
+	Script    string
+	Amount    uint64
+	CreatedAt time.Time
+	Spent     bool
+	SpentBy   string
+}
+
+type OnchainAddressEvent struct {
+	Error          error
+	SpentUtxos     []OnchainOutput
+	NewUtxos       []OnchainOutput
+	ConfirmedUtxos []OnchainOutput
+	Replacements   map[string]string // replacedTxid -> replacementTxid
+}
+
+type SyncEvent struct {
+	Synced bool
+	Err    error
 }
