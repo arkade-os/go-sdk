@@ -26,6 +26,7 @@ type GetVtxosRequestOption struct {
 	spentOnly       bool
 	spendableOnly   bool
 	recoverableOnly bool
+	pendingOnly     bool
 }
 
 func (o *GetVtxosRequestOption) WithScripts(scripts []string) error {
@@ -84,6 +85,14 @@ func (o *GetVtxosRequestOption) WithRecoverableOnly() {
 
 func (o *GetVtxosRequestOption) GetRecoverableOnly() bool {
 	return o.recoverableOnly
+}
+
+func (o *GetVtxosRequestOption) WithPendingOnly() {
+	o.pendingOnly = true
+}
+
+func (o *GetVtxosRequestOption) GetPendingOnly() bool {
+	return o.pendingOnly
 }
 
 type GetTxHistoryRequestOption struct {

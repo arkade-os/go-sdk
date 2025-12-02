@@ -58,6 +58,7 @@ type VtxoStore interface {
 	) (int, error)
 	UpdateVtxos(ctx context.Context, vtxos []Vtxo) (int, error)
 	GetAllVtxos(ctx context.Context) (spendable, spent []Vtxo, err error)
+	GetSpendableVtxos(ctx context.Context) ([]Vtxo, error)
 	GetVtxos(ctx context.Context, keys []Outpoint) ([]Vtxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan VtxoEvent

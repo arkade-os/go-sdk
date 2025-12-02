@@ -59,6 +59,7 @@ func (a InitArgs) validate() error {
 	if len(a.Password) <= 0 {
 		return fmt.Errorf("missing password")
 	}
+
 	return nil
 }
 
@@ -131,10 +132,14 @@ type balanceRes struct {
 }
 
 type CoinSelectOptions struct {
-	// If true, coin selector will select coins closest to expiry first.
+	// If true, coin selector will select coins closest to expiry first
 	WithExpirySorting bool
-	// If specified, coin selector will select only coins in the list.
+	// If specified, coin selector will select only coins in the list
 	OutpointsFilter []types.Outpoint
-	// If true, coin selector will select recoverable (swept but unspent) vtxos first.
+	// If true, coin selector will select recoverable (swept but unspent) vtxos first
 	SelectRecoverableVtxos bool
+	// If specified coin selector will select only vtxos below the given expiration threshold (seconds)
+	ExpiryThreshold int64
+	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
+	RecomputeExpiry bool
 }

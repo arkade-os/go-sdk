@@ -38,7 +38,6 @@ package mempool_explorer
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -76,7 +75,7 @@ var (
 		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
 		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
 		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
-		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
+		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
 	}
 )
 
@@ -85,6 +84,7 @@ type explorerSvc struct {
 	baseUrl       string
 	net           arklib.Network
 	connPool      *connectionPool
+	connPoolMu    sync.RWMutex
 	subscribedMu  *sync.RWMutex
 	subscribedMap map[string]addressData
 	stopTracking  func()
@@ -168,7 +168,9 @@ func (e *explorerSvc) Start() {
 			e.pollInterval,
 		)
 	}
+	e.connPoolMu.Lock()
 	e.connPool = connPool
+	e.connPoolMu.Unlock()
 
 	e.listeners = newListeners()
 	e.stopTracking = cancel
@@ -190,16 +192,19 @@ func (e *explorerSvc) Stop() {
 	e.stopTracking()
 
 	// Close all connections in the pool
-	if e.connPool != nil {
-		e.connPool.mu.Lock()
-		for _, wsConn := range e.connPool.connections {
+	e.connPoolMu.RLock()
+	connPool := e.connPool
+	e.connPoolMu.RUnlock()
+	if connPool != nil {
+		connPool.mu.Lock()
+		for _, wsConn := range connPool.connections {
 			if wsConn.conn != nil {
 				if err := wsConn.conn.Close(); err != nil {
 					log.WithError(err).Warn("explorer: failed to close ws connection")
 				}
 			}
 		}
-		e.connPool.mu.Unlock()
+		connPool.mu.Unlock()
 	}
 	log.Debug("explorer: closed all connections")
 
@@ -252,6 +257,8 @@ func (e *explorerSvc) GetFeeRate() (float64, error) {
 }
 
 func (e *explorerSvc) GetConnectionCount() int {
+	e.connPoolMu.RLock()
+	defer e.connPoolMu.RUnlock()
 	if e.connPool == nil {
 		return 0
 	}
@@ -369,8 +376,11 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 	}
 
 	var numAddressesLeftToSubscribe int
-	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
-		if e.connPool.noMoreConnections {
+	e.connPoolMu.RLock()
+	connPool := e.connPool
+	e.connPoolMu.RUnlock()
+	if connPool != nil && connPool.getConnectionCount() > 0 {
+		if connPool.noMoreConnections {
 			return fmt.Errorf(
 				"can't subscribe for any more addresses (max=%d)",
 				len(e.subscribedMap),
@@ -380,7 +390,7 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		conns := make(map[int]*websocketConnection)
 		subsError := make([]error, 0)
 		for i, addr := range addressesToSubscribe {
-			wsConn, found := e.connPool.pushAddress(addr)
+			wsConn, found := connPool.pushAddress(addr)
 			if !found {
 				numAddressesLeftToSubscribe = len(addressesToSubscribe[i:])
 				addressesToSubscribe = addressesToSubscribe[:i]
@@ -403,7 +413,7 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			// Make sure a new connection is create for next addresses
 			time.Sleep(time.Millisecond)
 			// nolint
-			e.connPool.addConnection()
+			connPool.addConnection()
 			time.Sleep(time.Millisecond)
 		}
 	}
@@ -443,15 +453,18 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 		return nil
 	}
 
-	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
+	e.connPoolMu.RLock()
+	connPool := e.connPool
+	e.connPoolMu.RUnlock()
+	if connPool != nil && connPool.getConnectionCount() > 0 {
 		conns := make(map[int]*websocketConnection)
 		subsToUpdate := make(map[int]struct{})
 		for _, addr := range addressesToUnsubscribe {
-			wsConn, found := e.connPool.getConnectionForAddress(addr)
+			wsConn, found := connPool.getConnectionForAddress(addr)
 			if !found {
 				continue
 			}
-			e.connPool.popAddress(addr)
+			connPool.popAddress(addr)
 			subsToUpdate[wsConn.id] = struct{}{}
 			conns[wsConn.id] = wsConn
 		}
@@ -582,9 +595,12 @@ func (e *explorerSvc) GetTxBlockTime(
 func (e *explorerSvc) startTracking(ctx context.Context) {
 	// If the ws endpoint is available (mempool.space url), read from websocket and eventually
 	// send notifications and periodically send a ping message to keep the connection alive.
-	if e.connPool != nil && e.connPool.getConnectionCount() > 0 {
+	e.connPoolMu.RLock()
+	connPool := e.connPool
+	e.connPoolMu.RUnlock()
+	if connPool != nil && connPool.getConnectionCount() > 0 {
 		// Start a listener and ping routine for each connection in the pool
-		e.trackWithWebsocket(ctx)
+		e.trackWithWebsocket(ctx, connPool)
 	} else {
 		// Otherwise (esplora url), poll the explorer every 10s and manually send notifications of
 		// spent, new and confirmed utxos.
@@ -593,12 +609,12 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 
 }
 
-func (e *explorerSvc) trackWithWebsocket(ctx context.Context) {
+func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connectionPool) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case wsConn := <-e.connPool.getNewConnections():
+		case wsConn := <-connPool.getNewConnections():
 			// Go routine to listen for addresses updates from websocket.
 			go func(ctx context.Context, wsConn *websocketConnection) {
 				if err := wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
@@ -609,7 +625,7 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context) {
 						"connection for address %s dropped, please resubscribe: %w",
 						wsConn.address.get(), err,
 					)})
-					go e.connPool.resetConnection(wsConn)
+					go connPool.resetConnection(wsConn)
 					return
 				}
 				wsConn.conn.SetPongHandler(func(string) error {
@@ -637,7 +653,7 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context) {
 						continue
 					}
 
-					go e.sendAddressEventFromWs(ctx, payload)
+					go e.sendAddressEventFromWs(payload)
 				}
 			}(ctx, wsConn)
 
@@ -658,7 +674,7 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context) {
 								"connection for address %s dropped, please resubscribe - "+
 									"failed to ping explorer: %s", wsConn.address.get(), err,
 							)})
-							go e.connPool.resetConnection(wsConn)
+							go connPool.resetConnection(wsConn)
 							log.WithError(err).WithField("connection", wsConn.id).Error(
 								"explorer: failed to ping explorer",
 							)
@@ -708,13 +724,12 @@ func (e *explorerSvc) trackWithPolling(ctx context.Context) {
 					})
 					continue
 				}
-				buf, _ := json.Marshal(newUtxos)
-				hashedResp := sha256.Sum256(buf)
-				if !bytes.Equal(oldUtxos.hash, hashedResp[:]) {
-					go e.sendAddressEventFromPolling(ctx, oldUtxos.utxos, newUtxos)
+				hashedResp := newUtxos.hash()
+				if !bytes.Equal(oldUtxos.hash, hashedResp) {
+					go e.sendAddressEventFromPolling(oldUtxos.utxos, newUtxos)
 					e.subscribedMu.Lock()
 					e.subscribedMap[addr] = addressData{
-						hash:  hashedResp[:],
+						hash:  hashedResp,
 						utxos: newUtxos,
 					}
 					e.subscribedMu.Unlock()
@@ -762,7 +777,7 @@ func (e *explorerSvc) getUtxos(addr string) (utxos, error) {
 	return utxos, nil
 }
 
-func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addressNotification) {
+func (e *explorerSvc) sendAddressEventFromWs(payload addressNotification) {
 	// Forward the error if we received one.
 	if len(payload.Error) > 0 {
 		e.listeners.broadcast(types.OnchainAddressEvent{
@@ -850,9 +865,7 @@ func (e *explorerSvc) sendAddressEventFromWs(ctx context.Context, payload addres
 	})
 }
 
-func (e *explorerSvc) sendAddressEventFromPolling(
-	ctx context.Context, oldUtxos, newUtxos []utxo,
-) {
+func (e *explorerSvc) sendAddressEventFromPolling(oldUtxos, newUtxos []utxo) {
 	indexedOldUtxos := make(map[string]utxo, 0)
 	indexedNewUtxos := make(map[string]utxo, 0)
 	for _, oldUtxo := range oldUtxos {
@@ -884,21 +897,23 @@ func (e *explorerSvc) sendAddressEventFromPolling(
 	for _, newUtxo := range newUtxos {
 		oldUtxo, ok := indexedOldUtxos[fmt.Sprintf("%s:%d", newUtxo.Txid, newUtxo.Vout)]
 		if !ok {
-			var createdAt time.Time
-			if newUtxo.Status.Confirmed {
-				createdAt = time.Unix(newUtxo.Status.BlockTime, 0)
-			}
-			receivedUtxos = append(receivedUtxos, types.OnchainOutput{
+			utxo := types.OnchainOutput{
 				Outpoint: types.Outpoint{
 					Txid: newUtxo.Txid,
 					VOut: newUtxo.Vout,
 				},
-				Script:    newUtxo.Script,
-				Amount:    newUtxo.Amount,
-				CreatedAt: createdAt,
-			})
+				Script: newUtxo.Script,
+				Amount: newUtxo.Amount,
+			}
+
+			if newUtxo.Status.Confirmed {
+				utxo.CreatedAt = time.Unix(newUtxo.Status.BlockTime, 0)
+			}
+
+			receivedUtxos = append(receivedUtxos, utxo)
 			continue
 		}
+
 		if !oldUtxo.Status.Confirmed && newUtxo.Status.Confirmed {
 			confirmedUtxos = append(confirmedUtxos, types.OnchainOutput{
 				Outpoint: types.Outpoint{

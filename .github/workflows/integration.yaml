@@ -1,0 +1,32 @@
+name: ci_integration
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test-e2e-sdk:
+    name: Sdk integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '>=1.25.3'
+      
+      - run: go mod tidy
+      
+      - name: Run Nigiri
+        uses: vulpemventures/nigiri-github-action@v1
+      
+      - name: Run regtest environment
+        run: make regtest
+
+      - name: Run tests
+        run: make integrationtest

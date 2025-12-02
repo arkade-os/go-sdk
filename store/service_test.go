@@ -19,7 +19,7 @@ var (
 	key, _         = btcec.NewPrivateKey()
 	forfeitkKey, _ = btcec.NewPrivateKey()
 	testConfigData = types.Config{
-		ServerUrl:           "localhost:7070",
+		ServerUrl:           "127.0.0.1:7070",
 		SignerPubKey:        key.PubKey(),
 		ForfeitPubKey:       forfeitkKey.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,
@@ -403,6 +403,14 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
+
+		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		require.NoError(t, err)
+		require.Len(t, spendable, len(testVtxos))
+		for _, v := range spendable {
+			require.False(t, v.Spent)
+			require.False(t, v.Unrolled)
+		}
 
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)

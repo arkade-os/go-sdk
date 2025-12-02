@@ -22,6 +22,8 @@ type GetVtxosRequest struct {
 	// Or specify a list of vtxo outpoints. The 2 filters are mutually exclusive.
 		Outpoints []string `json:"outpoints,omitempty"`
 		Page *IndexerPageRequest `json:"page,omitempty"`
+	// Include only spent vtxos that are not finalized.
+		PendingOnly *bool `json:"pendingOnly,omitempty"`
 	// Retrieve only recoverable vtxos (notes, subdust or swept vtxos). The 3 filters are mutually exclusive,
 		RecoverableOnly *bool `json:"recoverableOnly,omitempty"`
 	// Either specify a list of vtxo scripts.
@@ -111,6 +113,38 @@ func (o *GetVtxosRequest) HasPage() bool {
 // SetPage gets a reference to the given IndexerPageRequest and assigns it to the Page field.
 func (o *GetVtxosRequest) SetPage(v IndexerPageRequest) {
 	o.Page = &v
+}
+
+// GetPendingOnly returns the PendingOnly field value if set, zero value otherwise.
+func (o *GetVtxosRequest) GetPendingOnly() bool {
+	if o == nil || IsNil(o.PendingOnly) {
+		var ret bool
+		return ret
+	}
+	return *o.PendingOnly
+}
+
+// GetPendingOnlyOk returns a tuple with the PendingOnly field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetVtxosRequest) GetPendingOnlyOk() (*bool, bool) {
+	if o == nil || IsNil(o.PendingOnly) {
+		return nil, false
+	}
+	return o.PendingOnly, true
+}
+
+// HasPendingOnly returns a boolean if a field has been set.
+func (o *GetVtxosRequest) HasPendingOnly() bool {
+	if o != nil && !IsNil(o.PendingOnly) {
+		return true
+	}
+
+	return false
+}
+
+// SetPendingOnly gets a reference to the given bool and assigns it to the PendingOnly field.
+func (o *GetVtxosRequest) SetPendingOnly(v bool) {
+	o.PendingOnly = &v
 }
 
 // GetRecoverableOnly returns the RecoverableOnly field value if set, zero value otherwise.
@@ -256,6 +290,9 @@ func (o GetVtxosRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Page) {
 		toSerialize["page"] = o.Page
+	}
+	if !IsNil(o.PendingOnly) {
+		toSerialize["pendingOnly"] = o.PendingOnly
 	}
 	if !IsNil(o.RecoverableOnly) {
 		toSerialize["recoverableOnly"] = o.RecoverableOnly

@@ -149,13 +149,28 @@ func (s *vtxoStore) GetAllVtxos(
 	}
 
 	for _, vtxo := range allVtxos {
-		if vtxo.Spent {
+		if vtxo.Spent || vtxo.Unrolled {
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)
 		}
 	}
 	return
+}
+
+func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []types.Vtxo, err error) {
+	var allVtxos []types.Vtxo
+	err = s.db.Find(&allVtxos, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, vtxo := range allVtxos {
+		if !vtxo.Spent && !vtxo.Unrolled {
+			spendable = append(spendable, vtxo)
+		}
+	}
+	return spendable, nil
 }
 
 func (s *vtxoStore) GetVtxos(
