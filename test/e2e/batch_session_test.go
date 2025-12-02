@@ -40,7 +40,7 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, 21000, int(aliceConfirmedUtxo.Amount))
 		require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
 
-		aliceBalance, err := alice.Balance(t.Context(), false)
+		aliceBalance, err := alice.Balance(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, aliceBalance)
 		require.Zero(t, int(aliceBalance.OffchainBalance.Total))
@@ -48,7 +48,7 @@ func TestBatchSession(t *testing.T) {
 		require.NotEmpty(t, aliceBalance.OnchainBalance.LockedAmount)
 		require.NotZero(t, int(aliceBalance.OnchainBalance.LockedAmount[0].Amount))
 
-		bobBalance, err := bob.Balance(t.Context(), false)
+		bobBalance, err := bob.Balance(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
 		require.Zero(t, int(bobBalance.OffchainBalance.Total))
@@ -93,12 +93,12 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, 21000, int(aliceVtxo.Amount))
 		require.Equal(t, 21000, int(bobVtxo.Amount))
 
-		aliceBalance, err = alice.Balance(t.Context(), false)
+		aliceBalance, err = alice.Balance(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, aliceBalance)
 		require.GreaterOrEqual(t, int(aliceBalance.OffchainBalance.Total), 21000)
 
-		bobBalance, err = bob.Balance(t.Context(), false)
+		bobBalance, err = bob.Balance(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
 		require.GreaterOrEqual(t, int(bobBalance.OffchainBalance.Total), 21000)
@@ -154,14 +154,14 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, aliceVtxoEvent.Vtxos[0].Outpoint, aliceVtxo.Outpoint)
 		require.Equal(t, bobVtxoEvent.Vtxos[0].Outpoint, bobVtxo.Outpoint)
 
-		aliceBalance, err = alice.Balance(ctx, false)
+		aliceBalance, err = alice.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, aliceBalance)
 		require.GreaterOrEqual(t, int(aliceBalance.OffchainBalance.Total), 21000)
 		require.Zero(t, int(aliceBalance.OnchainBalance.SpendableAmount))
 		require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
-		bobBalance, err = bob.Balance(ctx, false)
+		bobBalance, err = bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
 		require.GreaterOrEqual(t, int(bobBalance.OffchainBalance.Total), 21000)
@@ -178,7 +178,7 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, offchainAddr)
 
-		balance, err := alice.Balance(ctx, false)
+		balance, err := alice.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
 		require.Zero(t, balance.OffchainBalance.Total)
@@ -202,7 +202,7 @@ func TestBatchSession(t *testing.T) {
 		aliceVtxo := aliceVtxoEvent.Vtxos[0]
 		require.Equal(t, 21000+2100, int(aliceVtxo.Amount))
 
-		balance, err = alice.Balance(ctx, false)
+		balance, err = alice.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
 		require.Greater(t, int(balance.OffchainBalance.Total), 21000)

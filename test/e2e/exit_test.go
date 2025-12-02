@@ -23,12 +23,12 @@ func TestCollaborativeExit(t *testing.T) {
 			// Faucet Alice
 			faucetOffchain(t, alice, 0.001)
 
-			aliceBalance, err := alice.Balance(ctx, false)
+			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 
-			bobBalance, err := bob.Balance(ctx, false)
+			bobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
@@ -41,7 +41,7 @@ func TestCollaborativeExit(t *testing.T) {
 			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 			// Send to Bob's onchain address
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000, false)
+			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.NoError(t, err)
 
 			// next event received by bob utxo channel should be the added event
@@ -67,13 +67,13 @@ func TestCollaborativeExit(t *testing.T) {
 			require.True(t, bobConfirmedUtxo.IsConfirmed())
 
 			prevTotalBalance := int(aliceBalance.OffchainBalance.Total)
-			aliceBalance, err = alice.Balance(ctx, false)
+			aliceBalance, err = alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 			require.Less(t, int(aliceBalance.OffchainBalance.Total), prevTotalBalance)
 
-			bobBalance, err = bob.Balance(ctx, false)
+			bobBalance, err = bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
@@ -90,13 +90,13 @@ func TestCollaborativeExit(t *testing.T) {
 			// Faucet Alice
 			faucetOffchain(t, alice, 0.00021)
 
-			aliceBalance, err := alice.Balance(ctx, false)
+			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
-			bobBalance, err := bob.Balance(ctx, false)
+			bobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
@@ -109,7 +109,7 @@ func TestCollaborativeExit(t *testing.T) {
 			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 			// Send all to Bob's onchain address
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000, false)
+			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.NoError(t, err)
 
 			// next event received by bob utxo channel should be the added event
@@ -134,13 +134,13 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
 			require.True(t, bobConfirmedUtxo.IsConfirmed())
 
-			aliceBalance, err = alice.Balance(ctx, false)
+			aliceBalance, err = alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Zero(t, int(aliceBalance.OffchainBalance.Total))
 			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
-			bobBalance, err = bob.Balance(ctx, false)
+			bobBalance, err = bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
@@ -168,7 +168,7 @@ func TestCollaborativeExit(t *testing.T) {
 			faucetOnchain(t, aliceBoardingAddr, 0.001)
 			time.Sleep(5 * time.Second)
 
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000, false)
+			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.Error(t, err)
 
 			require.ErrorContains(t, err, "include onchain inputs and outputs")
@@ -242,7 +242,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.NotEmpty(t, bobOnchainAddr)
 		require.NotEmpty(t, bobOffchainAddr)
 
-		bobBalance, err := bob.Balance(ctx, false)
+		bobBalance, err := bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
 		require.Zero(t, bobBalance.OffchainBalance.Total)

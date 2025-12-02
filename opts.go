@@ -13,7 +13,7 @@ type SettleOptions struct {
 	ExtraSignerSessions    []tree.SignerSession
 	WalletSignerDisabled   bool
 	SelectRecoverableVtxos bool
-	ExpiryThreshold        int64 // In Secons
+	ExpiryThreshold        int64 // In seconds
 
 	CancelCh <-chan struct{}
 	EventsCh chan<- any

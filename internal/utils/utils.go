@@ -298,13 +298,11 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 	}
 }
 
-func GroupVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) ([]types.Vtxo, []types.Vtxo) {
+func FilterVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) []types.Vtxo {
 	now := time.Now()
 	threshold := time.Duration(expiryThreshold) * time.Second
 
 	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
-	others := make([]types.Vtxo, 0, len(vtxos))
-
 	for _, vtxo := range vtxos {
 		// time until expiry
 		timeLeft := vtxo.ExpiresAt.Sub(now)
@@ -312,12 +310,10 @@ func GroupVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) ([]types.Vtxo
 		// if already expired or within threshold
 		if timeLeft <= threshold {
 			nearExpiry = append(nearExpiry, vtxo)
-		} else {
-			others = append(others, vtxo)
 		}
 	}
 
-	return nearExpiry, others
+	return nearExpiry
 }
 
 func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
