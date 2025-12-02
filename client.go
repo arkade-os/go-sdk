@@ -733,7 +733,7 @@ func (a *arkClient) CollaborativeExit(
 		ctx, amount+fees, CoinSelectOptions{
 			WithExpirySorting:      computeVtxoExpiry,
 			SelectRecoverableVtxos: options.SelectRecoverableVtxos,
-			ExpiryPercentage:       options.ExpiryPercentage,
+			ExpiryThreshold:        options.ExpiryThreshold,
 		},
 	)
 	if err != nil {
@@ -2163,7 +2163,7 @@ func (a *arkClient) settle(
 		ctx, sumOfReceivers, CoinSelectOptions{
 			WithExpirySorting:      computeVtxoExpiry,
 			SelectRecoverableVtxos: options.SelectRecoverableVtxos,
-			ExpiryPercentage:       options.ExpiryPercentage,
+			ExpiryThreshold:        options.ExpiryThreshold,
 		},
 	)
 	if err != nil {
@@ -2807,26 +2807,6 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 
 	allVtxos := append(recoverableVtxos, spendableVtxos...)
 
-	if opts != nil && opts.ExpiryPercentage > 0 {
-		filteredVtxos := make([]types.Vtxo, 0)
-		for _, vtxo := range allVtxos {
-			expiryDuration := vtxo.ExpiresAt.Sub(vtxo.CreatedAt)
-			ratio := float64(opts.ExpiryPercentage) / 100.0
-			expectedRemainingExpiry := math.Ceil(float64(expiryDuration) * ratio)
-			maxExpiryDate := time.Now().Add(time.Duration(expectedRemainingExpiry))
-
-			if vtxo.ExpiresAt.Before(maxExpiryDate) {
-				filteredVtxos = append(filteredVtxos, vtxo)
-			}
-		}
-
-		allVtxos = filteredVtxos
-	}
-
-	if opts == nil || !opts.WithExpirySorting {
-		return allVtxos, nil
-	}
-
 	// if sorting by expiry is required, we need to get the expiration date of each vtxo
 	redeemBranches, err := a.getRedeemBranches(ctx, spendableVtxos)
 	if err != nil {
@@ -2845,6 +2825,14 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 				break
 			}
 		}
+	}
+
+	if opts != nil && opts.ExpiryThreshold > 0 {
+		allVtxos, _ = groupVtxosByExpiry(allVtxos, opts.ExpiryThreshold)
+	}
+
+	if opts == nil || opts.WithExpirySorting {
+		allVtxos = sortVtxosByExpiry(allVtxos)
 	}
 
 	return allVtxos, nil
@@ -3505,4 +3493,33 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 		}
 	}
 	return nil
+}
+
+func groupVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) ([]types.Vtxo, []types.Vtxo) {
+	now := time.Now()
+	threshold := time.Duration(expiryThreshold) * time.Second
+
+	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
+	others := make([]types.Vtxo, 0, len(vtxos))
+
+	for _, vtxo := range vtxos {
+		// time until expiry
+		timeLeft := vtxo.ExpiresAt.Sub(now)
+
+		// if already expired or within threshold
+		if timeLeft <= threshold {
+			nearExpiry = append(nearExpiry, vtxo)
+		} else {
+			others = append(others, vtxo)
+		}
+	}
+
+	return nearExpiry, others
+}
+
+func sortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+	return vtxos
 }

@@ -13,7 +13,7 @@ type SettleOptions struct {
 	ExtraSignerSessions    []tree.SignerSession
 	WalletSignerDisabled   bool
 	SelectRecoverableVtxos bool
-	ExpiryPercentage       int64
+	ExpiryThreshold        int64 // In Secons
 
 	CancelCh <-chan struct{}
 	EventsCh chan<- any
@@ -21,7 +21,7 @@ type SettleOptions struct {
 
 func newDefaultSettleOptions() *SettleOptions {
 	return &SettleOptions{
-		ExpiryPercentage: 10, // default to 10%
+		ExpiryThreshold: 24 * 60 * 60, // 24 hours
 	}
 }
 
@@ -92,28 +92,25 @@ func WithCancelCh(ch <-chan struct{}) Option {
 }
 
 // WithoutExpiryPercentage disables the percentage filtering regarding vtxo expiry
-func WithoutExpiryPercentage(o any) error {
+func WithoutExpiryThreshold(o any) error {
 	opts, err := checkSettleOptionsType(o)
 	if err != nil {
 		return err
 	}
 
-	opts.ExpiryPercentage = 0
+	opts.ExpiryThreshold = 0
 	return nil
 }
 
-func WithExpiryPercentage(percentage uint) Option {
+func WithExpiryThreshold(threshold uint64) Option {
 	return func(o any) error {
-		if percentage > 100 {
-			return fmt.Errorf("percentage must be less than or equal to 100")
-		}
 
 		opts, err := checkSettleOptionsType(o)
 		if err != nil {
 			return err
 		}
 
-		opts.ExpiryPercentage = int64(percentage)
+		opts.ExpiryThreshold = threshold
 		return nil
 	}
 }

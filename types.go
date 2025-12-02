@@ -139,5 +139,5 @@ type CoinSelectOptions struct {
 	// If true, coin selector will select recoverable (swept but unspent) vtxos first.
 	SelectRecoverableVtxos bool
 	// if specified (0 = disabled), coin selector will exclude vtxos where now-to-expiry is less than or equal to percentage of total expiry duration
-	ExpiryPercentage int64
+	ExpiryThreshold int64
 }
