@@ -39,10 +39,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	DefaultExpiryThreshold    int64 = 3 * 24 * 60 * 60 // 3 days
-	ErrWaitingForConfirmation       = fmt.Errorf("waiting for confirmation(s), please retry later")
-)
+var ErrWaitingForConfirmation = fmt.Errorf("waiting for confirmation(s), please retry later")
 
 func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error) {
 	cfgData, err := sdkStore.ConfigStore().GetData(context.Background())
@@ -701,8 +698,8 @@ func (a *arkClient) CollaborativeExit(
 			return "", err
 		}
 	}
-	if options.ExpiryThreshold == 0 {
-		options.ExpiryThreshold = DefaultExpiryThreshold
+	if options.ExpiryThreshold <= 0 {
+		options.ExpiryThreshold = defaultExpiryThreshold
 	}
 
 	netParams := utils.ToBitcoinNetwork(a.Network)
@@ -2115,8 +2112,8 @@ func (a *arkClient) settle(
 			return "", err
 		}
 	}
-	if options.ExpiryThreshold == 0 {
-		options.ExpiryThreshold = DefaultExpiryThreshold
+	if options.ExpiryThreshold <= 0 {
+		options.ExpiryThreshold = defaultExpiryThreshold
 	}
 
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)

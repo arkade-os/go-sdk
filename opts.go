@@ -6,6 +6,8 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 )
 
+const defaultExpiryThreshold int64 = 3 * 24 * 60 * 60 // 3 days
+
 type Option func(options any) error
 
 // SettleOptions allows to customize the vtxo signing process
@@ -21,7 +23,7 @@ type SettleOptions struct {
 
 func newDefaultSettleOptions() *SettleOptions {
 	return &SettleOptions{
-		ExpiryThreshold: 24 * 60 * 60, // 24 hours
+		ExpiryThreshold: defaultExpiryThreshold,
 	}
 }
 
