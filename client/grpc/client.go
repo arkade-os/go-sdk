@@ -15,7 +15,7 @@ import (
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -23,7 +23,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const cloudflare524Error = "524"
+const (
+	initialDelay       = 5 * time.Second
+	maxDelay           = 60 * time.Second
+	multiplier         = 2.0
+	cloudflare524Error = "524"
+)
 
 type grpcClient struct {
 	conn             *grpc.ClientConn
@@ -55,53 +60,56 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		return nil, err
 	}
 
-	monitoringCtx, monitoringCancel := context.WithCancel(context.Background())
+	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
 	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
 
-	go utils.MonitorGrpcConn(monitoringCtx, conn, func(ctx context.Context) error {
-		client.connMu.Lock()
-		// nolint:errcheck
-		client.conn.Close()
-		client.connMu.Unlock()
-
-		// wait for the arkd server to be ready by pinging it every 5 seconds
-		ticker := time.NewTicker(time.Second * 5)
-		defer ticker.Stop()
-		isUnlocked := false
-		for !isUnlocked {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-				pingConn, err := grpc.NewClient(serverUrl, option)
-				if err != nil {
-					continue
-				}
-				// we use GetInfo to check if the server is ready
-				// we know that if this RPC returns an error, the server is not unlocked yet
-				_, err = arkv1.NewArkServiceClient(pingConn).GetInfo(ctx, &arkv1.GetInfoRequest{})
-				if err != nil {
-					// nolint:errcheck
-					pingConn.Close()
-					continue
-				}
-
-				// nolint:errcheck
-				pingConn.Close()
-				isUnlocked = true
-			}
+	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
+		// Wait for the server to be actually ready for requests
+		if err := client.waitForServerReady(ctx); err != nil {
+			return fmt.Errorf("server not ready after reconnection: %w", err)
 		}
 
-		client.connMu.Lock()
-		defer client.connMu.Unlock()
-		client.conn, err = grpc.NewClient(serverUrl, option)
-		if err != nil {
-			return err
-		}
+		// TODO: trigger any application-level state refresh here
+		// e.g., resubscribe to streams, refresh cache, etc.
+
 		return nil
 	})
 
 	return client, nil
+}
+
+func (c *grpcClient) waitForServerReady(ctx context.Context) error {
+	delay := initialDelay
+	attempt := 0
+
+	// Create a temporary client to test the server
+	testClient := arkv1.NewArkServiceClient(c.conn)
+
+	for {
+		attempt++
+
+		// Use a short timeout for each ping attempt
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := testClient.GetInfo(pingCtx, &arkv1.GetInfoRequest{})
+		cancel()
+
+		if err == nil {
+			// Server responded successfully
+			log.Debugf("connection restored after %d attempt(s)", attempt)
+			return nil
+		}
+
+		log.Debugf("connection not ready (attempt %d), retrying in %v: %v\n", attempt, delay, err)
+
+		// Wait with exponential backoff before retrying
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+			// Increase delay for next attempt
+			delay = min(time.Duration(float64(delay)*multiplier), maxDelay)
+		}
+	}
 }
 
 func (a *grpcClient) svc() arkv1.ArkServiceClient {
@@ -329,7 +337,7 @@ func (a *grpcClient) GetEventStream(
 
 	closeFn := func() {
 		if err := stream.CloseSend(); err != nil {
-			logrus.Warnf("failed to close event stream: %s", err)
+			log.Warnf("failed to close event stream: %s", err)
 		}
 		cancel()
 	}
@@ -366,6 +374,35 @@ func (a *grpcClient) FinalizeTx(
 		return err
 	}
 	return nil
+}
+
+func (a *grpcClient) GetPendingTx(
+	ctx context.Context,
+	proof, message string,
+) ([]client.AcceptedOffchainTx, error) {
+	req := &arkv1.GetPendingTxRequest{
+		Identifier: &arkv1.GetPendingTxRequest_Intent{
+			Intent: &arkv1.Intent{
+				Message: message,
+				Proof:   proof,
+			},
+		},
+	}
+
+	resp, err := a.svc().GetPendingTx(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingTxs := make([]client.AcceptedOffchainTx, 0, len(resp.GetPendingTxs()))
+	for _, tx := range resp.GetPendingTxs() {
+		pendingTxs = append(pendingTxs, client.AcceptedOffchainTx{
+			Txid:                tx.GetArkTxid(),
+			FinalArkTx:          tx.GetFinalArkTx(),
+			SignedCheckpointTxs: tx.GetSignedCheckpointTxs(),
+		})
+	}
+	return pendingTxs, nil
 }
 
 func (c *grpcClient) GetTransactionsStream(
@@ -458,7 +495,7 @@ func (c *grpcClient) GetTransactionsStream(
 
 	closeFn := func() {
 		if err := stream.CloseSend(); err != nil {
-			logrus.Warnf("failed to close transaction stream: %v", err)
+			log.Warnf("failed to close transaction stream: %v", err)
 		}
 		cancel()
 	}

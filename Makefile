@@ -35,7 +35,7 @@ genrest:
 ## test: runs unit tests
 test:
 	@echo "Running unit tests..."
-	@go test -v -count=1 -race $$(go list ./... | grep -v '/test/wasm')
+	@go test -v -count=1 -race $$(go list ./... | grep -v '/test/wasm' | grep -v '/test/e2e')
 
 ## vet: code analysis
 vet:
@@ -55,3 +55,16 @@ migrate:
 sqlc:
 	@echo "gen sql..."
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
+
+regtest:
+	@echo "Starting regtest..."
+	@docker compose -f test/docker/docker-compose.yml down
+	@docker compose -f test/docker/docker-compose.yml up -d --build
+	@go run test/docker/setup.go
+
+regtestdown:
+	@echo "Stopping regtest..."
+	@docker compose -f test/docker/docker-compose.yml down
+
+integrationtest:
+	@go test -v -count=1 -race ./test/e2e

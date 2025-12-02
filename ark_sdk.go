@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"time"
 
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -43,6 +44,7 @@ type ArkClient interface {
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
 	ListVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)
+	ListSpendableVtxos(ctx context.Context) ([]types.Vtxo, error)
 	Dump(ctx context.Context) (seed string, err error)
 	GetTransactionHistory(ctx context.Context) ([]types.Transaction, error)
 	GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent
@@ -51,6 +53,7 @@ type ArkClient interface {
 	RedeemNotes(ctx context.Context, notes []string, opts ...Option) (string, error)
 	SignTransaction(ctx context.Context, tx string) (string, error)
 	NotifyIncomingFunds(ctx context.Context, address string) ([]types.Vtxo, error)
+	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
 }

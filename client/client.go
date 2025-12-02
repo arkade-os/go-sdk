@@ -17,6 +17,12 @@ var (
 	ErrConnectionClosedByServer = fmt.Errorf("connection closed by server")
 )
 
+type AcceptedOffchainTx struct {
+	Txid                string
+	FinalArkTx          string
+	SignedCheckpointTxs []string
+}
+
 type TransportClient interface {
 	GetInfo(ctx context.Context) (*Info, error)
 	RegisterIntent(ctx context.Context, proof, message string) (string, error)
@@ -39,9 +45,11 @@ type TransportClient interface {
 	) error
 	GetEventStream(ctx context.Context, topics []string) (<-chan BatchEventChannel, func(), error)
 	SubmitTx(ctx context.Context, signedArkTx string, checkpointTxs []string) (
+		// TODO SubmitTx should return AcceptedOffchainTx struct
 		arkTxid, finalArkTx string, signedCheckpointTxs []string, err error,
 	)
 	FinalizeTx(ctx context.Context, arkTxid string, finalCheckpointTxs []string) error
+	GetPendingTx(ctx context.Context, proof, message string) ([]AcceptedOffchainTx, error)
 	GetTransactionsStream(ctx context.Context) (<-chan TransactionEvent, func(), error)
 	Close()
 }

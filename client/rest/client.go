@@ -376,6 +376,34 @@ func (a *restClient) FinalizeTx(
 	return err
 }
 
+func (a *restClient) GetPendingTx(
+	ctx context.Context,
+	proof, message string,
+) ([]client.AcceptedOffchainTx, error) {
+	req := a.svc.ArkServiceAPI.ArkServiceGetPendingTx(ctx).
+		GetPendingTxRequest(ark_service.GetPendingTxRequest{
+			Intent: &ark_service.Intent{
+				Message: &message,
+				Proof:   &proof,
+			},
+		})
+
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceGetPendingTxExecute(req)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingTxs := make([]client.AcceptedOffchainTx, 0, len(resp.GetPendingTxs()))
+	for _, tx := range resp.GetPendingTxs() {
+		pendingTxs = append(pendingTxs, client.AcceptedOffchainTx{
+			Txid:                tx.GetArkTxid(),
+			FinalArkTx:          tx.GetFinalArkTx(),
+			SignedCheckpointTxs: tx.GetSignedCheckpointTxs(),
+		})
+	}
+	return pendingTxs, nil
+}
+
 func (c *restClient) GetTransactionsStream(
 	ctx context.Context,
 ) (<-chan client.TransactionEvent, func(), error) {

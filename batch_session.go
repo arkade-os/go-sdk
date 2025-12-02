@@ -257,7 +257,7 @@ func JoinBatchSession(
 					continue
 				}
 
-				if vtxoTree == nil {
+				if options.signVtxoTree && vtxoTree == nil {
 					return "", fmt.Errorf("vtxo tree not initialized")
 				}
 
@@ -585,17 +585,12 @@ func (h *defaultBatchEventsHandler) OnBatchFinalization(
 	var forfeits []string
 	var signedCommitmentTx string
 
-	withoutRecoverable := make([]client.TapscriptsVtxo, 0, len(h.vtxos))
-	for _, vtxo := range h.vtxos {
-		if !vtxo.IsRecoverable() {
-			withoutRecoverable = append(withoutRecoverable, vtxo)
-		}
-	}
+	vtxos := h.vtxosToForfeit()
 
 	// if we spend vtxos, we must create and sign forfeits.
-	if len(withoutRecoverable) > 0 && connectorTree != nil {
+	if len(vtxos) > 0 && connectorTree != nil {
 		signedForfeits, err := h.createAndSignForfeits(
-			ctx, withoutRecoverable, connectorTree.Leaves(),
+			ctx, vtxos, connectorTree.Leaves(),
 		)
 		if err != nil {
 			return err
@@ -683,6 +678,17 @@ func (h *defaultBatchEventsHandler) OnBatchFinalization(
 	return nil
 }
 
+func (h *defaultBatchEventsHandler) vtxosToForfeit() []client.TapscriptsVtxo {
+	withoutRecoverable := make([]client.TapscriptsVtxo, 0, len(h.vtxos))
+	for _, vtxo := range h.vtxos {
+		if !vtxo.IsRecoverable() {
+			withoutRecoverable = append(withoutRecoverable, vtxo)
+		}
+	}
+
+	return withoutRecoverable
+}
+
 func (h *defaultBatchEventsHandler) validateVtxoTree(
 	event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
 ) error {
@@ -699,14 +705,7 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 		); err != nil {
 			return err
 		}
-	}
 
-	// validate it contains our outputs
-	if err := validateReceivers(h.Network, commitmentPtx, h.receivers, vtxoTree); err != nil {
-		return err
-	}
-
-	if len(h.vtxos) > 0 {
 		rootParentTxid := vtxoTree.Root.UnsignedTx.TxIn[0].PreviousOutPoint.Hash.String()
 		rootParentVout := vtxoTree.Root.UnsignedTx.TxIn[0].PreviousOutPoint.Index
 
@@ -725,7 +724,16 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 				0,
 			)
 		}
+	}
 
+	// validate it contains our outputs
+	if err := validateReceivers(h.Network, commitmentPtx, h.receivers, vtxoTree); err != nil {
+		return err
+	}
+
+	vtxos := h.vtxosToForfeit()
+
+	if len(vtxos) > 0 {
 		if connectorTree != nil {
 			if err := connectorTree.Validate(); err != nil {
 				return err
@@ -734,10 +742,10 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 
 		if connectorTree != nil {
 			connectorsLeaves := connectorTree.Leaves()
-			if len(connectorsLeaves) != len(h.vtxos) {
+			if len(connectorsLeaves) != len(vtxos) {
 				return fmt.Errorf(
 					"unexpected num of connectors received: expected %d, got %d",
-					len(h.vtxos),
+					len(vtxos),
 					len(connectorsLeaves),
 				)
 			}

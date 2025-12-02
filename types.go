@@ -59,6 +59,7 @@ func (a InitArgs) validate() error {
 	if len(a.Password) <= 0 {
 		return fmt.Errorf("missing password")
 	}
+
 	return nil
 }
 
