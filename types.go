@@ -138,8 +138,8 @@ type CoinSelectOptions struct {
 	OutpointsFilter []types.Outpoint
 	// If true, coin selector will select recoverable (swept but unspent) vtxos first
 	SelectRecoverableVtxos bool
-	// If specified (0 = disabled), coin selector will exclude vtxos where now-to-expiry is less than or equal to percentage of total expiry duration
+	// If specified coin selector will select only vtxos below the given expiration threshold (seconds)
 	ExpiryThreshold int64
-	// If specified, the client recomputes the expiration of every vtxo from the tx chain
+	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
 	RecomputeExpiry bool
 }

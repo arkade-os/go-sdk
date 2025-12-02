@@ -91,17 +91,6 @@ func WithCancelCh(ch <-chan struct{}) Option {
 	}
 }
 
-// WithoutExpiryPercentage disables the percentage filtering regarding vtxo expiry
-func WithoutExpiryThreshold(o any) error {
-	opts, err := checkSettleOptionsType(o)
-	if err != nil {
-		return err
-	}
-
-	opts.ExpiryThreshold = 0
-	return nil
-}
-
 func WithExpiryThreshold(threshold int64) Option {
 	return func(o any) error {
 
