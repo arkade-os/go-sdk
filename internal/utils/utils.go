@@ -36,9 +36,9 @@ func CoinSelect(
 	selectedAmount := uint64(0)
 
 	if sortByExpirationTime {
-		// sort vtxos by expiration (older first)
+		// sort vtxos by expiration (oldest last)
 		sort.SliceStable(vtxos, func(i, j int) bool {
-			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+			return !vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
 		})
 
 		sort.SliceStable(boardingUtxos, func(i, j int) bool {
@@ -296,4 +296,29 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 		msg = bytes.Trim(msg, "\n")
 		chunkCh <- ChunkJSONStream{Msg: msg}
 	}
+}
+
+func FilterVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) []types.Vtxo {
+	now := time.Now()
+	threshold := time.Duration(expiryThreshold) * time.Second
+
+	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		// time until expiry
+		timeLeft := vtxo.ExpiresAt.Sub(now)
+
+		// if already expired or within threshold
+		if timeLeft <= threshold {
+			nearExpiry = append(nearExpiry, vtxo)
+		}
+	}
+
+	return nearExpiry
+}
+
+func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+	return vtxos
 }

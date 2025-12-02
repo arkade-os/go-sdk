@@ -6,16 +6,23 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 )
 
-type Option func(options interface{}) error
+type Option func(options any) error
 
 // SettleOptions allows to customize the vtxo signing process
 type SettleOptions struct {
 	ExtraSignerSessions    []tree.SignerSession
 	WalletSignerDisabled   bool
 	SelectRecoverableVtxos bool
+	ExpiryThreshold        int64 // In seconds
 
 	CancelCh <-chan struct{}
 	EventsCh chan<- any
+}
+
+func newDefaultSettleOptions() *SettleOptions {
+	return &SettleOptions{
+		ExpiryThreshold: 24 * 60 * 60, // 24 hours
+	}
 }
 
 // name alias, sub-dust vtxos are recoverable vtxos
@@ -80,6 +87,19 @@ func WithCancelCh(ch <-chan struct{}) Option {
 		}
 
 		opts.CancelCh = ch
+		return nil
+	}
+}
+
+func WithExpiryThreshold(threshold int64) Option {
+	return func(o any) error {
+
+		opts, err := checkSettleOptionsType(o)
+		if err != nil {
+			return err
+		}
+
+		opts.ExpiryThreshold = threshold
 		return nil
 	}
 }

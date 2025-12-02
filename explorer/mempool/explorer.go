@@ -75,7 +75,7 @@ var (
 		//arklib.BitcoinTestNet4.Name: "https://mempool.space/testnet4/api", //TODO uncomment once supported
 		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
 		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
-		arklib.BitcoinRegTest.Name:   "http://localhost:3000",
+		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
 	}
 )
 
