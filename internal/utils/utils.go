@@ -297,3 +297,32 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 		chunkCh <- ChunkJSONStream{Msg: msg}
 	}
 }
+
+func GroupVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) ([]types.Vtxo, []types.Vtxo) {
+	now := time.Now()
+	threshold := time.Duration(expiryThreshold) * time.Second
+
+	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
+	others := make([]types.Vtxo, 0, len(vtxos))
+
+	for _, vtxo := range vtxos {
+		// time until expiry
+		timeLeft := vtxo.ExpiresAt.Sub(now)
+
+		// if already expired or within threshold
+		if timeLeft <= threshold {
+			nearExpiry = append(nearExpiry, vtxo)
+		} else {
+			others = append(others, vtxo)
+		}
+	}
+
+	return nearExpiry, others
+}
+
+func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+	return vtxos
+}

@@ -2828,11 +2828,11 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 	}
 
 	if opts != nil && opts.ExpiryThreshold > 0 {
-		allVtxos, _ = groupVtxosByExpiry(allVtxos, opts.ExpiryThreshold)
+		allVtxos, _ = utils.GroupVtxosByExpiry(allVtxos, opts.ExpiryThreshold)
 	}
 
 	if opts == nil || opts.WithExpirySorting {
-		allVtxos = sortVtxosByExpiry(allVtxos)
+		allVtxos = utils.SortVtxosByExpiry(allVtxos)
 	}
 
 	return allVtxos, nil
@@ -3493,33 +3493,4 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 		}
 	}
 	return nil
-}
-
-func groupVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) ([]types.Vtxo, []types.Vtxo) {
-	now := time.Now()
-	threshold := time.Duration(expiryThreshold) * time.Second
-
-	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
-	others := make([]types.Vtxo, 0, len(vtxos))
-
-	for _, vtxo := range vtxos {
-		// time until expiry
-		timeLeft := vtxo.ExpiresAt.Sub(now)
-
-		// if already expired or within threshold
-		if timeLeft <= threshold {
-			nearExpiry = append(nearExpiry, vtxo)
-		} else {
-			others = append(others, vtxo)
-		}
-	}
-
-	return nearExpiry, others
-}
-
-func sortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
-	sort.SliceStable(vtxos, func(i, j int) bool {
-		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
-	})
-	return vtxos
 }

@@ -102,7 +102,7 @@ func WithoutExpiryThreshold(o any) error {
 	return nil
 }
 
-func WithExpiryThreshold(threshold uint64) Option {
+func WithExpiryThreshold(threshold int64) Option {
 	return func(o any) error {
 
 		opts, err := checkSettleOptionsType(o)
