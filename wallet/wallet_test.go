@@ -31,7 +31,8 @@ func TestWallet(t *testing.T) {
 		Dust:                1000,
 		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		ForfeitAddress:      "bcrt1qzvqj",
-		CheckpointTapscript: "",
+		CheckpointTapscript: "5120039201234567890123456789012345678901234567890123456789012345",
+		InfoDigest:          "test-info-digest",
 	}
 	tests := []struct {
 		name  string
