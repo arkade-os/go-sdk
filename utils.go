@@ -413,16 +413,12 @@ func buildAssetTransferTx(
 }
 
 func buildAssetModificationTx(controlVtxo arkTxInput,
-	sealVtxos []arkTxInput, assetId [32]byte, controlReceiver types.Receiver, assetReceivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
+	sealVtxos []arkTxInput, controlAssetId, assetId [32]byte, controlReceiver types.Receiver, assetReceivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
-	if len(sealVtxos) <= 0 {
-		return "", nil, nil, fmt.Errorf("missing vtxos")
-	}
 
 	ins := make([]offchain.VtxoInput, 0, len(sealVtxos))
 
-	newAsset := sealVtxos[0].Vtxo.Asset
 	newAssetInputs := make([]asset.AssetInput, 0)
 	newAssetOutputs := make([]asset.AssetOutput, 0)
 
@@ -450,8 +446,6 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 			}
 		}
 	}
-
-	newAsset.Inputs = newAssetInputs
 
 	conntrolAsset := controlVtxo.Asset
 
@@ -504,10 +498,19 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	}
 
+	newAsset := asset.Asset{
+		AssetId:        assetId,
+		Outputs:        []asset.AssetOutput{},
+		Inputs:         []asset.AssetInput{},
+		Metadata:       []asset.Metadata{},
+		ControlAssetId: controlAssetId,
+	}
+
 	newAsset.Outputs = newAssetOutputs
+	newAsset.Inputs = newAssetInputs
 
 	// Include the metadata modifications added
-	modifyAssetMetadata(newAsset, params)
+	modifyAssetMetadata(&newAsset, params)
 
 	{
 		controlAddr, err := arklib.DecodeAddressV0(controlReceiver.To)
@@ -540,7 +543,7 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	assetGroup := asset.AssetGroup{
 		ControlAsset: conntrolAsset,
-		NormalAsset:  *newAsset,
+		NormalAsset:  newAsset,
 	}
 
 	assetGroupOpretScript, err := assetGroup.EncodeOpret(batchCommitmentId)
@@ -569,7 +572,7 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, newAsset, nil
+	return arkTx, checkpointTxs, &newAsset, nil
 }
 
 func deriveGenesisId(inputVtxos []arkTxInput) ([]byte, error) {
@@ -1200,12 +1203,6 @@ func toControlOutput(controlKey btcec.PublicKey) asset.AssetOutput {
 
 func modifyAssetMetadata(assetData *asset.Asset, metdataParams types.AssetModificationParams) {
 	if metdataParams.Name != "" {
-		for i := range assetData.Metadata {
-			if assetData.Metadata[i].Key == "name" {
-				assetData.Metadata[i].Value = metdataParams.Name
-				return
-			}
-		}
 		assetData.Metadata = append(assetData.Metadata, asset.Metadata{
 			Key:   "name",
 			Value: metdataParams.Name,
@@ -1213,12 +1210,6 @@ func modifyAssetMetadata(assetData *asset.Asset, metdataParams types.AssetModifi
 	}
 
 	if metdataParams.Symbol != "" {
-		for i := range assetData.Metadata {
-			if assetData.Metadata[i].Key == "symbol" {
-				assetData.Metadata[i].Value = metdataParams.Symbol
-				return
-			}
-		}
 		assetData.Metadata = append(assetData.Metadata, asset.Metadata{
 			Key:   "symbol",
 			Value: metdataParams.Symbol,

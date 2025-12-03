@@ -159,6 +159,35 @@ func CoinSelectSeals(
 	return selected, change, nil
 }
 
+func GetAssetSealAmount(seal client.TapscriptsVtxo) (uint64, error) {
+	if seal.Asset == nil {
+		return 0, fmt.Errorf("utxo is not an asset")
+	}
+
+	assetSealPubkey, err := derviePubKeyFromScript(seal.Script)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, output := range seal.Asset.Outputs {
+		if output.PublicKey.IsEqual(assetSealPubkey) {
+			return output.Amount, nil
+		}
+	}
+
+	return 0, fmt.Errorf("could not find matching output for seal")
+}
+
+func derviePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(scriptHex)
+	if err != nil {
+		return nil, err
+	}
+	pubkeyBytes := buf[2:]
+
+	return schnorr.ParsePubKey(pubkeyBytes)
+}
+
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (
 	bool, []byte, error,
 ) {

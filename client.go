@@ -319,7 +319,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 	var assetId [32]byte
 	copy(assetId[:], assetIdSlice)
 
-	arkTx, checkpointTxs, asset, err := buildAssetCreationTx(inputs, assetId, receiver, changeReceiver, params, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, _, err := buildAssetCreationTx(inputs, assetId, receiver, changeReceiver, params, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -357,157 +357,6 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 
 	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
 		return "", err
-	}
-
-	if !a.WithTransactionFeed {
-		return arkTxid, nil
-	}
-
-	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-
-	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
-	spentAmount := uint64(0)
-	commitmentTxids := make(map[string]struct{}, 0)
-	smallestExpiration := time.Time{}
-	for i, vtxo := range selectedCoins {
-		if len(signedCheckpointTxs) <= i {
-			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
-			return arkTxid, nil
-		}
-
-		checkpointTx, err := psbt.NewFromRawBytes(strings.NewReader(signedCheckpointTxs[i]), true)
-		if err != nil {
-			log.Warnf("failed to parse checkpoint tx: %s, skipping marking vtxo as spent", err)
-			return arkTxid, nil
-		}
-
-		vtxo.Spent = true
-		vtxo.ArkTxid = arkTxid
-		vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
-		spentVtxos = append(spentVtxos, vtxo.Vtxo)
-		spentAmount += vtxo.Amount
-		for _, commitmentTxid := range vtxo.CommitmentTxids {
-			commitmentTxids[commitmentTxid] = struct{}{}
-		}
-
-		if vtxo.ExpiresAt.IsZero() {
-			continue
-		}
-
-		if smallestExpiration.IsZero() {
-			smallestExpiration = vtxo.ExpiresAt
-			continue
-		}
-
-		if smallestExpiration.After(vtxo.ExpiresAt) {
-			smallestExpiration = vtxo.ExpiresAt
-		}
-	}
-
-	if smallestExpiration.IsZero() {
-		log.Warnf("no expiration time found, skipping adding change vtxo")
-		return arkTxid, nil
-	}
-
-	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
-		log.Warnf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
-		return arkTxid, nil
-	}
-
-	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
-
-	commitmentTxidsList := make([]string, 0, len(commitmentTxids))
-	for commitmentTxid := range commitmentTxids {
-		commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
-	}
-
-	createdAt := time.Now()
-
-	if changeAmount > 0 {
-		// subtract the change amount from the spent amount
-		spentAmount -= changeAmount
-
-		// TODO (Joshua): We do not process Sub-Dust change here
-		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
-		if err != nil {
-			return "", err
-		}
-
-		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
-		if err != nil {
-			return "", err
-		}
-
-		// save change vtxo to DB
-		if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
-			{
-				Outpoint: types.Outpoint{
-					Txid: arkTxid,
-					VOut: uint32(2),
-				},
-				Amount:          changeAmount,
-				Unrolled:        false,
-				Spent:           false,
-				Swept:           changeAmount < a.Dust, // make it recoverable if change is sub-dust
-				Preconfirmed:    true,
-				CreatedAt:       createdAt,
-				ExpiresAt:       smallestExpiration,
-				Script:          hex.EncodeToString(changeScript),
-				CommitmentTxids: commitmentTxidsList,
-			},
-		}); err != nil {
-			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
-			return arkTxid, nil
-		}
-	}
-
-	receiverAddr, err := arklib.DecodeAddressV0(receiver.To)
-	if err != nil {
-		return "", err
-	}
-
-	receiverScript, err := script.P2TRScript(receiverAddr.VtxoTapKey)
-	if err != nil {
-		return "", err
-	}
-
-	// save seal vtxo to DB
-	if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
-		{
-			Outpoint: types.Outpoint{
-				Txid: arkTxid,
-				VOut: uint32(0),
-			},
-			Amount:          a.Dust,
-			Unrolled:        false,
-			Spent:           false,
-			Swept:           false, // make it recoverable if change is sub-dust
-			Preconfirmed:    true,
-			CreatedAt:       createdAt,
-			ExpiresAt:       smallestExpiration,
-			Script:          hex.EncodeToString(receiverScript),
-			CommitmentTxids: commitmentTxidsList,
-			Asset:           asset,
-		},
-	}); err != nil {
-		log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
-		return arkTxid, nil
-	}
-
-	// save sent transaction to DB
-	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
-		{
-			TransactionKey: types.TransactionKey{
-				ArkTxid: arkTxid,
-			},
-			Amount:    spentAmount,
-			Type:      types.TxSent,
-			CreatedAt: createdAt,
-			Hex:       arkTx,
-		},
-	}); err != nil {
-		log.Warnf("failed to add transactions: %s, skipping adding sent transaction", err)
-		return arkTxid, nil
 	}
 
 	return arkTxid, nil
@@ -617,7 +466,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		})
 	}
 
-	arkTx, checkpointTxs, asset, err := buildAssetTransferTx(sealInputs, spendInputs, receivers, changeBtcReceiver, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, _, err := buildAssetTransferTx(sealInputs, spendInputs, receivers, changeBtcReceiver, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -657,173 +506,11 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		return "", err
 	}
 
-	if !a.WithTransactionFeed {
-		return arkTxid, nil
-	}
-
-	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	spentVtxos := make([]types.Vtxo, 0, len(selectedSealCoins)+len(selectedSpendCoins))
-	spentAmount := uint64(0)
-	commitmentTxids := make(map[string]struct{}, 0)
-	smallestExpiration := time.Time{}
-	totalSelectedCoins := append(selectedSealCoins, selectedSpendCoins...)
-
-	for i, vtxo := range totalSelectedCoins {
-		if len(signedCheckpointTxs) <= i {
-			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
-			return arkTxid, nil
-		}
-
-		checkpointTx, err := psbt.NewFromRawBytes(strings.NewReader(signedCheckpointTxs[i]), true)
-		if err != nil {
-			log.Warnf("failed to parse checkpoint tx: %s, skipping marking vtxo as spent", err)
-			return arkTxid, nil
-		}
-
-		vtxo.Spent = true
-		vtxo.ArkTxid = arkTxid
-		vtxo.SpentBy = checkpointTx.UnsignedTx.TxID()
-		spentVtxos = append(spentVtxos, vtxo.Vtxo)
-		spentAmount += vtxo.Amount
-		for _, commitmentTxid := range vtxo.CommitmentTxids {
-			commitmentTxids[commitmentTxid] = struct{}{}
-		}
-
-		if vtxo.ExpiresAt.IsZero() {
-			continue
-		}
-
-		if smallestExpiration.IsZero() {
-			smallestExpiration = vtxo.ExpiresAt
-			continue
-		}
-
-		if smallestExpiration.After(vtxo.ExpiresAt) {
-			smallestExpiration = vtxo.ExpiresAt
-		}
-	}
-
-	if smallestExpiration.IsZero() {
-		log.Warnf("no expiration time found, skipping adding change vtxo")
-		return arkTxid, nil
-	}
-
-	if _, err := a.store.VtxoStore().UpdateVtxos(ctx, spentVtxos); err != nil {
-		log.Warnf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
-		return arkTxid, nil
-	}
-
-	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
-
-	createdAt := time.Now()
-
-	// If Asset Change exists, save change vtxo to DB
-	if assetChangeAmount > 0 {
-		// subtract the asset change amount from the spent amount
-		spentAmount -= assetChangeAmount
-
-		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
-		if err != nil {
-			return "", err
-		}
-
-		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
-		if err != nil {
-			return "", err
-		}
-
-		commitmentTxidsList := make([]string, 0, len(commitmentTxids))
-		for commitmentTxid := range commitmentTxids {
-			commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
-		}
-
-		// save change vtxo to DB
-		if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
-			{
-				Outpoint: types.Outpoint{
-					Txid: arkTxid,
-					VOut: uint32(len(receivers) - 1),
-				},
-				Amount:          assetChangeAmount,
-				Unrolled:        false,
-				Spent:           false,
-				Swept:           false,
-				Preconfirmed:    true,
-				CreatedAt:       createdAt,
-				ExpiresAt:       smallestExpiration,
-				Script:          hex.EncodeToString(changeScript),
-				CommitmentTxids: commitmentTxidsList,
-				Asset:           asset,
-			},
-		}); err != nil {
-			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
-			return arkTxid, nil
-		}
-	}
-	if spendChangeAmount > 0 {
-		// subtract the change amount from the spent amount
-		spentAmount -= spendChangeAmount
-
-		changeAddr, err := arklib.DecodeAddressV0(offchainAddrs[0].Address)
-		if err != nil {
-			return "", err
-		}
-
-		// TODO (Joshua): We do process Sub-Dust change here
-		changeScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
-		if err != nil {
-			return "", err
-		}
-
-		commitmentTxidsList := make([]string, 0, len(commitmentTxids))
-		for commitmentTxid := range commitmentTxids {
-			commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
-		}
-
-		// save change vtxo to DB
-		if _, err := a.store.VtxoStore().AddVtxos(ctx, []types.Vtxo{
-			{
-				Outpoint: types.Outpoint{
-					Txid: arkTxid,
-					VOut: uint32(len(receivers) + 1),
-				},
-				Amount:          spendChangeAmount,
-				Unrolled:        false,
-				Spent:           false,
-				Swept:           spendChangeAmount < a.Dust, // make it recoverable if change is sub-dust
-				Preconfirmed:    true,
-				CreatedAt:       createdAt,
-				ExpiresAt:       smallestExpiration,
-				Script:          hex.EncodeToString(changeScript),
-				CommitmentTxids: commitmentTxidsList,
-			},
-		}); err != nil {
-			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)
-			return arkTxid, nil
-		}
-	}
-
-	// save sent transaction to DB
-	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
-		{
-			TransactionKey: types.TransactionKey{
-				ArkTxid: arkTxid,
-			},
-			Amount:    spentAmount,
-			Type:      types.TxSent,
-			CreatedAt: createdAt,
-			Hex:       arkTx,
-		},
-	}); err != nil {
-		log.Warnf("failed to add transactions: %s, skipping adding sent transaction", err)
-		return arkTxid, nil
-	}
-
 	return arkTxid, nil
 
 }
 
-func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action types.AssetManagementType, amount uint64, params types.AssetModificationParams) (string, error) {
+func (a *arkClient) ManageAsset(ctx context.Context, controlAssetId [32]byte, assetId [32]byte, action types.AssetManagementType, amount uint64, params types.AssetModificationParams) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -838,65 +525,69 @@ func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action ty
 		return "", err
 	}
 
-	sealInputs := make([]arkTxInput, 0)
-	sealOutputs := make([]types.Receiver, 0)
+	// select control seals
+	controlSeals, _, err := utils.CoinSelectSeals(
+		vtxos, 1, controlAssetId, a.Dust, false,
+	)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to select control seals: %s", err)
+	}
+
+	if len(controlSeals) <= 0 {
+		return "", fmt.Errorf("no control seals available for asset id %x", controlAssetId)
+	}
+
+	controlSeal := controlSeals[0]
+
+	forfeitLeafHash, err := DeriveForfeitLeafHash(controlSeal.Tapscripts)
+	if err != nil {
+		return "", err
+	}
+
+	controlSealInput := arkTxInput{
+		controlSeal,
+		*forfeitLeafHash,
+	}
+
+	controlSealAmount, err := utils.GetAssetSealAmount(controlSeal)
+	if err != nil {
+		return "", err
+	}
+
+	controlSealPubKey, err := DerviePubKeyFromScript(controlSeal.Script)
+	if err != nil {
+		return "", err
+	}
+	controlSealAddress := arklib.Address{
+		HRP:        a.Network.Addr,
+		Signer:     a.SignerPubKey,
+		VtxoTapKey: controlSealPubKey,
+		Version:    0,
+	}
+
+	encodedControlSealAddress, err := controlSealAddress.EncodeV0()
+	if err != nil {
+		return "", err
+	}
+
+	controlReceiver := types.Receiver{
+		To:     encodedControlSealAddress,
+		Amount: controlSealAmount,
+	}
+
+	normalInputs := make([]arkTxInput, 0)
+	normalReceivers := make([]types.Receiver, 0)
 
 	if action == types.AssetManagementTypeMint {
-		// select seals
-		normalAssetSeals, sealAmount, err := utils.CoinSelectSeals(
-			vtxos, 1, assetId, a.Dust, false,
-		)
 
-		if err != nil {
-			return "", err
+		normalReceivers = []types.Receiver{
+			{To: encodedControlSealAddress, Amount: amount},
 		}
-
-		if controlSeal == nil {
-			return "", fmt.Errorf("asset control seal already exists for asset %x", assetId)
-		}
-
-		vtxoScript, err := script.ParseVtxoScript(controlSeal.Tapscripts)
-		if err != nil {
-			return "", err
-		}
-
-		forfeitClosure := vtxoScript.ForfeitClosures()[0]
-
-		forfeitScript, err := forfeitClosure.Script()
-		if err != nil {
-			return "", err
-		}
-
-		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
-
-		sealInput := arkTxInput{
-			*controlSeal,
-			forfeitLeaf.TapHash(),
-		}
-
-		sealInputs = append(sealInputs, sealInput)
-
-		assetControlAddr := arklib.Address{
-			HRP:        a.Network.Addr,
-			Signer:     a.SignerPubKey,
-			VtxoTapKey: assetControlKey,
-			Version:    0,
-		}
-
-		encodedAddress, err := assetControlAddr.EncodeV0()
-		if err != nil {
-			return "", err
-		}
-
-		sealOutputs = append(sealOutputs, types.Receiver{
-			To:     encodedAddress,
-			Amount: amount + sealAmount,
-		})
-
 	} else {
-
-		// select seals
-		selectedSealCoins, assetChangeAmount, controlKeyPresent, err := utils.CoinSelectSeals(
+		// Buring Of Assets
+		// select normal seals
+		selectedSealCoins, assetChangeAmount, err := utils.CoinSelectSeals(
 			vtxos, amount, assetId, a.Dust, false,
 		)
 
@@ -904,56 +595,28 @@ func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action ty
 			return "", err
 		}
 
-		if !controlKeyPresent {
-			return "", fmt.Errorf("asset control seal not found for asset %x", assetId)
-		}
-
-		if assetChangeAmount == 0 {
-			return "", fmt.Errorf("not enough funds to cover amount %d with control key present", amount)
-		}
-
-		for _, coin := range selectedSealCoins {
-			vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
-			if err != nil {
-				return "", err
-			}
-
-			forfeitClosure := vtxoScript.ForfeitClosures()[0]
-
-			forfeitScript, err := forfeitClosure.Script()
-			if err != nil {
-				return "", err
-			}
-
-			forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
-
-			sealInputs = append(sealInputs, arkTxInput{
-				coin,
-				forfeitLeaf.TapHash(),
+		if assetChangeAmount > 0 {
+			// If control Key Present ensure you return to control Key
+			normalReceivers = append(normalReceivers, types.Receiver{
+				To: offchainAddrs[0].Address, Amount: assetChangeAmount,
 			})
 		}
 
-		assetControlKey := selectedSealCoins[0].Asset.ControlPubkey
-		assetControlAddr := arklib.Address{
-			HRP:        a.Network.Addr,
-			Signer:     a.SignerPubKey,
-			VtxoTapKey: assetControlKey,
-			Version:    0,
+		for _, coin := range selectedSealCoins {
+			forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
+			if err != nil {
+				return "", err
+			}
+
+			normalInputs = append(normalInputs, arkTxInput{
+				coin,
+				*forfeitLeafHash,
+			})
 		}
-
-		encodedAddress, err := assetControlAddr.EncodeV0()
-		if err != nil {
-			return "", err
-		}
-
-		sealOutputs = append(sealOutputs, types.Receiver{
-			To:     encodedAddress,
-			Amount: assetChangeAmount,
-		})
-
 	}
 
-	arkTx, checkpointTxs, _, err := buildAssetModificationTx(sealInputs, assetId, sealOutputs, params, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, _, err := buildAssetModificationTx(controlSealInput, normalInputs, controlAssetId, controlReceiver, normalReceivers, params, a.CheckpointExitPath(), a.Dust)
+
 	if err != nil {
 		return "", err
 	}
@@ -991,10 +654,6 @@ func (a *arkClient) ManageAsset(ctx context.Context, assetId [32]byte, action ty
 
 	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
 		return "", err
-	}
-
-	if !a.WithTransactionFeed {
-		return arkTxid, nil
 	}
 
 	// TODO (Joshua): Mark VTXO's to make it stateful please
