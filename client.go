@@ -2795,13 +2795,13 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 
 	allVtxos := append(recoverableVtxos, spendableVtxos...)
 
-	// if sorting by expiry is required, we need to get the expiration date of each vtxo
-	redeemBranches, err := a.getRedeemBranches(ctx, spendableVtxos)
-	if err != nil {
-		return nil, err
-	}
-
 	if opts != nil && opts.RecomputeExpiry {
+		// if sorting by expiry is required, we need to get the expiration date of each vtxo
+		redeemBranches, err := a.getRedeemBranches(ctx, spendableVtxos)
+		if err != nil {
+			return nil, err
+		}
+
 		for vtxoTxid, branch := range redeemBranches {
 			expiration, err := branch.ExpiresAt()
 			if err != nil {
