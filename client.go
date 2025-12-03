@@ -510,7 +510,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 
 }
 
-func (a *arkClient) ManageAsset(ctx context.Context, controlAssetId [32]byte, assetId [32]byte, action types.AssetManagementType, amount uint64, params types.AssetModificationParams) (string, error) {
+func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, assetId [32]byte, amount uint64, params types.AssetModificationParams, action types.AssetManagementType) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -615,7 +615,7 @@ func (a *arkClient) ManageAsset(ctx context.Context, controlAssetId [32]byte, as
 		}
 	}
 
-	arkTx, checkpointTxs, _, err := buildAssetModificationTx(controlSealInput, normalInputs, controlAssetId, controlReceiver, normalReceivers, params, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, _, err := buildAssetModificationTx(controlSealInput, normalInputs, controlAssetId, assetId, controlReceiver, normalReceivers, params, a.CheckpointExitPath(), a.Dust)
 
 	if err != nil {
 		return "", err
@@ -2449,7 +2449,7 @@ func (a *arkClient) selectFunds(
 		var arr [32]byte
 		copy(arr[:], assetId)
 
-		selectedCoins, changeAmount, _, err := utils.CoinSelectSeals(
+		selectedCoins, changeAmount, err := utils.CoinSelectSeals(
 			sealVtxos, amount, arr, a.Dust, computeVtxoExpiry,
 		)
 		if err != nil {
@@ -3720,7 +3720,14 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 		return err
 	}
 
-	arkTx, checkpoints, err := offchain.BuildTxs(
+	arkTx, checkpoints, err := offchain.BuildAssetTxs(
+		[]*wire.TxOut{
+			{
+				Value:    int64(vtxo.Amount),
+				PkScript: pkScript,
+			}, assetOutput,
+		},
+		1,
 		[]offchain.VtxoInput{
 			{
 				RevealedTapscripts: clousureScripts,
@@ -3728,12 +3735,6 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 				Amount:             int64(vtxo.Amount),
 				Tapscript:          tapScript,
 			},
-		},
-		[]*wire.TxOut{
-			{
-				Value:    int64(vtxo.Amount),
-				PkScript: pkScript,
-			}, assetOutput,
 		},
 		checkpointExitScript,
 	)
@@ -3821,15 +3822,17 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txId string, claimKe
 
 	assetOutput := decodedTx.UnsignedTx.TxOut[1]
 
-	if assetOutput == nil || !asset.IsAsset(assetOutput.PkScript) {
+	if assetOutput == nil || !asset.IsAssetGroup(assetOutput.PkScript) {
 		return nil, fmt.Errorf("no asset output found in virtual transaction %s", txId)
 	}
 
-	assetDetails, _, err := asset.DecodeAssetFromOpret(assetOutput.PkScript)
+	assetGroupDetails, _, err := asset.DecodeAssetGroupFromOpret(assetOutput.PkScript)
 
 	if err != nil {
 		return nil, err
 	}
+
+	assetDetails := assetGroupDetails.NormalAsset
 
 	// only one output in teleport Asset Output
 	assetDetailsOutput := assetDetails.Outputs[0]
@@ -3860,7 +3863,11 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txId string, claimKe
 		return nil, err
 	}
 
-	assetTransferOpReturn, err := newAssetDetails.EncodeOpret(batchTxId)
+	newAssetGroupDetails := asset.AssetGroup{
+		NormalAsset: newAssetDetails,
+	}
+
+	assetTransferOpReturn, err := newAssetGroupDetails.EncodeOpret(batchTxId)
 	if err != nil {
 		return nil, err
 	}

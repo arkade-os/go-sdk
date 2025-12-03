@@ -741,23 +741,23 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 			return nil, err
 		}
 
-		var newAsset *asset.Asset
+		var newAssetGroup *asset.AssetGroup
 
 		txId := txPacket.UnsignedTx.TxID()
 
 		// asset follow RGB convection, the asset output is after the seals outputs
-
 		var assetIndex int
 
 		for i, output := range txPacket.UnsignedTx.TxOut {
 
-			if asset.IsAsset(output.PkScript) {
-				asset, _, err := asset.DecodeAssetFromOpret(output.PkScript)
+			if asset.IsAssetGroup(output.PkScript) {
+				assetGroup, _, err := asset.DecodeAssetGroupFromOpret(output.PkScript)
 				if err != nil {
 					log.WithError(err).Error("failed to decode asset from vtxo script")
 					continue
 				}
-				newAsset = asset
+
+				newAssetGroup = assetGroup
 				assetIndex = i
 
 				break
@@ -765,14 +765,17 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 
 		}
 
-		if newAsset == nil {
+		if newAssetGroup == nil {
 			finalVtxos = append(finalVtxos, vtxoMap[txId]...)
 			continue
 		}
 
 		for _, vtxo := range vtxoMap[txId] {
 			if int(vtxo.VOut) < assetIndex {
-				vtxo.Asset = newAsset
+				vtxo.Asset, err = FindAssetFromOutput(vtxo, newAssetGroup)
+				if err != nil {
+					return nil, err
+				}
 			}
 			finalVtxos = append(finalVtxos, vtxo)
 		}

@@ -274,9 +274,6 @@ const (
 	AssetManagementTypeBurn
 )
 
-type AssetManagementAction struct {
-}
-
 func (r Receiver) IsOnchain() bool {
 	_, err := btcutil.DecodeAddress(r.To, nil)
 	return err == nil

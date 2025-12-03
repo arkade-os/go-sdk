@@ -33,6 +33,9 @@ type ArkClient interface {
 	SendAsset(
 		ctx context.Context, assetID [32]byte, receivers []types.Receiver,
 	) (string, error)
+	ModifyAsset(
+		ctx context.Context, controlAssetId [32]byte, assetID [32]byte, amount uint64, metadata types.AssetModificationParams, assetManagement types.AssetManagementType,
+	) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 		outputs []types.Receiver, teleportOutput []types.TeleportReceiver, cosignersPublicKeys []string,
