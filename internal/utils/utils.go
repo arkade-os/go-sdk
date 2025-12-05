@@ -28,7 +28,7 @@ import (
 func CoinSelect(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,
-	output arkfee.Output,
+	outputs []types.Receiver,
 	dust uint64,
 	sortByExpirationTime bool,
 	feeEstimator *arkfee.Estimator,
@@ -36,14 +36,17 @@ func CoinSelect(
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
-	amount := uint64(output.Amount)
 
-	if feeEstimator != nil {
-		fees, err := feeEstimator.EvalOutput(output)
-		if err != nil {
-			return nil, nil, 0, err
+	amount := uint64(0)
+	for _, output := range outputs {
+		amount += output.Amount
+		if feeEstimator != nil {
+			fees, err := feeEstimator.EvalOutput(output.ToArkFeeOutput())
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(fees.ToSatoshis())
 		}
-		amount += uint64(fees.ToSatoshis())
 	}
 
 	if sortByExpirationTime {
