@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -98,6 +99,16 @@ type Input struct {
 type TapscriptsVtxo struct {
 	types.Vtxo
 	Tapscripts []string
+}
+
+func (v TapscriptsVtxo) ToArkFeeInput() arkfee.Input {
+	return arkfee.Input{
+		Amount: int(v.Amount),
+		Expiry: v.ExpiresAt,
+		Birth:  v.CreatedAt,
+		Type:   arkfee.InputTypeVtxo,
+		Weight: 0,
+	}
 }
 
 type BatchFinalizationEvent struct {

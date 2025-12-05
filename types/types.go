@@ -7,6 +7,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -236,6 +237,16 @@ type Utxo struct {
 	Spent       bool
 	SpentBy     string
 	Tx          string
+}
+
+func (u Utxo) ToArkFeeInput() arkfee.Input {
+	return arkfee.Input{
+		Amount: int(u.Amount),
+		Expiry: u.SpendableAt,
+		Birth:  u.CreatedAt,
+		Type:   arkfee.InputTypeBoarding,
+		Weight: 0,
+	}
 }
 
 func (u Utxo) IsConfirmed() bool {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -27,13 +28,23 @@ import (
 func CoinSelect(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,
-	amount,
+	output arkfee.Output,
 	dust uint64,
 	sortByExpirationTime bool,
+	feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
+	amount := uint64(output.Amount)
+
+	if feeEstimator != nil {
+		fees, err := feeEstimator.EvalOutput(output)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		amount += uint64(fees.ToSatoshis())
+	}
 
 	if sortByExpirationTime {
 		// sort vtxos by expiration (oldest last)
@@ -54,6 +65,13 @@ func CoinSelect(
 
 		selectedBoarding = append(selectedBoarding, boardingUtxo)
 		selectedAmount += boardingUtxo.Amount
+		if feeEstimator != nil {
+			fees, err := feeEstimator.EvalInput(boardingUtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(fees.ToSatoshis())
+		}
 	}
 
 	for _, vtxo := range vtxos {
@@ -64,6 +82,13 @@ func CoinSelect(
 
 		selected = append(selected, vtxo)
 		selectedAmount += vtxo.Amount
+		if feeEstimator != nil {
+			feesForInput, err := feeEstimator.EvalInput(vtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(feesForInput.ToSatoshis())
+		}
 	}
 
 	if selectedAmount < amount {
@@ -72,13 +97,42 @@ func CoinSelect(
 
 	change := selectedAmount - amount
 
+	if feeEstimator != nil {
+		fees, err := feeEstimator.EvalOutput(arkfee.Output{
+			Amount: int(change),
+			Type:   arkfee.OutputTypeVtxo,
+		})
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		change -= uint64(fees.ToSatoshis())
+	}
+
 	if change < dust {
 		if len(notSelected) > 0 {
 			selected = append(selected, notSelected[0])
 			change += notSelected[0].Amount
+
+			if feeEstimator != nil {
+				fees, err := feeEstimator.EvalInput(notSelected[0].ToArkFeeInput())
+				if err != nil {
+					return nil, nil, 0, err
+				}
+				change -= uint64(fees.ToSatoshis())
+			}
 		} else if len(notSelectedBoarding) > 0 {
 			selectedBoarding = append(selectedBoarding, notSelectedBoarding[0])
 			change += notSelectedBoarding[0].Amount
+
+			if feeEstimator != nil {
+				fees, err := feeEstimator.EvalInput(notSelectedBoarding[0].ToArkFeeInput())
+				if err != nil {
+					return nil, nil, 0, err
+				}
+				change -= uint64(fees.ToSatoshis())
+			}
+		} else {
+			change = 0
 		}
 	}
 
