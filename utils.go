@@ -302,7 +302,7 @@ func buildAssetTransferTx(
 		for _, out := range vtxo.Asset.Outputs {
 			if out.PublicKey.IsEqual(pubkey) {
 				assetInput := asset.AssetInput{
-					Txid:   deriveTxId(in.Outpoint.Hash),
+					Txhash: in.Outpoint.Hash[:],
 					Vout:   out.Vout,
 					Amount: out.Amount,
 				}
@@ -413,11 +413,11 @@ func buildAssetTransferTx(
 }
 
 func buildAssetModificationTx(controlVtxo arkTxInput,
-	sealVtxos []arkTxInput, controlAssetId, assetId [32]byte, controlReceiver types.Receiver, assetReceivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
+	sealVtxos []arkTxInput, satsInput []arkTxInput, satsChange *types.Receiver, controlAssetId, assetId [32]byte, controlReceiver types.Receiver, assetReceivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
 
-	ins := make([]offchain.VtxoInput, 0, len(sealVtxos))
+	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(satsInput))
 
 	newAssetInputs := make([]asset.AssetInput, 0)
 	newAssetOutputs := make([]asset.AssetOutput, 0)
@@ -439,7 +439,7 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 	for _, out := range controlVtxo.Asset.Outputs {
 		if controlVtxo.VOut == out.Vout && out.PublicKey.IsEqual(pubkey) {
 			assetInput := asset.AssetInput{
-				Txid:   deriveTxId(controlTxIn.Outpoint.Hash),
+				Txhash: controlTxIn.Outpoint.Hash[:],
 				Vout:   out.Vout,
 				Amount: out.Amount,
 			}
@@ -471,7 +471,7 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 		for _, out := range vtxo.Asset.Outputs {
 			if out.PublicKey.IsEqual(pubkey) {
 				assetInput := asset.AssetInput{
-					Txid:   deriveTxId(in.Outpoint.Hash),
+					Txhash: in.Outpoint.Hash[:],
 					Vout:   out.Vout,
 					Amount: out.Amount,
 				}
@@ -480,19 +480,14 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 		}
 	}
 
-	newAsset := asset.Asset{
-		AssetId:        assetId,
-		Outputs:        []asset.AssetOutput{},
-		Inputs:         []asset.AssetInput{},
-		Metadata:       []asset.Metadata{},
-		ControlAssetId: controlAssetId,
+	for _, vtxo := range satsInput {
+		in, err := createVtxoTxInput(vtxo)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		ins = append(ins, *in)
 	}
-
-	newAsset.Outputs = newAssetOutputs
-	newAsset.Inputs = newAssetInputs
-
-	// Include the metadata modifications added
-	modifyAssetMetadata(&newAsset, params)
 
 	outs := make([]*wire.TxOut, 0)
 
@@ -520,8 +515,6 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	}
 
-	receiverIndex := 0
-
 	for i, receiver := range assetReceivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
@@ -544,14 +537,28 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 			Vout:      uint32(i + 1),
 		})
 
-		receiverIndex = i + 1
-
 	}
 
 	batchCommitmentId, err := deriveGenesisId(sealVtxos)
 	if err != nil {
 		return "", nil, nil, err
 	}
+
+	newAsset := asset.Asset{
+		AssetId:        assetId,
+		Outputs:        []asset.AssetOutput{},
+		Inputs:         []asset.AssetInput{},
+		Metadata:       []asset.Metadata{},
+		ControlAssetId: controlAssetId,
+	}
+
+	newAsset.Outputs = newAssetOutputs
+	newAsset.Inputs = newAssetInputs
+
+	fmt.Printf("this is new assets %+v \n", &conntrolAsset)
+
+	// Include the metadata modifications added
+	modifyAssetMetadata(&newAsset, params)
 
 	assetGroup := asset.AssetGroup{
 		ControlAsset: &conntrolAsset,
@@ -565,11 +572,35 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	outs = append(outs, &assetGroupOpretScript)
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, receiverIndex+1, ins, serverUnrollScript)
+	assetGroupIndex := len(outs) - 1
+
+	if satsChange != nil {
+		var changeVtxoScript []byte
+		var err error
+
+		addr, err := arklib.DecodeAddressV0(satsChange.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		changeVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
+
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		outs = append(outs, &wire.TxOut{
+			Value:    int64(satsChange.Amount),
+			PkScript: changeVtxoScript,
+		})
+	}
+
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetGroupIndex, ins, serverUnrollScript)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
+	fmt.Print("this is out a")
 	arkTx, err := arkPtx.B64Encode()
 	if err != nil {
 		return "", nil, nil, err
@@ -806,12 +837,6 @@ func extractCollaborativePath(tapscripts []string) ([]byte, *arklib.TaprootMerkl
 	}
 
 	return pkScript, leafProof, nil
-}
-
-func reverseBytes(b []byte) {
-	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
-		b[i], b[j] = b[j], b[i]
-	}
 }
 
 // convert regular coins (boarding, vtxos or notes) to intent proof inputs
@@ -1280,12 +1305,6 @@ func createVtxoTxInput(vtxo arkTxInput) (*offchain.VtxoInput, error) {
 	return &ofchainVtxoInput, nil
 }
 
-func deriveTxId(hash chainhash.Hash) []byte {
-	txid := hash.CloneBytes()
-	reverseBytes(txid)
-	return txid
-}
-
 func DerviePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
 	buf, err := hex.DecodeString(scriptHex)
 	if err != nil {
@@ -1319,13 +1338,18 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.
 		return nil, fmt.Errorf("asset group is nil")
 	}
 
+	fmt.Printf("This is vtxo script %s", vtxo.Script)
+	fmt.Printf("This is vtxo out %d", vtxo.VOut)
+
+	if assetGroup.ControlAsset != nil {
+		fmt.Printf("This is the assset group %+v \n", *assetGroup)
+	}
+
 	decodedVtxoScript, err := hex.DecodeString(vtxo.Script)
 	if err != nil {
 		return nil, err
 	}
 
-	fmt.Printf("This is a vtxo %+v", vtxo)
-	fmt.Printf("This is assetGroup %+v", *assetGroup)
 	for _, asset := range []*asset.Asset{&assetGroup.NormalAsset, assetGroup.ControlAsset} {
 		if asset == nil {
 			continue
@@ -1333,6 +1357,10 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.
 
 		for _, assetOut := range asset.Outputs {
 			pkScript, err := script.P2TRScript(&assetOut.PublicKey)
+
+			fmt.Printf("This is asset script %s", hex.EncodeToString(pkScript))
+			fmt.Printf("This is asset out %d \n", assetOut.Vout)
+
 			if err != nil {
 				return nil, err
 			}

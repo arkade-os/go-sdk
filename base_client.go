@@ -681,6 +681,7 @@ func (a *arkClient) listVtxosFromIndexer(
 		if err != nil {
 			return nil, nil, err
 		}
+
 		scripts = append(scripts, hex.EncodeToString(vtxoScript))
 	}
 	opt := indexer.GetVtxosRequestOption{}
@@ -706,6 +707,7 @@ func (a *arkClient) listVtxosFromIndexer(
 
 		spendableVtxos = append(spendableVtxos, vtxo)
 	}
+
 	return
 }
 
@@ -722,6 +724,8 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 	for _, vtxo := range vtxos {
 		vtxoMap[vtxo.Txid] = append(vtxoMap[vtxo.Txid], vtxo)
 		txids = append(txids, vtxo.Txid)
+
+		fmt.Printf("this is a good vtxo %+v", vtxo.Amount)
 	}
 
 	if len(txids) == 0 {

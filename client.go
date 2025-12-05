@@ -555,35 +555,50 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, as
 		return "", err
 	}
 
-	controlSealPubKey, err := DerviePubKeyFromScript(controlSeal.Script)
-	if err != nil {
-		return "", err
-	}
-	controlSealAddress := arklib.Address{
-		HRP:        a.Network.Addr,
-		Signer:     a.SignerPubKey,
-		VtxoTapKey: controlSealPubKey,
-		Version:    0,
-	}
-
-	encodedControlSealAddress, err := controlSealAddress.EncodeV0()
-	if err != nil {
-		return "", err
-	}
+	sealAddress := offchainAddrs[0]
 
 	controlReceiver := types.Receiver{
-		To:     encodedControlSealAddress,
+		To:     sealAddress.Address,
 		Amount: controlSealAmount,
 	}
 
 	normalInputs := make([]arkTxInput, 0)
 	normalReceivers := make([]types.Receiver, 0)
+	satsInputs := make([]arkTxInput, 0)
+	var satsChangeReceivers *types.Receiver
 
 	if action == types.AssetManagementTypeMint {
 
 		normalReceivers = []types.Receiver{
-			{To: encodedControlSealAddress, Amount: amount},
+			{To: sealAddress.Address, Amount: amount},
 		}
+
+		_, selectedSpendCoins, spendChangeAmount, err := utils.CoinSelectNormal(
+			nil, vtxos, a.Dust, a.Dust, false,
+		)
+
+		if err != nil {
+			return "", err
+		}
+
+		for _, coin := range selectedSpendCoins {
+			forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
+			if err != nil {
+				return "", err
+			}
+
+			satsInputs = append(satsInputs, arkTxInput{
+				coin,
+				*forfeitLeafHash,
+			})
+		}
+
+		if spendChangeAmount > 0 {
+			satsChangeReceivers = &types.Receiver{
+				To: offchainAddrs[0].Address, Amount: spendChangeAmount,
+			}
+		}
+
 	} else {
 		// Buring Of Assets
 		// select normal seals
@@ -615,7 +630,7 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, as
 		}
 	}
 
-	arkTx, checkpointTxs, _, err := buildAssetModificationTx(controlSealInput, normalInputs, controlAssetId, assetId, controlReceiver, normalReceivers, params, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, _, err := buildAssetModificationTx(controlSealInput, normalInputs, satsInputs, satsChangeReceivers, controlAssetId, assetId, controlReceiver, normalReceivers, params, a.CheckpointExitPath(), a.Dust)
 
 	if err != nil {
 		return "", err
@@ -3678,6 +3693,8 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 		return err
 	}
 
+	fmt.Printf("This is vtxo id: %+v", vtxo.Txid)
+
 	vtxoOutpoint := &wire.OutPoint{
 		Hash:  *vtxoTxHash,
 		Index: vtxo.VOut,
@@ -3715,7 +3732,7 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 		return err
 	}
 
-	assetOutput, err := a.claimTeleportAsset(ctx, vtxoTxHash.String(), *decodedAddr.VtxoTapKey, vtxo.CommitmentTxids[0])
+	assetOutput, err := a.claimTeleportAsset(ctx, vtxoTxHash, *decodedAddr.VtxoTapKey, vtxo.CommitmentTxids[0])
 	if err != nil {
 		return err
 	}
@@ -3761,8 +3778,6 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 		return err
 	}
 
-	fmt.Printf("This is the signed ArkTx: %s", signedArkTx)
-
 	checkpointTxs := make([]string, 0, len(checkpoints))
 	for _, ptx := range checkpoints {
 		tx, err := ptx.B64Encode()
@@ -3804,14 +3819,16 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 	return nil
 }
 
-func (a *arkClient) claimTeleportAsset(ctx context.Context, txId string, claimKey btcec.PublicKey, commitmentTxid string) (*wire.TxOut, error) {
-	res, err := a.indexer.GetVirtualTxs(ctx, []string{txId})
+func (a *arkClient) claimTeleportAsset(ctx context.Context, txHash *chainhash.Hash, claimKey btcec.PublicKey, commitmentTxid string) (*wire.TxOut, error) {
+	res, err := a.indexer.GetVirtualTxs(ctx, []string{txHash.String()})
 	if err != nil {
 		return nil, err
 	}
 	if len(res.Txs) == 0 {
-		return nil, fmt.Errorf("virtual transaction %s not found", txId)
+		return nil, fmt.Errorf("virtual transaction %s not found", txHash.String())
 	}
+
+	fmt.Printf("this is the real txHash %s", txHash.String())
 
 	virtualTx := res.Txs[0]
 
@@ -3823,7 +3840,7 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txId string, claimKe
 	assetOutput := decodedTx.UnsignedTx.TxOut[1]
 
 	if assetOutput == nil || !asset.IsAssetGroup(assetOutput.PkScript) {
-		return nil, fmt.Errorf("no asset output found in virtual transaction %s", txId)
+		return nil, fmt.Errorf("no asset output found in virtual transaction %s", txHash.String())
 	}
 
 	assetGroupDetails, _, err := asset.DecodeAssetGroupFromOpret(assetOutput.PkScript)
@@ -3837,13 +3854,8 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txId string, claimKe
 	// only one output in teleport Asset Output
 	assetDetailsOutput := assetDetails.Outputs[0]
 
-	decodedTxId, err := hex.DecodeString(txId)
-	if err != nil {
-		return nil, err
-	}
-
 	newAssetDetailsInput := asset.AssetInput{
-		Txid:   decodedTxId,
+		Txhash: txHash.CloneBytes(),
 		Vout:   assetDetailsOutput.Vout,
 		Amount: assetDetailsOutput.Amount,
 	}
