@@ -2073,6 +2073,12 @@ func (a *arkClient) selectFunds(
 		return nil, nil, nil, err
 	}
 
+	if len(outputs) == 0 {
+		outputs = []types.Receiver{{
+			To:     offchainAddrs[0].Address,
+			Amount: 0,
+		}}
+	}
 	if len(outputs) == 1 && outputs[0].Amount <= 0 {
 		for _, utxo := range boardingUtxos {
 			outputs[0].Amount += utxo.Amount
@@ -2083,9 +2089,9 @@ func (a *arkClient) selectFunds(
 			outputs[0].Amount -= uint64(fees.ToSatoshis())
 		}
 
-		for _, utxo := range vtxos {
-			outputs[0].Amount += utxo.Amount
-			fees, err := feeEstimator.EvalInput(utxo.ToArkFeeInput())
+		for _, vtxo := range vtxos {
+			outputs[0].Amount += vtxo.Amount
+			fees, err := feeEstimator.EvalInput(vtxo.ToArkFeeInput())
 			if err != nil {
 				return nil, nil, nil, err
 			}
