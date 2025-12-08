@@ -124,7 +124,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 }
 
 func buildAssetCreationTx(
-	vtxos []arkTxInput, assetId [32]byte, receiver types.Receiver, change *types.Receiver, assetParams types.AssetCreationParams, serverUnrollScript []byte,
+	vtxos []arkTxInput, assetId [32]byte, assetReceivers []types.Receiver, otherReceivers []types.Receiver, assetParams types.AssetCreationParams, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
 	if len(vtxos) <= 0 {
@@ -133,53 +133,14 @@ func buildAssetCreationTx(
 
 	ins := make([]offchain.VtxoInput, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		if len(vtxo.Tapscripts) <= 0 {
-			return "", nil, nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
-		}
-
-		vtxoTxID, err := chainhash.NewHashFromStr(vtxo.Txid)
+		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		vtxoOutpoint := &wire.OutPoint{
-			Hash:  *vtxoTxID,
-			Index: vtxo.VOut,
-		}
-
-		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		_, vtxoTree, err := vtxoScript.TapTree()
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		leafProof, err := vtxoTree.GetTaprootMerkleProof(vtxo.ForfeitLeafHash)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		tapscript := &waddrmgr.Tapscript{
-			RevealedScript: leafProof.Script,
-			ControlBlock:   ctrlBlock,
-		}
-
-		ins = append(ins, offchain.VtxoInput{
-			Outpoint:           vtxoOutpoint,
-			Tapscript:          tapscript,
-			Amount:             int64(vtxo.Amount),
-			RevealedTapscripts: vtxo.Tapscripts,
-		})
+		ins = append(ins, *in)
 	}
-	sealAddr, err := arklib.DecodeAddressV0(receiver.To)
+	sealAddr, err := arklib.DecodeAddressV0(assetReceiver.To)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -189,22 +150,21 @@ func buildAssetCreationTx(
 		return "", nil, nil, err
 	}
 
-	assetMeta := make([]asset.Metadata, 0)
-	assetMeta = append(assetMeta, asset.Metadata{
-		Key:   "name",
-		Value: assetParams.Name,
+	outs := make([]*wire.TxOut, 0)
+
+	outs = append(outs, &wire.TxOut{
+		Value:    int64(assetReceiver.Amount),
+		PkScript: sealAddrScript,
 	})
-	assetMeta = append(assetMeta, asset.Metadata{
-		Key:   "symbol",
-		Value: assetParams.Symbol,
-	})
+
+	assetMetadata := toAssetMetadataList(assetParams.MetadataList)
 
 	assetDetails := asset.Asset{
 		AssetId:        assetId,
 		Outputs:        []asset.AssetOutput{{PublicKey: *sealAddr.VtxoTapKey, Amount: assetParams.Quantity, Vout: 0}},
 		ControlAssetId: assetParams.ControlAssetId,
 		Inputs:         []asset.AssetInput{},
-		Metadata:       assetMeta,
+		Metadata:       assetMetadata,
 		Version:        asset.AssetVersion,
 		Magic:          asset.AssetMagic,
 	}
@@ -223,29 +183,33 @@ func buildAssetCreationTx(
 		return "", nil, nil, err
 	}
 
-	outs := make([]*wire.TxOut, 0)
-
-	outs = append(outs, &wire.TxOut{
-		Value:    int64(receiver.Amount),
-		PkScript: sealAddrScript,
-	})
-
 	outs = append(outs, &assetOpretOut)
 
-	if change != nil {
-		// TODO: Use the change address
-		changeAddrScript, err := script.P2TRScript(sealAddr.VtxoTapKey)
-		if err != nil {
-			return "", nil, nil, err
+	assetAnchorIndex := len(outs) - 1
+
+	if otherReceivers != nil {
+
+		for _, receiver := range otherReceivers {
+			changeAddr, err := arklib.DecodeAddressV0(receiver.To)
+			if err != nil {
+				return "", nil, nil, err
+			}
+
+			changeAddrScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
+			if err != nil {
+				return "", nil, nil, err
+			}
+
+			outs = append(outs, &wire.TxOut{
+				Value:    int64(receiver.Amount),
+				PkScript: changeAddrScript,
+			})
+
 		}
 
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(change.Amount),
-			PkScript: changeAddrScript,
-		})
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, 1, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -269,15 +233,11 @@ func buildAssetCreationTx(
 }
 
 func buildAssetTransferTx(
-	sealVtxos []arkTxInput, otherVtxos []arkTxInput, receivers []types.Receiver, change *types.Receiver, serverUnrollScript []byte,
+	sealVtxos []arkTxInput, otherVtxos []arkTxInput, assetReceivers []types.Receiver, otherReceivers []types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
 	if len(sealVtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
-	}
-
-	if len(otherVtxos) <= 0 {
-		return "", nil, nil, fmt.Errorf("missing spend vtxos")
 	}
 
 	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(otherVtxos))
@@ -294,7 +254,7 @@ func buildAssetTransferTx(
 
 		ins = append(ins, *in)
 
-		pubkey, err := DerviePubKeyFromScript(vtxo.Script)
+		pubkey, err := DerivePubKeyFromScript(vtxo.Script)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -324,8 +284,7 @@ func buildAssetTransferTx(
 
 	outs := make([]*wire.TxOut, 0)
 
-	receiverIndex := 0
-	for i, receiver := range receivers {
+	for i, receiver := range assetReceivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, nil, err
@@ -347,8 +306,6 @@ func buildAssetTransferTx(
 			Vout:      uint32(i),
 		})
 
-		receiverIndex = i
-
 	}
 
 	newAsset.Outputs = newAssetOutputs
@@ -369,28 +326,32 @@ func buildAssetTransferTx(
 
 	outs = append(outs, &assetOpretScript)
 
-	if change != nil {
-		var changeVtxoScript []byte
+	assetAnchorIndex := len(outs) - 1
+
+	for _, receiver := range otherReceivers {
+
+		var vtxoScript []byte
 		var err error
 
-		addr, err := arklib.DecodeAddressV0(change.To)
+		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		changeVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
+		vtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
 
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 		outs = append(outs, &wire.TxOut{
-			Value:    int64(change.Amount),
-			PkScript: changeVtxoScript,
+			Value:    int64(receiver.Amount),
+			PkScript: vtxoScript,
 		})
+
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, receiverIndex+1, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -412,58 +373,54 @@ func buildAssetTransferTx(
 	return arkTx, checkpointTxs, &newAsset, nil
 }
 
-func buildAssetModificationTx(controlVtxo arkTxInput,
-	sealVtxos []arkTxInput, satsInput []arkTxInput, satsChange *types.Receiver, controlAssetId, assetId [32]byte, controlReceiver types.Receiver, assetReceivers []types.Receiver, params types.AssetModificationParams, serverUnrollScript []byte,
+func buildAssetModificationTx(controlAssetId, assetId [32]byte, controlSealVtxos,
+	sealVtxos, otherVtxos []arkTxInput, controlAssetReceivers, assetReceivers, otherReceivers []types.Receiver, metadata map[string]string, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.Asset, error) {
 
-	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(satsInput))
+	ins := make([]offchain.VtxoInput, 0, len(controlSealVtxos)+len(sealVtxos)+len(otherVtxos))
 
 	newAssetInputs := make([]asset.AssetInput, 0)
 	newAssetOutputs := make([]asset.AssetOutput, 0)
 
-	conntrolAsset := *controlVtxo.Asset
+	newControlAsset := *&controlSealVtxos[0].Asset
+	newControlAssetInputs := make([]asset.AssetInput, 0)
+	newControlAssetOutputs := make([]asset.AssetOutput, 0)
 
-	controlTxIn, err := createVtxoTxInput(controlVtxo)
-	if err != nil {
-		return "", nil, nil, err
-	}
+	for _, vtxo := range controlSealVtxos {
+		in, err := createVtxoTxInput(vtxo)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		ins = append(ins, *in)
 
-	pubkey, err := DerviePubKeyFromScript(controlVtxo.Script)
-	if err != nil {
-		return "", nil, nil, err
-	}
+		pubkey, err := DerivePubKeyFromScript(vtxo.Script)
+		if err != nil {
+			return "", nil, nil, err
+		}
 
-	controlOutputfound := false
-
-	for _, out := range controlVtxo.Asset.Outputs {
-		if controlVtxo.VOut == out.Vout && out.PublicKey.IsEqual(pubkey) {
-			assetInput := asset.AssetInput{
-				Txhash: controlTxIn.Outpoint.Hash[:],
-				Vout:   out.Vout,
-				Amount: out.Amount,
+		for _, out := range vtxo.Asset.Outputs {
+			if out.PublicKey.IsEqual(pubkey) {
+				assetInput := asset.AssetInput{
+					Txhash: in.Outpoint.Hash[:],
+					Vout:   out.Vout,
+					Amount: out.Amount,
+				}
+				newControlAssetInputs = append(newControlAssetInputs, assetInput)
 			}
-			conntrolAsset.Inputs = []asset.AssetInput{assetInput}
-
-			controlOutputfound = true
 		}
 	}
 
-	if !controlOutputfound {
-		return "", nil, nil, fmt.Errorf("could not find control asset output in control vtxo")
-	}
-
-	ins = append(ins, *controlTxIn)
+	newControlAsset.Inputs = newControlAssetInputs
 
 	for _, vtxo := range sealVtxos {
 		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
 		}
-
 		ins = append(ins, *in)
 
-		pubkey, err := DerviePubKeyFromScript(vtxo.Script)
+		pubkey, err := DerivePubKeyFromScript(vtxo.Script)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -480,7 +437,7 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 		}
 	}
 
-	for _, vtxo := range satsInput {
+	for _, vtxo := range otherVtxos {
 		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
@@ -491,13 +448,13 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	outs := make([]*wire.TxOut, 0)
 
-	{
-		controlAddr, err := arklib.DecodeAddressV0(controlReceiver.To)
+	for i, receiver := range controlAssetReceivers {
+		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		newVtxoScript, err := script.P2TRScript(controlAddr.VtxoTapKey)
+		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -507,13 +464,15 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 			PkScript: newVtxoScript,
 		})
 
-		conntrolAsset.Outputs = []asset.AssetOutput{{
-			PublicKey: *controlAddr.VtxoTapKey,
-			Amount:    controlReceiver.Amount,
-			Vout:      0,
-		}}
+		newControlAssetOutputs = append(newControlAssetOutputs, asset.AssetOutput{
+			PublicKey: *addr.VtxoTapKey,
+			Amount:    receiver.Amount,
+			Vout:      uint32(i),
+		})
 
 	}
+
+	newControlAsset.Outputs = newControlAssetOutputs
 
 	for i, receiver := range assetReceivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
@@ -534,7 +493,7 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 		newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
 			PublicKey: *addr.VtxoTapKey,
 			Amount:    receiver.Amount,
-			Vout:      uint32(i + 1),
+			Vout:      uint32(i),
 		})
 
 	}
@@ -554,14 +513,10 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	newAsset.Outputs = newAssetOutputs
 	newAsset.Inputs = newAssetInputs
-
-	fmt.Printf("this is new assets %+v \n", &conntrolAsset)
-
-	// Include the metadata modifications added
-	modifyAssetMetadata(&newAsset, params)
+	newAsset.Metadata = toAssetMetadataList(metadata)
 
 	assetGroup := asset.AssetGroup{
-		ControlAsset: &conntrolAsset,
+		ControlAsset: newControlAsset,
 		NormalAsset:  newAsset,
 	}
 
@@ -572,35 +527,36 @@ func buildAssetModificationTx(controlVtxo arkTxInput,
 
 	outs = append(outs, &assetGroupOpretScript)
 
-	assetGroupIndex := len(outs) - 1
+	assetAnchorIndex := len(outs) - 1
 
-	if satsChange != nil {
-		var changeVtxoScript []byte
+	for _, receiver := range otherReceivers {
+
+		var vtxoScript []byte
 		var err error
 
-		addr, err := arklib.DecodeAddressV0(satsChange.To)
+		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", nil, nil, err
 		}
 
-		changeVtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
+		vtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
 
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 		outs = append(outs, &wire.TxOut{
-			Value:    int64(satsChange.Amount),
-			PkScript: changeVtxoScript,
+			Value:    int64(receiver.Amount),
+			PkScript: vtxoScript,
 		})
+
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetGroupIndex, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
-	fmt.Print("this is out a")
 	arkTx, err := arkPtx.B64Encode()
 	if err != nil {
 		return "", nil, nil, err
@@ -1239,22 +1195,6 @@ func toControlOutput(controlKey btcec.PublicKey) asset.AssetOutput {
 	}
 }
 
-func modifyAssetMetadata(assetData *asset.Asset, metdataParams types.AssetModificationParams) {
-	if metdataParams.Name != "" {
-		assetData.Metadata = append(assetData.Metadata, asset.Metadata{
-			Key:   "name",
-			Value: metdataParams.Name,
-		})
-	}
-
-	if metdataParams.Symbol != "" {
-		assetData.Metadata = append(assetData.Metadata, asset.Metadata{
-			Key:   "symbol",
-			Value: metdataParams.Symbol,
-		})
-	}
-}
-
 func createVtxoTxInput(vtxo arkTxInput) (*offchain.VtxoInput, error) {
 	if len(vtxo.Tapscripts) <= 0 {
 		return nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
@@ -1305,7 +1245,7 @@ func createVtxoTxInput(vtxo arkTxInput) (*offchain.VtxoInput, error) {
 	return &ofchainVtxoInput, nil
 }
 
-func DerviePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
+func DerivePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
 	buf, err := hex.DecodeString(scriptHex)
 	if err != nil {
 		return nil, err
@@ -1375,4 +1315,15 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.
 
 	return nil, fmt.Errorf("asset not found in asset group")
 
+}
+
+func toAssetMetadataList(metadataMap map[string]string) []asset.Metadata {
+	metadataList := make([]asset.Metadata, 0, len(metadataMap))
+	for k, v := range metadataMap {
+		metadataList = append(metadataList, asset.Metadata{
+			Key:   k,
+			Value: v,
+		})
+	}
+	return metadataList
 }

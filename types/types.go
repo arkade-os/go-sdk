@@ -337,10 +337,14 @@ type SyncEvent struct {
 }
 
 type AssetCreationParams struct {
-	Name           string
-	Symbol         string
 	Quantity       uint64
 	ControlAssetId [32]byte
+	MetadataList   map[string]string
+}
+
+type Metadata struct {
+	Key   string
+	Value string
 }
 
 type AssetModificationParams struct {
