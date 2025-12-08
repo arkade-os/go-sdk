@@ -102,7 +102,7 @@ func CoinSelect(
 
 	if feeEstimator != nil {
 		fees, err := feeEstimator.EvalOutput(arkfee.Output{
-			Amount: int(change),
+			Amount: change,
 			Type:   arkfee.OutputTypeVtxo,
 		})
 		if err != nil {

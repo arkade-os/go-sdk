@@ -103,7 +103,7 @@ type TapscriptsVtxo struct {
 
 func (v TapscriptsVtxo) ToArkFeeInput() arkfee.Input {
 	return arkfee.Input{
-		Amount: int(v.Amount),
+		Amount: v.Amount,
 		Expiry: v.ExpiresAt,
 		Birth:  v.CreatedAt,
 		Type:   arkfee.InputTypeVtxo,

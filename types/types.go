@@ -241,7 +241,7 @@ type Utxo struct {
 
 func (u Utxo) ToArkFeeInput() arkfee.Input {
 	return arkfee.Input{
-		Amount: int(u.Amount),
+		Amount: u.Amount,
 		Expiry: u.SpendableAt,
 		Birth:  u.CreatedAt,
 		Type:   arkfee.InputTypeBoarding,
@@ -268,7 +268,7 @@ func (r Receiver) ToArkFeeOutput() arkfee.Output {
 		outputType = arkfee.OutputTypeOnchain
 	}
 	return arkfee.Output{
-		Amount: int(r.Amount),
+		Amount: r.Amount,
 		Type:   outputType,
 	}
 }
