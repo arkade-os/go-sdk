@@ -588,9 +588,6 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, as
 				receiver.To, expectedSignerPubkey, rcvSignerPubkey,
 			)
 		}
-
-		assetReceivers = append(assetReceivers, receiver)
-
 	}
 
 	selectedSatCoins := make([]client.TapscriptsVtxo, 0)
@@ -2561,7 +2558,7 @@ func (a *arkClient) settle(
 	}
 
 	// if no outputs, self send all selected coins
-	if len(outputs) <= 0 {
+	if len(outputs) == 0 {
 		amount := uint64(0)
 		for _, utxo := range boardingUtxos {
 			amount += utxo.Amount
@@ -2582,12 +2579,13 @@ func (a *arkClient) settle(
 		})
 
 		for assetId, seals := range groupedSeals {
-			assetAmount := uint64(0)
-			sealAmount := seals[0].Amount
+
+			var (
+				assetAmount = uint64(0)
+				sealAmount  = seals[0].Amount
+			)
+
 			for i, seal := range seals {
-
-				fmt.Printf("Seal amount %+v", sealAmount)
-
 				sealAssetOutput, err := GetAssetOutput(seal.Asset.Outputs, seal.VOut)
 				if err != nil {
 					return "", fmt.Errorf("failed to get asset output: %s", err)
@@ -2650,7 +2648,9 @@ func (a *arkClient) settle(
 				return "", fmt.Errorf("failed to get teleport pkScript: %s", err)
 			}
 
-			teleportPreimages[hex.EncodeToString(teleportPkScript)] = teleportScript
+			teleportPkScriptHex := hex.EncodeToString(teleportPkScript)
+
+			teleportPreimages[teleportPkScriptHex] = teleportScript
 		}
 	}
 
@@ -2666,14 +2666,13 @@ func (a *arkClient) settle(
 	totalVtxos = append(totalVtxos, normalVtxos...)
 	totalVtxos = append(totalVtxos, sealVtxos...)
 
-	fmt.Printf("The total vtxos are %d", len(outputs))
 	var wg sync.WaitGroup
 
 	// subscribe to teleport outputs before broadcasting commitment tx
 	if len(teleportOutputs) > 0 {
 		teleportScripts := make([]string, 0)
-		for script, _ := range teleportPreimages {
-			teleportScripts = append(teleportScripts, script)
+		for pkScriptHex := range teleportPreimages {
+			teleportScripts = append(teleportScripts, pkScriptHex)
 		}
 		subscriptionId, err := a.indexer.SubscribeForScripts(ctx, "", teleportScripts)
 		if err != nil {
@@ -2683,9 +2682,7 @@ func (a *arkClient) settle(
 
 		wg.Add(len(teleportScripts))
 
-		fmt.Printf("these are scripts %+v", teleportScripts)
-
-		go func(teleportPreimages map[string]types.TeleportScript, subscriptionId string) {
+		go func(preimages map[string]types.TeleportScript, subscriptionId string) {
 			subscriptionChannel, closeFn, err := a.indexer.GetSubscription(ctx, subscriptionId)
 			if err != nil {
 				fmt.Printf("failed to get subscription channel: %s", err)
@@ -2695,18 +2692,23 @@ func (a *arkClient) settle(
 
 			for msg := range subscriptionChannel {
 				if msg.Err != nil {
-					fmt.Printf("error in subscription channel: %s", msg.Err)
 					continue
 				}
 
 				for _, vtxo := range msg.NewVtxos {
-					if preimage, ok := teleportPreimages[vtxo.Script]; ok {
-						err := a.claimTeleportOutput(ctx, vtxo, preimage)
-						if err != nil {
-							fmt.Printf("failed to claim teleport output: %s", err)
-						}
+					scriptKey := vtxo.Script
+					preimage, ok := preimages[scriptKey]
+					if !ok {
+						fmt.Printf("no preimage found for script key: %s", scriptKey)
+						continue
 					}
+
+					if err := a.claimTeleportOutput(ctx, vtxo, preimage); err != nil {
+						fmt.Printf("failed to claim teleport output: %s", err)
+					}
+
 					wg.Done()
+
 				}
 			}
 		}(teleportPreimages, subscriptionId)
@@ -2717,6 +2719,7 @@ func (a *arkClient) settle(
 		return "", fmt.Errorf("failed to join batch: %s", err)
 	}
 
+	// Wait until subscription goroutine exits (subscription closed, ctx cancelled, etc.)
 	wg.Wait()
 
 	return commitmentId, nil
@@ -3696,8 +3699,6 @@ func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vt
 	if err != nil {
 		return err
 	}
-
-	fmt.Printf("This is vtxo id: %+v", vtxo.Txid)
 
 	vtxoOutpoint := &wire.OutPoint{
 		Hash:  *vtxoTxHash,

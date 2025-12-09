@@ -724,8 +724,6 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 	for _, vtxo := range vtxos {
 		vtxoMap[vtxo.Txid] = append(vtxoMap[vtxo.Txid], vtxo)
 		txids = append(txids, vtxo.Txid)
-
-		fmt.Printf("this is a good vtxo %+v", vtxo.Amount)
 	}
 
 	if len(txids) == 0 {

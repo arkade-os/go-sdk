@@ -1265,13 +1265,6 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.
 		return nil, fmt.Errorf("asset group is nil")
 	}
 
-	fmt.Printf("This is vtxo script %s", vtxo.Script)
-	fmt.Printf("This is vtxo out %d", vtxo.VOut)
-
-	if assetGroup.ControlAsset != nil {
-		fmt.Printf("This is the assset group %+v \n", *assetGroup)
-	}
-
 	decodedVtxoScript, err := hex.DecodeString(vtxo.Script)
 	if err != nil {
 		return nil, err
@@ -1284,9 +1277,6 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.
 
 		for _, assetOut := range asset.Outputs {
 			pkScript, err := script.P2TRScript(&assetOut.PublicKey)
-
-			fmt.Printf("This is asset script %s", hex.EncodeToString(pkScript))
-			fmt.Printf("This is asset out %d \n", assetOut.Vout)
 
 			if err != nil {
 				return nil, err
