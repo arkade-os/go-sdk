@@ -43,7 +43,6 @@ func main() {
 		&createAssetCommand,
 		&sendAssetCommand,
 		&reissueAssetCommand,
-		&burnAssetCommand,
 		&redeemCommand,
 		&notesCommand,
 		&recoverCommand,
@@ -257,16 +256,7 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return reissueAsset(ctx)
 		},
-		Flags: []cli.Flag{passwordFlag, assetIdFlag, assetQuantityFlag, controlAssetFlag},
-	}
-
-	burnAssetCommand = cli.Command{
-		Name:  "burn-asset",
-		Usage: "Burn units of an existing asset",
-		Action: func(ctx *cli.Context) error {
-			return burnAsset(ctx)
-		},
-		Flags: []cli.Flag{passwordFlag, assetIdFlag, assetQuantityFlag, controlAssetFlag},
+		Flags: []cli.Flag{passwordFlag, assetIdFlag, toFlag, amountFlag, controlAssetFlag, assetNameFlag, assetSymbolFlag},
 	}
 
 	redeemCommand = cli.Command{
@@ -456,11 +446,18 @@ func createAsset(ctx *cli.Context) error {
 
 	fmt.Printf("controlAsset %+v", controlAssetID)
 
+	metadata := map[string]string{}
+	if name != "" {
+		metadata["name"] = name
+	}
+	if symbol != "" {
+		metadata["symbol"] = symbol
+	}
+
 	assetParams := types.AssetCreationParams{
-		Name:           name,
-		Symbol:         symbol,
 		Quantity:       quantity,
 		ControlAssetId: controlAssetID,
+		MetadataMap:    metadata,
 	}
 
 	password, err := readPassword(ctx)
@@ -517,11 +514,22 @@ func sendAsset(ctx *cli.Context) error {
 
 func reissueAsset(ctx *cli.Context) error {
 	assetIDHex := ctx.String(assetIdFlag.Name)
-	quantity := ctx.Uint64(assetQuantityFlag.Name)
 	controlAsset := ctx.String(controlAssetFlag.Name)
+	assetFlagReceiver := ctx.String(toFlag.Name)
+	amount := ctx.Uint64(amountFlag.Name)
+	name := ctx.String(assetNameFlag.Name)
+	symbol := ctx.String(assetSymbolFlag.Name)
 
-	if assetIDHex == "" || quantity == 0 {
+	if assetIDHex == "" {
 		return fmt.Errorf("missing asset id or receivers")
+	}
+
+	receivers := []types.Receiver{}
+	if assetFlagReceiver != "" && amount != 0 {
+		receivers = append(receivers, types.Receiver{
+			To:     assetFlagReceiver,
+			Amount: amount,
+		})
 	}
 
 	controlAssetID := [32]byte{}
@@ -532,6 +540,14 @@ func reissueAsset(ctx *cli.Context) error {
 		}
 
 		copy(controlAssetID[:], controlAssetBytes)
+	}
+
+	metadata := map[string]string{}
+	if name != "" {
+		metadata["name"] = name
+	}
+	if symbol != "" {
+		metadata["symbol"] = symbol
 	}
 
 	assetIDBytes, err := hex.DecodeString(assetIDHex)
@@ -552,56 +568,12 @@ func reissueAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetID, quantity, types.AssetModificationParams{}, types.AssetManagementTypeMint)
+	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetID, receivers, metadata)
 	if err != nil {
 		return err
 	}
 	return printJSON(map[string]string{"txid": arkTxid})
 
-}
-
-func burnAsset(ctx *cli.Context) error {
-	assetIDHex := ctx.String(assetIdFlag.Name)
-	quantity := ctx.Uint64(assetQuantityFlag.Name)
-	controlAsset := ctx.String(controlAssetFlag.Name)
-
-	if assetIDHex == "" || quantity == 0 {
-		return fmt.Errorf("missing asset id or receivers")
-	}
-
-	controlAssetID := [32]byte{}
-	if controlAsset != "" {
-		controlAssetBytes, err := hex.DecodeString(controlAsset)
-		if err != nil {
-			return fmt.Errorf("invalid control asset id: %v", err)
-		}
-
-		copy(controlAssetID[:], controlAssetBytes)
-	}
-
-	assetIDBytes, err := hex.DecodeString(assetIDHex)
-	if err != nil {
-		return fmt.Errorf("invalid asset id: %v", err)
-	}
-	if len(assetIDBytes) != 32 {
-		return fmt.Errorf("invalid asset id length")
-	}
-	var assetID [32]byte
-	copy(assetID[:], assetIDBytes)
-
-	password, err := readPassword(ctx)
-	if err != nil {
-		return err
-	}
-	if err := arkSdkClient.Unlock(ctx.Context, string(password)); err != nil {
-		return err
-	}
-
-	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetID, quantity, types.AssetModificationParams{}, types.AssetManagementTypeBurn)
-	if err != nil {
-		return err
-	}
-	return printJSON(map[string]string{"txid": arkTxid})
 }
 
 func balance(ctx *cli.Context) error {

@@ -26,6 +26,8 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
+const UNIT_AMOUNT = uint64(1)
+
 func CoinSelectNormal(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,

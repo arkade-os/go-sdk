@@ -34,7 +34,7 @@ type ArkClient interface {
 		ctx context.Context, assetID [32]byte, receivers []types.Receiver,
 	) (string, error)
 	ModifyAsset(
-		ctx context.Context, controlAssetId [32]byte, assetID [32]byte, amount uint64, metadata types.AssetModificationParams, assetManagement types.AssetManagementType,
+		ctx context.Context, controlAssetId [32]byte, assetID [32]byte, receivers []types.Receiver, metadata map[string]string,
 	) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
