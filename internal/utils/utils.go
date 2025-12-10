@@ -41,7 +41,14 @@ func CoinSelect(
 	for _, output := range outputs {
 		amount += output.Amount
 		if feeEstimator != nil {
-			fees, err := feeEstimator.EvalOutput(output.ToArkFeeOutput())
+			var fees arkfee.FeeAmount
+			var err error
+			arkFeeOutput := output.ToArkFeeOutput()
+			if output.IsOnchain() {
+				fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
+			} else {
+				fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
+			}
 			if err != nil {
 				return nil, nil, 0, err
 			}
@@ -69,7 +76,7 @@ func CoinSelect(
 		selectedBoarding = append(selectedBoarding, boardingUtxo)
 		selectedAmount += boardingUtxo.Amount
 		if feeEstimator != nil {
-			fees, err := feeEstimator.EvalInput(boardingUtxo.ToArkFeeInput())
+			fees, err := feeEstimator.EvalOnchainInput(boardingUtxo.ToArkFeeInput())
 			if err != nil {
 				return nil, nil, 0, err
 			}
@@ -86,7 +93,7 @@ func CoinSelect(
 		selected = append(selected, vtxo)
 		selectedAmount += vtxo.Amount
 		if feeEstimator != nil {
-			feesForInput, err := feeEstimator.EvalInput(vtxo.ToArkFeeInput())
+			feesForInput, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
 			if err != nil {
 				return nil, nil, 0, err
 			}
@@ -101,9 +108,8 @@ func CoinSelect(
 	change := selectedAmount - amount
 
 	if feeEstimator != nil {
-		fees, err := feeEstimator.EvalOutput(arkfee.Output{
+		fees, err := feeEstimator.EvalOffchainOutput(arkfee.Output{
 			Amount: change,
-			Type:   arkfee.OutputTypeVtxo,
 		})
 		if err != nil {
 			return nil, nil, 0, err
@@ -117,7 +123,7 @@ func CoinSelect(
 			change += notSelected[0].Amount
 
 			if feeEstimator != nil {
-				fees, err := feeEstimator.EvalInput(notSelected[0].ToArkFeeInput())
+				fees, err := feeEstimator.EvalOffchainInput(notSelected[0].ToArkFeeInput())
 				if err != nil {
 					return nil, nil, 0, err
 				}
@@ -128,7 +134,7 @@ func CoinSelect(
 			change += notSelectedBoarding[0].Amount
 
 			if feeEstimator != nil {
-				fees, err := feeEstimator.EvalInput(notSelectedBoarding[0].ToArkFeeInput())
+				fees, err := feeEstimator.EvalOnchainInput(notSelectedBoarding[0].ToArkFeeInput())
 				if err != nil {
 					return nil, nil, 0, err
 				}

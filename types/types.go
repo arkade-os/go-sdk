@@ -53,15 +53,8 @@ func (c Config) CheckpointExitPath() []byte {
 }
 
 type FeeInfo struct {
-	IntentFees IntentFeeInfo
+	IntentFees arkfee.Config
 	TxFeeRate  float64
-}
-
-type IntentFeeInfo struct {
-	OffchainInput  string
-	OffchainOutput string
-	OnchainInput   uint64
-	OnchainOutput  uint64
 }
 
 type DeprecatedSigner struct {
@@ -239,13 +232,9 @@ type Utxo struct {
 	Tx          string
 }
 
-func (u Utxo) ToArkFeeInput() arkfee.Input {
-	return arkfee.Input{
+func (u Utxo) ToArkFeeInput() arkfee.OnchainInput {
+	return arkfee.OnchainInput{
 		Amount: u.Amount,
-		Expiry: u.SpendableAt,
-		Birth:  u.CreatedAt,
-		Type:   arkfee.InputTypeBoarding,
-		Weight: 0,
 	}
 }
 
@@ -263,13 +252,13 @@ type Receiver struct {
 }
 
 func (r Receiver) ToArkFeeOutput() arkfee.Output {
-	outputType := arkfee.OutputTypeVtxo
-	if r.IsOnchain() {
-		outputType = arkfee.OutputTypeOnchain
+	txout, _, err := r.ToTxOut()
+	if err != nil {
+		return arkfee.Output{}
 	}
 	return arkfee.Output{
 		Amount: r.Amount,
-		Type:   outputType,
+		Script: hex.EncodeToString(txout.PkScript),
 	}
 }
 

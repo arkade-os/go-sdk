@@ -723,10 +723,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	feeEstimator, err := arkfee.New(
-		info.Fees.IntentFees.OffchainInput,
-		info.Fees.IntentFees.OffchainOutput,
-	)
+	feeEstimator, err := arkfee.New(info.Fees.IntentFees)
 	if err != nil {
 		return "", err
 	}
@@ -2082,7 +2079,7 @@ func (a *arkClient) selectFunds(
 	if len(outputs) == 1 && outputs[0].Amount <= 0 {
 		for _, utxo := range boardingUtxos {
 			outputs[0].Amount += utxo.Amount
-			fees, err := feeEstimator.EvalInput(utxo.ToArkFeeInput())
+			fees, err := feeEstimator.EvalOnchainInput(utxo.ToArkFeeInput())
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -2091,7 +2088,7 @@ func (a *arkClient) selectFunds(
 
 		for _, vtxo := range vtxos {
 			outputs[0].Amount += vtxo.Amount
-			fees, err := feeEstimator.EvalInput(vtxo.ToArkFeeInput())
+			fees, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -2162,9 +2159,7 @@ func (a *arkClient) settle(
 		return "", err
 	}
 
-	feeEstimator, err := arkfee.New(
-		info.Fees.IntentFees.OffchainInput, info.Fees.IntentFees.OffchainOutput,
-	)
+	feeEstimator, err := arkfee.New(info.Fees.IntentFees)
 	if err != nil {
 		return "", err
 	}

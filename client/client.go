@@ -101,12 +101,17 @@ type TapscriptsVtxo struct {
 	Tapscripts []string
 }
 
-func (v TapscriptsVtxo) ToArkFeeInput() arkfee.Input {
-	return arkfee.Input{
+func (v TapscriptsVtxo) ToArkFeeInput() arkfee.OffchainInput {
+	vtxoType := arkfee.VtxoTypeVtxo
+	if v.Swept {
+		vtxoType = arkfee.VtxoTypeRecoverable
+	}
+
+	return arkfee.OffchainInput{
 		Amount: v.Amount,
 		Expiry: v.ExpiresAt,
 		Birth:  v.CreatedAt,
-		Type:   arkfee.InputTypeVtxo,
+		Type:   vtxoType,
 		Weight: 0,
 	}
 }
