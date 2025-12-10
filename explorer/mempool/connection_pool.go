@@ -14,10 +14,11 @@ import (
 
 // websocketConnection represents a single WebSocket connection with its subscribed addresses.
 type websocketConnection struct {
-	id      int
-	conn    *websocket.Conn
-	address *addressStore
-	mu      *sync.RWMutex
+	id               int
+	conn             *websocket.Conn
+	address          *addressStore
+	mu               *sync.RWMutex
+	consecutiveErrs  int
 }
 
 // connectionPool manages multiple WebSocket connections for load distribution.

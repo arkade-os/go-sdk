@@ -47,6 +47,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -63,9 +64,11 @@ import (
 )
 
 const (
-	BitcoinExplorer = "bitcoin"
-	pongInterval    = 60 * time.Second
-	pingInterval    = (pongInterval * 9) / 10
+	BitcoinExplorer      = "bitcoin"
+	pongInterval         = 60 * time.Second
+	pingInterval         = (pongInterval * 9) / 10
+	maxConsecutiveErrors = 10
+	errorBackoff         = 500 * time.Millisecond
 )
 
 var (
@@ -609,6 +612,50 @@ func (e *explorerSvc) startTracking(ctx context.Context) {
 
 }
 
+// shouldExitReadLoop determines if a websocket read error should cause the read loop to exit.
+// It returns true for errors that indicate permanent connection failure.
+func shouldExitReadLoop(err error) bool {
+	// Check for explicit websocket close errors
+	if websocket.IsCloseError(
+		err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseAbnormalClosure,
+	) {
+		return true
+	}
+
+	// Check for closed connection
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	// Check for timeout/deadline errors (network disconnection)
+	// First check with os.IsTimeout (doesn't unwrap)
+	if os.IsTimeout(err) {
+		return true
+	}
+	// Then check wrapped errors for timeout interface
+	var timeoutErr interface{ Timeout() bool }
+	if errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+		return true
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	// Check for context cancellation
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	// All other errors are potentially temporary (should retry with circuit breaker)
+	return false
+}
+
 func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connectionPool) {
 	for {
 		select {
@@ -631,28 +678,64 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 				wsConn.conn.SetPongHandler(func(string) error {
 					return wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval))
 				})
+
+				consecutiveErrors := 0
 				for {
+					select {
+					case <-ctx.Done():
+						log.WithField("connection", wsConn.id).Debug(
+							"explorer: read loop exiting due to context cancellation",
+						)
+						return
+					default:
+					}
+
 					var payload addressNotification
 					if err := wsConn.conn.ReadJSON(&payload); err != nil {
-						if websocket.IsCloseError(
-							err,
-							websocket.CloseNormalClosure,
-							websocket.CloseGoingAway,
-							websocket.CloseAbnormalClosure,
-						) ||
-							errors.Is(err, net.ErrClosed) {
+						if shouldExitReadLoop(err) {
+							log.WithError(err).WithField("connection", wsConn.id).Warn(
+								"explorer: read loop exiting due to fatal error",
+							)
+							go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
+								"connection for address %s closed: %w",
+								wsConn.address.get(), err,
+							)})
+							go connPool.resetConnection(wsConn)
 							return
 						}
+
+						// Increment consecutive error counter (circuit breaker)
+						consecutiveErrors++
+						if consecutiveErrors >= maxConsecutiveErrors {
+							log.WithError(err).WithField("connection", wsConn.id).Error(
+								"explorer: read loop exiting due to too many consecutive errors",
+							)
+							go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
+								"connection for address %s unstable (max errors reached), please resubscribe: %w",
+								wsConn.address.get(), err,
+							)})
+							go connPool.resetConnection(wsConn)
+							return
+						}
+
+						// Log the error and notify, but continue with backoff
 						go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
-							"failed to read message for address %s, better to resubscribe: %w",
-							wsConn.address.get(), err,
+							"failed to read message for address %s (attempt %d/%d): %w",
+							wsConn.address.get(), consecutiveErrors, maxConsecutiveErrors, err,
 						)})
-						log.WithError(err).WithField("connection", wsConn.id).Error(
-							"explorer: failed to read address notification",
+						log.WithError(err).WithField("connection", wsConn.id).WithField(
+							"consecutive_errors", consecutiveErrors,
+						).Warn(
+							"explorer: failed to read address notification, retrying with backoff",
 						)
+
+						// Apply backoff delay before retrying
+						time.Sleep(errorBackoff)
 						continue
 					}
 
+					// Reset consecutive errors on successful read
+					consecutiveErrors = 0
 					go e.sendAddressEventFromWs(payload)
 				}
 			}(ctx, wsConn)
