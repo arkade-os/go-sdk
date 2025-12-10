@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -98,6 +99,21 @@ type Input struct {
 type TapscriptsVtxo struct {
 	types.Vtxo
 	Tapscripts []string
+}
+
+func (v TapscriptsVtxo) ToArkFeeInput() arkfee.OffchainInput {
+	vtxoType := arkfee.VtxoTypeVtxo
+	if v.Swept {
+		vtxoType = arkfee.VtxoTypeRecoverable
+	}
+
+	return arkfee.OffchainInput{
+		Amount: v.Amount,
+		Expiry: v.ExpiresAt,
+		Birth:  v.CreatedAt,
+		Type:   vtxoType,
+		Weight: 0,
+	}
 }
 
 type BatchFinalizationEvent struct {

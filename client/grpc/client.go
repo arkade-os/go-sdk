@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/client"
@@ -517,9 +518,8 @@ func parseFees(fees *arkv1.FeeInfo) (types.FeeInfo, error) {
 	}
 
 	var (
-		err                               error
-		txFeeRate                         float64
-		onchainInputFee, onchainOutputFee uint64
+		err       error
+		txFeeRate float64
 	)
 	if fees.GetTxFeeRate() != "" {
 		txFeeRate, err = strconv.ParseFloat(fees.GetTxFeeRate(), 64)
@@ -527,26 +527,15 @@ func parseFees(fees *arkv1.FeeInfo) (types.FeeInfo, error) {
 			return types.FeeInfo{}, err
 		}
 	}
-	intentFees := fees.GetIntentFee()
-	if intentFees.GetOnchainInput() != "" {
-		onchainInputFee, err = strconv.ParseUint(intentFees.GetOnchainInput(), 10, 64)
-		if err != nil {
-			return types.FeeInfo{}, err
-		}
-	}
-	if intentFees.GetOnchainOutput() != "" {
-		onchainOutputFee, err = strconv.ParseUint(intentFees.GetOnchainOutput(), 10, 64)
-		if err != nil {
-			return types.FeeInfo{}, err
-		}
-	}
+
+	intentFee := fees.GetIntentFee()
 	return types.FeeInfo{
 		TxFeeRate: txFeeRate,
-		IntentFees: types.IntentFeeInfo{
-			OffchainInput:  fees.GetIntentFee().GetOffchainInput(),
-			OffchainOutput: fees.GetIntentFee().GetOffchainOutput(),
-			OnchainInput:   onchainInputFee,
-			OnchainOutput:  onchainOutputFee,
+		IntentFees: arkfee.Config{
+			IntentOffchainInputProgram:  intentFee.GetOffchainInput(),
+			IntentOffchainOutputProgram: intentFee.GetOffchainOutput(),
+			IntentOnchainInputProgram:   intentFee.GetOnchainInput(),
+			IntentOnchainOutputProgram:  intentFee.GetOnchainOutput(),
 		},
 	}, nil
 }

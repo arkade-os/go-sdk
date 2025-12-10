@@ -7,6 +7,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -52,15 +53,8 @@ func (c Config) CheckpointExitPath() []byte {
 }
 
 type FeeInfo struct {
-	IntentFees IntentFeeInfo
+	IntentFees arkfee.Config
 	TxFeeRate  float64
-}
-
-type IntentFeeInfo struct {
-	OffchainInput  string
-	OffchainOutput string
-	OnchainInput   uint64
-	OnchainOutput  uint64
 }
 
 type DeprecatedSigner struct {
@@ -238,6 +232,12 @@ type Utxo struct {
 	Tx          string
 }
 
+func (u Utxo) ToArkFeeInput() arkfee.OnchainInput {
+	return arkfee.OnchainInput{
+		Amount: u.Amount,
+	}
+}
+
 func (u Utxo) IsConfirmed() bool {
 	return !u.CreatedAt.IsZero()
 }
@@ -249,6 +249,17 @@ func (u *Utxo) Sequence() (uint32, error) {
 type Receiver struct {
 	To     string
 	Amount uint64
+}
+
+func (r Receiver) ToArkFeeOutput() arkfee.Output {
+	txout, _, err := r.ToTxOut()
+	if err != nil {
+		return arkfee.Output{}
+	}
+	return arkfee.Output{
+		Amount: r.Amount,
+		Script: hex.EncodeToString(txout.PkScript),
+	}
 }
 
 func (r Receiver) IsOnchain() bool {
