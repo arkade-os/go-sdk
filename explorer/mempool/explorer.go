@@ -711,9 +711,8 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 								"explorer: read loop exiting due to too many consecutive errors",
 							)
 							go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
-								"connection for address %s unstable (max errors reached), please resubscribe: %w",
-								wsConn.address.get(), err,
-							)})
+								"connection for address %s unstable (max errors reached), "+
+									"please resubscribe: %w", wsConn.address.get(), err)})
 							go connPool.resetConnection(wsConn)
 							return
 						}

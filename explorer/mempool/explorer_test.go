@@ -92,7 +92,10 @@ func TestShouldExitReadLoop(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := shouldExitReadLoop(tt.err)
 			if got != tt.wantExit {
-				t.Errorf("shouldExitReadLoop() = %v, want %v for error: %v", got, tt.wantExit, tt.err)
+				t.Errorf(
+					"shouldExitReadLoop() = %v, want %v for error: %v",
+					got, tt.wantExit, tt.err,
+				)
 			}
 		})
 	}
