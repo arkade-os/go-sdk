@@ -132,12 +132,12 @@ type balanceRes struct {
 }
 
 type CoinSelectOptions struct {
-	// If true, coin selector will select coins closest to expiry first
-	WithExpirySorting bool
+	// If true, coin selector won't select coins closest to expiryirst
+	WithoutExpirySorting bool
 	// If specified, coin selector will select only coins in the list
 	OutpointsFilter []types.Outpoint
 	// If true, coin selector will select recoverable (swept but unspent) vtxos first
-	SelectRecoverableVtxos bool
+	WithRecoverableVtxos bool
 	// If specified coin selector will select only vtxos below the given expiration threshold (seconds)
 	ExpiryThreshold int64
 	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
