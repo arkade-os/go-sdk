@@ -139,7 +139,7 @@ func (cp *connectionPool) pushAddress(address string) (int, error) {
 	defer cp.mu.Unlock()
 
 	if len(cp.connections) == 0 {
-		return -1, fmt.Errorf("no connections avaialble")
+		return -1, fmt.Errorf("no connections available")
 	}
 
 	// Select the first available connection without an address assigned
@@ -149,7 +149,7 @@ func (cp *connectionPool) pushAddress(address string) (int, error) {
 	})
 	// If connections are all taken, reject the request
 	if idx < 0 {
-		return -1, fmt.Errorf("no more connections availble")
+		return -1, fmt.Errorf("no more connections available")
 	}
 
 	connId := conns[idx].id

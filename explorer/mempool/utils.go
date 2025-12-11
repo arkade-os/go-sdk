@@ -65,8 +65,8 @@ func deriveWsURL(baseUrl string) (string, error) {
 	return wsUrl, nil
 }
 
-// shouldExitReadLoop determines if a websocket read error should cause the read loop to exit.
-// It returns true for errors that indicate permanent connection failure.
+// isCloseError determines if an error indicates a permanent connection close.
+// It returns true for websocket close codes, net.ErrClosed, and context cancellation.
 func isCloseError(err error) bool {
 	// Check for explicit websocket close errors
 	if websocket.IsCloseError(
@@ -91,6 +91,7 @@ func isCloseError(err error) bool {
 	return false
 }
 
+// isTimeoutError determines if an error indicates a timeout.
 func isTimeoutError(err error) bool {
 	// Check for timeout/deadline errors (network disconnection)
 	// First check with os.IsTimeout (doesn't unwrap)
