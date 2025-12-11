@@ -83,6 +83,11 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, ErrNotInitialized
 	}
 
+	// Ensure a sane default polling interval when tracking is enabled to avoid zero-duration tickers.
+	if cfgData.ExplorerTrackingPollInterval == 0 {
+		cfgData.ExplorerTrackingPollInterval = 10 * time.Second
+	}
+
 	clientSvc, err := getClient(
 		supportedClients, cfgData.ClientType, cfgData.ServerUrl,
 	)
@@ -152,6 +157,10 @@ func LoadArkClientWithWallet(
 	}
 	if cfgData == nil {
 		return nil, ErrNotInitialized
+	}
+
+	if cfgData.ExplorerTrackingPollInterval == 0 {
+		cfgData.ExplorerTrackingPollInterval = 10 * time.Second
 	}
 
 	clientSvc, err := getClient(
@@ -1872,62 +1881,88 @@ func (a *arkClient) refreshVtxoDb(
 func (a *arkClient) getBalanceFromStore(
 	ctx context.Context, computeVtxoExpiration bool,
 ) (*Balance, error) {
-	// balance := &Balance{
-	// 	OnchainBalance: OnchainBalance{
-	// 		SpendableAmount: 0,
-	// 		LockedAmount:    make([]LockedOnchainBalance, 0),
-	// 	},
-	// 	OffchainBalance: OffchainBalance{
-	// 		Total:          0,
-	// 		NextExpiration: "",
-	// 		Details:        make([]VtxoDetails, 0),
-	// 	},
-	// }
 
-	// // offchain balance
-	// offchainBalance, amountByExpiration, err := a.getOffchainBalance(ctx, computeVtxoExpiration)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	satsBalanceMap, assetBalanceMap, err := a.getOffchainBalance(ctx, computeVtxoExpiration)
+	if err != nil {
+		return nil, err
+	}
 
-	// nextExpiration, details := getOffchainBalanceDetails(amountByExpiration)
-	// balance.OffchainBalance.Total = offchainBalance
-	// balance.OffchainBalance.NextExpiration = getFancyTimeExpiration(nextExpiration)
-	// balance.OffchainBalance.Details = details
+	// Sats offchain details
+	nextExpiration, satsVtxos := getOffchainBalanceDetails(satsBalanceMap)
+	var satsBalance uint64
+	for _, amt := range satsBalanceMap {
+		satsBalance += amt
+	}
 
-	// if a.UtxoMaxAmount == 0 {
-	// 	return balance, nil
-	// }
+	// Asset offchain details
+	asstVtxoMap := make(map[string]OffchainBalance)
+	for assetID, assetExpMap := range assetBalanceMap {
+		assetNextExpiration, assetVtxos := getOffchainBalanceDetails(assetExpMap)
 
-	// // onchain balance
-	// utxoStore := a.store.UtxoStore()
-	// utxos, _, err := utxoStore.GetAllUtxos(ctx)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// now := time.Now()
+		var assetTotal uint64
+		for _, amt := range assetExpMap {
+			assetTotal += amt
+		}
 
-	// for _, utxo := range utxos {
-	// 	if !utxo.IsConfirmed() {
-	// 		continue // TODO handle unconfirmed balance ? (not spendable on ark)
-	// 	}
+		asstVtxoMap[assetID] = OffchainBalance{
+			TotalAmount:    assetTotal,
+			NextExpiration: getFancyTimeExpiration(assetNextExpiration),
+			Details:        assetVtxos,
+		}
+	}
 
-	// 	if now.After(utxo.SpendableAt) {
-	// 		balance.OnchainBalance.SpendableAmount += utxo.Amount
-	// 		continue
-	// 	}
+	offchainTotal := TotalOffchainBalance{
+		SatsBalance: OffchainBalance{
+			TotalAmount:    satsBalance,
+			NextExpiration: getFancyTimeExpiration(nextExpiration),
+			Details:        satsVtxos,
+		},
+		AssetBalances: asstVtxoMap,
+	}
 
-	// 	balance.OnchainBalance.LockedAmount = append(
-	// 		balance.OnchainBalance.LockedAmount,
-	// 		LockedOnchainBalance{
-	// 			SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
-	// 			Amount:      utxo.Amount,
-	// 		},
-	// 	)
-	// }
+	// --- Branch 1: no UTXO max => only offchain balance ----------------------
 
-	// return balance, nil
-	return nil, fmt.Errorf("Balance from store not implemented")
+	if a.UtxoMaxAmount == 0 {
+		return &Balance{
+			OffchainBalance: offchainTotal,
+		}, nil
+	}
+
+	onchainBalance := OnchainBalance{
+		SpendableAmount: 0,
+		LockedAmount:    []LockedOnchainBalance{},
+	}
+	// onchain balance
+	utxoStore := a.store.UtxoStore()
+	utxos, _, err := utxoStore.GetAllUtxos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+
+	for _, utxo := range utxos {
+		if !utxo.IsConfirmed() {
+			continue // TODO handle unconfirmed balance ? (not spendable on ark)
+		}
+
+		if now.After(utxo.SpendableAt) {
+			onchainBalance.SpendableAmount += utxo.Amount
+			continue
+		}
+
+		onchainBalance.LockedAmount = append(
+			onchainBalance.LockedAmount,
+			LockedOnchainBalance{
+				SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
+				Amount:      utxo.Amount,
+			},
+		)
+	}
+
+	return &Balance{
+		OnchainBalance:  onchainBalance,
+		OffchainBalance: offchainTotal,
+	}, nil
 }
 
 func (a *arkClient) getBalanceFromExplorer(
