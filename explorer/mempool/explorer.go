@@ -610,7 +610,9 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 						// is executed to only one connection and once it is restored and the lock
 						// is released, all others will be restored as well
 						if isTimeoutError(err) {
-							log.Debugf("explorer: connection %d dropped, reconnecting...", wsConn.id)
+							log.Debugf(
+								"explorer: connection %d dropped, reconnecting...", wsConn.id,
+							)
 
 							addr := wsConn.address.get()
 
@@ -627,8 +629,8 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 								if _, err := connPool.pushAddress(addr); err != nil {
 									go e.listeners.broadcast(types.OnchainAddressEvent{
 										Error: fmt.Errorf(
-											"failed to resubscribe for address %s and resubscription "+
-												"is required: %w", addr, err,
+											"failed to resubscribe for address %s and "+
+												"resubscription is required: %w", addr, err,
 										)})
 									return
 								}
