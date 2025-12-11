@@ -1,11 +1,13 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -77,6 +79,10 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
+	testVtxoAssets = []*asset.Asset{
+		newTestAsset(0x01, "asset-one"),
+		newTestAsset(0x02, "asset-two"),
+	}
 	testVtxos = []types.Vtxo{
 		{
 			Outpoint: types.Outpoint{
@@ -91,6 +97,7 @@ var (
 			ExpiresAt:    time.Unix(1748143068, 0),
 			CreatedAt:    time.Unix(1746143068, 0),
 			Preconfirmed: true,
+			Asset:        testVtxoAssets[0],
 		},
 		{
 			Outpoint: types.Outpoint{
@@ -104,6 +111,7 @@ var (
 			},
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
+			Asset:     testVtxoAssets[1],
 		},
 	}
 	testVtxoKeys = []types.Outpoint{
@@ -162,6 +170,40 @@ var (
 	settledBy = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
+
+func newTestAsset(seed byte, name string) *asset.Asset {
+	var assetID [32]byte
+	var controlAssetID [32]byte
+	for i := range assetID {
+		assetID[i] = seed
+		controlAssetID[i] = seed + 1
+	}
+
+	return &asset.Asset{
+		AssetId:        assetID,
+		ControlAssetId: controlAssetID,
+		Outputs: []asset.AssetOutput{
+			{
+				PublicKey: *key.PubKey(),
+				Vout:      0,
+				Amount:    uint64(seed) * 1000,
+			},
+		},
+		Inputs: []asset.AssetInput{
+			{
+				Txhash: bytes.Repeat([]byte{seed}, 32),
+				Vout:   0,
+				Amount: uint64(seed) * 500,
+			},
+		},
+		Metadata: []asset.Metadata{
+			{
+				Key:   "name",
+				Value: name,
+			},
+		},
+	}
+}
 
 func TestService(t *testing.T) {
 	t.Run("config store", func(t *testing.T) {
@@ -368,6 +410,19 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	ctx := context.Background()
 
+	expectedAssets := map[types.Outpoint]*asset.Asset{
+		testVtxoKeys[0]: testVtxoAssets[0],
+		testVtxoKeys[1]: testVtxoAssets[1],
+	}
+
+	assertAssets := func(t *testing.T, vtxos []types.Vtxo) {
+		t.Helper()
+		for _, v := range vtxos {
+			require.NotNil(t, v.Asset)
+			require.Equal(t, expectedAssets[v.Outpoint], v.Asset)
+		}
+	}
+
 	go func() {
 		eventCh := storeSvc.GetEventChannel()
 		for event := range eventCh {
@@ -403,6 +458,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
+		assertAssets(t, spendable)
 
 		spendable, err = storeSvc.GetSpendableVtxos(ctx)
 		require.NoError(t, err)
@@ -411,10 +467,12 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 			require.False(t, v.Spent)
 			require.False(t, v.Unrolled)
 		}
+		assertAssets(t, spendable)
 
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
 		require.Equal(t, testVtxos, vtxos)
+		assertAssets(t, vtxos)
 	})
 
 	t.Run("spend vtxos", func(t *testing.T) {
@@ -430,6 +488,8 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Equal(t, 1, len(spent))
 		require.Equal(t, 1, len(spendable))
+		assertAssets(t, spendable)
+		assertAssets(t, spent)
 		for _, v := range spent {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
@@ -450,6 +510,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Equal(t, 2, len(spent))
 		require.Empty(t, spendable)
+		assertAssets(t, spent)
 		for _, v := range spent[1:] {
 			require.True(t, v.Spent)
 			require.Equal(t, testSettleVtxoKeys[v.Outpoint], v.SpentBy)

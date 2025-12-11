@@ -253,6 +253,20 @@ type Receiver struct {
 	Amount uint64
 }
 
+type VtxoType int
+
+const (
+	VtxoTypeNormal VtxoType = iota
+	VtxoTypeAsset
+	VtxoTypeControlAsset
+)
+
+type DBReceiver struct {
+	Receiver
+	Index      uint32
+	ChangeType VtxoType
+}
+
 type TeleportReceiver struct {
 	Receiver
 	PreimageHash        string

@@ -49,4 +49,5 @@ type Vtxo struct {
 	SettledBy       sql.NullString
 	Unrolled        bool
 	ArkTxid         sql.NullString
+	Asset           []byte
 }

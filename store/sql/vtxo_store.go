@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -40,6 +41,15 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 			if !vtxo.CreatedAt.IsZero() {
 				createdAt = vtxo.CreatedAt.Unix()
 			}
+
+			var assetData []byte
+			var err error
+			if vtxo.Asset != nil {
+				assetData, err = vtxo.Asset.EncodeTlv()
+				if err != nil {
+					return err
+				}
+			}
 			if err := querierWithTx.InsertVtxo(
 				ctx, queries.InsertVtxoParams{
 					Txid:            vtxo.Txid,
@@ -56,6 +66,7 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 					SpentBy:         sql.NullString{String: vtxo.SpentBy, Valid: true},
 					SettledBy:       sql.NullString{String: vtxo.SettledBy, Valid: true},
 					ArkTxid:         sql.NullString{String: vtxo.ArkTxid, Valid: true},
+					Asset:           assetData,
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -288,6 +299,14 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 	if row.CreatedAt != 0 {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
+
+	var parsedAsset *asset.Asset
+	if len(row.Asset) > 0 {
+		var decoded asset.Asset
+		if err := decoded.DecodeTlv(row.Asset); err == nil {
+			parsedAsset = &decoded
+		}
+	}
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: row.Txid,
@@ -305,5 +324,6 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		SpentBy:         row.SpentBy.String,
 		SettledBy:       row.SettledBy.String,
 		ArkTxid:         row.ArkTxid.String,
+		Asset:           parsedAsset,
 	}
 }

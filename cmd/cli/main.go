@@ -256,7 +256,7 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return reissueAsset(ctx)
 		},
-		Flags: []cli.Flag{passwordFlag, assetIdFlag, toFlag, amountFlag, controlAssetFlag, assetNameFlag, assetSymbolFlag},
+		Flags: []cli.Flag{passwordFlag, assetIdFlag, amountFlag, controlAssetFlag, assetNameFlag, assetSymbolFlag},
 	}
 
 	redeemCommand = cli.Command{
@@ -515,21 +515,12 @@ func sendAsset(ctx *cli.Context) error {
 func reissueAsset(ctx *cli.Context) error {
 	assetIDHex := ctx.String(assetIdFlag.Name)
 	controlAsset := ctx.String(controlAssetFlag.Name)
-	assetFlagReceiver := ctx.String(toFlag.Name)
 	amount := ctx.Uint64(amountFlag.Name)
 	name := ctx.String(assetNameFlag.Name)
 	symbol := ctx.String(assetSymbolFlag.Name)
 
 	if assetIDHex == "" {
 		return fmt.Errorf("missing asset id or receivers")
-	}
-
-	receivers := []types.Receiver{}
-	if assetFlagReceiver != "" && amount != 0 {
-		receivers = append(receivers, types.Receiver{
-			To:     assetFlagReceiver,
-			Amount: amount,
-		})
 	}
 
 	controlAssetID := [32]byte{}
@@ -568,7 +559,7 @@ func reissueAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetID, receivers, metadata)
+	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetID, amount, metadata)
 	if err != nil {
 		return err
 	}

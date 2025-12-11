@@ -126,7 +126,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 func buildAssetCreationTx(
 	vtxos []arkTxInput, assetId [32]byte, assetReceivers []types.Receiver, otherReceivers []types.Receiver, assetParams types.AssetCreationParams, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.Asset, error) {
+) (string, []string, *asset.AssetGroup, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
@@ -236,14 +236,14 @@ func buildAssetCreationTx(
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, &assetDetails, nil
+	return arkTx, checkpointTxs, &assetGroup, nil
 
 }
 
 func buildAssetTransferTx(
 	sealVtxos []arkTxInput, otherVtxos []arkTxInput, assetReceivers []types.Receiver, otherReceivers []types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.Asset, error) {
+) (string, []string, *asset.AssetGroup, error) {
 	if len(sealVtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
@@ -378,12 +378,12 @@ func buildAssetTransferTx(
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, &newAsset, nil
+	return arkTx, checkpointTxs, &assetGroup, nil
 }
 
 func buildAssetModificationTx(controlAssetId, assetId [32]byte, controlSealVtxos, otherVtxos []arkTxInput, controlAssetReceivers, assetReceivers, otherReceivers []types.Receiver, metadata map[string]string, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.Asset, error) {
+) (string, []string, *asset.AssetGroup, error) {
 
 	ins := make([]offchain.VtxoInput, 0, len(controlSealVtxos)+len(otherVtxos))
 
@@ -558,7 +558,7 @@ func buildAssetModificationTx(controlAssetId, assetId [32]byte, controlSealVtxos
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, &newAsset, nil
+	return arkTx, checkpointTxs, &assetGroup, nil
 }
 
 func deriveGenesisId(inputVtxos []arkTxInput) ([]byte, error) {

@@ -125,8 +125,8 @@ func (q *Queries) InsertUtxo(ctx context.Context, arg InsertUtxoParams) error {
 
 const insertVtxo = `-- name: InsertVtxo :exec
 INSERT INTO vtxo (
-    txid, vout, script, amount, commitment_txids, spent_by, spent, preconfirmed, expires_at, created_at, swept, unrolled, settled_by, ark_txid
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    txid, vout, script, amount, commitment_txids, spent_by, spent, preconfirmed, expires_at, created_at, swept, unrolled, settled_by, ark_txid, asset
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertVtxoParams struct {
@@ -144,6 +144,7 @@ type InsertVtxoParams struct {
 	Unrolled        bool
 	SettledBy       sql.NullString
 	ArkTxid         sql.NullString
+	Asset           []byte
 }
 
 func (q *Queries) InsertVtxo(ctx context.Context, arg InsertVtxoParams) error {
@@ -162,6 +163,7 @@ func (q *Queries) InsertVtxo(ctx context.Context, arg InsertVtxoParams) error {
 		arg.Unrolled,
 		arg.SettledBy,
 		arg.ArkTxid,
+		arg.Asset,
 	)
 	return err
 }
@@ -283,7 +285,7 @@ func (q *Queries) SelectAllUtxos(ctx context.Context) ([]Utxo, error) {
 }
 
 const selectAllVtxos = `-- name: SelectAllVtxos :many
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid from vtxo
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset from vtxo
 `
 
 func (q *Queries) SelectAllVtxos(ctx context.Context) ([]Vtxo, error) {
@@ -310,6 +312,7 @@ func (q *Queries) SelectAllVtxos(ctx context.Context) ([]Vtxo, error) {
 			&i.SettledBy,
 			&i.Unrolled,
 			&i.ArkTxid,
+			&i.Asset,
 		); err != nil {
 			return nil, err
 		}
@@ -325,9 +328,9 @@ func (q *Queries) SelectAllVtxos(ctx context.Context) ([]Vtxo, error) {
 }
 
 const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset
 FROM vtxo
-WHERE spent = false AND swept = false AND unrolled = false
+WHERE spent = false AND unrolled = false
 `
 
 func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]Vtxo, error) {
@@ -354,6 +357,7 @@ func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]Vtxo, error) {
 			&i.SettledBy,
 			&i.Unrolled,
 			&i.ArkTxid,
+			&i.Asset,
 		); err != nil {
 			return nil, err
 		}
@@ -447,7 +451,7 @@ func (q *Queries) SelectUtxo(ctx context.Context, arg SelectUtxoParams) (Utxo, e
 }
 
 const selectVtxo = `-- name: SelectVtxo :one
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset
 FROM vtxo
 WHERE txid = ?1 AND vout = ?2
 `
@@ -475,6 +479,7 @@ func (q *Queries) SelectVtxo(ctx context.Context, arg SelectVtxoParams) (Vtxo, e
 		&i.SettledBy,
 		&i.Unrolled,
 		&i.ArkTxid,
+		&i.Asset,
 	)
 	return i, err
 }
