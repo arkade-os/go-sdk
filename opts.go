@@ -13,7 +13,7 @@ type Option func(options any) error
 // name alias, sub-dust vtxos are recoverable vtxos
 var WithSubDustVtxos = WithRecoverableVtxos
 
-func WithRecoverableVtxos(o any) Option {
+func WithRecoverableVtxos() Option {
 	return func(o any) error {
 		opts, err := checkSettleOptionsType(o)
 		if err != nil {
