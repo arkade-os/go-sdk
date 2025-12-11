@@ -250,7 +250,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 		// Alice sends to Bob
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{
+		_, err = alice.SendOffChain(ctx, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 21000,
 		}})

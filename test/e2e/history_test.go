@@ -121,7 +121,10 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddress)
 
-	arkTxid, err := alice.SendOffChain(ctx, false, []types.Receiver{{To: bobAddress, Amount: 1000}})
+	arkTxid, err := alice.SendOffChain(ctx, []types.Receiver{{
+		To:     bobAddress,
+		Amount: 1000,
+	}})
 	require.NoError(t, err)
 
 	// should receive the ark tx event
@@ -150,11 +153,10 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, arkTxid, vtxoEvent.Vtxos[0].Txid)
 
 	// bob sends funds to alice
-	arkTxid, err = bob.SendOffChain(
-		ctx,
-		false,
-		[]types.Receiver{{To: aliceOffchainAddr, Amount: 1000}},
-	)
+	arkTxid, err = bob.SendOffChain(ctx, []types.Receiver{{
+		To:     aliceOffchainAddr,
+		Amount: 1000,
+	}})
 	require.NoError(t, err)
 
 	// should receive the ark tx event

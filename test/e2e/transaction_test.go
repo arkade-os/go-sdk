@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -25,11 +26,10 @@ func TestOffchainTx(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
-		txid, err := alice.SendOffChain(
-			ctx,
-			false,
-			[]types.Receiver{{To: bobAddress, Amount: 1000}},
-		)
+		txid, err := alice.SendOffChain(ctx, []types.Receiver{{
+			To:     bobAddress,
+			Amount: 1000,
+		}})
 		require.NoError(t, err)
 
 		// next event received by bob vtxo channel should be the added event
@@ -45,11 +45,10 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 1)
 
-		txid, err = alice.SendOffChain(
-			ctx,
-			false,
-			[]types.Receiver{{To: bobAddress, Amount: 10000}},
-		)
+		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+			To:     bobAddress,
+			Amount: 10000,
+		}})
 		require.NoError(t, err)
 
 		// next event received by bob vtxo channel should be the added event
@@ -65,11 +64,10 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 2)
 
-		txid, err = alice.SendOffChain(
-			ctx,
-			false,
-			[]types.Receiver{{To: bobAddress, Amount: 10000}},
-		)
+		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+			To:     bobAddress,
+			Amount: 10000,
+		}})
 		require.NoError(t, err)
 
 		// next event received by bob vtxo channel should be the added event
@@ -85,11 +83,10 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 3)
 
-		txid, err = alice.SendOffChain(
-			ctx,
-			false,
-			[]types.Receiver{{To: bobAddress, Amount: 10000}},
-		)
+		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+			To:     bobAddress,
+			Amount: 10000,
+		}}, arksdk.WithoutExpirySorting())
 		require.NoError(t, err)
 
 		// next event received by bob vtxo channel should be the added event
@@ -136,7 +133,7 @@ func TestOffchainTx(t *testing.T) {
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
 		for range numInputs {
-			txid, err := alice.SendOffChain(ctx, false, []types.Receiver{{
+			txid, err := alice.SendOffChain(ctx, []types.Receiver{{
 				To:     bobOffchainAddr,
 				Amount: amount,
 			}})
@@ -154,7 +151,7 @@ func TestOffchainTx(t *testing.T) {
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 
-		txid, err := bob.SendOffChain(ctx, false, []types.Receiver{{
+		txid, err := bob.SendOffChain(ctx, []types.Receiver{{
 			To:     aliceOffchainAddr,
 			Amount: numInputs * amount,
 		}})
@@ -190,7 +187,7 @@ func TestOffchainTx(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
-		txid, err := alice.SendOffChain(ctx, false, []types.Receiver{{
+		txid, err := alice.SendOffChain(ctx, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 100, // Sub-dust amount
 		}})
@@ -206,7 +203,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, txid, bobVtxo.Txid)
 
 		// bob can't spend subdust VTXO via ark tx
-		_, err = bob.SendOffChain(ctx, false, []types.Receiver{{
+		_, err = bob.SendOffChain(ctx, []types.Receiver{{
 			To:     aliceOffchainAddr,
 			Amount: 100,
 		}})
@@ -217,7 +214,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to register intent")
 
-		txid, err = alice.SendOffChain(ctx, false, []types.Receiver{{
+		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 1000, // Another sub-dust amount
 		}})

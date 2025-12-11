@@ -489,12 +489,19 @@ func computeVSize(tx *wire.MsgTx) lntypes.VByte {
 	return lntypes.WeightUnit(uint64(weight)).ToVB()
 }
 
-func checkSettleOptionsType(o interface{}) (*SettleOptions, error) {
-	opts, ok := o.(*SettleOptions)
+func checkSettleOptionsType(o interface{}) (*settleOptions, error) {
+	opts, ok := o.(*settleOptions)
 	if !ok {
 		return nil, fmt.Errorf("invalid options type")
 	}
+	return opts, nil
+}
 
+func checkSendOffChainOptionsType(o interface{}) (*sendOffChainOptions, error) {
+	opts, ok := o.(*sendOffChainOptions)
+	if !ok {
+		return nil, fmt.Errorf("invalid options type")
+	}
 	return opts, nil
 }
 
