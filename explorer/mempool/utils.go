@@ -2,13 +2,18 @@ package mempool_explorer
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/gorilla/websocket"
 )
 
 func parseBitcoinTx(txStr string) (string, string, error) {
@@ -58,4 +63,52 @@ func deriveWsURL(baseUrl string) (string, error) {
 	wsUrl = fmt.Sprintf("%s/v1/ws", wsUrl)
 
 	return wsUrl, nil
+}
+
+// shouldExitReadLoop determines if a websocket read error should cause the read loop to exit.
+// It returns true for errors that indicate permanent connection failure.
+func isCloseError(err error) bool {
+	// Check for explicit websocket close errors
+	if websocket.IsCloseError(
+		err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseAbnormalClosure,
+	) {
+		return true
+	}
+
+	// Check for closed connection
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	// Check for context cancelation
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	return false
+}
+
+func isTimeoutError(err error) bool {
+	// Check for timeout/deadline errors (network disconnection)
+	// First check with os.IsTimeout (doesn't unwrap)
+	if os.IsTimeout(err) {
+		return true
+	}
+	// Then check wrapped errors for timeout interface
+	var timeoutErr interface{ Timeout() bool }
+	if errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+		return true
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	// All other errors are potentially temporary (should retry with circuit breaker)
+	return false
 }
