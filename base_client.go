@@ -144,17 +144,19 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 				if err := a.refreshDb(ctx); err != nil {
 					return err
 				}
-				txids, err := a.finalizePendingTxs(ctx, nil)
-				if err != nil {
-					return err
-				}
-				switch len(txids) {
-				case 0:
-					log.Debug("no pending txs to finalize")
-				case 1:
-					log.Debug("finalized 1 pending tx")
-				default:
-					log.Debugf("finalized %d pending txs", len(txids))
+				if a.withFinalizePendingTxs {
+					txids, err := a.finalizePendingTxs(ctx, nil)
+					if err != nil {
+						return err
+					}
+					switch len(txids) {
+					case 0:
+						log.Debug("no pending txs to finalize")
+					case 1:
+						log.Debug("finalized 1 pending tx")
+					default:
+						log.Debugf("finalized %d pending txs", len(txids))
+					}
 				}
 				return nil
 			}()
