@@ -753,7 +753,7 @@ func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
 		for i, output := range txPacket.UnsignedTx.TxOut {
 
 			if asset.IsAssetGroup(output.PkScript) {
-				assetGroup, _, err := asset.DecodeAssetGroupFromOpret(output.PkScript)
+				assetGroup, err := asset.DecodeAssetGroupFromOpret(output.PkScript)
 				if err != nil {
 					log.WithError(err).Error("failed to decode asset from vtxo script")
 					continue

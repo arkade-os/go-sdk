@@ -312,12 +312,18 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 
 	if changeSatsAmount > 0 {
 		changeReceiver := types.Receiver{
-			To: offchainAddrs[0].Address, Amount: changeSatsAmount,
+			To: offchainAddrs[0].Address, Amount: changeSatsAmount, IsChange: true,
 		}
 
 		otherReceivers = append(otherReceivers, changeReceiver)
+		// necessary to save to DB later
 
 		changeIndex := uint32(len(assetReceivers) + len(otherReceivers))
+		if changeSatsAmount < a.Dust {
+			// store subdust in asset anchor output
+			changeIndex = uint32(len(assetReceivers) + len(otherReceivers) - 1)
+		}
+
 		dbReceivers = append(dbReceivers, types.DBReceiver{
 			Receiver:   changeReceiver,
 			Index:      changeIndex,
@@ -496,7 +502,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 			return "", err
 		}
 	} else if len(receivers) < len(selectedSealCoins) {
-		satsChangeAmount = uint64(len(receivers)-len(selectedSealCoins)) * a.Dust
+		satsChangeAmount = uint64(len(selectedSealCoins)-len(receivers)) * a.Dust
 	}
 
 	otherReceivers := make([]types.Receiver, 0)
@@ -508,9 +514,16 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		otherReceivers = append(otherReceivers, changeReceiver)
 
 		// Note: asset anchor conusmes an output
+		changeIndex := uint32(len(receivers) + len(otherReceivers))
+		if satsChangeAmount < a.Dust {
+			// store subdust in asset anchor output
+			changeIndex = uint32(len(receivers) + len(otherReceivers) - 1)
+
+		}
+
 		changeReceivers = append(changeReceivers, types.DBReceiver{
 			Receiver:   changeReceiver,
-			Index:      uint32(len(receivers) + len(otherReceivers)),
+			Index:      changeIndex,
 			ChangeType: types.VtxoTypeNormal,
 		})
 	}
@@ -690,7 +703,7 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, as
 			return "", err
 		}
 	} else if totalReceiversCount < totalInputsCount {
-		satsChangeAmount = uint64(totalReceiversCount-totalInputsCount) * a.Dust
+		satsChangeAmount = uint64(totalInputsCount-totalReceiversCount) * a.Dust
 	}
 
 	otherReceivers := make([]types.Receiver, 0)
@@ -703,9 +716,15 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, as
 		otherReceivers = append(otherReceivers, receiver)
 
 		// Note: asset anchor conusmes an output
+		changeIndex := uint32(len(assetReceivers) + len(controlReceivers) + len(otherReceivers))
+		if satsChangeAmount < a.Dust {
+			// store subdust in asset anchor output
+			changeIndex = uint32(len(assetReceivers) + len(controlReceivers) + len(otherReceivers) - 1)
+		}
+
 		dbReceivers = append(dbReceivers, types.DBReceiver{
 			Receiver:   receiver,
-			Index:      uint32(len(assetReceivers) + len(controlReceivers) + len(otherReceivers)),
+			Index:      changeIndex,
 			ChangeType: types.VtxoTypeNormal,
 		})
 	}
@@ -3871,7 +3890,7 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txHash *chainhash.Ha
 		return nil, fmt.Errorf("no asset output found in virtual transaction %s", txHash.String())
 	}
 
-	assetGroupDetails, _, err := asset.DecodeAssetGroupFromOpret(assetOutput.PkScript)
+	assetGroupDetails, err := asset.DecodeAssetGroupFromOpret(assetOutput.PkScript)
 
 	if err != nil {
 		return nil, err
@@ -3898,16 +3917,11 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txHash *chainhash.Ha
 	newAssetDetails.Inputs = []asset.AssetInput{newAssetDetailsInput}
 	newAssetDetails.Outputs = []asset.AssetOutput{newAssetDetailsOutput}
 
-	batchTxId, err := hex.DecodeString(commitmentTxid)
-	if err != nil {
-		return nil, err
-	}
-
 	newAssetGroupDetails := asset.AssetGroup{
 		NormalAsset: newAssetDetails,
 	}
 
-	assetTransferOpReturn, err := newAssetGroupDetails.EncodeOpret(batchTxId)
+	assetTransferOpReturn, err := newAssetGroupDetails.EncodeOpret(0)
 	if err != nil {
 		return nil, err
 	}
@@ -3916,7 +3930,7 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, txHash *chainhash.Ha
 
 }
 
-func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid string, signedCheckpointTxs []string, selectedCoins []client.TapscriptsVtxo, changeReceivers []types.DBReceiver, assetGroup *asset.AssetGroup) error {
+func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid string, signedCheckpointTxs []string, selectedCoins []client.TapscriptsVtxo, receviers []types.DBReceiver, assetGroup *asset.AssetGroup) error {
 	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
 	spentAmount := uint64(0)
 
@@ -3977,7 +3991,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 		commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
 	}
 
-	for _, receiver := range changeReceivers {
+	for _, receiver := range receviers {
 		spentAmount -= receiver.Amount
 
 		changeAddr, err := arklib.DecodeAddressV0(receiver.To)
@@ -3985,11 +3999,20 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 			return err
 		}
 
-		var changeScript []byte
+		var receiverScript []byte
 		if receiver.Amount < a.Dust {
-			changeScript, err = script.SubDustScript(changeAddr.VtxoTapKey)
+			if assetGroup != nil {
+				receiverTxout, err := assetGroup.EncodeOpret(int64(receiver.Amount))
+				if err != nil {
+					return err
+				}
+				receiverScript = receiverTxout.PkScript
+			} else {
+				receiverScript, err = script.SubDustScript(changeAddr.VtxoTapKey)
+			}
+
 		} else {
-			changeScript, err = script.P2TRScript(changeAddr.VtxoTapKey)
+			receiverScript, err = script.P2TRScript(changeAddr.VtxoTapKey)
 		}
 		if err != nil {
 			return err
@@ -4020,7 +4043,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 				Preconfirmed:    true,
 				CreatedAt:       createdAt,
 				ExpiresAt:       smallestExpiration,
-				Script:          hex.EncodeToString(changeScript),
+				Script:          hex.EncodeToString(receiverScript),
 				CommitmentTxids: commitmentTxidsList,
 				Asset:           asset,
 			},

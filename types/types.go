@@ -249,8 +249,9 @@ func (u *Utxo) Sequence() (uint32, error) {
 }
 
 type Receiver struct {
-	To     string
-	Amount uint64
+	To       string
+	Amount   uint64
+	IsChange bool
 }
 
 type VtxoType int

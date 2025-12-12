@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -169,6 +168,21 @@ func buildAssetCreationTx(
 
 	}
 
+	// exclude SubDust receiver from other receivers
+	var subdustReceiver *types.Receiver
+
+	for i, receiver := range otherReceivers {
+		if receiver.Amount < dustLimit {
+			// copy value to avoid aliasing issues
+			r := receiver
+			subdustReceiver = &r
+
+			// remove from slice
+			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
+			break
+		}
+	}
+
 	assetMetadata := toAssetMetadataList(assetParams.MetadataMap)
 
 	assetDetails := asset.Asset{
@@ -186,14 +200,28 @@ func buildAssetCreationTx(
 		NormalAsset: assetDetails,
 	}
 
-	genesisId, err := deriveGenesisId(vtxos)
-	if err != nil {
-		return "", nil, nil, err
-	}
+	var assetOpretOut wire.TxOut
+	var err error
 
-	assetOpretOut, err := assetGroup.EncodeOpret(genesisId)
-	if err != nil {
-		return "", nil, nil, err
+	if subdustReceiver != nil {
+		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		assetGroup.SubDustKey = addr.VtxoTapKey
+
+		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+	} else {
+
+		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
 	}
 
 	outs = append(outs, &assetOpretOut)
@@ -319,21 +347,50 @@ func buildAssetTransferTx(
 
 	newAsset.Outputs = newAssetOutputs
 
-	batchCommitmentId, err := deriveGenesisId(sealVtxos)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
 	assetGroup := asset.AssetGroup{
 		NormalAsset: newAsset,
 	}
 
-	assetOpretScript, err := assetGroup.EncodeOpret(batchCommitmentId)
-	if err != nil {
-		return "", nil, nil, err
+	// exclude SubDust receiver from other receivers
+	var subdustReceiver *types.Receiver
+
+	for i, receiver := range otherReceivers {
+		if receiver.Amount < dustLimit {
+			// copy value to avoid aliasing issues
+			r := receiver
+			subdustReceiver = &r
+
+			// remove from slice
+			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
+			break
+		}
 	}
 
-	outs = append(outs, &assetOpretScript)
+	var assetOpretOut wire.TxOut
+	var err error
+
+	if subdustReceiver != nil {
+		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		assetGroup.SubDustKey = addr.VtxoTapKey
+
+		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+	} else {
+
+		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+	}
+
+	outs = append(outs, &assetOpretOut)
 
 	assetAnchorIndex := len(outs) - 1
 
@@ -488,9 +545,6 @@ func buildAssetModificationTx(controlAssetId, assetId [32]byte, controlSealVtxos
 
 	}
 
-	// TODO: Joshua Fix - batchCommitmentId should be derived from inputs
-	batchCommitmentId := [32]byte{}
-
 	newAsset := asset.Asset{
 		AssetId:        assetId,
 		Outputs:        []asset.AssetOutput{},
@@ -508,12 +562,46 @@ func buildAssetModificationTx(controlAssetId, assetId [32]byte, controlSealVtxos
 		NormalAsset:  newAsset,
 	}
 
-	assetGroupOpretScript, err := assetGroup.EncodeOpret(batchCommitmentId[:])
-	if err != nil {
-		return "", nil, nil, err
+	// exclude SubDust receiver from other receivers
+	var subdustReceiver *types.Receiver
+
+	for i, receiver := range otherReceivers {
+		if receiver.Amount < dustLimit {
+			// copy value to avoid aliasing issues
+			r := receiver
+			subdustReceiver = &r
+
+			// remove from slice
+			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
+			break
+		}
 	}
 
-	outs = append(outs, &assetGroupOpretScript)
+	var assetOpretOut wire.TxOut
+	var err error
+
+	if subdustReceiver != nil {
+		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		assetGroup.SubDustKey = addr.VtxoTapKey
+
+		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+	} else {
+
+		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+	}
+
+	outs = append(outs, &assetOpretOut)
 
 	assetAnchorIndex := len(outs) - 1
 
@@ -560,42 +648,6 @@ func buildAssetModificationTx(controlAssetId, assetId [32]byte, controlSealVtxos
 	}
 
 	return arkTx, checkpointTxs, &assetGroup, nil
-}
-
-func deriveGenesisId(inputVtxos []arkTxInput) ([]byte, error) {
-
-	if len(inputVtxos) == 0 {
-		var nullBatchId [32]byte
-		return nullBatchId[:], nil
-	}
-
-	sort.Slice(inputVtxos, func(i, j int) bool {
-		cmp := strings.Compare(inputVtxos[i].Txid, inputVtxos[j].Txid)
-
-		if cmp < 0 {
-			return true
-		}
-		if cmp > 0 {
-			return false
-		}
-		// TxId equal, compare Vout
-		return inputVtxos[i].Outpoint.VOut < inputVtxos[j].Outpoint.VOut
-	})
-
-	// Take the smallest outpoint after sorting
-	smallest := inputVtxos[0]
-
-	h := sha256.New()
-
-	for _, txid := range smallest.CommitmentTxids {
-		decodedTxid, err := hex.DecodeString(txid)
-		if err != nil {
-			return nil, err
-		}
-		h.Write(decodedTxid)
-	}
-
-	return h.Sum(nil), nil
 }
 
 func buildOffchainTx(
