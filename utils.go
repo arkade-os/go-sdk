@@ -177,6 +177,7 @@ func buildAssetCreationTx(
 		ControlAssetId: assetParams.ControlAssetId,
 		Inputs:         []asset.AssetInput{},
 		Metadata:       assetMetadata,
+		Immutable:      assetParams.Immutable,
 		Version:        asset.AssetVersion,
 		Magic:          asset.AssetMagic,
 	}

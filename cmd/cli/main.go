@@ -164,6 +164,14 @@ var (
 		Value:       false,
 		DefaultText: "false",
 	}
+
+	immutableFlag = &cli.BoolFlag{
+		Name:        "immutable",
+		Usage:       "set the asset as immutable",
+		Value:       false,
+		DefaultText: "false",
+	}
+
 	verboseFlag = &cli.BoolFlag{
 		Name:        "verbose",
 		Usage:       "enable debug logs",
@@ -238,7 +246,7 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return createAsset(ctx)
 		},
-		Flags: []cli.Flag{passwordFlag, assetNameFlag, assetQuantityFlag, assetSymbolFlag, controlAssetFlag},
+		Flags: []cli.Flag{passwordFlag, assetNameFlag, assetQuantityFlag, assetSymbolFlag, controlAssetFlag, immutableFlag},
 	}
 
 	sendAssetCommand = cli.Command{
@@ -429,6 +437,7 @@ func createAsset(ctx *cli.Context) error {
 	name := ctx.String(assetNameFlag.Name)
 	symbol := ctx.String(assetSymbolFlag.Name)
 	controlAsset := ctx.String(controlAssetFlag.Name)
+	immutable := ctx.Bool(immutableFlag.Name)
 
 	if quantity == 0 && name == "" {
 		return fmt.Errorf("missing asset name or quantity")
@@ -458,6 +467,7 @@ func createAsset(ctx *cli.Context) error {
 		Quantity:       quantity,
 		ControlAssetId: controlAssetID,
 		MetadataMap:    metadata,
+		Immutable:      immutable,
 	}
 
 	password, err := readPassword(ctx)

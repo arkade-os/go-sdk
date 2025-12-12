@@ -353,6 +353,7 @@ type SyncEvent struct {
 type AssetCreationParams struct {
 	Quantity       uint64
 	ControlAssetId [32]byte
+	Immutable      bool
 	MetadataMap    map[string]string
 }
 
