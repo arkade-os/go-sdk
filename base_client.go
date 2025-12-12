@@ -60,6 +60,12 @@ func WithRefreshDb(interval time.Duration) ClientOption {
 	}
 }
 
+func WithoutFinalizePendingTxs() ClientOption {
+	return func(c *arkClient) {
+		c.withFinalizePendingTxs = false
+	}
+}
+
 type arkClient struct {
 	*types.Config
 	wallet   wallet.WalletService
@@ -74,8 +80,7 @@ type arkClient struct {
 	syncDone          bool
 	syncErr           error
 	syncListeners     *syncListeners
-	stopRestore       context.CancelFunc
-	stopWatch         context.CancelFunc
+	stopFn            context.CancelFunc
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
 
@@ -83,7 +88,8 @@ type arkClient struct {
 	vtxoBroadcaster *utils.Broadcaster[types.VtxoEvent]
 	txBroadcaster   *utils.Broadcaster[types.TransactionEvent]
 
-	verbose bool
+	verbose                bool
+	withFinalizePendingTxs bool
 }
 
 func (a *arkClient) GetVersion() string {
@@ -132,27 +138,38 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 			a.explorer.Start()
 
 			ctx, cancel := context.WithCancel(context.Background())
-			a.stopRestore = cancel
+			a.stopFn = cancel
 
-			err := a.refreshDb(ctx)
+			err := func() error {
+				if err := a.refreshDb(ctx); err != nil {
+					return err
+				}
+				if a.withFinalizePendingTxs {
+					txids, err := a.finalizePendingTxs(ctx, nil)
+					if err != nil {
+						return err
+					}
+					switch len(txids) {
+					case 0:
+						log.Debug("no pending txs to finalize")
+					case 1:
+						log.Debug("finalized 1 pending tx")
+					default:
+						log.Debugf("finalized %d pending txs", len(txids))
+					}
+				}
+				return nil
+			}()
 			a.syncCh <- err
 			close(a.syncCh)
 
-			ctxBg := context.Background()
-			ctxStream, cancelStream := context.WithCancel(ctxBg)
-			ctxPoll, cancelPoll := context.WithCancel(ctxBg)
-			a.stopWatch = func() {
-				cancelStream()
-				cancelPoll()
-			}
-
 			// start listening to stream events
-			go a.listenForArkTxs(ctxStream)
-			go a.listenForOnchainTxs(ctxStream)
-			go a.listenDbEvents(ctxStream)
+			go a.listenForArkTxs(ctx)
+			go a.listenForOnchainTxs(ctx)
+			go a.listenDbEvents(ctx)
 
 			// start periodic refresh db
-			go a.periodicRefreshDb(ctxPoll)
+			go a.periodicRefreshDb(ctx)
 		}()
 	}
 
@@ -174,11 +191,8 @@ func (a *arkClient) Lock(ctx context.Context) error {
 			a.syncErr = nil
 			a.syncMu.Unlock()
 		}
-		if a.stopRestore != nil {
-			a.stopRestore()
-		}
-		if a.stopWatch != nil {
-			a.stopWatch()
+		if a.stopFn != nil {
+			a.stopFn()
 		}
 		if a.syncListeners != nil {
 			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
@@ -308,11 +322,8 @@ func (a *arkClient) Reset(ctx context.Context) {
 		a.syncMu.Unlock()
 	}
 
-	if a.stopWatch != nil {
-		a.stopWatch()
-	}
-	if a.stopRestore != nil {
-		a.stopRestore()
+	if a.stopFn != nil {
+		a.stopFn()
 	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
@@ -335,11 +346,8 @@ func (a *arkClient) Stop() {
 		a.syncMu.Unlock()
 	}
 
-	if a.stopWatch != nil {
-		a.stopWatch()
-	}
-	if a.stopRestore != nil {
-		a.stopRestore()
+	if a.stopFn != nil {
+		a.stopFn()
 	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
@@ -848,6 +856,91 @@ func (a *arkClient) periodicRefreshDb(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (a *arkClient) finalizePendingTxs(
+	ctx context.Context, createdAfter *time.Time,
+) ([]string, error) {
+	vtxos, err := a.listPendingSpentVtxosFromIndexer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]types.Vtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		if createdAfter != nil && !createdAfter.IsZero() {
+			if !vtxo.CreatedAt.After(*createdAfter) {
+				continue
+			}
+		}
+		filtered = append(filtered, vtxo)
+	}
+
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+
+	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, filtered)
+	if err != nil {
+		return nil, err
+	}
+
+	inputs, exitLeaves, arkFields, err := toIntentInputs(nil, vtxosWithTapscripts, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	txids := make([]string, 0)
+	const MAX_INPUTS_PER_INTENT = 20
+
+	for i := 0; i < len(inputs); i += MAX_INPUTS_PER_INTENT {
+		end := min(i+MAX_INPUTS_PER_INTENT, len(inputs))
+		inputsSubset := inputs[i:end]
+		exitLeavesSubset := exitLeaves[i:end]
+		arkFieldsSubset := arkFields[i:end]
+		proofTx, message, err := a.makeGetPendingTxIntent(
+			inputsSubset, exitLeavesSubset, arkFieldsSubset,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pendingTxs, err := a.client.GetPendingTx(ctx, proofTx, message)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, tx := range pendingTxs {
+			txid, err := a.finalizeTx(ctx, tx)
+			if err != nil {
+				log.WithError(err).Errorf("failed to finalize pending tx: %s", tx.Txid)
+				continue
+			}
+			txids = append(txids, txid)
+		}
+	}
+
+	return txids, nil
+}
+
+func (a *arkClient) finalizeTx(
+	ctx context.Context, acceptedTx client.AcceptedOffchainTx,
+) (string, error) {
+	finalCheckpoints := make([]string, 0, len(acceptedTx.SignedCheckpointTxs))
+
+	for _, checkpoint := range acceptedTx.SignedCheckpointTxs {
+		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
+		if err != nil {
+			return "", err
+		}
+		finalCheckpoints = append(finalCheckpoints, signedTx)
+	}
+
+	if err := a.client.FinalizeTx(ctx, acceptedTx.Txid, finalCheckpoints); err != nil {
+		return "", err
+	}
+
+	return acceptedTx.Txid, nil
 }
 
 func getClient(

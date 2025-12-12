@@ -34,8 +34,6 @@ func TestWalletStore(t *testing.T) {
 	for i := range tests {
 		tt := tests[i]
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			var storeSvc walletstore.WalletStore
 			var err error
 			if tt.name == types.InMemoryStore {
