@@ -51,7 +51,11 @@ func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error)
 		return nil, ErrAlreadyInitialized
 	}
 
-	client := &arkClient{store: sdkStore, syncMu: &sync.Mutex{}}
+	client := &arkClient{
+		store:                  sdkStore,
+		syncMu:                 &sync.Mutex{},
+		withFinalizePendingTxs: true,
+	}
 	for _, opt := range opts {
 		opt(client)
 	}
@@ -112,14 +116,15 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 	syncListeners := newReadyListeners()
 
 	client := &arkClient{
-		Config:        cfgData,
-		wallet:        walletSvc,
-		store:         sdkStore,
-		explorer:      explorerSvc,
-		client:        clientSvc,
-		indexer:       indexerSvc,
-		syncListeners: syncListeners,
-		syncMu:        &sync.Mutex{},
+		Config:                 cfgData,
+		wallet:                 walletSvc,
+		store:                  sdkStore,
+		explorer:               explorerSvc,
+		client:                 clientSvc,
+		indexer:                indexerSvc,
+		syncListeners:          syncListeners,
+		syncMu:                 &sync.Mutex{},
+		withFinalizePendingTxs: true,
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -176,13 +181,14 @@ func LoadArkClientWithWallet(
 	}
 
 	client := &arkClient{
-		Config:   cfgData,
-		wallet:   walletSvc,
-		store:    sdkStore,
-		explorer: explorerSvc,
-		client:   clientSvc,
-		indexer:  indexerSvc,
-		syncMu:   &sync.Mutex{},
+		Config:                 cfgData,
+		wallet:                 walletSvc,
+		store:                  sdkStore,
+		explorer:               explorerSvc,
+		client:                 clientSvc,
+		indexer:                indexerSvc,
+		syncMu:                 &sync.Mutex{},
+		withFinalizePendingTxs: true,
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -794,7 +800,10 @@ func (a *arkClient) RegisterIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 	outputs []types.Receiver, cosignersPublicKeys []string,
 ) (string, error) {
-	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
 	if err != nil {
 		return "", err
@@ -820,7 +829,10 @@ func (a *arkClient) RegisterIntent(
 func (a *arkClient) DeleteIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 ) error {
-	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
+	if err := a.safeCheck(); err != nil {
+		return err
+	}
+
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
 	if err != nil {
 		return err
@@ -848,95 +860,7 @@ func (a *arkClient) FinalizePendingTxs(
 		return nil, err
 	}
 
-	vtxos, err := a.listPendingSpentVtxosFromIndexer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// filter out swept vtxos and optionally filter by date
-	filtered := make([]types.Vtxo, 0, len(vtxos))
-	for _, vtxo := range vtxos {
-		if createdAfter != nil && !createdAfter.IsZero() {
-			if !vtxo.CreatedAt.After(*createdAfter) {
-				continue
-			}
-		}
-		filtered = append(filtered, vtxo)
-	}
-
-	if len(filtered) == 0 {
-		return nil, nil
-	}
-
-	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, filtered)
-	if err != nil {
-		return nil, err
-	}
-
-	inputs, exitLeaves, arkFields, err := toIntentInputs(
-		nil, vtxosWithTapscripts, nil,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	txids := make([]string, 0)
-	const MAX_INPUTS_PER_INTENT = 20
-
-	for i := 0; i < len(inputs); i += MAX_INPUTS_PER_INTENT {
-		end := i + MAX_INPUTS_PER_INTENT
-		if end > len(inputs) {
-			end = len(inputs)
-		}
-		inputsSubset := inputs[i:end]
-		exitLeavesSubset := exitLeaves[i:end]
-		arkFieldsSubset := arkFields[i:end]
-		proofTx, message, err := a.makeGetPendingTxIntent(
-			inputsSubset,
-			exitLeavesSubset,
-			arkFieldsSubset,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		pendingTxs, err := a.client.GetPendingTx(ctx, proofTx, message)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, tx := range pendingTxs {
-			txid, err := a.finalizeTx(ctx, tx)
-			if err != nil {
-				log.WithError(err).Errorf("failed to finalize pending tx: %s", tx.Txid)
-				continue
-			}
-			txids = append(txids, txid)
-		}
-	}
-
-	return txids, nil
-}
-
-func (a *arkClient) finalizeTx(
-	ctx context.Context,
-	acceptedTx client.AcceptedOffchainTx,
-) (string, error) {
-	finalCheckpoints := make([]string, 0, len(acceptedTx.SignedCheckpointTxs))
-
-	for _, checkpoint := range acceptedTx.SignedCheckpointTxs {
-		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
-		if err != nil {
-			return "", err
-		}
-		finalCheckpoints = append(finalCheckpoints, signedTx)
-	}
-
-	if err := a.client.FinalizeTx(ctx, acceptedTx.Txid, finalCheckpoints); err != nil {
-		return "", err
-	}
-
-	return acceptedTx.Txid, nil
+	return a.finalizePendingTxs(ctx, createdAfter)
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
@@ -3299,6 +3223,11 @@ func (i *arkClient) vtxosToTxs(
 			resp, err := i.indexer.GetVtxos(ctx, *opts)
 			if err != nil {
 				return nil, err
+			}
+			// Pending tx, skip
+			// TODO: maybe we want to handle this somehow?
+			if len(resp.Vtxos) <= 0 {
+				continue
 			}
 			vtxo = resp.Vtxos[0]
 		}
