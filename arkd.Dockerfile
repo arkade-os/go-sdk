@@ -7,7 +7,7 @@ ARG TARGETARCH
 
 WORKDIR /app
 
-RUN git clone https://github.com/arkade-os/arkd.git
+RUN git clone --branch ark-asset --single-branch https://github.com/arkade-os/arkd.git
 
 # ENV GOPROXY=https://goproxy.io,direct
 RUN cd arkd && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-X 'main.Version=${VERSION}'" -o ../bin/arkd ./cmd/arkd

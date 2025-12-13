@@ -9,7 +9,7 @@ ARG BRANCH=v0.8.5
 
 WORKDIR /app
 
-RUN git clone https://github.com/arkade-os/arkd.git && cd arkd && git checkout ${BRANCH}
+RUN git clone --branch ark-asset --single-branch https://github.com/arkade-os/arkd.git
 
 RUN mkdir -p bin && cd arkd && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
