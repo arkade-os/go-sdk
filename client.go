@@ -289,7 +289,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	vtxos, err := a.createTapscripVtxos(ctx, offchainAddrs)
+	vtxos, err := a.getTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
 		return "", err
 	}
@@ -444,7 +444,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	vtxos, err := a.createTapscripVtxos(ctx, offchainAddrs)
+	vtxos, err := a.getTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
 		return "", err
 	}
@@ -613,7 +613,7 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, as
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	vtxos, err := a.createTapscripVtxos(ctx, offchainAddrs)
+	vtxos, err := a.getTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
 		return "", err
 	}
@@ -4139,7 +4139,7 @@ func (a *arkClient) fetchTxHistory(ctx context.Context) ([]types.Transaction, er
 	return history, nil
 }
 
-func (a *arkClient) createTapscripVtxos(ctx context.Context, offchainAddrs []wallet.TapscriptsAddress) ([]client.TapscriptsVtxo, error) {
+func (a *arkClient) getTapscripVtxos(ctx context.Context, offchainAddrs []wallet.TapscriptsAddress) ([]client.TapscriptsVtxo, error) {
 	vtxos := make([]client.TapscriptsVtxo, 0)
 
 	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
