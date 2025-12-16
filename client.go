@@ -6,10 +6,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -595,9 +597,44 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 
 }
 
+func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetResponse, error) {
+	// Ensure URL has scheme
+	serverUrl := a.ServerUrl
+	if !strings.HasPrefix(serverUrl, "http://") && !strings.HasPrefix(serverUrl, "https://") {
+		serverUrl = "http://" + serverUrl
+	}
+	url := fmt.Sprintf("%s/v1/indexer/asset/%s", serverUrl, assetID)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var assetResp types.AssetResponse
+	if err := json.Unmarshal(body, &assetResp); err != nil {
+		return nil, err
+	}
+
+	return &assetResp, nil
+}
+
 func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, assetId [32]byte, amount uint64, metadata map[string]string) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
+	}
+
+	if controlAssetId == [32]byte{} {
+		return "", fmt.Errorf("control asset id is required for modification")
 	}
 
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)

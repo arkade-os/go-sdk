@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"testing"
 	"time"
 
@@ -38,6 +39,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	assetID := issuerAssetVtxo.Asset.AssetId
+	fmt.Printf("This is asset id %s\n", hex.EncodeToString(assetID[:]))
 
 	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
 	require.NoError(t, err)
@@ -108,6 +110,8 @@ func TestAssetModification(t *testing.T) {
 	require.NotNil(t, targetAssetVtxo)
 	targetAssetID := targetAssetVtxo.Asset.AssetId
 
+	println(hex.EncodeToString(targetAssetID[:]))
+
 	time.Sleep(2 * time.Second)
 	// Settle to ensure everything is stable
 	_, err = issuer.Settle(ctx)
@@ -140,9 +144,65 @@ func TestAssetModification(t *testing.T) {
 	require.True(t, ok)
 	require.EqualValues(t, mintAmount, modifiedAssetAmount) // Check Asset Amount
 
-	// Final Settlement
+	// Verify Metadata via Indexer Endpoint
+	time.Sleep(2 * time.Second) // Wait for indexer to index the new state (if necessary)
+
+	assetResp, err := issuer.GetAsset(ctx, hex.EncodeToString(targetAssetID[:]))
+	require.NoError(t, err)
+	require.Equal(t, hex.EncodeToString(targetAssetID[:]), assetResp.Asset.Id)
+
+	// Check metadata
+	foundUpgraded := false
+	for _, m := range assetResp.Asset.Metadata {
+		if val, ok := m["key"]; ok && val == "desc" {
+			if val2, ok2 := m["value"]; ok2 && val2 == "Upgraded" {
+				foundUpgraded = true
+				break
+			}
+		}
+	}
+	require.True(t, foundUpgraded, "Indexer metadata should contain 'desc': 'Upgraded'")
+
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
+
+	_, err = issuer.ModifyAsset(ctx, [32]byte{}, targetAssetID, 100, map[string]string{"foo": "bar"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "control asset id is required")
+
+	immutableParams := types.AssetCreationParams{
+		Quantity:    1000,
+		Immutable:   true,
+		MetadataMap: map[string]string{"name": "Immutable", "fixed": "true"},
+	}
+	_, err = issuer.CreateAsset(ctx, immutableParams)
+	require.NoError(t, err)
+
+	immutableVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
+		for _, m := range v.Asset.Metadata {
+			if m.Key == "name" && m.Value == "Immutable" {
+				return true
+			}
+		}
+		return false
+	})
+	require.NotNil(t, immutableVtxo)
+	immutableID := immutableVtxo.Asset.AssetId
+
+	time.Sleep(2 * time.Second)
+	_, err = issuer.ModifyAsset(ctx, controlAssetID, immutableID, 100, map[string]string{"fixed": "false"})
+	require.NoError(t, err)
+
+	immutableResp, err := issuer.GetAsset(ctx, hex.EncodeToString(immutableID[:]))
+	require.NoError(t, err)
+
+	fixedVal := ""
+	for _, m := range immutableResp.Asset.Metadata {
+		if val, ok := m["key"]; ok && val == "fixed" {
+			fixedVal = m["value"]
+		}
+	}
+	require.Equal(t, "true", fixedVal, "Immutable asset metadata should not change")
 }
 
 func waitForAssetVtxo(t *testing.T, ctx context.Context, client arksdk.ArkClient, matcher func(types.Vtxo) bool) types.Vtxo {

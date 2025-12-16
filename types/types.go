@@ -367,3 +367,14 @@ type AssetModificationParams struct {
 	Name   string
 	Symbol string
 }
+
+type AssetResponse struct {
+	AssetId string    `json:"assetId"`
+	Asset   AssetInfo `json:"asset"`
+}
+
+type AssetInfo struct {
+	Id       string              `json:"id"`
+	Quantity string              `json:"quantity"` // Quantity is returned as string in JSON
+	Metadata []map[string]string `json:"metadata"`
+}
