@@ -303,11 +303,6 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		return "", err
 	}
 
-	// do not process subdust change for asset creation
-	if changeSatsAmount > 0 && changeSatsAmount < a.Dust {
-		return "", fmt.Errorf("change amount %d is below dust threshold %d", changeSatsAmount, a.Dust)
-	}
-
 	otherReceivers := make([]types.Receiver, 0)
 
 	if changeSatsAmount > 0 {

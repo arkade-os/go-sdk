@@ -60,9 +60,89 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	receiverBalance, err := receiver.Balance(ctx, false)
 	require.NoError(t, err)
 	assetHex := hex.EncodeToString(assetID[:])
+	// Verify receiver balance
 	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetHex]
 	require.True(t, ok)
 	require.GreaterOrEqual(t, int(assetBalance.TotalAmount), int(transferAmount))
+
+	// Final Settlement
+	_, err = issuer.Settle(ctx)
+	require.NoError(t, err)
+	_, err = receiver.Settle(ctx)
+	require.NoError(t, err)
+}
+
+func TestAssetModification(t *testing.T) {
+	ctx := context.Background()
+
+	issuer := setupClient(t)
+
+	// Fund issuer
+	faucetOffchain(t, issuer, 0.002)
+
+	// 1. Create Control Asset (regular asset used for control)
+	controlAssetParams := types.AssetCreationParams{
+		Quantity:    1,
+		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
+	}
+	_, err := issuer.CreateAsset(ctx, controlAssetParams)
+	require.NoError(t, err)
+
+	controlAssetVtxo := waitForAssetVtxo(t, ctx, issuer, nil)
+	require.NotNil(t, controlAssetVtxo)
+	controlAssetID := controlAssetVtxo.Asset.AssetId
+
+	time.Sleep(2 * time.Second)
+
+	targetAssetParams := types.AssetCreationParams{
+		Quantity:       5000,
+		ControlAssetId: controlAssetID,
+		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
+	}
+	_, err = issuer.CreateAsset(ctx, targetAssetParams)
+	require.NoError(t, err)
+
+	targetAssetVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
+		return v.Asset.ControlAssetId == controlAssetID && v.Asset.AssetId != controlAssetID
+	})
+	require.NotNil(t, targetAssetVtxo)
+	targetAssetID := targetAssetVtxo.Asset.AssetId
+
+	time.Sleep(2 * time.Second)
+	// Settle to ensure everything is stable
+	_, err = issuer.Settle(ctx)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Second)
+
+	const mintAmount uint64 = 1000
+	newMetadata := map[string]string{"name": "Target Asset v2", "desc": "Upgraded"}
+
+	_, err = issuer.ModifyAsset(ctx, controlAssetID, targetAssetID, mintAmount, newMetadata)
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	modifiedVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
+		if v.Asset.AssetId != targetAssetID {
+			return false
+		}
+		// Check for new metadata
+		for _, m := range v.Asset.Metadata {
+			if m.Key == "desc" && m.Value == "Upgraded" {
+				return true
+			}
+		}
+		return false
+	})
+	require.NotNil(t, modifiedVtxo)
+
+	modifiedAssetAmount, ok := assetAmountForVout(modifiedVtxo)
+	require.True(t, ok)
+	require.EqualValues(t, mintAmount, modifiedAssetAmount) // Check Asset Amount
+
+	// Final Settlement
+	_, err = issuer.Settle(ctx)
+	require.NoError(t, err)
 }
 
 func waitForAssetVtxo(t *testing.T, ctx context.Context, client arksdk.ArkClient, matcher func(types.Vtxo) bool) types.Vtxo {
