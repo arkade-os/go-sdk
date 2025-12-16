@@ -964,6 +964,13 @@ func toIntentInputs(
 		}
 
 		signingLeaves = append(signingLeaves, leafProof)
+
+		vtxoSealField, err := txutils.AssetSealVtxoField.Encode(false)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		input.Unknowns = append(input.Unknowns, vtxoSealField)
+
 		arkFields = append(arkFields, input.Unknowns)
 	}
 

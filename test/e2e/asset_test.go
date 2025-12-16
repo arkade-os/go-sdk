@@ -34,6 +34,9 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	require.True(t, ok)
 	require.EqualValues(t, supply, issuerAssetAmount)
 
+	// Allow server event handler to process the new VTXOs from CreateAsset
+	time.Sleep(2 * time.Second)
+
 	assetID := issuerAssetVtxo.Asset.AssetId
 
 	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)

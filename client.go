@@ -3614,6 +3614,27 @@ func (a *arkClient) handleArkTx(
 	vtxosToSpend := make(map[types.Outpoint]string)
 	txsToAdd := make([]types.Transaction, 0)
 
+	// Enrich vtxos with asset info if available in the tx
+	if assetGroup, err := asset.DeriveAssetGroupFromTx(arkTx.Tx); err == nil {
+		voutToAsset := make(map[uint32]*asset.Asset)
+
+		if assetGroup.ControlAsset != nil {
+			for _, out := range assetGroup.ControlAsset.Outputs {
+				voutToAsset[out.Vout] = assetGroup.ControlAsset
+			}
+		}
+
+		for _, out := range assetGroup.NormalAsset.Outputs {
+			voutToAsset[out.Vout] = &assetGroup.NormalAsset
+		}
+
+		for i, vtxo := range arkTx.SpendableVtxos {
+			if a, ok := voutToAsset[vtxo.VOut]; ok {
+				arkTx.SpendableVtxos[i].Asset = a
+			}
+		}
+	}
+
 	for _, vtxo := range arkTx.SpendableVtxos {
 		// remove opcodes from P2TR script
 		tapkey := vtxo.Script[4:]
