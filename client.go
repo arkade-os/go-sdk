@@ -312,6 +312,8 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 		nil, vtxos, totalDustAmount, a.Dust, false,
 	)
 
+	fmt.Printf("len of selected coins %d \n", len(selectedSatsCoins))
+
 	if err != nil {
 		return "", err
 	}
@@ -326,7 +328,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 		otherReceivers = append(otherReceivers, changeReceiver)
 		// necessary to save to DB later
 
-		changeIndex := globalVoutIndex + uint32(len(otherReceivers)) - 1 // after all assets
+		var changeIndex uint32
 
 		if changeSatsAmount < a.Dust {
 			// store subdust in asset anchor output
@@ -380,6 +382,8 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 			*forfeitLeafHash,
 		})
 	}
+
+	fmt.Printf("inputs len %v \n", len(inputs))
 
 	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(inputs, requests, otherReceivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
@@ -722,7 +726,7 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, asse
 		return "", err
 	}
 
-	if len(controlAssetId) > 0 {
+	if len(controlAssetId) == 0 {
 		return "", fmt.Errorf("control asset id is required for modification")
 	}
 

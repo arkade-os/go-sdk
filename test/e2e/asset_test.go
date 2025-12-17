@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -39,7 +38,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	assetID := issuerAssetVtxo.Asset.AssetId
-	fmt.Printf("This is asset id %s\n", hex.EncodeToString(assetID[:]))
+	fmt.Printf("This is asset id %s\n", assetID.ToString())
 
 	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
 	require.NoError(t, err)
@@ -51,7 +50,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 			To:     receiverOffchainAddr,
 			Amount: transferAmount,
 		},
-		AssetId: hex.EncodeToString(assetID[:]),
+		AssetId: assetID.ToString(),
 	}})
 	require.NoError(t, err)
 
@@ -64,7 +63,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 
 	receiverBalance, err := receiver.Balance(ctx, false)
 	require.NoError(t, err)
-	assetHex := hex.EncodeToString(assetID[:])
+	assetHex := assetID.ToString()
 	// Verify receiver balance
 	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetHex]
 	require.True(t, ok)
@@ -101,19 +100,19 @@ func TestAssetModification(t *testing.T) {
 
 	targetAssetParams := types.AssetCreationParams{
 		Quantity:       5000,
-		ControlAssetId: controlAssetID,
+		ControlAssetId: controlAssetID.ToString(),
 		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
 	}
 	_, err = issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
 	require.NoError(t, err)
 
 	targetAssetVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
-		return v.Asset.ControlAssetId == controlAssetID && v.Asset.AssetId != controlAssetID
+		return v.Asset.ControlAssetId != nil && *v.Asset.ControlAssetId == controlAssetID && v.Asset.AssetId != controlAssetID
 	})
 	require.NotNil(t, targetAssetVtxo)
 	targetAssetID := targetAssetVtxo.Asset.AssetId
 
-	println(hex.EncodeToString(targetAssetID[:]))
+	println(targetAssetID.ToString())
 
 	time.Sleep(2 * time.Second)
 	// Settle to ensure everything is stable
@@ -124,7 +123,7 @@ func TestAssetModification(t *testing.T) {
 	const mintAmount uint64 = 1000
 	newMetadata := map[string]string{"name": "Target Asset v2", "desc": "Upgraded"}
 
-	_, err = issuer.ModifyAsset(ctx, controlAssetID, targetAssetID, mintAmount, newMetadata)
+	_, err = issuer.ModifyAsset(ctx, controlAssetID.ToString(), targetAssetID.ToString(), mintAmount, newMetadata)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
@@ -150,9 +149,9 @@ func TestAssetModification(t *testing.T) {
 	// Verify Metadata via Indexer Endpoint
 	time.Sleep(2 * time.Second) // Wait for indexer to index the new state (if necessary)
 
-	assetResp, err := issuer.GetAsset(ctx, hex.EncodeToString(targetAssetID[:]))
+	assetResp, err := issuer.GetAsset(ctx, targetAssetID.ToString())
 	require.NoError(t, err)
-	require.Equal(t, hex.EncodeToString(targetAssetID[:]), assetResp.Asset.Id)
+	require.Equal(t, targetAssetID.ToString(), assetResp.Asset.Id)
 
 	// Check metadata
 	foundUpgraded := false
@@ -169,7 +168,7 @@ func TestAssetModification(t *testing.T) {
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
 
-	_, err = issuer.ModifyAsset(ctx, [32]byte{}, targetAssetID, 100, map[string]string{"foo": "bar"})
+	_, err = issuer.ModifyAsset(ctx, "", targetAssetID.ToString(), 100, map[string]string{"foo": "bar"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "control asset id is required")
 
@@ -193,10 +192,10 @@ func TestAssetModification(t *testing.T) {
 	immutableID := immutableVtxo.Asset.AssetId
 
 	time.Sleep(2 * time.Second)
-	_, err = issuer.ModifyAsset(ctx, controlAssetID, immutableID, 100, map[string]string{"fixed": "false"})
+	_, err = issuer.ModifyAsset(ctx, controlAssetID.ToString(), immutableID.ToString(), 100, map[string]string{"fixed": "false"})
 	require.NoError(t, err)
 
-	immutableResp, err := issuer.GetAsset(ctx, hex.EncodeToString(immutableID[:]))
+	immutableResp, err := issuer.GetAsset(ctx, immutableID.ToString())
 	require.NoError(t, err)
 
 	fixedVal := ""

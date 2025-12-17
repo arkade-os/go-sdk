@@ -436,24 +436,12 @@ func createAsset(ctx *cli.Context) error {
 	quantity := ctx.Uint64(assetQuantityFlag.Name)
 	name := ctx.String(assetNameFlag.Name)
 	symbol := ctx.String(assetSymbolFlag.Name)
-	controlAsset := ctx.String(controlAssetFlag.Name)
+	controlAssetId := ctx.String(controlAssetFlag.Name)
 	immutable := ctx.Bool(immutableFlag.Name)
 
 	if quantity == 0 && name == "" {
 		return fmt.Errorf("missing asset name or quantity")
 	}
-
-	controlAssetID := [32]byte{}
-	if controlAsset != "" {
-		controlAssetBytes, err := hex.DecodeString(controlAsset)
-		if err != nil {
-			return fmt.Errorf("invalid control asset id: %v", err)
-		}
-
-		copy(controlAssetID[:], controlAssetBytes)
-	}
-
-	fmt.Printf("controlAsset %+v", controlAssetID)
 
 	metadata := map[string]string{}
 	if name != "" {
@@ -465,7 +453,7 @@ func createAsset(ctx *cli.Context) error {
 
 	assetParams := types.AssetCreationParams{
 		Quantity:       quantity,
-		ControlAssetId: controlAssetID,
+		ControlAssetId: controlAssetId,
 		MetadataMap:    metadata,
 		Immutable:      immutable,
 	}
@@ -478,7 +466,13 @@ func createAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.CreateAsset(ctx.Context, assetParams)
+	requests := []types.AssetCreationRequest{
+		{
+			Params: assetParams,
+		},
+	}
+
+	arkTxid, err := arkSdkClient.CreateAsset(ctx.Context, requests)
 	if err != nil {
 		return err
 	}
@@ -493,18 +487,16 @@ func sendAsset(ctx *cli.Context) error {
 		return fmt.Errorf("missing asset id or receivers")
 	}
 
-	assetIDBytes, err := hex.DecodeString(assetIDHex)
-	if err != nil {
+	// Validate asset ID is valid hex
+	if _, err := hex.DecodeString(assetIDHex); err != nil {
 		return fmt.Errorf("invalid asset id: %v", err)
 	}
-	if len(assetIDBytes) != 32 {
-		return fmt.Errorf("invalid asset id length")
-	}
-	var assetID [32]byte
-	copy(assetID[:], assetIDBytes)
 
-	receivers := []types.Receiver{
-		{To: assetFlagReceiver, Amount: amount},
+	receivers := []types.AssetReceiver{
+		{
+			Receiver: types.Receiver{To: assetFlagReceiver, Amount: amount},
+			AssetId:  assetIDHex,
+		},
 	}
 
 	password, err := readPassword(ctx)
@@ -515,7 +507,7 @@ func sendAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.SendAsset(ctx.Context, assetID, receivers)
+	arkTxid, err := arkSdkClient.SendAsset(ctx.Context, receivers)
 	if err != nil {
 		return err
 	}
@@ -533,14 +525,13 @@ func reissueAsset(ctx *cli.Context) error {
 		return fmt.Errorf("missing asset id or receivers")
 	}
 
-	controlAssetID := [32]byte{}
+	var controlAssetID string
 	if controlAsset != "" {
-		controlAssetBytes, err := hex.DecodeString(controlAsset)
-		if err != nil {
+		// Just validate hex
+		if _, err := hex.DecodeString(controlAsset); err != nil {
 			return fmt.Errorf("invalid control asset id: %v", err)
 		}
-
-		copy(controlAssetID[:], controlAssetBytes)
+		controlAssetID = controlAsset
 	}
 
 	metadata := map[string]string{}
@@ -551,15 +542,10 @@ func reissueAsset(ctx *cli.Context) error {
 		metadata["symbol"] = symbol
 	}
 
-	assetIDBytes, err := hex.DecodeString(assetIDHex)
-	if err != nil {
+	// Validate asset ID hex
+	if _, err := hex.DecodeString(assetIDHex); err != nil {
 		return fmt.Errorf("invalid asset id: %v", err)
 	}
-	if len(assetIDBytes) != 32 {
-		return fmt.Errorf("invalid asset id length")
-	}
-	var assetID [32]byte
-	copy(assetID[:], assetIDBytes)
 
 	password, err := readPassword(ctx)
 	if err != nil {
@@ -569,7 +555,7 @@ func reissueAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetID, amount, metadata)
+	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetIDHex, amount, metadata)
 	if err != nil {
 		return err
 	}

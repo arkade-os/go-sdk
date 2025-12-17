@@ -294,6 +294,7 @@ func buildAssetCreationTx(
 	vtxos []arkTxInput, assetRequests []types.AssetCreationRequest, otherReceivers []types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.AssetGroup, error) {
+
 	if len(vtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
@@ -311,6 +312,8 @@ func buildAssetCreationTx(
 	outs := make([]*wire.TxOut, 0)
 	normalAssets := make([]asset.Asset, 0, len(assetRequests))
 
+	var globalVoutIndex uint32 = 0
+
 	for i, request := range assetRequests {
 		assetOutputs := make([]asset.AssetOutput, 0)
 		var controlAssetId *asset.AssetId
@@ -323,7 +326,7 @@ func buildAssetCreationTx(
 			}
 		}
 
-		for i, assetReceiver := range request.Receivers {
+		for _, assetReceiver := range request.Receivers {
 			sealAddr, err := arklib.DecodeAddressV0(assetReceiver.To)
 			if err != nil {
 				return "", nil, nil, err
@@ -342,18 +345,9 @@ func buildAssetCreationTx(
 			assetOutputs = append(assetOutputs, asset.AssetOutput{
 				Type:   asset.AssetOutputTypeLocal,
 				Amount: assetReceiver.Amount,
-				Vout:   uint32(i), // Note: Vout needs to be relative to the AssetGroup outputs for this asset?
-				// Actually, standard practice for Asset struct:
-				// Outputs refer to the logical outputs for this asset.
-				// In BuildAssetTxs, the order of outputs in 'outs' matters.
-				// The helper function BuildAssetTxs takes 'outs' which are all tx outputs.
-				// But wait, the Asset struct needs to map to them?
-				// The AssetOutput definition usually doesn't have VOut index of the TX, OR it does?
-				// In `ark-lib/asset/asset.go`, AssetOutput has Vout (uint32).
-				// Looking at original code: `Vout: uint32(i)`.
-				// If we have multiple assets, we are appending to `outs` sequentially.
-				// So we need to track the cumulative index in `outs`.
+				Vout:   globalVoutIndex,
 			})
+			globalVoutIndex++
 		}
 
 		assetMetadata := toAssetMetadataList(request.Params.MetadataMap)
@@ -423,8 +417,6 @@ func buildAssetCreationTx(
 
 	outs = append(outs, &assetOpretOut)
 
-	assetAnchorIndex := len(outs) - 1
-
 	for _, receiver := range otherReceivers {
 		changeAddr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
@@ -443,7 +435,7 @@ func buildAssetCreationTx(
 
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, int(globalVoutIndex), ins, serverUnrollScript)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -1520,11 +1512,6 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.Asset, error) {
 	if assetGroup == nil {
 		return nil, fmt.Errorf("asset group is nil")
-	}
-
-	decodedVtxoScript, err := hex.DecodeString(vtxo.Script)
-	if err != nil {
-		return nil, err
 	}
 
 	assetsToCheck := make([]*asset.Asset, 0, len(assetGroup.NormalAssets)+len(assetGroup.ControlAssets))
