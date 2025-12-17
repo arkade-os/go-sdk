@@ -468,6 +468,12 @@ func buildAssetTransferTx(
 
 	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(otherVtxos))
 
+	//assign Index for assetReceiver
+	finalAssetReceivers := assetReceivers
+	for i := range assetReceivers {
+		finalAssetReceivers[i].Index = uint32(i)
+	}
+
 	// Group inputs by AssetId
 	inputsByAsset := make(map[string][]arkTxInput)
 	// Also keep track of original asset info to copy metadata, etc.
@@ -484,20 +490,12 @@ func buildAssetTransferTx(
 
 	// Group outputs by AssetId
 	outputsByAsset := make(map[string][]types.AssetReceiver)
-	for _, receiver := range assetReceivers {
+	for _, receiver := range finalAssetReceivers {
 		outputsByAsset[receiver.AssetId] = append(outputsByAsset[receiver.AssetId], receiver)
 	}
 
 	normalAssets := make([]asset.Asset, 0)
 	outs := make([]*wire.TxOut, 0)
-	currentVout := uint32(0)
-
-	// We need to iterate over assets. The order in NormalAssets doesn't strictly matter for validity,
-	// but needs to match the Vout indices we assign.
-	// We can iterate over inputsByAsset keys or outputsByAsset keys.
-	// But we need to handle cases where we might have inputs but no outputs? (Burnt?)
-	// Or outputs but no inputs? (Minting? No, this is Transfer).
-	// Assuming logic involves assets present in inputs.
 
 	// To ensure deterministic order, let's collect all AssetIds
 	assetIds := make([]string, 0, len(inputsByAsset))
@@ -526,10 +524,16 @@ func buildAssetTransferTx(
 			found := false
 			for _, out := range vtxo.Asset.Outputs {
 				if out.Vout == vtxo.VOut {
+					hash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
+					if err != nil {
+						return "", nil, nil, err
+					}
+
 					assetInput := asset.AssetInput{
 						Type:   asset.AssetInputTypeLocal,
 						Vin:    out.Vout,
 						Amount: out.Amount,
+						Hash:   hash[:],
 					}
 					newAssetInputs = append(newAssetInputs, assetInput)
 					found = true
@@ -543,27 +547,12 @@ func buildAssetTransferTx(
 		newAssetOutputs := make([]asset.AssetOutput, 0)
 
 		for _, receiver := range receivers {
-			addr, err := arklib.DecodeAddressV0(receiver.To)
-			if err != nil {
-				return "", nil, nil, err
-			}
-
-			newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
-			if err != nil {
-				return "", nil, nil, err
-			}
-
-			outs = append(outs, &wire.TxOut{
-				Value:    int64(dustLimit),
-				PkScript: newVtxoScript,
-			})
 
 			newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
 				Type:   asset.AssetOutputTypeLocal,
 				Amount: receiver.Amount,
-				Vout:   currentVout,
+				Vout:   receiver.Index,
 			})
-			currentVout++
 		}
 
 		newAsset := originalAsset
@@ -571,6 +560,24 @@ func buildAssetTransferTx(
 		newAsset.Outputs = newAssetOutputs
 
 		normalAssets = append(normalAssets, newAsset)
+	}
+
+	// add the outputs to the asset receivers to maintain indexing
+	for _, receiver := range finalAssetReceivers {
+		addr, err := arklib.DecodeAddressV0(receiver.To)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		outs = append(outs, &wire.TxOut{
+			Value:    int64(dustLimit),
+			PkScript: newVtxoScript,
+		})
 	}
 
 	for _, vtxo := range otherVtxos {
@@ -688,6 +695,10 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 	newControlAssetOutputs := make([]asset.AssetOutput, 0)
 
 	for _, vtxo := range controlSealVtxos {
+		vtxoHash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
+		if err != nil {
+			return "", nil, nil, err
+		}
 		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
@@ -697,8 +708,10 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		for _, out := range vtxo.Asset.Outputs {
 			if out.Vout == vtxo.VOut {
 				assetInput := asset.AssetInput{
+					Type:   asset.AssetInputTypeLocal,
 					Vin:    out.Vout,
 					Amount: out.Amount,
+					Hash:   vtxoHash[:],
 				}
 				newControlAssetInputs = append(newControlAssetInputs, assetInput)
 			}
@@ -795,7 +808,7 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		Outputs:        []asset.AssetOutput{},
 		Inputs:         []asset.AssetInput{},
 		Metadata:       []asset.Metadata{},
-		ControlAssetId: decodedAssetId,
+		ControlAssetId: &newControlAsset.AssetId,
 	}
 
 	newAsset.Outputs = newAssetOutputs

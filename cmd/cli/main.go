@@ -521,8 +521,8 @@ func reissueAsset(ctx *cli.Context) error {
 	name := ctx.String(assetNameFlag.Name)
 	symbol := ctx.String(assetSymbolFlag.Name)
 
-	if assetIDHex == "" {
-		return fmt.Errorf("missing asset id or receivers")
+	if assetIDHex == "" && controlAsset == "" {
+		return fmt.Errorf("missing asset id or control asset id")
 	}
 
 	var controlAssetID string

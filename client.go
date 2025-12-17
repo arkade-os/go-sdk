@@ -468,18 +468,6 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 	selectedSealCoins := make([]client.TapscriptsVtxo, 0)
 	changeReceivers := make([]types.DBReceiver, 0)
 
-	// We can't know indices yet because buildAssetTransferTx sorts Assets.
-	// However, we know `totalAssetOutputs`.
-	// The DB logic relies on matching Vout.
-	// `buildAssetTransferTx` assigns Vouts.
-	// We just need to capture the `DBReceiver` objects.
-	// But `DBReceiver` needs `Index` (Vout).
-	// If `buildAssetTransferTx` sorts assets by ID, we must do the same to predict Vouts?
-	// OR we rely on the fact that `saveToDatabase` now looks up by Vout (which we get from the transaction? No, we are building the DB entry before getting the finalized tx details fully parsed back?)
-	// In `CreateAsset` I manually calculated `Index`.
-	// In `SendAsset` original code, it calculated `Index`.
-	// If I want to calculate `Index` correctly, I must replicate the sorting logic of `buildAssetTransferTx`.
-
 	assetIds := make([]string, 0, len(receiversByAsset))
 	for id := range receiversByAsset {
 		assetIds = append(assetIds, id)
@@ -505,15 +493,12 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 
 		selectedSealCoins = append(selectedSealCoins, seals...)
 
-		// Add original receivers to DB logic?
-		// Wait, the client usually doesn't store "Sent" outputs as its own VTXOs unless they are change or self-send.
-		// The original code only added changeReceivers to DB.
-
 		currentVout += uint32(len(assetReceivers))
 
 		if assetChangeAmount > 0 {
 			changeReceiver := types.Receiver{
 				To: offchainAddrs[0].Address, Amount: assetChangeAmount,
+				IsChange: true,
 			}
 			// Add to final receivers
 			assetChangeReceiver := types.AssetReceiver{
@@ -578,10 +563,7 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 		otherReceivers = append(otherReceivers, changeReceiver)
 
 		// Note: asset anchor conusmes an output
-		changeIndex := currentVout + uint32(len(otherReceivers)) // Anchor is at currentVout?
-
-		// Anchor logic again.
-		// Anchor index = currentVout (after all asset outputs).
+		var changeIndex uint32
 		if satsChangeAmount < a.Dust {
 			changeIndex = currentVout
 		} else {
@@ -3793,10 +3775,9 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 		}
 
 		otherReceivers = append(otherReceivers, changeReceiver)
+
 		// necessary to save to DB later
-
-		changeIndex := globalVoutIndex + uint32(len(otherReceivers)) - 1 // after all assets
-
+		var changeIndex uint32
 		if changeSatsAmount < a.Dust {
 			changeIndex = globalVoutIndex
 		} else {

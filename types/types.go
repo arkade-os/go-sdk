@@ -257,6 +257,7 @@ type Receiver struct {
 type AssetReceiver struct {
 	Receiver
 	AssetId string
+	Index   uint32
 }
 
 type AssetCreationRequest struct {
