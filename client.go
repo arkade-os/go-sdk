@@ -330,35 +330,12 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 
 		var changeIndex uint32
 
+		// outs = assets...
+		// then opret (anchor) contains subdust if present
+		// then change (otherReceivers)
 		if changeSatsAmount < a.Dust {
-			// store subdust in asset anchor output
-			// The anchor is AFTER all asset outputs + other receivers.
-			// But wait, the anchor is always the LAST output in built TX?
-			// `buildAssetCreationTx` appends asset outputs, then anchor (opret), then change.
-			// Actually `buildAssetCreationTx` logic:
-			// outs = assets...
-			// then opret (anchor)
-			// then change (otherReceivers)
-
-			// So changeIndex should be correctly calculated.
-			// The anchor index is len(outs) - 1.
-			// But let's look at `buildAssetCreationTx` in utils.go again.
-			// outs = append(outs, &assetOpretOut) -> This is the anchor.
-			// assetAnchorIndex := len(outs) - 1
-			// for _, receiver := range otherReceivers { outs = append(...) }
-
-			// So if changeSatsAmount < Dust, it goes INTO the anchor?
-			// `if subdustReceiver != nil { assetGroup.SubDustKey = ... }`
-			// `assetOpretOut... assetGroup.EncodeOpret(subdustReceiver.Amount)`
-			// So the anchor output effectively carries the change.
-			// The change is NOT appended to outs as a separate output.
-
-			// So the index of the change IS the anchor index.
-			// Anchor index = len(assetOutputs) (0-based) = globalVoutIndex.
 			changeIndex = globalVoutIndex
 		} else {
-			// It's a separate output AFTER anchor.
-			// index = globalVoutIndex + 1 (anchor) + index_in_otherReceivers (0)
 			changeIndex = globalVoutIndex + 1
 		}
 
