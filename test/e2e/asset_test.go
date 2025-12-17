@@ -27,7 +27,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 		MetadataMap: map[string]string{"name": "Test Asset", "symbol": "TST"},
 	}
 
-	_, err := issuer.CreateAsset(ctx, createParams)
+	_, err := issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: createParams}})
 	require.NoError(t, err)
 
 	issuerAssetVtxo := waitForAssetVtxo(t, ctx, issuer, nil)
@@ -46,9 +46,12 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	require.NotEmpty(t, receiverOffchainAddr)
 
 	const transferAmount uint64 = 1_200
-	_, err = issuer.SendAsset(ctx, assetID, []types.Receiver{{
-		To:     receiverOffchainAddr,
-		Amount: transferAmount,
+	_, err = issuer.SendAsset(ctx, []types.AssetReceiver{{
+		Receiver: types.Receiver{
+			To:     receiverOffchainAddr,
+			Amount: transferAmount,
+		},
+		AssetId: hex.EncodeToString(assetID[:]),
 	}})
 	require.NoError(t, err)
 
@@ -87,7 +90,7 @@ func TestAssetModification(t *testing.T) {
 		Quantity:    1,
 		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
 	}
-	_, err := issuer.CreateAsset(ctx, controlAssetParams)
+	_, err := issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
 	require.NoError(t, err)
 
 	controlAssetVtxo := waitForAssetVtxo(t, ctx, issuer, nil)
@@ -101,7 +104,7 @@ func TestAssetModification(t *testing.T) {
 		ControlAssetId: controlAssetID,
 		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
 	}
-	_, err = issuer.CreateAsset(ctx, targetAssetParams)
+	_, err = issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
 	require.NoError(t, err)
 
 	targetAssetVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
@@ -175,7 +178,7 @@ func TestAssetModification(t *testing.T) {
 		Immutable:   true,
 		MetadataMap: map[string]string{"name": "Immutable", "fixed": "true"},
 	}
-	_, err = issuer.CreateAsset(ctx, immutableParams)
+	_, err = issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: immutableParams}})
 	require.NoError(t, err)
 
 	immutableVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {

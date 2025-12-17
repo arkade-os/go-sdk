@@ -254,6 +254,17 @@ type Receiver struct {
 	IsChange bool
 }
 
+type AssetReceiver struct {
+	Receiver
+	AssetId string
+}
+
+type AssetCreationRequest struct {
+	AssetId   string
+	Receivers []Receiver
+	Params    AssetCreationParams
+}
+
 type VtxoType int
 
 const (
@@ -269,17 +280,10 @@ type DBReceiver struct {
 }
 
 type TeleportReceiver struct {
-	Receiver
-	PreimageHash        string
-	AssetAmount         uint64
-	AssetId             string
-	AssetReceiverPubkey string
-}
-
-type TeleportScript struct {
-	*script.TapscriptsVtxoScript
-	TeleportPreimage []byte
-	ClaimClousure    *script.ConditionMultisigClosure
+	TeleportHash string
+	AssetAmount  uint64
+	ClaimAddress string
+	AssetId      string
 }
 
 type AssetManagementType uint
@@ -353,7 +357,7 @@ type SyncEvent struct {
 
 type AssetCreationParams struct {
 	Quantity       uint64
-	ControlAssetId [32]byte
+	ControlAssetId string
 	Immutable      bool
 	MetadataMap    map[string]string
 }

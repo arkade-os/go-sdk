@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,7 +20,6 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
-	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
@@ -40,7 +38,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	log "github.com/sirupsen/logrus"
@@ -259,7 +256,7 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 	return a.sendExpiredBoardingUtxos(ctx, to)
 }
 
-func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationParams) (string, error) {
+func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreationRequest) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -271,22 +268,32 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 
 	sealAddr := offchainAddrs[0]
 
-	assetReceiver := types.Receiver{
-		To:     sealAddr.Address,
-		Amount: params.Quantity,
+	// Auto-fill receivers if not provided
+	for i := range requests {
+		if len(requests[i].Receivers) == 0 && requests[i].Params.Quantity > 0 {
+			requests[i].Receivers = []types.Receiver{{
+				To:     sealAddr.Address,
+				Amount: requests[i].Params.Quantity,
+			}}
+		}
 	}
 
-	assetReceivers := []types.Receiver{assetReceiver}
-
-	// necessary to save to DB later
-	dbReceiver := assetReceiver
-	dbReceiver.Amount = a.Dust
 	dbReceivers := make([]types.DBReceiver, 0)
-	dbReceivers = append(dbReceivers, types.DBReceiver{
-		Receiver:   dbReceiver,
-		Index:      0,
-		ChangeType: types.VtxoTypeAsset,
-	})
+	globalVoutIndex := uint32(0)
+
+	// We assume that buildAssetCreationTx processes requests in order and assigns Vout sequentially.
+	for _, req := range requests {
+		for _, r := range req.Receivers {
+			dbReceiver := r
+			dbReceiver.Amount = a.Dust
+			dbReceivers = append(dbReceivers, types.DBReceiver{
+				Receiver:   dbReceiver,
+				Index:      globalVoutIndex,
+				ChangeType: types.VtxoTypeAsset,
+			})
+			globalVoutIndex++
+		}
+	}
 
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
@@ -296,9 +303,13 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		return "", err
 	}
 
+	// Calculate total amount needed for all asset outputs (dust)
+	// Each asset output consumes a.Dust
+	totalDustAmount := uint64(len(dbReceivers)) * a.Dust
+
 	// do not include boarding utxos
 	_, selectedSatsCoins, changeSatsAmount, err := utils.CoinSelectNormal(
-		nil, vtxos, a.Dust, a.Dust, false,
+		nil, vtxos, totalDustAmount, a.Dust, false,
 	)
 
 	if err != nil {
@@ -315,10 +326,38 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		otherReceivers = append(otherReceivers, changeReceiver)
 		// necessary to save to DB later
 
-		changeIndex := uint32(len(assetReceivers) + len(otherReceivers))
+		changeIndex := globalVoutIndex + uint32(len(otherReceivers)) - 1 // after all assets
+
 		if changeSatsAmount < a.Dust {
 			// store subdust in asset anchor output
-			changeIndex = uint32(len(assetReceivers) + len(otherReceivers) - 1)
+			// The anchor is AFTER all asset outputs + other receivers.
+			// But wait, the anchor is always the LAST output in built TX?
+			// `buildAssetCreationTx` appends asset outputs, then anchor (opret), then change.
+			// Actually `buildAssetCreationTx` logic:
+			// outs = assets...
+			// then opret (anchor)
+			// then change (otherReceivers)
+
+			// So changeIndex should be correctly calculated.
+			// The anchor index is len(outs) - 1.
+			// But let's look at `buildAssetCreationTx` in utils.go again.
+			// outs = append(outs, &assetOpretOut) -> This is the anchor.
+			// assetAnchorIndex := len(outs) - 1
+			// for _, receiver := range otherReceivers { outs = append(...) }
+
+			// So if changeSatsAmount < Dust, it goes INTO the anchor?
+			// `if subdustReceiver != nil { assetGroup.SubDustKey = ... }`
+			// `assetOpretOut... assetGroup.EncodeOpret(subdustReceiver.Amount)`
+			// So the anchor output effectively carries the change.
+			// The change is NOT appended to outs as a separate output.
+
+			// So the index of the change IS the anchor index.
+			// Anchor index = len(assetOutputs) (0-based) = globalVoutIndex.
+			changeIndex = globalVoutIndex
+		} else {
+			// It's a separate output AFTER anchor.
+			// index = globalVoutIndex + 1 (anchor) + index_in_otherReceivers (0)
+			changeIndex = globalVoutIndex + 1
 		}
 
 		dbReceivers = append(dbReceivers, types.DBReceiver{
@@ -342,15 +381,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 		})
 	}
 
-	assetIdSlice, err := hex.DecodeString(inputs[0].Txid)
-	if err != nil {
-		return "", err
-	}
-
-	var assetId [32]byte
-	copy(assetId[:], assetIdSlice)
-
-	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(inputs, assetId, assetReceivers, otherReceivers, params, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(inputs, requests, otherReceivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -403,7 +434,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, params types.AssetCreationP
 	return arkTxid, nil
 }
 
-func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers []types.Receiver) (string, error) {
+func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiver) (string, error) {
 
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -418,9 +449,15 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		return "", err
 	}
 
-	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
-	sumOfReceivers := uint64(0)
+	// Group by AssetId
+	receiversByAsset := make(map[string][]types.AssetReceiver)
+	for _, r := range receivers {
+		receiversByAsset[r.AssetId] = append(receiversByAsset[r.AssetId], r)
+	}
 
+	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
+
+	// Validate addresses
 	for _, receiver := range receivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
@@ -434,8 +471,6 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 				receiver.To, expectedSignerPubkey, rcvSignerPubkey,
 			)
 		}
-
-		sumOfReceivers += receiver.Amount
 	}
 
 	a.dbMu.Lock()
@@ -446,29 +481,75 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		return "", err
 	}
 
-	// select seals
-	selectedSealCoins, assetChangeAmount, err := utils.CoinSelectSeals(
-		vtxos, sumOfReceivers, assetId, a.Dust, false,
-	)
+	finalAssetReceivers := make([]types.AssetReceiver, 0, len(receivers))
+	finalAssetReceivers = append(finalAssetReceivers, receivers...)
 
-	if err != nil {
-		return "", err
-	}
-
+	selectedSealCoins := make([]client.TapscriptsVtxo, 0)
 	changeReceivers := make([]types.DBReceiver, 0)
 
-	if assetChangeAmount > 0 {
-		changeReceiver := types.Receiver{
-			To: offchainAddrs[0].Address, Amount: assetChangeAmount,
+	// We can't know indices yet because buildAssetTransferTx sorts Assets.
+	// However, we know `totalAssetOutputs`.
+	// The DB logic relies on matching Vout.
+	// `buildAssetTransferTx` assigns Vouts.
+	// We just need to capture the `DBReceiver` objects.
+	// But `DBReceiver` needs `Index` (Vout).
+	// If `buildAssetTransferTx` sorts assets by ID, we must do the same to predict Vouts?
+	// OR we rely on the fact that `saveToDatabase` now looks up by Vout (which we get from the transaction? No, we are building the DB entry before getting the finalized tx details fully parsed back?)
+	// In `CreateAsset` I manually calculated `Index`.
+	// In `SendAsset` original code, it calculated `Index`.
+	// If I want to calculate `Index` correctly, I must replicate the sorting logic of `buildAssetTransferTx`.
+
+	assetIds := make([]string, 0, len(receiversByAsset))
+	for id := range receiversByAsset {
+		assetIds = append(assetIds, id)
+	}
+	sort.Strings(assetIds)
+
+	currentVout := uint32(0)
+
+	for _, assetIdStr := range assetIds {
+		assetReceivers := receiversByAsset[assetIdStr]
+		sumOfReceivers := uint64(0)
+		for _, r := range assetReceivers {
+			sumOfReceivers += r.Amount
 		}
-		receivers = append(receivers, changeReceiver)
-		dbReceiver := changeReceiver
-		dbReceiver.Amount = a.Dust
-		changeReceivers = append(changeReceivers, types.DBReceiver{
-			Receiver:   dbReceiver,
-			Index:      uint32(len(receivers) - 1),
-			ChangeType: types.VtxoTypeAsset,
-		})
+
+		// select seals
+		seals, assetChangeAmount, err := utils.CoinSelectSeals(
+			vtxos, sumOfReceivers, assetIdStr, a.Dust, false,
+		)
+		if err != nil {
+			return "", err
+		}
+
+		selectedSealCoins = append(selectedSealCoins, seals...)
+
+		// Add original receivers to DB logic?
+		// Wait, the client usually doesn't store "Sent" outputs as its own VTXOs unless they are change or self-send.
+		// The original code only added changeReceivers to DB.
+
+		currentVout += uint32(len(assetReceivers))
+
+		if assetChangeAmount > 0 {
+			changeReceiver := types.Receiver{
+				To: offchainAddrs[0].Address, Amount: assetChangeAmount,
+			}
+			// Add to final receivers
+			assetChangeReceiver := types.AssetReceiver{
+				Receiver: changeReceiver,
+				AssetId:  assetIdStr,
+			}
+			finalAssetReceivers = append(finalAssetReceivers, assetChangeReceiver)
+
+			dbReceiver := changeReceiver
+			dbReceiver.Amount = a.Dust
+			changeReceivers = append(changeReceivers, types.DBReceiver{
+				Receiver:   dbReceiver,
+				Index:      currentVout, // Index of this change output
+				ChangeType: types.VtxoTypeAsset,
+			})
+			currentVout++
+		}
 	}
 
 	sealInputs := make([]arkTxInput, 0, len(selectedSealCoins))
@@ -483,14 +564,19 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 			coin,
 			*forfeitLeafHash,
 		})
-
 	}
 
 	selectedSatsCoins := make([]client.TapscriptsVtxo, 0)
 	satsChangeAmount := uint64(0)
 
-	if len(receivers) > len(selectedSealCoins) {
-		delta := uint64(len(receivers)-len(selectedSealCoins)) * a.Dust
+	// Determine dust needs
+	// Total asset outputs (receivers + change)
+	totalAssetOutputs := len(finalAssetReceivers)
+	// Total asset inputs
+	totalAssetInputs := len(selectedSealCoins)
+
+	if totalAssetOutputs > totalAssetInputs {
+		delta := uint64(totalAssetOutputs-totalAssetInputs) * a.Dust
 		_, selectedSatsCoins, satsChangeAmount, err = utils.CoinSelectNormal(
 			nil, vtxos, delta, a.Dust, false,
 		)
@@ -498,8 +584,8 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		if err != nil {
 			return "", err
 		}
-	} else if len(receivers) < len(selectedSealCoins) {
-		satsChangeAmount = uint64(len(selectedSealCoins)-len(receivers)) * a.Dust
+	} else if totalAssetOutputs < totalAssetInputs {
+		satsChangeAmount = uint64(totalAssetInputs-totalAssetOutputs) * a.Dust
 	}
 
 	otherReceivers := make([]types.Receiver, 0)
@@ -511,11 +597,14 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		otherReceivers = append(otherReceivers, changeReceiver)
 
 		// Note: asset anchor conusmes an output
-		changeIndex := uint32(len(receivers) + len(otherReceivers))
-		if satsChangeAmount < a.Dust {
-			// store subdust in asset anchor output
-			changeIndex = uint32(len(receivers) + len(otherReceivers) - 1)
+		changeIndex := currentVout + uint32(len(otherReceivers)) // Anchor is at currentVout?
 
+		// Anchor logic again.
+		// Anchor index = currentVout (after all asset outputs).
+		if satsChangeAmount < a.Dust {
+			changeIndex = currentVout
+		} else {
+			changeIndex = currentVout + 1
 		}
 
 		changeReceivers = append(changeReceivers, types.DBReceiver{
@@ -539,7 +628,7 @@ func (a *arkClient) SendAsset(ctx context.Context, assetId [32]byte, receivers [
 		})
 	}
 
-	arkTx, checkpointTxs, assetGroupDetails, err := buildAssetTransferTx(sealInputs, satsInputs, receivers, otherReceivers, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetGroupDetails, err := buildAssetTransferTx(sealInputs, satsInputs, finalAssetReceivers, otherReceivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
 		return "", err
 	}
@@ -628,12 +717,12 @@ func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetR
 	return &assetResp, nil
 }
 
-func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId [32]byte, assetId [32]byte, amount uint64, metadata map[string]string) (string, error) {
+func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, assetId string, amount uint64, metadata map[string]string) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
 
-	if controlAssetId == [32]byte{} {
+	if len(controlAssetId) > 0 {
 		return "", fmt.Errorf("control asset id is required for modification")
 	}
 
@@ -1214,7 +1303,7 @@ func (a *arkClient) CollaborativeExit(
 	}
 
 	boardingUtxos, vtxos, _, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees, nil,
+		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees, "",
 	)
 	if err != nil {
 		return "", err
@@ -2472,7 +2561,7 @@ func (a *arkClient) completeUnilateralExit(ctx context.Context, to string) (stri
 }
 
 func (a *arkClient) selectFunds(
-	ctx context.Context, computeVtxoExpiry bool, selectRecoverableVtxos bool, amount uint64, assetId []byte,
+	ctx context.Context, computeVtxoExpiry bool, selectRecoverableVtxos bool, amount uint64, assetId string,
 ) ([]types.Utxo, []client.TapscriptsVtxo, []client.TapscriptsVtxo, uint64, error) {
 	_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
@@ -2533,12 +2622,9 @@ func (a *arkClient) selectFunds(
 		return boardingUtxos, normalVtxos, sealVtxos, 0, nil
 	}
 
-	if assetId != nil {
-		var arr [32]byte
-		copy(arr[:], assetId)
-
+	if len(assetId) > 0 {
 		selectedCoins, changeAmount, err := utils.CoinSelectSeals(
-			sealVtxos, amount, arr, a.Dust, computeVtxoExpiry,
+			sealVtxos, amount, assetId, a.Dust, computeVtxoExpiry,
 		)
 		if err != nil {
 			return nil, nil, nil, 0, err
@@ -2567,15 +2653,10 @@ func (a *arkClient) settle(
 		}
 	}
 
-	serverInfo, err := a.client.GetInfo(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get server info: %s", err)
-	}
-
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
 	outputs := make([]types.Receiver, 0)
 	teleportOutputs := make([]types.TeleportReceiver, 0)
-	teleportPreimages := make(map[string]types.TeleportScript, 0)
+	teleportNonces := make(map[[32]byte]types.TeleportReceiver, 0)
 
 	sumOfReceivers := uint64(0)
 
@@ -2613,18 +2694,13 @@ func (a *arkClient) settle(
 
 	// coinselect boarding utxos and vtxos
 	boardingUtxos, normalVtxos, sealVtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers, nil,
+		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers, "",
 	)
 	if err != nil {
 		return "", err
 	}
 
 	_, offchainAddr, _, err := a.wallet.NewAddress(ctx, false)
-	if err != nil {
-		return "", err
-	}
-
-	clientPubkey, err := a.wallet.GetPublicKey(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -2647,82 +2723,52 @@ func (a *arkClient) settle(
 		}
 
 		groupedSeals := utils.GroupBy(sealVtxos, func(v client.TapscriptsVtxo) string {
-			return hex.EncodeToString(v.Asset.AssetId[:])
+			return v.Asset.AssetId.ToString()
 		})
 
 		for assetId, seals := range groupedSeals {
 
 			var (
 				assetAmount = uint64(0)
-				sealAmount  = seals[0].Amount
 			)
 
-			for i, seal := range seals {
+			for _, seal := range seals {
 				sealAssetOutput, err := GetAssetOutput(seal.Asset.Outputs, seal.VOut)
 				if err != nil {
 					return "", fmt.Errorf("failed to get asset output: %s", err)
 				}
 				assetAmount += sealAssetOutput.Amount
-
-				// add remaining dust to change
-				if i == 0 {
-					continue
-				}
 				changeAmount += seal.Amount
 			}
 
-			var teleportPreimage [32]byte
-			_, err := rand.Read(teleportPreimage[:])
+			var teleportNonce [32]byte
+			_, err := rand.Read(teleportNonce[:])
 			if err != nil {
-				return "", fmt.Errorf("failed to generate teleport preimage: %s", err)
+				return "", fmt.Errorf("failed to generate teleport nonce: %s", err)
 			}
-			hash := sha256.Sum256(teleportPreimage[:])
 
-			owner, err := arklib.DecodeAddressV0(offchainAddr.Address)
+			decodedAddress, err := arklib.DecodeAddressV0(offchainAddr.Address)
 			if err != nil {
 				return "", fmt.Errorf("invalid offchain address: %s", err)
 			}
 
-			unilateralExitDelay := deriveTimelock(uint32(serverInfo.UnilateralExitDelay))
-
-			teleportScript := NewTeleportVtxoScript(clientPubkey, owner.Signer, teleportPreimage[:], unilateralExitDelay)
-			teleportKey, _, err := teleportScript.TapTree()
+			teleportScript, err := script.P2TRScript(decodedAddress.VtxoTapKey)
 			if err != nil {
-				return "", fmt.Errorf("failed to get teleport taproot key: %s", err)
+				return "", fmt.Errorf("failed to create teleport script: %s", err)
 			}
 
-			teleportAddresss := arklib.Address{
-				HRP:        owner.HRP,
-				Signer:     owner.Signer,
-				Version:    owner.Version,
-				VtxoTapKey: teleportKey,
-			}
-			encodedTeleportAddress, err := teleportAddresss.EncodeV0()
-			if err != nil {
-				return "", fmt.Errorf("failed to encode teleport address: %s", err)
-			}
+			teleportHash := asset.CalculateTeleportHash(teleportScript, teleportNonce)
 
 			teleportOutput := types.TeleportReceiver{
-				Receiver: types.Receiver{
-					To:     encodedTeleportAddress,
-					Amount: sealAmount,
-				},
-				AssetAmount:         assetAmount,
-				AssetId:             assetId,
-				PreimageHash:        hex.EncodeToString(hash[:]),
-				AssetReceiverPubkey: hex.EncodeToString(schnorr.SerializePubKey(clientPubkey)),
+				AssetAmount:  assetAmount,
+				AssetId:      assetId,
+				TeleportHash: hex.EncodeToString(teleportHash[:]),
+				ClaimAddress: offchainAddr.Address,
 			}
 
 			teleportOutputs = append(teleportOutputs, teleportOutput)
 
-			teleportPkScript, err := teleportAddresss.GetPkScript()
-			if err != nil {
-				return "", fmt.Errorf("failed to get teleport pkScript: %s", err)
-			}
-
-			teleportPkScriptHex := hex.EncodeToString(teleportPkScript)
-
-			teleportPreimages[teleportPkScriptHex] = teleportScript
+			teleportNonces[teleportNonce] = teleportOutput
 		}
 	}
 
@@ -2734,65 +2780,20 @@ func (a *arkClient) settle(
 		})
 	}
 
-	totalVtxos := make([]client.TapscriptsVtxo, 0)
-	totalVtxos = append(totalVtxos, normalVtxos...)
-	totalVtxos = append(totalVtxos, sealVtxos...)
-
-	var wg sync.WaitGroup
-
-	// subscribe to teleport outputs before broadcasting commitment tx
-	if len(teleportOutputs) > 0 {
-		teleportScripts := make([]string, 0)
-		for pkScriptHex := range teleportPreimages {
-			teleportScripts = append(teleportScripts, pkScriptHex)
-		}
-		subscriptionId, err := a.indexer.SubscribeForScripts(ctx, "", teleportScripts)
-		if err != nil {
-			return "", fmt.Errorf("failed to subscribe for teleport scripts: %s", err)
-		}
-		fmt.Printf("subscribed to teleport outputs with subscription id %s", subscriptionId)
-
-		wg.Add(len(teleportScripts))
-
-		go func(preimages map[string]types.TeleportScript, subscriptionId string) {
-			subscriptionChannel, closeFn, err := a.indexer.GetSubscription(ctx, subscriptionId)
-			if err != nil {
-				fmt.Printf("failed to get subscription channel: %s", err)
-				return
-			}
-			defer closeFn()
-
-			for msg := range subscriptionChannel {
-				if msg.Err != nil {
-					continue
-				}
-
-				for _, vtxo := range msg.NewVtxos {
-					scriptKey := vtxo.Script
-					preimage, ok := preimages[scriptKey]
-					if !ok {
-						fmt.Printf("no preimage found for script key: %s", scriptKey)
-						continue
-					}
-
-					if err := a.claimTeleportOutput(ctx, vtxo, preimage); err != nil {
-						fmt.Printf("failed to claim teleport output: %s", err)
-					}
-
-					wg.Done()
-
-				}
-			}
-		}(teleportPreimages, subscriptionId)
-	}
-
-	commitmentId, err := a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, totalVtxos, boardingUtxos)
+	commitmentId, err := a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, normalVtxos, boardingUtxos)
 	if err != nil {
 		return "", fmt.Errorf("failed to join batch: %s", err)
 	}
 
-	// Wait until subscription goroutine exits (subscription closed, ctx cancelled, etc.)
-	wg.Wait()
+	// Claim Teleport Asset If Present
+	if len(teleportOutputs) > 0 {
+		for nonce, receiver := range teleportNonces {
+			_, err := a.claimTeleportAsset(ctx, nonce, receiver)
+			if err != nil {
+				return "", fmt.Errorf("failed to claim teleport asset: %s", err)
+			}
+		}
+	}
 
 	return commitmentId, nil
 }
@@ -3172,7 +3173,7 @@ func (a *arkClient) getOffchainBalance(
 
 		vtxoExpires := vtxo.ExpiresAt.Unix()
 		if vtxo.Asset != nil {
-			assetIdHex := hex.EncodeToString(vtxo.Asset.AssetId[:])
+			assetIdHex := vtxo.Asset.AssetId.ToString()
 			if _, ok := assetBalanceMap[assetIdHex]; !ok {
 				assetBalanceMap[assetIdHex] = make(map[int64]uint64)
 				assetBalanceMap[assetIdHex][vtxoExpires] = 0
@@ -3650,14 +3651,16 @@ func (a *arkClient) handleArkTx(
 	if assetGroup, err := asset.DeriveAssetGroupFromTx(arkTx.Tx); err == nil {
 		voutToAsset := make(map[uint32]*asset.Asset)
 
-		if assetGroup.ControlAsset != nil {
-			for _, out := range assetGroup.ControlAsset.Outputs {
-				voutToAsset[out.Vout] = assetGroup.ControlAsset
+		for i := range assetGroup.ControlAssets {
+			for _, out := range assetGroup.ControlAssets[i].Outputs {
+				voutToAsset[out.Vout] = &assetGroup.ControlAssets[i]
 			}
 		}
 
-		for _, out := range assetGroup.NormalAsset.Outputs {
-			voutToAsset[out.Vout] = &assetGroup.NormalAsset
+		for i := range assetGroup.NormalAssets {
+			for _, out := range assetGroup.NormalAssets[i].Outputs {
+				voutToAsset[out.Vout] = &assetGroup.NormalAssets[i]
+			}
 		}
 
 		for i, vtxo := range arkTx.SpendableVtxos {
@@ -3764,222 +3767,133 @@ func (a *arkClient) handleArkTx(
 	return nil
 }
 
-func (a *arkClient) claimTeleportOutput(ctx context.Context, vtxo types.Vtxo, vtxoScript types.TeleportScript) error {
+func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, receiver types.TeleportReceiver) (string, error) {
+	dbReceivers := make([]types.DBReceiver, 0)
+	globalVoutIndex := uint32(0)
 
-	clousureScripts := make([]string, 0)
-	for _, closure := range vtxoScript.Closures {
-		if script, err := closure.Script(); err == nil {
-			clousureScripts = append(clousureScripts, hex.EncodeToString(script))
-		}
-	}
-
-	claimClosure := vtxoScript.ClaimClousure
-
-	myAddr, err := a.NewOffchainAddress(ctx)
-	if err != nil {
-		return err
-	}
-
-	decodedAddr, err := arklib.DecodeAddressV0(myAddr)
-	if err != nil {
-		return err
-	}
-
-	pkScript, err := script.P2TRScript(decodedAddr.VtxoTapKey)
-	if err != nil {
-		return err
-	}
-
-	vtxoTxHash, err := chainhash.NewHashFromStr(vtxo.Txid)
-	if err != nil {
-		return err
-	}
-
-	vtxoOutpoint := &wire.OutPoint{
-		Hash:  *vtxoTxHash,
-		Index: vtxo.VOut,
-	}
-
-	_, tapTree, err := vtxoScript.TapTree()
-	if err != nil {
-		return err
-	}
-
-	claimScript, err := claimClosure.Script()
-	if err != nil {
-		return err
-	}
-
-	leafProof, err := tapTree.GetTaprootMerkleProof(
-		txscript.NewBaseTapLeaf(claimScript).TapHash(),
-	)
-	if err != nil {
-		return err
-	}
-
-	ctrlBlock, err := txscript.ParseControlBlock(leafProof.ControlBlock)
-	if err != nil {
-		return err
-	}
-
-	tapScript := &waddrmgr.Tapscript{
-		RevealedScript: leafProof.Script,
-		ControlBlock:   ctrlBlock,
-	}
-
-	checkpointExitScript, err := hex.DecodeString(a.Config.CheckpointTapscript)
-	if err != nil {
-		return err
-	}
-
-	assetOutput, err := a.claimTeleportAsset(ctx, vtxoTxHash, *decodedAddr.VtxoTapKey, vtxo.CommitmentTxids[0])
-	if err != nil {
-		return err
-	}
-
-	arkTx, checkpoints, err := offchain.BuildAssetTxs(
-		[]*wire.TxOut{
-			{
-				Value:    int64(vtxo.Amount),
-				PkScript: pkScript,
-			}, assetOutput,
+	dbReceivers = append(dbReceivers, types.DBReceiver{
+		Receiver: types.Receiver{
+			To:     receiver.ClaimAddress,
+			Amount: a.Dust,
 		},
-		1,
-		[]offchain.VtxoInput{
-			{
-				RevealedTapscripts: clousureScripts,
-				Outpoint:           vtxoOutpoint,
-				Amount:             int64(vtxo.Amount),
-				Tapscript:          tapScript,
-			},
-		},
-		checkpointExitScript,
-	)
+		Index:      globalVoutIndex,
+		ChangeType: types.VtxoTypeAsset,
+	})
+	globalVoutIndex++
+
+	// Calculate total amount needed for all asset outputs (dust)
+	// Each asset output consumes a.Dust
+	totalDustAmount := uint64(len(dbReceivers)) * a.Dust
+
+	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	signTransaction := func(tx *psbt.Packet) (string, error) {
-		// add the preimage to the checkpoint input
-		if err := txutils.SetArkPsbtField(tx, 0, txutils.ConditionWitnessField, wire.TxWitness{vtxoScript.TeleportPreimage}); err != nil {
-			return "", err
+	vtxos, err := a.getTapscripVtxos(ctx, offchainAddrs)
+	if err != nil {
+		return "", err
+	}
+
+	// do not include boarding utxos
+	_, selectedSatsCoins, changeSatsAmount, err := utils.CoinSelectNormal(
+		nil, vtxos, totalDustAmount, a.Dust, false,
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	otherReceivers := make([]types.Receiver, 0)
+
+	if changeSatsAmount > 0 {
+		changeReceiver := types.Receiver{
+			To: offchainAddrs[0].Address, Amount: changeSatsAmount, IsChange: true,
 		}
 
-		encoded, err := tx.B64Encode()
+		otherReceivers = append(otherReceivers, changeReceiver)
+		// necessary to save to DB later
+
+		changeIndex := globalVoutIndex + uint32(len(otherReceivers)) - 1 // after all assets
+
+		if changeSatsAmount < a.Dust {
+			changeIndex = globalVoutIndex
+		} else {
+			changeIndex = globalVoutIndex + 1
+		}
+
+		dbReceivers = append(dbReceivers, types.DBReceiver{
+			Receiver:   changeReceiver,
+			Index:      changeIndex,
+			ChangeType: types.VtxoTypeNormal,
+		})
+	}
+
+	inputs := make([]arkTxInput, 0, len(selectedSatsCoins))
+
+	for _, coin := range selectedSatsCoins {
+		forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
 		if err != nil {
 			return "", err
 		}
 
-		return a.SignTransaction(ctx, encoded)
+		inputs = append(inputs, arkTxInput{
+			coin,
+			*forfeitLeafHash,
+		})
 	}
 
-	signedArkTx, err := signTransaction(arkTx)
+	arkTx, checkpointTxs, assetDetails, err := buildTeleportClaimTx(inputs, nonce, receiver, otherReceivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	checkpointTxs := make([]string, 0, len(checkpoints))
-	for _, ptx := range checkpoints {
-		tx, err := ptx.B64Encode()
+	signedArkTx, err := a.wallet.SignTransaction(ctx, a.explorer, arkTx)
+	if err != nil {
+		return "", err
+	}
+
+	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(
+		ctx, signedArkTx, checkpointTxs,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	// validate and verify transactions returned by the server
+	if err := verifySignedArk(arkTx, signedArkTx, a.SignerPubKey); err != nil {
+		return "", err
+	}
+
+	if err := verifySignedCheckpoints(checkpointTxs, signedCheckpointTxs, a.SignerPubKey); err != nil {
+		return "", err
+	}
+
+	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
+
+	for _, checkpoint := range signedCheckpointTxs {
+		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
 		if err != nil {
-			return err
+			return "", nil
 		}
-		checkpointTxs = append(checkpointTxs, tx)
+		finalCheckpoints = append(finalCheckpoints, signedTx)
 	}
 
-	clientPubKey, err := a.wallet.GetPublicKey(ctx)
+	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
+		return "", err
+	}
+
+	if !a.WithTransactionFeed {
+		return arkTxid, nil
+	}
+
+	// mark vtxos as spent and add transaction to DB before unlocking the mutex
+	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, selectedSatsCoins, dbReceivers, assetDetails)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	err = verifyFinalArkTx(signedArkTx, clientPubKey, getInputTapLeaves(arkTx))
-	if err != nil {
-		return err
-	}
-
-	arkTxid, finalArkTx, signedCheckpoints, err := a.client.SubmitTx(ctx, signedArkTx, checkpointTxs)
-	if err != nil {
-		return err
-	}
-
-	if err := verifyFinalArkTx(finalArkTx, a.Config.SignerPubKey, getInputTapLeaves(arkTx)); err != nil {
-		return err
-	}
-
-	finalCheckpoints, err := verifyAndSignCheckpoints(signedCheckpoints, checkpoints, a.Config.SignerPubKey, signTransaction)
-	if err != nil {
-		return err
-	}
-
-	err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints)
-	if err != nil {
-		return fmt.Errorf("failed to finalize Teleport transaction: %w", err)
-	}
-
-	return nil
-}
-
-func (a *arkClient) claimTeleportAsset(ctx context.Context, txHash *chainhash.Hash, claimKey btcec.PublicKey, commitmentTxid string) (*wire.TxOut, error) {
-	res, err := a.indexer.GetVirtualTxs(ctx, []string{txHash.String()})
-	if err != nil {
-		return nil, err
-	}
-	if len(res.Txs) == 0 {
-		return nil, fmt.Errorf("virtual transaction %s not found", txHash.String())
-	}
-
-	fmt.Printf("this is the real txHash %s", txHash.String())
-
-	virtualTx := res.Txs[0]
-
-	decodedTx, err := psbt.NewFromRawBytes(strings.NewReader(virtualTx), true)
-	if err != nil {
-		return nil, err
-	}
-
-	assetOutput := decodedTx.UnsignedTx.TxOut[1]
-
-	if assetOutput == nil || !asset.IsAssetGroup(assetOutput.PkScript) {
-		return nil, fmt.Errorf("no asset output found in virtual transaction %s", txHash.String())
-	}
-
-	assetGroupDetails, err := asset.DecodeAssetGroupFromOpret(assetOutput.PkScript)
-
-	if err != nil {
-		return nil, err
-	}
-
-	assetDetails := assetGroupDetails.NormalAsset
-
-	// only one output in teleport Asset Output
-	assetDetailsOutput := assetDetails.Outputs[0]
-
-	newAssetDetailsInput := asset.AssetInput{
-		Txhash: txHash.CloneBytes(),
-		Vout:   assetDetailsOutput.Vout,
-		Amount: assetDetailsOutput.Amount,
-	}
-
-	newAssetDetailsOutput := asset.AssetOutput{
-		PublicKey: claimKey,
-		Vout:      0,
-		Amount:    assetDetailsOutput.Amount,
-	}
-
-	newAssetDetails := assetDetails
-	newAssetDetails.Inputs = []asset.AssetInput{newAssetDetailsInput}
-	newAssetDetails.Outputs = []asset.AssetOutput{newAssetDetailsOutput}
-
-	newAssetGroupDetails := asset.AssetGroup{
-		NormalAsset: newAssetDetails,
-	}
-
-	assetTransferOpReturn, err := newAssetGroupDetails.EncodeOpret(0)
-	if err != nil {
-		return nil, err
-	}
-
-	return &assetTransferOpReturn, nil
+	return arkTxid, nil
 
 }
 
@@ -4075,9 +3989,29 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 		if assetGroup != nil {
 			switch receiver.ChangeType {
 			case types.VtxoTypeAsset:
-				asset = &assetGroup.NormalAsset
+				for i := range assetGroup.NormalAssets {
+					for _, out := range assetGroup.NormalAssets[i].Outputs {
+						if out.Vout == receiver.Index {
+							asset = &assetGroup.NormalAssets[i]
+							break
+						}
+					}
+					if asset != nil {
+						break
+					}
+				}
 			case types.VtxoTypeControlAsset:
-				asset = assetGroup.ControlAsset
+				for i := range assetGroup.ControlAssets {
+					for _, out := range assetGroup.ControlAssets[i].Outputs {
+						if out.Vout == receiver.Index {
+							asset = &assetGroup.ControlAssets[i]
+							break
+						}
+					}
+					if asset != nil {
+						break
+					}
+				}
 			}
 
 		}

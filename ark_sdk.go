@@ -28,13 +28,13 @@ type ArkClient interface {
 		ctx context.Context, withExpiryCoinselect bool, receivers []types.Receiver,
 	) (string, error)
 	CreateAsset(
-		ctx context.Context, params types.AssetCreationParams,
+		ctx context.Context, requests []types.AssetCreationRequest,
 	) (string, error)
 	SendAsset(
-		ctx context.Context, assetID [32]byte, receivers []types.Receiver,
+		ctx context.Context, receivers []types.AssetReceiver,
 	) (string, error)
 	ModifyAsset(
-		ctx context.Context, controlAssetId [32]byte, assetID [32]byte, amount uint64, metadata map[string]string,
+		ctx context.Context, controlAssetId string, assetID string, amount uint64, metadata map[string]string,
 	) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,

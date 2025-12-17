@@ -7,7 +7,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +18,6 @@ import (
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -101,7 +99,7 @@ func CoinSelectNormal(
 func CoinSelectSeals(
 	vtxos []client.TapscriptsVtxo,
 	amount uint64,
-	assetID [32]byte,
+	assetID string,
 	dust uint64,
 	sortByExpirationTime bool,
 ) ([]client.TapscriptsVtxo, uint64, error) {
@@ -111,7 +109,7 @@ func CoinSelectSeals(
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 
 	for _, vtxo := range vtxos {
-		if vtxo.Asset != nil && bytes.Equal(vtxo.Asset.AssetId[:], assetID[:]) {
+		if vtxo.Asset != nil && vtxo.Asset.AssetId.ToString() == assetID {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -131,18 +129,8 @@ func CoinSelectSeals(
 			break
 		}
 
-		vtxoScriptInBytes, err := hex.DecodeString(vtxo.Script)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		vtxoKey, err := schnorr.ParsePubKey(vtxoScriptInBytes[2:])
-		if err != nil {
-			return nil, 0, err
-		}
-
 		for _, output := range vtxo.Asset.Outputs {
-			if output.PublicKey.IsEqual(vtxoKey) {
+			if output.Vout == vtxo.VOut {
 
 				selected = append(selected, vtxo)
 				selectedAmount += output.Amount
@@ -166,28 +154,13 @@ func GetAssetSealAmount(seal client.TapscriptsVtxo) (uint64, error) {
 		return 0, fmt.Errorf("utxo is not an asset")
 	}
 
-	assetSealPubkey, err := derviePubKeyFromScript(seal.Script)
-	if err != nil {
-		return 0, err
-	}
-
 	for _, output := range seal.Asset.Outputs {
-		if output.PublicKey.IsEqual(assetSealPubkey) {
+		if output.Vout == seal.VOut {
 			return output.Amount, nil
 		}
 	}
 
 	return 0, fmt.Errorf("could not find matching output for seal")
-}
-
-func derviePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
-	buf, err := hex.DecodeString(scriptHex)
-	if err != nil {
-		return nil, err
-	}
-	pubkeyBytes := buf[2:]
-
-	return schnorr.ParsePubKey(pubkeyBytes)
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (
