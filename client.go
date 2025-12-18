@@ -2743,7 +2743,11 @@ func (a *arkClient) settle(
 		})
 	}
 
-	commitmentId, err := a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, normalVtxos, boardingUtxos)
+	totalVtxos := make([]client.TapscriptsVtxo, 0)
+	totalVtxos = append(totalVtxos, normalVtxos...)
+	totalVtxos = append(totalVtxos, sealVtxos...)
+
+	commitmentId, err := a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, totalVtxos, boardingUtxos)
 	if err != nil {
 		return "", fmt.Errorf("failed to join batch: %s", err)
 	}

@@ -1328,10 +1328,9 @@ func createRegisterIntentMessage(outputs []types.Receiver, teleportOutputs []typ
 
 	for _, output := range teleportOutputs {
 		assetOutputsIndexes = append(assetOutputsIndexes, intent.AssetOutput{
-			AssetOutputIndex: outputCounter,
-			AssetId:          output.AssetId,
-			Amount:           output.AssetAmount,
-			TeleportHash:     output.TeleportHash,
+			AssetId:      output.AssetId,
+			Amount:       output.AssetAmount,
+			TeleportHash: output.TeleportHash,
 		})
 	}
 
