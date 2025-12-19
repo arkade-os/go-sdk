@@ -44,7 +44,6 @@ func CoinSelectNormal(
 		}
 	}
 	vtxos = filteredVtxos
-	fmt.Printf("length of vtxos %d", len(vtxos))
 
 	if sortByExpirationTime {
 		// sort vtxos by expiration (older first)

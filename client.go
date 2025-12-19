@@ -1710,9 +1710,6 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	default:
 	}
 
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
-
 	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.listVtxosFromIndexer(ctx)
 	if err != nil {
@@ -1729,6 +1726,9 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
 
 	spendableUtxos := make([]types.Utxo, 0, len(allUtxos))
 	spentUtxos := make([]types.Utxo, 0, len(allUtxos))
@@ -2653,17 +2653,17 @@ func (a *arkClient) settle(
 	}
 
 	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
-
 	// coinselect boarding utxos and vtxos
 	boardingUtxos, normalVtxos, sealVtxos, changeAmount, err := a.selectFunds(
 		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers, "",
 	)
 	if err != nil {
+		a.dbMu.Unlock()
 		return "", err
 	}
 
 	_, offchainAddr, _, err := a.wallet.NewAddress(ctx, false)
+	a.dbMu.Unlock()
 	if err != nil {
 		return "", err
 	}
@@ -2754,6 +2754,12 @@ func (a *arkClient) settle(
 
 	// Claim Teleport Asset If Present
 	if len(teleportOutputs) > 0 {
+
+		if a.WithTransactionFeed {
+			if err := a.refreshDb(ctx); err != nil {
+				return "", fmt.Errorf("failed to refresh db: %s", err)
+			}
+		}
 		for nonce, receiver := range teleportNonces {
 			_, err := a.claimTeleportAsset(ctx, nonce, receiver)
 			if err != nil {

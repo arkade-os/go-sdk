@@ -29,13 +29,12 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	_, err := issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: createParams}})
 	require.NoError(t, err)
 
+	time.Sleep(5 * time.Second) // Wait for server indexer
+
 	issuerAssetVtxo := waitForAssetVtxo(t, ctx, issuer, nil)
 	issuerAssetAmount, ok := assetAmountForVout(issuerAssetVtxo)
 	require.True(t, ok)
 	require.EqualValues(t, supply, issuerAssetAmount)
-
-	// Allow server event handler to process the new VTXOs from CreateAsset
-	time.Sleep(2 * time.Second)
 
 	assetID := issuerAssetVtxo.Asset.AssetId
 	fmt.Printf("This is asset id %s\n", assetID.ToString())
@@ -82,7 +81,7 @@ func TestAssetModification(t *testing.T) {
 	issuer := setupClient(t)
 
 	// Fund issuer
-	faucetOffchain(t, issuer, 0.002)
+	faucetOffchain(t, issuer, 0.01)
 
 	// 1. Create Control Asset (regular asset used for control)
 	controlAssetParams := types.AssetCreationParams{
