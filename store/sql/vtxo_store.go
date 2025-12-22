@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -44,8 +43,8 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 
 			var assetData []byte
 			var err error
-			if vtxo.Asset != nil {
-				assetData, err = vtxo.Asset.EncodeTlv()
+			if vtxo.AssetOutput != nil {
+				assetData, err = vtxo.AssetOutput.EncodeTlv()
 				if err != nil {
 					return err
 				}
@@ -300,9 +299,9 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	var parsedAsset *asset.Asset
+	var parsedAsset *types.AssetOutput
 	if len(row.Asset) > 0 {
-		var decoded asset.Asset
+		var decoded types.AssetOutput
 		if err := decoded.DecodeTlv(row.Asset); err == nil {
 			parsedAsset = &decoded
 		}
@@ -324,6 +323,6 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		SpentBy:         row.SpentBy.String,
 		SettledBy:       row.SettledBy.String,
 		ArkTxid:         row.ArkTxid.String,
-		Asset:           parsedAsset,
+		AssetOutput:     parsedAsset,
 	}
 }

@@ -287,9 +287,9 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 			dbReceiver := r
 			dbReceiver.Amount = a.Dust
 			dbReceivers = append(dbReceivers, types.DBReceiver{
-				Receiver:   dbReceiver,
-				Index:      globalVoutIndex,
-				ChangeType: types.VtxoTypeAsset,
+				Receiver:     dbReceiver,
+				Index:        globalVoutIndex,
+				ReceiverType: types.VtxoTypeAsset,
 			})
 			globalVoutIndex++
 		}
@@ -340,9 +340,9 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 		}
 
 		dbReceivers = append(dbReceivers, types.DBReceiver{
-			Receiver:   changeReceiver,
-			Index:      changeIndex,
-			ChangeType: types.VtxoTypeNormal,
+			Receiver:     changeReceiver,
+			Index:        changeIndex,
+			ReceiverType: types.VtxoTypeNormal,
 		})
 	}
 
@@ -510,9 +510,9 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 			dbReceiver := changeReceiver
 			dbReceiver.Amount = a.Dust
 			changeReceivers = append(changeReceivers, types.DBReceiver{
-				Receiver:   dbReceiver,
-				Index:      currentVout, // Index of this change output
-				ChangeType: types.VtxoTypeAsset,
+				Receiver:     dbReceiver,
+				Index:        currentVout, // Index of this change output
+				ReceiverType: types.VtxoTypeAsset,
 			})
 			currentVout++
 		}
@@ -571,9 +571,9 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 		}
 
 		changeReceivers = append(changeReceivers, types.DBReceiver{
-			Receiver:   changeReceiver,
-			Index:      changeIndex,
-			ChangeType: types.VtxoTypeNormal,
+			Receiver:     changeReceiver,
+			Index:        changeIndex,
+			ReceiverType: types.VtxoTypeNormal,
 		})
 	}
 
@@ -745,9 +745,9 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, asse
 		dbReceiver := controlReceiver
 		dbReceiver.Amount = a.Dust
 		dbReceivers = append(dbReceivers, types.DBReceiver{
-			Receiver:   dbReceiver,
-			Index:      uint32(i),
-			ChangeType: types.VtxoTypeControlAsset,
+			Receiver:     dbReceiver,
+			Index:        uint32(i),
+			ReceiverType: types.VtxoTypeAsset,
 		})
 
 		controlSealInputs = append(controlSealInputs, controlSealInput)
@@ -766,9 +766,9 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, asse
 	dbReceiver := assetReceiver
 	dbReceiver.Amount = a.Dust
 	dbReceivers = append(dbReceivers, types.DBReceiver{
-		Receiver:   dbReceiver,
-		Index:      uint32(len(controlReceivers)),
-		ChangeType: types.VtxoTypeAsset,
+		Receiver:     dbReceiver,
+		Index:        uint32(len(controlReceivers)),
+		ReceiverType: types.VtxoTypeAsset,
 	})
 
 	selectedSatCoins := make([]client.TapscriptsVtxo, 0)
@@ -807,9 +807,9 @@ func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, asse
 		}
 
 		dbReceivers = append(dbReceivers, types.DBReceiver{
-			Receiver:   receiver,
-			Index:      changeIndex,
-			ChangeType: types.VtxoTypeNormal,
+			Receiver:     receiver,
+			Index:        changeIndex,
+			ReceiverType: types.VtxoTypeNormal,
 		})
 	}
 
@@ -974,9 +974,9 @@ func (a *arkClient) SendOffChain(
 		receivers = append(receivers, changeReceiver)
 
 		changeReceivers = append(changeReceivers, types.DBReceiver{
-			Receiver:   changeReceiver,
-			Index:      uint32(len(receivers) - 1),
-			ChangeType: types.VtxoTypeNormal,
+			Receiver:     changeReceiver,
+			Index:        uint32(len(receivers) - 1),
+			ReceiverType: types.VtxoTypeNormal,
 		})
 	}
 
@@ -2544,13 +2544,8 @@ func (a *arkClient) selectFunds(
 		return nil, nil, nil, 0, err
 	}
 
-	modifiedSpendableVtxos, err := a.InsertAssetIntoVtxos(ctx, spendableVtxos)
-	if err != nil {
-		return nil, nil, nil, 0, err
-	}
-
 	for _, offchainAddr := range offchainAddrs {
-		for _, v := range modifiedSpendableVtxos {
+		for _, v := range spendableVtxos {
 			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
 			if err != nil {
 				return nil, nil, nil, 0, err
@@ -2568,7 +2563,7 @@ func (a *arkClient) selectFunds(
 	normalVtxos := make([]client.TapscriptsVtxo, 0)
 	sealVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, v := range vtxos {
-		if v.Asset == nil {
+		if v.AssetOutput == nil {
 			normalVtxos = append(normalVtxos, v)
 		} else {
 			sealVtxos = append(sealVtxos, v)
@@ -2686,7 +2681,7 @@ func (a *arkClient) settle(
 		}
 
 		groupedSeals := utils.GroupBy(sealVtxos, func(v client.TapscriptsVtxo) string {
-			return v.Asset.AssetId.ToString()
+			return v.AssetOutput.AssetId
 		})
 
 		for assetId, seals := range groupedSeals {
@@ -2696,10 +2691,7 @@ func (a *arkClient) settle(
 			)
 
 			for _, seal := range seals {
-				sealAssetOutput, err := GetAssetOutput(seal.Asset.Outputs, seal.VOut)
-				if err != nil {
-					return "", fmt.Errorf("failed to get asset output: %s", err)
-				}
+				sealAssetOutput := seal.AssetOutput
 				assetAmount += sealAssetOutput.Amount
 				changeAmount += seal.Amount
 			}
@@ -3145,22 +3137,14 @@ func (a *arkClient) getOffchainBalance(
 	for _, vtxo := range vtxos {
 
 		vtxoExpires := vtxo.ExpiresAt.Unix()
-		if vtxo.Asset != nil {
-			assetIdHex := vtxo.Asset.AssetId.ToString()
+		if vtxo.AssetOutput != nil {
+			assetIdHex := vtxo.AssetOutput.AssetId
 			if _, ok := assetBalanceMap[assetIdHex]; !ok {
 				assetBalanceMap[assetIdHex] = make(map[int64]uint64)
 				assetBalanceMap[assetIdHex][vtxoExpires] = 0
 			}
 
-			var output asset.AssetOutput
-
-			for _, out := range vtxo.Asset.Outputs {
-				if out.Vout == vtxo.VOut {
-
-					output = out
-					break
-				}
-			}
+			output := vtxo.AssetOutput
 
 			assetBalanceMap[assetIdHex][vtxoExpires] += output.Amount
 
@@ -3353,13 +3337,6 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 	spendable, err := a.ListSpendableVtxos(ctx)
 	if err != nil {
 		return nil, err
-	}
-
-	if !a.WithTransactionFeed {
-		spendable, err = a.InsertAssetIntoVtxos(ctx, spendable)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	if opts != nil && len(opts.OutpointsFilter) > 0 {
@@ -3622,23 +3599,31 @@ func (a *arkClient) handleArkTx(
 
 	// Enrich vtxos with asset info if available in the tx
 	if assetGroup, err := asset.DeriveAssetGroupFromTx(arkTx.Tx); err == nil {
-		voutToAsset := make(map[uint32]*asset.Asset)
+		voutToAsset := make(map[uint32]types.AssetOutput)
 
-		for i := range assetGroup.ControlAssets {
-			for _, out := range assetGroup.ControlAssets[i].Outputs {
-				voutToAsset[out.Vout] = &assetGroup.ControlAssets[i]
+		for _, asset := range assetGroup.ControlAssets {
+			for _, out := range asset.Outputs {
+				voutToAsset[out.Vout] = types.AssetOutput{
+					AssetId: asset.AssetId.ToString(),
+					Amount:  out.Amount,
+					Vout:    out.Vout,
+				}
 			}
 		}
 
-		for i := range assetGroup.NormalAssets {
-			for _, out := range assetGroup.NormalAssets[i].Outputs {
-				voutToAsset[out.Vout] = &assetGroup.NormalAssets[i]
+		for _, asset := range assetGroup.NormalAssets {
+			for _, out := range asset.Outputs {
+				voutToAsset[out.Vout] = types.AssetOutput{
+					AssetId: asset.AssetId.ToString(),
+					Amount:  out.Amount,
+					Vout:    out.Vout,
+				}
 			}
 		}
 
 		for i, vtxo := range arkTx.SpendableVtxos {
 			if a, ok := voutToAsset[vtxo.VOut]; ok {
-				arkTx.SpendableVtxos[i].Asset = a
+				arkTx.SpendableVtxos[i].AssetOutput = &a
 			}
 		}
 	}
@@ -3749,8 +3734,8 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 			To:     receiver.ClaimAddress,
 			Amount: a.Dust,
 		},
-		Index:      globalVoutIndex,
-		ChangeType: types.VtxoTypeAsset,
+		Index:        globalVoutIndex,
+		ReceiverType: types.VtxoTypeAsset,
 	})
 	globalVoutIndex++
 
@@ -3795,9 +3780,9 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 		}
 
 		dbReceivers = append(dbReceivers, types.DBReceiver{
-			Receiver:   changeReceiver,
-			Index:      changeIndex,
-			ChangeType: types.VtxoTypeNormal,
+			Receiver:     changeReceiver,
+			Index:        changeIndex,
+			ReceiverType: types.VtxoTypeNormal,
 		})
 	}
 
@@ -3930,6 +3915,32 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 		commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
 	}
 
+	// store asssetOUtputsIf Present
+	assetOutputMap := make(map[uint32]types.AssetOutput)
+
+	if assetGroup != nil {
+		for _, asset := range assetGroup.NormalAssets {
+			for _, assetOutput := range asset.Outputs {
+				assetOutputMap[assetOutput.Vout] = types.AssetOutput{
+					AssetId: asset.AssetId.ToString(),
+					Vout:    assetOutput.Vout,
+					Amount:  assetOutput.Amount,
+				}
+			}
+		}
+
+		for _, asset := range assetGroup.ControlAssets {
+			for _, assetOutput := range asset.Outputs {
+				assetOutputMap[assetOutput.Vout] = types.AssetOutput{
+					AssetId: asset.AssetId.ToString(),
+					Vout:    assetOutput.Vout,
+					Amount:  assetOutput.Amount,
+				}
+			}
+		}
+
+	}
+
 	for _, receiver := range receviers {
 		spentAmount -= receiver.Amount
 
@@ -3957,35 +3968,10 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 			return err
 		}
 
-		var asset *asset.Asset
-		if assetGroup != nil {
-			switch receiver.ChangeType {
-			case types.VtxoTypeAsset:
-				for i := range assetGroup.NormalAssets {
-					for _, out := range assetGroup.NormalAssets[i].Outputs {
-						if out.Vout == receiver.Index {
-							asset = &assetGroup.NormalAssets[i]
-							break
-						}
-					}
-					if asset != nil {
-						break
-					}
-				}
-			case types.VtxoTypeControlAsset:
-				for i := range assetGroup.ControlAssets {
-					for _, out := range assetGroup.ControlAssets[i].Outputs {
-						if out.Vout == receiver.Index {
-							asset = &assetGroup.ControlAssets[i]
-							break
-						}
-					}
-					if asset != nil {
-						break
-					}
-				}
-			}
-
+		var assetOutput *types.AssetOutput
+		if receiver.ReceiverType == types.VtxoTypeAsset {
+			out := assetOutputMap[receiver.Index]
+			assetOutput = &out
 		}
 
 		// save change vtxo to DB
@@ -4004,7 +3990,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 				ExpiresAt:       smallestExpiration,
 				Script:          hex.EncodeToString(receiverScript),
 				CommitmentTxids: commitmentTxidsList,
-				Asset:           asset,
+				AssetOutput:     assetOutput,
 			},
 		}); err != nil {
 			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)

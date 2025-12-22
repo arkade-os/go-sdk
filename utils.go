@@ -476,16 +476,13 @@ func buildAssetTransferTx(
 
 	// Group inputs by AssetId
 	inputsByAsset := make(map[string][]arkTxInput)
-	// Also keep track of original asset info to copy metadata, etc.
-	assetInfoByAsset := make(map[string]asset.Asset)
 
 	for _, vtxo := range sealVtxos {
-		if vtxo.Vtxo.Asset == nil {
+		if vtxo.AssetOutput == nil {
 			return "", nil, nil, fmt.Errorf("vtxo %s has no asset info", vtxo.Txid)
 		}
-		assetId := vtxo.Vtxo.Asset.AssetId.ToString()
+		assetId := vtxo.AssetOutput.AssetId
 		inputsByAsset[assetId] = append(inputsByAsset[assetId], vtxo)
-		assetInfoByAsset[assetId] = *vtxo.Vtxo.Asset
 	}
 
 	// Group outputs by AssetId
@@ -509,8 +506,6 @@ func buildAssetTransferTx(
 		vtxos := inputsByAsset[assetIdStr]
 		receivers := outputsByAsset[assetIdStr]
 
-		originalAsset := assetInfoByAsset[assetIdStr]
-
 		newAssetInputs := make([]asset.AssetInput, 0)
 
 		for _, vtxo := range vtxos {
@@ -520,27 +515,19 @@ func buildAssetTransferTx(
 			}
 			ins = append(ins, *in)
 
-			// Find input amount/index in the asset history
-			found := false
-			for _, out := range vtxo.Asset.Outputs {
-				if out.Vout == vtxo.VOut {
-					hash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
-					if err != nil {
-						return "", nil, nil, err
-					}
-
-					assetInput := asset.AssetInput{
-						Type:   asset.AssetInputTypeLocal,
-						Vin:    out.Vout,
-						Amount: out.Amount,
-						Hash:   hash[:],
-					}
-					newAssetInputs = append(newAssetInputs, assetInput)
-					found = true
+			if vtxo.AssetOutput != nil && vtxo.AssetOutput.Vout == vtxo.VOut {
+				hash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
+				if err != nil {
+					return "", nil, nil, err
 				}
-			}
-			if !found {
-				return "", nil, nil, fmt.Errorf("vtxo %s has no asset info", vtxo.Txid)
+
+				assetInput := asset.AssetInput{
+					Type:   asset.AssetInputTypeLocal,
+					Vin:    vtxo.VOut,
+					Amount: vtxo.AssetOutput.Amount,
+					Hash:   hash[:],
+				}
+				newAssetInputs = append(newAssetInputs, assetInput)
 			}
 		}
 
@@ -555,9 +542,10 @@ func buildAssetTransferTx(
 			})
 		}
 
-		newAsset := originalAsset
-		newAsset.Inputs = newAssetInputs
-		newAsset.Outputs = newAssetOutputs
+		newAsset := asset.Asset{
+			Inputs:  newAssetInputs,
+			Outputs: newAssetOutputs,
+		}
 
 		normalAssets = append(normalAssets, newAsset)
 	}
@@ -690,7 +678,6 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 	newAssetInputs := make([]asset.AssetInput, 0)
 	newAssetOutputs := make([]asset.AssetOutput, 0)
 
-	newControlAsset := *controlSealVtxos[0].Asset
 	newControlAssetInputs := make([]asset.AssetInput, 0)
 	newControlAssetOutputs := make([]asset.AssetOutput, 0)
 
@@ -705,20 +692,16 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		}
 		ins = append(ins, *in)
 
-		for _, out := range vtxo.Asset.Outputs {
-			if out.Vout == vtxo.VOut {
-				assetInput := asset.AssetInput{
-					Type:   asset.AssetInputTypeLocal,
-					Vin:    out.Vout,
-					Amount: out.Amount,
-					Hash:   vtxoHash[:],
-				}
-				newControlAssetInputs = append(newControlAssetInputs, assetInput)
+		if vtxo.AssetOutput != nil && vtxo.AssetOutput.Vout == vtxo.VOut {
+			assetInput := asset.AssetInput{
+				Type:   asset.AssetInputTypeLocal,
+				Vin:    vtxo.VOut,
+				Amount: vtxo.AssetOutput.Amount,
+				Hash:   vtxoHash[:],
 			}
+			newControlAssetInputs = append(newControlAssetInputs, assetInput)
 		}
 	}
-
-	newControlAsset.Inputs = newControlAssetInputs
 
 	for _, vtxo := range otherVtxos {
 		in, err := createVtxoTxInput(vtxo)
@@ -759,7 +742,10 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 
 	}
 
-	newControlAsset.Outputs = newControlAssetOutputs
+	newControlAsset := asset.Asset{
+		Inputs:  newControlAssetInputs,
+		Outputs: newControlAssetOutputs,
+	}
 
 	for _, receiver := range assetReceivers {
 		addr, err := arklib.DecodeAddressV0(receiver.To)
@@ -1116,7 +1102,7 @@ func toIntentInputs(
 
 		signingLeaves = append(signingLeaves, leafProof)
 
-		isSeal := coin.Asset != nil
+		isSeal := coin.AssetOutput != nil
 
 		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
@@ -1521,7 +1507,7 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 	return &forfeitLeafHash, nil
 }
 
-func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.Asset, error) {
+func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*types.AssetOutput, error) {
 	if assetGroup == nil {
 		return nil, fmt.Errorf("asset group is nil")
 	}
@@ -1541,7 +1527,11 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*asset.
 
 		for _, assetOut := range asset.Outputs {
 			if vtxo.VOut == assetOut.Vout {
-				return asset, nil
+				return &types.AssetOutput{
+					AssetId: asset.AssetId.ToString(),
+					Amount:  assetOut.Amount,
+					Vout:    assetOut.Vout,
+				}, nil
 			}
 
 		}

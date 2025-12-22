@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -260,8 +259,8 @@ func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
 
 func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
 	var assetData []byte
-	if vtxo.Asset != nil {
-		encoded, err := vtxo.Asset.EncodeTlv()
+	if vtxo.AssetOutput != nil {
+		encoded, err := vtxo.AssetOutput.EncodeTlv()
 		if err != nil {
 			return vtxoRecord{}, err
 		}
@@ -287,9 +286,9 @@ func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
 }
 
 func (r vtxoRecord) toVtxo() types.Vtxo {
-	var parsedAsset *asset.Asset
+	var parsedAsset *types.AssetOutput
 	if len(r.Asset) > 0 {
-		var decoded asset.Asset
+		var decoded types.AssetOutput
 		if err := decoded.DecodeTlv(r.Asset); err == nil {
 			parsedAsset = &decoded
 		}
@@ -309,6 +308,6 @@ func (r vtxoRecord) toVtxo() types.Vtxo {
 		SpentBy:         r.SpentBy,
 		SettledBy:       r.SettledBy,
 		ArkTxid:         r.ArkTxid,
-		Asset:           parsedAsset,
+		AssetOutput:     parsedAsset,
 	}
 }

@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
@@ -24,7 +22,6 @@ import (
 	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
 	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
 	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
-	"github.com/btcsuite/btcd/btcutil/psbt"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -694,6 +691,8 @@ func (a *arkClient) listVtxosFromIndexer(
 		return nil, nil, err
 	}
 
+	fmt.Printf("This is my response %+v: \n", resp)
+
 	for _, vtxo := range resp.Vtxos {
 		if vtxo.IsRecoverable() {
 			spendableVtxos = append(spendableVtxos, vtxo)
@@ -709,77 +708,6 @@ func (a *arkClient) listVtxosFromIndexer(
 	}
 
 	return
-}
-
-func (a *arkClient) InsertAssetIntoVtxos(ctx context.Context,
-	vtxos []types.Vtxo,
-) ([]types.Vtxo, error) {
-	if a.wallet == nil {
-		return nil, ErrNotInitialized
-	}
-
-	vtxoMap := make(map[string][]types.Vtxo)
-	txids := make([]string, 0, len(vtxos))
-
-	for _, vtxo := range vtxos {
-		vtxoMap[vtxo.Txid] = append(vtxoMap[vtxo.Txid], vtxo)
-		txids = append(txids, vtxo.Txid)
-	}
-
-	if len(txids) == 0 {
-		return vtxos, nil
-	}
-
-	transactions, err := a.indexer.GetVirtualTxs(ctx, txids)
-	if err != nil {
-		return nil, err
-	}
-
-	finalVtxos := make([]types.Vtxo, 0)
-
-	for _, tx := range transactions.Txs {
-		txPacket, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
-		if err != nil {
-			return nil, err
-		}
-
-		var newAssetGroup *asset.AssetGroup
-
-		txId := txPacket.UnsignedTx.TxID()
-
-		// asset follow RGB convection, the asset output is after the seals outputs
-
-		for _, output := range txPacket.UnsignedTx.TxOut {
-
-			if asset.IsAssetGroup(output.PkScript) {
-				assetGroup, err := asset.DecodeAssetGroupFromOpret(output.PkScript)
-				if err != nil {
-					log.WithError(err).Error("failed to decode asset from vtxo script")
-					continue
-				}
-
-				newAssetGroup = assetGroup
-
-				break
-			}
-
-		}
-
-		if newAssetGroup == nil {
-			finalVtxos = append(finalVtxos, vtxoMap[txId]...)
-			continue
-		}
-
-		for _, vtxo := range vtxoMap[txId] {
-			foundAsset, err := FindAssetFromOutput(vtxo, newAssetGroup)
-			if err == nil {
-				vtxo.Asset = foundAsset
-			}
-			finalVtxos = append(finalVtxos, vtxo)
-		}
-	}
-
-	return finalVtxos, nil
 }
 
 func (a *arkClient) safeCheck() error {

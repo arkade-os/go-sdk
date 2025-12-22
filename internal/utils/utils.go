@@ -39,7 +39,7 @@ func CoinSelectNormal(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, vtxo := range vtxos {
-		if vtxo.Asset == nil {
+		if vtxo.AssetOutput == nil {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -108,7 +108,7 @@ func CoinSelectSeals(
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 
 	for _, vtxo := range vtxos {
-		if vtxo.Asset != nil && vtxo.Asset.AssetId.ToString() == assetID {
+		if vtxo.AssetOutput != nil && vtxo.AssetOutput.AssetId == assetID {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -128,15 +128,9 @@ func CoinSelectSeals(
 			break
 		}
 
-		for _, output := range vtxo.Asset.Outputs {
-			if output.Vout == vtxo.VOut {
-
-				selected = append(selected, vtxo)
-				selectedAmount += output.Amount
-				break
-			}
-		}
-
+		selected = append(selected, vtxo)
+		selectedAmount += vtxo.AssetOutput.Amount
+		break
 	}
 
 	if selectedAmount < amount {
@@ -149,17 +143,11 @@ func CoinSelectSeals(
 }
 
 func GetAssetSealAmount(seal client.TapscriptsVtxo) (uint64, error) {
-	if seal.Asset == nil {
+	if seal.AssetOutput == nil {
 		return 0, fmt.Errorf("utxo is not an asset")
 	}
 
-	for _, output := range seal.Asset.Outputs {
-		if output.Vout == seal.VOut {
-			return output.Amount, nil
-		}
-	}
-
-	return 0, fmt.Errorf("could not find matching output for seal")
+	return seal.AssetOutput.Amount, nil
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (

@@ -630,6 +630,15 @@ func newIndexerVtxos(vtxos []*arkv1.IndexerVtxo) []types.Vtxo {
 }
 
 func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
+	var assetOutput *types.AssetOutput
+
+	if vtxo.GetAssetAnchor() != nil {
+		assetOutput = &types.AssetOutput{
+			AssetId: vtxo.GetAssetAnchor().GetAssetId(),
+			Vout:    vtxo.GetAssetAnchor().GetVout(),
+			Amount:  vtxo.GetAssetAnchor().GetAmount(),
+		}
+	}
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: vtxo.GetOutpoint().GetTxid(),
@@ -647,5 +656,6 @@ func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
 		SpentBy:         vtxo.GetSpentBy(),
 		SettledBy:       vtxo.GetSettledBy(),
 		ArkTxid:         vtxo.GetArkTxid(),
+		AssetOutput:     assetOutput,
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -92,7 +91,13 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
-	Asset           *asset.Asset
+	AssetOutput     *AssetOutput
+}
+
+type AssetOutput struct {
+	AssetId string
+	Amount  uint64
+	Vout    uint32
 }
 
 func (v Vtxo) String() string {
@@ -271,13 +276,12 @@ type VtxoType int
 const (
 	VtxoTypeNormal VtxoType = iota
 	VtxoTypeAsset
-	VtxoTypeControlAsset
 )
 
 type DBReceiver struct {
 	Receiver
-	Index      uint32
-	ChangeType VtxoType
+	Index        uint32
+	ReceiverType VtxoType
 }
 
 type TeleportReceiver struct {
