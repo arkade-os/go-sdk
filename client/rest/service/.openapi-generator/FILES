@@ -9,6 +9,8 @@ model_batch_started_event.go
 model_confirm_registration_request.go
 model_delete_intent_request.go
 model_deprecated_signer.go
+model_estimate_intent_fee_request.go
+model_estimate_intent_fee_response.go
 model_fee_info.go
 model_finalize_tx_request.go
 model_get_event_stream_request.go
@@ -19,12 +21,15 @@ model_get_pending_tx_response.go
 model_get_transactions_stream_response.go
 model_intent.go
 model_intent_fee_info.go
+model_modify_topics.go
 model_outpoint.go
+model_overwrite_topics.go
 model_pending_tx.go
 model_register_intent_request.go
 model_register_intent_response.go
 model_scheduled_session.go
 model_status.go
+model_stream_started_event.go
 model_submit_signed_forfeit_txs_request.go
 model_submit_tree_nonces_request.go
 model_submit_tree_signatures_request.go
@@ -37,5 +42,7 @@ model_tree_signing_started_event.go
 model_tree_tx_event.go
 model_tx_data.go
 model_tx_notification.go
+model_update_stream_topics_request.go
+model_update_stream_topics_response.go
 model_vtxo.go
 utils.go

@@ -332,6 +332,11 @@ func (c *restClient) GetEventStream(
 					Txid:       e.GetTxid(),
 					Signature:  e.GetSignature(),
 				}
+			case !ark_service.IsNil(event.GetStreamStarted()):
+				e := event.GetStreamStarted()
+				batchEvent = client.StreamStartedEvent{
+					Id: e.GetId(),
+				}
 			}
 
 			eventsCh <- client.BatchEventChannel{
@@ -471,6 +476,18 @@ func (c *restClient) GetTransactionsStream(
 	}
 
 	return eventsCh, sseClient.Close, nil
+}
+
+func (a *restClient) ModifyStreamTopics(
+	ctx context.Context, streamId string, addTopics []string, removeTopics []string,
+) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	return addedTopics, removedTopics, allTopics, nil
+}
+
+func (a *restClient) OverwriteStreamTopics(
+	ctx context.Context, streamId string, topics []string,
+) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	return addedTopics, removedTopics, allTopics, nil
 }
 
 func (c *restClient) Close() {}

@@ -8,6 +8,7 @@ package arkv1
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -21,12 +22,14 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	ArkService_GetInfo_FullMethodName                = "/ark.v1.ArkService/GetInfo"
 	ArkService_RegisterIntent_FullMethodName         = "/ark.v1.ArkService/RegisterIntent"
+	ArkService_EstimateIntentFee_FullMethodName      = "/ark.v1.ArkService/EstimateIntentFee"
 	ArkService_DeleteIntent_FullMethodName           = "/ark.v1.ArkService/DeleteIntent"
 	ArkService_ConfirmRegistration_FullMethodName    = "/ark.v1.ArkService/ConfirmRegistration"
 	ArkService_SubmitTreeNonces_FullMethodName       = "/ark.v1.ArkService/SubmitTreeNonces"
 	ArkService_SubmitTreeSignatures_FullMethodName   = "/ark.v1.ArkService/SubmitTreeSignatures"
 	ArkService_SubmitSignedForfeitTxs_FullMethodName = "/ark.v1.ArkService/SubmitSignedForfeitTxs"
 	ArkService_GetEventStream_FullMethodName         = "/ark.v1.ArkService/GetEventStream"
+	ArkService_UpdateStreamTopics_FullMethodName     = "/ark.v1.ArkService/UpdateStreamTopics"
 	ArkService_SubmitTx_FullMethodName               = "/ark.v1.ArkService/SubmitTx"
 	ArkService_FinalizeTx_FullMethodName             = "/ark.v1.ArkService/FinalizeTx"
 	ArkService_GetPendingTx_FullMethodName           = "/ark.v1.ArkService/GetPendingTx"
@@ -44,6 +47,10 @@ type ArkServiceClient interface {
 	// The client should provide a BIP-322 message with the intent information, and the server should
 	// respond with an intent id.
 	RegisterIntent(ctx context.Context, in *RegisterIntentRequest, opts ...grpc.CallOption) (*RegisterIntentResponse, error)
+	// EstimateIntentFee allows to estimate the fees for a given intent.
+	// The client should provide a BIP-322 message with the same data as the register intent message,
+	// and the server should respond with the estimated fees in satoshis.
+	EstimateIntentFee(ctx context.Context, in *EstimateIntentFeeRequest, opts ...grpc.CallOption) (*EstimateIntentFeeResponse, error)
 	// DeleteIntent removes a previously registered intent from the server.
 	// The client should provide the BIP-322 signature and message including any of the vtxos used in
 	// the registered intent to prove its ownership.
@@ -73,8 +80,14 @@ type ArkServiceClient interface {
 	// Clients should use this stream as soon as they are ready to join a batch and can listen for
 	// various events such as batch start, batch finalization, and other related activities.
 	// The server pushes these events to the client in real-time as soon as its ready to move to the
-	// next phase of the batch processing.
+	// next phase of the batch processing. Upon creation of the stream, the event StreamStartedEvent
+	// is immediately sent, which passes along the stream id, to be used by the client for future
+	// calls to UpdateStreamTopics.
 	GetEventStream(ctx context.Context, in *GetEventStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetEventStreamResponse], error)
+	// UpdateStreamTopics allows a client to modify the topics of their event stream. They can add,
+	// remove, or specify a list of topics, providing them control over the events received on the
+	// event stream.
+	UpdateStreamTopics(ctx context.Context, in *UpdateStreamTopicsRequest, opts ...grpc.CallOption) (*UpdateStreamTopicsResponse, error)
 	// SubmitTx is the first leg of the process of spending vtxos offchain and allows a client to
 	// submit a signed Ark transaction and the unsigned checkpoint transactions.
 	// The server should verify the signed transactions and return the fully signed Ark tx and the
@@ -118,6 +131,16 @@ func (c *arkServiceClient) RegisterIntent(ctx context.Context, in *RegisterInten
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RegisterIntentResponse)
 	err := c.cc.Invoke(ctx, ArkService_RegisterIntent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *arkServiceClient) EstimateIntentFee(ctx context.Context, in *EstimateIntentFeeRequest, opts ...grpc.CallOption) (*EstimateIntentFeeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EstimateIntentFeeResponse)
+	err := c.cc.Invoke(ctx, ArkService_EstimateIntentFee_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +216,16 @@ func (c *arkServiceClient) GetEventStream(ctx context.Context, in *GetEventStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ArkService_GetEventStreamClient = grpc.ServerStreamingClient[GetEventStreamResponse]
 
+func (c *arkServiceClient) UpdateStreamTopics(ctx context.Context, in *UpdateStreamTopicsRequest, opts ...grpc.CallOption) (*UpdateStreamTopicsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateStreamTopicsResponse)
+	err := c.cc.Invoke(ctx, ArkService_UpdateStreamTopics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *arkServiceClient) SubmitTx(ctx context.Context, in *SubmitTxRequest, opts ...grpc.CallOption) (*SubmitTxResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitTxResponse)
@@ -253,6 +286,10 @@ type ArkServiceServer interface {
 	// The client should provide a BIP-322 message with the intent information, and the server should
 	// respond with an intent id.
 	RegisterIntent(context.Context, *RegisterIntentRequest) (*RegisterIntentResponse, error)
+	// EstimateIntentFee allows to estimate the fees for a given intent.
+	// The client should provide a BIP-322 message with the same data as the register intent message,
+	// and the server should respond with the estimated fees in satoshis.
+	EstimateIntentFee(context.Context, *EstimateIntentFeeRequest) (*EstimateIntentFeeResponse, error)
 	// DeleteIntent removes a previously registered intent from the server.
 	// The client should provide the BIP-322 signature and message including any of the vtxos used in
 	// the registered intent to prove its ownership.
@@ -282,8 +319,14 @@ type ArkServiceServer interface {
 	// Clients should use this stream as soon as they are ready to join a batch and can listen for
 	// various events such as batch start, batch finalization, and other related activities.
 	// The server pushes these events to the client in real-time as soon as its ready to move to the
-	// next phase of the batch processing.
+	// next phase of the batch processing. Upon creation of the stream, the event StreamStartedEvent
+	// is immediately sent, which passes along the stream id, to be used by the client for future
+	// calls to UpdateStreamTopics.
 	GetEventStream(*GetEventStreamRequest, grpc.ServerStreamingServer[GetEventStreamResponse]) error
+	// UpdateStreamTopics allows a client to modify the topics of their event stream. They can add,
+	// remove, or specify a list of topics, providing them control over the events received on the
+	// event stream.
+	UpdateStreamTopics(context.Context, *UpdateStreamTopicsRequest) (*UpdateStreamTopicsResponse, error)
 	// SubmitTx is the first leg of the process of spending vtxos offchain and allows a client to
 	// submit a signed Ark transaction and the unsigned checkpoint transactions.
 	// The server should verify the signed transactions and return the fully signed Ark tx and the
@@ -318,6 +361,9 @@ func (UnimplementedArkServiceServer) GetInfo(context.Context, *GetInfoRequest) (
 func (UnimplementedArkServiceServer) RegisterIntent(context.Context, *RegisterIntentRequest) (*RegisterIntentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterIntent not implemented")
 }
+func (UnimplementedArkServiceServer) EstimateIntentFee(context.Context, *EstimateIntentFeeRequest) (*EstimateIntentFeeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EstimateIntentFee not implemented")
+}
 func (UnimplementedArkServiceServer) DeleteIntent(context.Context, *DeleteIntentRequest) (*DeleteIntentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteIntent not implemented")
 }
@@ -335,6 +381,9 @@ func (UnimplementedArkServiceServer) SubmitSignedForfeitTxs(context.Context, *Su
 }
 func (UnimplementedArkServiceServer) GetEventStream(*GetEventStreamRequest, grpc.ServerStreamingServer[GetEventStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method GetEventStream not implemented")
+}
+func (UnimplementedArkServiceServer) UpdateStreamTopics(context.Context, *UpdateStreamTopicsRequest) (*UpdateStreamTopicsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateStreamTopics not implemented")
 }
 func (UnimplementedArkServiceServer) SubmitTx(context.Context, *SubmitTxRequest) (*SubmitTxResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitTx not implemented")
@@ -400,6 +449,24 @@ func _ArkService_RegisterIntent_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ArkServiceServer).RegisterIntent(ctx, req.(*RegisterIntentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ArkService_EstimateIntentFee_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EstimateIntentFeeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArkServiceServer).EstimateIntentFee(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArkService_EstimateIntentFee_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArkServiceServer).EstimateIntentFee(ctx, req.(*EstimateIntentFeeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -505,6 +572,24 @@ func _ArkService_GetEventStream_Handler(srv interface{}, stream grpc.ServerStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ArkService_GetEventStreamServer = grpc.ServerStreamingServer[GetEventStreamResponse]
 
+func _ArkService_UpdateStreamTopics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateStreamTopicsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArkServiceServer).UpdateStreamTopics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArkService_UpdateStreamTopics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArkServiceServer).UpdateStreamTopics(ctx, req.(*UpdateStreamTopicsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ArkService_SubmitTx_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SubmitTxRequest)
 	if err := dec(in); err != nil {
@@ -586,6 +671,10 @@ var ArkService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ArkService_RegisterIntent_Handler,
 		},
 		{
+			MethodName: "EstimateIntentFee",
+			Handler:    _ArkService_EstimateIntentFee_Handler,
+		},
+		{
 			MethodName: "DeleteIntent",
 			Handler:    _ArkService_DeleteIntent_Handler,
 		},
@@ -604,6 +693,10 @@ var ArkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SubmitSignedForfeitTxs",
 			Handler:    _ArkService_SubmitSignedForfeitTxs_Handler,
+		},
+		{
+			MethodName: "UpdateStreamTopics",
+			Handler:    _ArkService_UpdateStreamTopics_Handler,
 		},
 		{
 			MethodName: "SubmitTx",

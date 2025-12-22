@@ -24,6 +24,7 @@ type GetEventStreamResponse struct {
 		BatchFinalized *BatchFinalizedEvent `json:"batchFinalized,omitempty"`
 		BatchStarted *BatchStartedEvent `json:"batchStarted,omitempty"`
 		Heartbeat map[string]interface{} `json:"heartbeat,omitempty"`
+		StreamStarted *StreamStartedEvent `json:"streamStarted,omitempty"`
 		TreeNonces *TreeNoncesEvent `json:"treeNonces,omitempty"`
 		TreeNoncesAggregated *TreeNoncesAggregatedEvent `json:"treeNoncesAggregated,omitempty"`
 		TreeSignature *TreeSignatureEvent `json:"treeSignature,omitempty"`
@@ -206,6 +207,38 @@ func (o *GetEventStreamResponse) HasHeartbeat() bool {
 // SetHeartbeat gets a reference to the given map[string]interface{} and assigns it to the Heartbeat field.
 func (o *GetEventStreamResponse) SetHeartbeat(v map[string]interface{}) {
 	o.Heartbeat = v
+}
+
+// GetStreamStarted returns the StreamStarted field value if set, zero value otherwise.
+func (o *GetEventStreamResponse) GetStreamStarted() StreamStartedEvent {
+	if o == nil || IsNil(o.StreamStarted) {
+		var ret StreamStartedEvent
+		return ret
+	}
+	return *o.StreamStarted
+}
+
+// GetStreamStartedOk returns a tuple with the StreamStarted field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetEventStreamResponse) GetStreamStartedOk() (*StreamStartedEvent, bool) {
+	if o == nil || IsNil(o.StreamStarted) {
+		return nil, false
+	}
+	return o.StreamStarted, true
+}
+
+// HasStreamStarted returns a boolean if a field has been set.
+func (o *GetEventStreamResponse) HasStreamStarted() bool {
+	if o != nil && !IsNil(o.StreamStarted) {
+		return true
+	}
+
+	return false
+}
+
+// SetStreamStarted gets a reference to the given StreamStartedEvent and assigns it to the StreamStarted field.
+func (o *GetEventStreamResponse) SetStreamStarted(v StreamStartedEvent) {
+	o.StreamStarted = &v
 }
 
 // GetTreeNonces returns the TreeNonces field value if set, zero value otherwise.
@@ -392,6 +425,9 @@ func (o GetEventStreamResponse) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Heartbeat) {
 		toSerialize["heartbeat"] = o.Heartbeat
+	}
+	if !IsNil(o.StreamStarted) {
+		toSerialize["streamStarted"] = o.StreamStarted
 	}
 	if !IsNil(o.TreeNonces) {
 		toSerialize["treeNonces"] = o.TreeNonces
