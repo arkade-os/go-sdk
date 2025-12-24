@@ -130,6 +130,7 @@ func (e event) toBatchEvent() (any, error) {
 	}
 
 	if ee := e.GetStreamStarted(); ee != nil {
+		fmt.Printf("--- case types.go e.GetStreamStarted hit\n")
 		return client.StreamStartedEvent{
 			Id: ee.GetId(),
 		}, nil
