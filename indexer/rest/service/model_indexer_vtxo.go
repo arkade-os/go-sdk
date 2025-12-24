@@ -19,11 +19,11 @@ var _ MappedNullable = &IndexerVtxo{}
 
 // IndexerVtxo struct for IndexerVtxo
 type IndexerVtxo struct {
-		Amount *int32 `json:"amount,string,omitempty"`
+		Amount *int32 `json:"amount,omitempty"`
 		ArkTxid *string `json:"arkTxid,omitempty"`
 		CommitmentTxids []string `json:"commitmentTxids,omitempty"`
-		CreatedAt *int64 `json:"createdAt,string,omitempty"`
-		ExpiresAt *int64 `json:"expiresAt,string,omitempty"`
+		CreatedAt *int64 `json:"createdAt,omitempty"`
+		ExpiresAt *int64 `json:"expiresAt,omitempty"`
 		IsPreconfirmed *bool `json:"isPreconfirmed,omitempty"`
 		IsSpent *bool `json:"isSpent,omitempty"`
 		IsSwept *bool `json:"isSwept,omitempty"`

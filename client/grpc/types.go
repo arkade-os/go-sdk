@@ -22,6 +22,7 @@ type eventResponse interface {
 	GetTreeNonces() *arkv1.TreeNoncesEvent
 	GetTreeTx() *arkv1.TreeTxEvent
 	GetTreeSignature() *arkv1.TreeSignatureEvent
+	GetStreamStarted() *arkv1.StreamStartedEvent
 }
 
 type event struct {
@@ -125,6 +126,13 @@ func (e event) toBatchEvent() (any, error) {
 			BatchIndex: ee.GetBatchIndex(),
 			Txid:       ee.GetTxid(),
 			Signature:  ee.GetSignature(),
+		}, nil
+	}
+
+	if ee := e.GetStreamStarted(); ee != nil {
+		fmt.Printf("--- case types.go e.GetStreamStarted hit\n")
+		return client.StreamStartedEvent{
+			Id: ee.GetId(),
 		}, nil
 	}
 

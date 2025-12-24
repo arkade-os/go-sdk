@@ -131,6 +131,9 @@ func JoinBatchSession(
 			}
 
 			switch event := notify.Event; event.(type) {
+			case client.StreamStartedEvent:
+				// TODO
+				fmt.Printf("--- case client.StreamStartedEvent hit\n")
 			case client.BatchStartedEvent:
 				e := event.(client.BatchStartedEvent)
 				skip, err := eventsHandler.OnBatchStarted(ctx, e)

@@ -504,6 +504,48 @@ func (c *grpcClient) GetTransactionsStream(
 	return eventsCh, closeFn, nil
 }
 
+func (c *grpcClient) ModifyStreamTopics(
+	ctx context.Context, streamId string,
+	addTopics []string, removeTopics []string,
+) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+
+	req := &arkv1.UpdateStreamTopicsRequest{
+		StreamId: streamId,
+		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
+			Modify: &arkv1.ModifyTopics{
+				AddTopics:    addTopics,
+				RemoveTopics: removeTopics,
+			},
+		},
+	}
+	updateRes, err := c.svc().UpdateStreamTopics(ctx, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
+}
+
+func (c *grpcClient) OverwriteStreamTopics(
+	ctx context.Context, streamId string, topics []string,
+) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+
+	req := &arkv1.UpdateStreamTopicsRequest{
+		StreamId: streamId,
+		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Overwrite{
+			Overwrite: &arkv1.OverwriteTopics{
+				Topics: topics,
+			},
+		},
+	}
+	updateRes, err := c.svc().UpdateStreamTopics(ctx, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
+}
+
 func (c *grpcClient) Close() {
 	c.monitoringCancel()
 	c.connMu.Lock()
