@@ -349,6 +349,7 @@ func (c *restClient) GetEventStream(
 					Signature:  e.GetSignature(),
 				}
 			case !ark_service.IsNil(event.GetStreamStarted()):
+				fmt.Printf("--- case rest client StreamStartedEvent hit\n")
 				e := event.GetStreamStarted()
 				batchEvent = client.StreamStartedEvent{
 					Id: e.GetId(),
