@@ -498,12 +498,14 @@ func (c *restClient) GetTransactionsStream(
 func (a *restClient) ModifyStreamTopics(
 	ctx context.Context, streamId string, addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	fmt.Printf("restClient ModifyStreamTopics\n")
 	return addedTopics, removedTopics, allTopics, nil
 }
 
 func (a *restClient) OverwriteStreamTopics(
 	ctx context.Context, streamId string, topics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	fmt.Printf("restClient OverwriteStreamTopics\n")
 	return addedTopics, removedTopics, allTopics, nil
 }
 

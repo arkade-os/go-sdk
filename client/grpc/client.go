@@ -70,7 +70,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 
 	testClient := arkv1.NewArkServiceClient(conn)
 	streamId := ""
-	pingCtx2, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	pingCtx2, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	// get the event stream
 	eventStreamRes, err := testClient.GetEventStream(pingCtx2, &arkv1.GetEventStreamRequest{})
 	if err != nil {
@@ -91,12 +91,11 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 				log.Debugf("unexpected event type received: %T", eventCh.Event)
 			}
 		}
-		fmt.Printf("event stream res: \n")
 	}
-	cancel()
+	defer cancel()
 	if streamId != "" {
 		fmt.Printf("--- calling UpdateStreamTopics for stream id: %s\n", streamId)
-		pingCtx3, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		pingCtx3, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		updateRes, err := testClient.UpdateStreamTopics(pingCtx3, &arkv1.UpdateStreamTopicsRequest{
 			StreamId: streamId,
 			TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
@@ -106,12 +105,12 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 				},
 			},
 		})
-		cancel()
 		if err != nil {
 			log.Debugf("error with UpdateStreamTopics: %s", err.Error())
 		} else {
 			log.Debugf("UpdateStreamTopics response: added=%v removed=%v all=%v", updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics())
 		}
+		defer cancel()
 	}
 
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
@@ -570,6 +569,7 @@ func (c *grpcClient) ModifyStreamTopics(
 	ctx context.Context, streamId string,
 	addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	fmt.Printf("ModifyStreamTopics called\n")
 
 	req := &arkv1.UpdateStreamTopicsRequest{
 		StreamId: streamId,
@@ -591,6 +591,7 @@ func (c *grpcClient) ModifyStreamTopics(
 func (c *grpcClient) OverwriteStreamTopics(
 	ctx context.Context, streamId string, topics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	fmt.Printf("OverwriteStreamTopics called\n")
 
 	req := &arkv1.UpdateStreamTopicsRequest{
 		StreamId: streamId,
