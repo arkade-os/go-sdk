@@ -2378,6 +2378,7 @@ func (a *arkClient) handleBatchEvents(
 	receivers []types.Receiver, signerSessions []tree.SignerSession,
 	replayEventsCh chan<- any, cancelCh <-chan struct{},
 ) (string, error) {
+	fmt.Printf("--- handleBatchEvents called\n")
 	topics := make([]string, 0)
 	for _, n := range notes {
 		parsedNote, err := note.NewNoteFromString(n)
