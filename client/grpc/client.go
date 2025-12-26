@@ -83,6 +83,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 }
 
 func (c *grpcClient) waitForServerReady(ctx context.Context) error {
+	fmt.Printf("--- calling waitForServerReady\n")
 	delay := initialDelay
 	attempt := 0
 
@@ -92,14 +93,56 @@ func (c *grpcClient) waitForServerReady(ctx context.Context) error {
 	for {
 		attempt++
 
+		streamId := ""
 		// Use a short timeout for each ping attempt
 		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		_, err := testClient.GetInfo(pingCtx, &arkv1.GetInfoRequest{})
 		cancel()
 
 		if err == nil {
+			pingCtx2, cancel := context.WithTimeout(ctx, 3*time.Second)
+			// get the event stream
+			eventStreamRes, err := testClient.GetEventStream(pingCtx2, &arkv1.GetEventStreamRequest{})
+			if err != nil {
+				log.Debugf("error getting event stream: %s", err.Error())
+				// continue to retry
+			} else {
+				eventCh, err := eventStreamRes.Recv()
+				if err != nil {
+					log.Debugf("error receiving from event stream: %s", err.Error())
+					// continue to retry
+				} else {
+					log.Debugf("successfully received from event stream: %+v", eventCh)
+					switch eventCh.Event.(type) {
+					case *arkv1.GetEventStreamResponse_StreamStarted:
+						streamId = eventCh.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
+						fmt.Printf("set stream id: %s\n", streamId)
+					default:
+						log.Debugf("unexpected event type received: %T", eventCh.Event)
+					}
+				}
+				fmt.Printf("evetn stream res: \n")
+			}
+			cancel()
 			// Server responded successfully
 			log.Debugf("connection restored after %d attempt(s)", attempt)
+			fmt.Printf("--- calling UpdateStreamTopics for stream id: %s\n", streamId)
+			pingCtx3, cancel := context.WithTimeout(ctx, 3*time.Second)
+			updateRes, err := testClient.UpdateStreamTopics(pingCtx3, &arkv1.UpdateStreamTopicsRequest{
+				StreamId: streamId,
+				TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
+					Modify: &arkv1.ModifyTopics{
+						AddTopics:    []string{},
+						RemoveTopics: []string{},
+					},
+				},
+			})
+			cancel()
+			if err != nil {
+				log.Debugf("error with UpdateStreamTopics: %s", err.Error())
+			} else {
+				log.Debugf("UpdateStreamTopics response: added=%v removed=%v all=%v", updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics())
+			}
 			return nil
 		}
 
@@ -562,6 +605,8 @@ func (c *grpcClient) OverwriteStreamTopics(
 
 	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
 }
+
+// func (c *grpcClient) EventStreamStarted()
 
 func (c *grpcClient) Close() {
 	c.monitoringCancel()

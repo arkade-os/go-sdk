@@ -81,6 +81,7 @@ type arkClient struct {
 	syncErr           error
 	syncListeners     *syncListeners
 	stopFn            context.CancelFunc
+	streamId          string
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
 
