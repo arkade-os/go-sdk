@@ -74,21 +74,21 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	// get the event stream
 	eventStreamRes, err := testClient.GetEventStream(pingCtx2, &arkv1.GetEventStreamRequest{})
 	if err != nil {
-		log.Debugf("error getting event stream: %s", err.Error())
+		fmt.Printf("error getting event stream: %s", err.Error())
 		// continue to retry
 	} else {
 		eventCh, err := eventStreamRes.Recv()
 		if err != nil {
-			log.Debugf("error receiving from event stream: %s", err.Error())
+			fmt.Printf("error receiving from event stream: %s", err.Error())
 			// continue to retry
 		} else {
-			log.Debugf("successfully received from event stream: %+v", eventCh)
+			fmt.Printf("successfully received from event stream: %+v", eventCh)
 			switch eventCh.Event.(type) {
 			case *arkv1.GetEventStreamResponse_StreamStarted:
 				streamId = eventCh.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
 				fmt.Printf("set stream id: %s\n", streamId)
 			default:
-				log.Debugf("unexpected event type received: %T", eventCh.Event)
+				fmt.Printf("unexpected event type received: %T", eventCh.Event)
 			}
 		}
 	}
@@ -106,9 +106,9 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 			},
 		})
 		if err != nil {
-			log.Debugf("error with UpdateStreamTopics: %s", err.Error())
+			fmt.Printf("error with UpdateStreamTopics: %s", err.Error())
 		} else {
-			log.Debugf("UpdateStreamTopics response: added=%v removed=%v all=%v", updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics())
+			fmt.Printf("UpdateStreamTopics response: added=%v removed=%v all=%v", updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics())
 		}
 		defer cancel()
 	}
