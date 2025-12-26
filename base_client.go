@@ -74,6 +74,7 @@ type arkClient struct {
 	syncDone          bool
 	syncErr           error
 	syncListeners     *syncListeners
+	streamId          string
 	stopRestore       context.CancelFunc
 	stopWatch         context.CancelFunc
 	refreshDbInterval time.Duration
