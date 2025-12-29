@@ -38,7 +38,6 @@ type grpcClient struct {
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
-	fmt.Printf("--- go-sdk new client called\n")
 	if len(serverUrl) <= 0 {
 		return nil, fmt.Errorf("missing server url")
 	}
@@ -341,6 +340,7 @@ func (a *grpcClient) GetEventStream(
 	ctx context.Context,
 	topics []string,
 ) (<-chan client.BatchEventChannel, func(), error) {
+	fmt.Printf("client/grpc/client.go GetEventStream\n")
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetEventStreamRequest{Topics: topics}
@@ -391,9 +391,8 @@ func (a *grpcClient) GetEventStream(
 			switch resp.Event.(type) {
 			case *arkv1.GetEventStreamResponse_StreamStarted:
 				streamId = resp.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
-				fmt.Printf("GetEventStream set the stream id: %s\n", streamId)
+				fmt.Printf("\n\nGetEventStream set the stream id: %s\n\n", streamId)
 			default:
-
 			}
 			if streamId != "" {
 				fmt.Printf("--- calling UpdateStreamTopics for stream id: %s\n", streamId)

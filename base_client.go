@@ -557,6 +557,7 @@ func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs)
 }
 
 func (a *arkClient) init(ctx context.Context, args InitArgs) error {
+	fmt.Printf("base_client init\n")
 	if err := args.validate(); err != nil {
 		return fmt.Errorf("invalid args: %s", err)
 	}

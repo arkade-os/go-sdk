@@ -289,6 +289,16 @@ For lower-level control over transaction batching you can use the `TransportClie
 
 See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sdk) for detailed API information.
 
+### Testing
+
+Run integration tests ([start nigiri](https://github.com/arkade-os/arkd/blob/e33bee6196586b5f4d6ed57abe071458f49ed7ed/README.md?plain=1#L263) if needed first):
+
+```sh
+make regtest
+make integrationtest
+make regtestdown
+```
+
 ## Full Example
 
 For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/arkade-os/go-sdk/blob/master/example/alice_to_bob/alice_to_bob.go).

@@ -93,6 +93,7 @@ func JoinBatchSession(
 	ctx context.Context, eventsCh <-chan client.BatchEventChannel,
 	eventsHandler BatchEventsHandler, opts ...BatchSessionOption,
 ) (string, error) {
+	fmt.Printf("batch_session.go JoinBatchSession\n")
 	options := newOptions()
 
 	for _, opt := range opts {

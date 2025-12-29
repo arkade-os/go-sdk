@@ -199,6 +199,7 @@ func LoadArkClientWithWallet(
 }
 
 func (a *arkClient) Init(ctx context.Context, args InitArgs) error {
+	fmt.Printf("arkClient init\n")
 	return a.init(ctx, args)
 }
 
