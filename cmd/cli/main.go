@@ -472,11 +472,14 @@ func createAsset(ctx *cli.Context) error {
 		},
 	}
 
-	arkTxid, err := arkSdkClient.CreateAsset(ctx.Context, requests)
+	arkTxid, assetIds, err := arkSdkClient.CreateAssets(ctx.Context, requests)
 	if err != nil {
 		return err
 	}
-	return printJSON(map[string]string{"txid": arkTxid})
+	return printJSON(map[string]interface{}{
+		"txid":      arkTxid,
+		"asset_ids": assetIds,
+	})
 }
 
 func sendAsset(ctx *cli.Context) error {

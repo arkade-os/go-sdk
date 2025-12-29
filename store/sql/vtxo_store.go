@@ -43,8 +43,8 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 
 			var assetData []byte
 			var err error
-			if vtxo.AssetOutput != nil {
-				assetData, err = vtxo.AssetOutput.EncodeTlv()
+			if vtxo.Asset != nil {
+				assetData, err = vtxo.Asset.EncodeTlv()
 				if err != nil {
 					return err
 				}
@@ -299,9 +299,9 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	var parsedAsset *types.AssetOutput
+	var parsedAsset *types.Asset
 	if len(row.Asset) > 0 {
-		var decoded types.AssetOutput
+		var decoded types.Asset
 		if err := decoded.DecodeTlv(row.Asset); err == nil {
 			parsedAsset = &decoded
 		}
@@ -323,6 +323,6 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		SpentBy:         row.SpentBy.String,
 		SettledBy:       row.SettledBy.String,
 		ArkTxid:         row.ArkTxid.String,
-		AssetOutput:     parsedAsset,
+		Asset:           parsedAsset,
 	}
 }

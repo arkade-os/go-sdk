@@ -326,7 +326,15 @@ func repl(ctx *cli.Context) error {
 				fmt.Printf("invalid amount: %v\n", err)
 				continue
 			}
-			txid, err := arkSdkClient.SendAsset(ctx.Context, assetID, []types.Receiver{{To: fields[2], Amount: amount}})
+			assetIDHex := hex.EncodeToString(assetID[:])
+			receivers := []types.AssetReceiver{{
+				Receiver: types.Receiver{
+					To:     fields[2],
+					Amount: amount,
+				},
+				AssetId: assetIDHex,
+			}}
+			txid, err := arkSdkClient.SendAsset(ctx.Context, receivers)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue
@@ -361,14 +369,20 @@ func repl(ctx *cli.Context) error {
 					fmt.Printf("invalid control asset id: %v\n", err)
 					continue
 				}
-				assetParams.ControlAssetId = controlID
+				assetParams.ControlAssetId = hex.EncodeToString(controlID[:])
 			}
-			txid, err := arkSdkClient.CreateAsset(ctx.Context, assetParams)
+			requests := []types.AssetCreationRequest{
+				{Params: assetParams},
+			}
+			txid, assetIds, err := arkSdkClient.CreateAssets(ctx.Context, requests)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue
 			}
-			_ = printJSON(map[string]string{"txid": txid})
+			_ = printJSON(map[string]interface{}{
+				"txid":      txid,
+				"asset_ids": assetIds,
+			})
 		case "reissueasset":
 			if len(fields) < 3 {
 				fmt.Println("usage: reissueasset <assetid> <amount> [control-asset-id]")
@@ -383,20 +397,22 @@ func repl(ctx *cli.Context) error {
 				fmt.Printf("invalid asset id: %v\n", err)
 				continue
 			}
+			assetIDHex := hex.EncodeToString(assetID[:])
 			amount, err := strconv.ParseUint(fields[2], 10, 64)
 			if err != nil {
 				fmt.Printf("invalid amount: %v\n", err)
 				continue
 			}
-			var controlID [32]byte
+			var controlIDHex string
 			if len(fields) > 3 && fields[3] != "" {
-				controlID, err = parseAssetID(fields[3])
+				controlID, err := parseAssetID(fields[3])
 				if err != nil {
 					fmt.Printf("invalid control asset id: %v\n", err)
 					continue
 				}
+				controlIDHex = hex.EncodeToString(controlID[:])
 			}
-			txid, err := arkSdkClient.ModifyAsset(ctx.Context, controlID, assetID, amount, map[string]string{})
+			txid, err := arkSdkClient.ModifyAsset(ctx.Context, controlIDHex, assetIDHex, amount, map[string]string{})
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue

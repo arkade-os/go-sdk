@@ -478,10 +478,10 @@ func buildAssetTransferTx(
 	inputsByAsset := make(map[string][]arkTxInput)
 
 	for _, vtxo := range sealVtxos {
-		if vtxo.AssetOutput == nil {
+		if vtxo.Asset == nil {
 			return "", nil, nil, fmt.Errorf("vtxo %s has no asset info", vtxo.Txid)
 		}
-		assetId := vtxo.AssetOutput.AssetId
+		assetId := vtxo.Asset.AssetId
 		inputsByAsset[assetId] = append(inputsByAsset[assetId], vtxo)
 	}
 
@@ -515,7 +515,7 @@ func buildAssetTransferTx(
 			}
 			ins = append(ins, *in)
 
-			if vtxo.AssetOutput != nil && vtxo.AssetOutput.Vout == vtxo.VOut {
+			if vtxo.Asset != nil && vtxo.Asset.Vout == vtxo.VOut {
 				hash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
 				if err != nil {
 					return "", nil, nil, err
@@ -524,7 +524,7 @@ func buildAssetTransferTx(
 				assetInput := asset.AssetInput{
 					Type:   asset.AssetInputTypeLocal,
 					Vin:    vtxo.VOut,
-					Amount: vtxo.AssetOutput.Amount,
+					Amount: vtxo.Asset.Amount,
 					Hash:   hash[:],
 				}
 				newAssetInputs = append(newAssetInputs, assetInput)
@@ -692,11 +692,11 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		}
 		ins = append(ins, *in)
 
-		if vtxo.AssetOutput != nil && vtxo.AssetOutput.Vout == vtxo.VOut {
+		if vtxo.Asset != nil && vtxo.Asset.Vout == vtxo.VOut {
 			assetInput := asset.AssetInput{
 				Type:   asset.AssetInputTypeLocal,
 				Vin:    vtxo.VOut,
-				Amount: vtxo.AssetOutput.Amount,
+				Amount: vtxo.Asset.Amount,
 				Hash:   vtxoHash[:],
 			}
 			newControlAssetInputs = append(newControlAssetInputs, assetInput)
@@ -1102,7 +1102,7 @@ func toIntentInputs(
 
 		signingLeaves = append(signingLeaves, leafProof)
 
-		isSeal := coin.AssetOutput != nil
+		isSeal := coin.Asset != nil
 
 		inputs = append(inputs, intent.Input{
 			OutPoint: outpoint,
@@ -1507,7 +1507,7 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 	return &forfeitLeafHash, nil
 }
 
-func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*types.AssetOutput, error) {
+func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*types.Asset, error) {
 	if assetGroup == nil {
 		return nil, fmt.Errorf("asset group is nil")
 	}
@@ -1527,7 +1527,7 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*types.
 
 		for _, assetOut := range asset.Outputs {
 			if vtxo.VOut == assetOut.Vout {
-				return &types.AssetOutput{
+				return &types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  assetOut.Amount,
 					Vout:    assetOut.Vout,

@@ -39,7 +39,7 @@ func CoinSelectNormal(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, vtxo := range vtxos {
-		if vtxo.AssetOutput == nil {
+		if vtxo.Asset == nil {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -108,7 +108,7 @@ func CoinSelectSeals(
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 
 	for _, vtxo := range vtxos {
-		if vtxo.AssetOutput != nil && vtxo.AssetOutput.AssetId == assetID {
+		if vtxo.Asset != nil && vtxo.Asset.AssetId == assetID {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
@@ -129,7 +129,7 @@ func CoinSelectSeals(
 		}
 
 		selected = append(selected, vtxo)
-		selectedAmount += vtxo.AssetOutput.Amount
+		selectedAmount += vtxo.Asset.Amount
 		break
 	}
 
@@ -143,11 +143,11 @@ func CoinSelectSeals(
 }
 
 func GetAssetSealAmount(seal client.TapscriptsVtxo) (uint64, error) {
-	if seal.AssetOutput == nil {
+	if seal.Asset == nil {
 		return 0, fmt.Errorf("utxo is not an asset")
 	}
 
-	return seal.AssetOutput.Amount, nil
+	return seal.Asset.Amount, nil
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (

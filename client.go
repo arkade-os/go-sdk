@@ -5,12 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -256,14 +254,14 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 	return a.sendExpiredBoardingUtxos(ctx, to)
 }
 
-func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreationRequest) (string, error) {
+func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCreationRequest) (string, []string, error) {
 	if err := a.safeCheck(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	sealAddr := offchainAddrs[0]
@@ -300,7 +298,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 
 	vtxos, err := a.getTapscripVtxos(ctx, offchainAddrs)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Calculate total amount needed for all asset outputs (dust)
@@ -315,7 +313,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 	fmt.Printf("len of selected coins %d \n", len(selectedSatsCoins))
 
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	otherReceivers := make([]types.Receiver, 0)
@@ -351,7 +349,7 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 	for _, coin := range selectedSatsCoins {
 		forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		inputs = append(inputs, arkTxInput{
@@ -364,28 +362,34 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 
 	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(inputs, requests, otherReceivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+
+	assetIds := make([]string, 0)
+	assetList := append(assetDetails.ControlAssets, assetDetails.NormalAssets...)
+	for _, detail := range assetList {
+		assetIds = append(assetIds, detail.AssetId.ToString())
 	}
 
 	signedArkTx, err := a.wallet.SignTransaction(ctx, a.explorer, arkTx)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(
 		ctx, signedArkTx, checkpointTxs,
 	)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// validate and verify transactions returned by the server
 	if err := verifySignedArk(arkTx, signedArkTx, a.SignerPubKey); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if err := verifySignedCheckpoints(checkpointTxs, signedCheckpointTxs, a.SignerPubKey); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
@@ -393,26 +397,26 @@ func (a *arkClient) CreateAsset(ctx context.Context, requests []types.AssetCreat
 	for _, checkpoint := range signedCheckpointTxs {
 		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
 		if err != nil {
-			return "", nil
+			return "", nil, nil
 		}
 		finalCheckpoints = append(finalCheckpoints, signedTx)
 	}
 
 	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if !a.WithTransactionFeed {
-		return arkTxid, nil
+		return arkTxid, assetIds, nil
 	}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, selectedSatsCoins, dbReceivers, assetDetails)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
-	return arkTxid, nil
+	return arkTxid, assetIds, nil
 }
 
 func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiver) (string, error) {
@@ -650,34 +654,8 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 }
 
 func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetResponse, error) {
-	// Ensure URL has scheme
-	serverUrl := a.ServerUrl
-	if !strings.HasPrefix(serverUrl, "http://") && !strings.HasPrefix(serverUrl, "https://") {
-		serverUrl = "http://" + serverUrl
-	}
-	url := fmt.Sprintf("%s/v1/indexer/asset/%s", serverUrl, assetID)
 
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var assetResp types.AssetResponse
-	if err := json.Unmarshal(body, &assetResp); err != nil {
-		return nil, err
-	}
-
-	return &assetResp, nil
+	return a.indexer.GetAssetDetails(ctx, assetID)
 }
 
 func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, assetId string, amount uint64, metadata map[string]string) (string, error) {
@@ -2563,7 +2541,7 @@ func (a *arkClient) selectFunds(
 	normalVtxos := make([]client.TapscriptsVtxo, 0)
 	sealVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, v := range vtxos {
-		if v.AssetOutput == nil {
+		if v.Asset == nil {
 			normalVtxos = append(normalVtxos, v)
 		} else {
 			sealVtxos = append(sealVtxos, v)
@@ -2681,7 +2659,7 @@ func (a *arkClient) settle(
 		}
 
 		groupedSeals := utils.GroupBy(sealVtxos, func(v client.TapscriptsVtxo) string {
-			return v.AssetOutput.AssetId
+			return v.Asset.AssetId
 		})
 
 		for assetId, seals := range groupedSeals {
@@ -2691,7 +2669,7 @@ func (a *arkClient) settle(
 			)
 
 			for _, seal := range seals {
-				sealAssetOutput := seal.AssetOutput
+				sealAssetOutput := seal.Asset
 				assetAmount += sealAssetOutput.Amount
 				changeAmount += seal.Amount
 			}
@@ -3137,14 +3115,14 @@ func (a *arkClient) getOffchainBalance(
 	for _, vtxo := range vtxos {
 
 		vtxoExpires := vtxo.ExpiresAt.Unix()
-		if vtxo.AssetOutput != nil {
-			assetIdHex := vtxo.AssetOutput.AssetId
+		if vtxo.Asset != nil {
+			assetIdHex := vtxo.Asset.AssetId
 			if _, ok := assetBalanceMap[assetIdHex]; !ok {
 				assetBalanceMap[assetIdHex] = make(map[int64]uint64)
 				assetBalanceMap[assetIdHex][vtxoExpires] = 0
 			}
 
-			output := vtxo.AssetOutput
+			output := vtxo.Asset
 
 			assetBalanceMap[assetIdHex][vtxoExpires] += output.Amount
 
@@ -3599,11 +3577,11 @@ func (a *arkClient) handleArkTx(
 
 	// Enrich vtxos with asset info if available in the tx
 	if assetGroup, err := asset.DeriveAssetGroupFromTx(arkTx.Tx); err == nil {
-		voutToAsset := make(map[uint32]types.AssetOutput)
+		voutToAsset := make(map[uint32]types.Asset)
 
 		for _, asset := range assetGroup.ControlAssets {
 			for _, out := range asset.Outputs {
-				voutToAsset[out.Vout] = types.AssetOutput{
+				voutToAsset[out.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  out.Amount,
 					Vout:    out.Vout,
@@ -3613,7 +3591,7 @@ func (a *arkClient) handleArkTx(
 
 		for _, asset := range assetGroup.NormalAssets {
 			for _, out := range asset.Outputs {
-				voutToAsset[out.Vout] = types.AssetOutput{
+				voutToAsset[out.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  out.Amount,
 					Vout:    out.Vout,
@@ -3623,7 +3601,7 @@ func (a *arkClient) handleArkTx(
 
 		for i, vtxo := range arkTx.SpendableVtxos {
 			if a, ok := voutToAsset[vtxo.VOut]; ok {
-				arkTx.SpendableVtxos[i].AssetOutput = &a
+				arkTx.SpendableVtxos[i].Asset = &a
 			}
 		}
 	}
@@ -3916,12 +3894,12 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 	}
 
 	// store asssetOUtputsIf Present
-	assetOutputMap := make(map[uint32]types.AssetOutput)
+	assetOutputMap := make(map[uint32]types.Asset)
 
 	if assetGroup != nil {
 		for _, asset := range assetGroup.NormalAssets {
 			for _, assetOutput := range asset.Outputs {
-				assetOutputMap[assetOutput.Vout] = types.AssetOutput{
+				assetOutputMap[assetOutput.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Vout:    assetOutput.Vout,
 					Amount:  assetOutput.Amount,
@@ -3931,7 +3909,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 
 		for _, asset := range assetGroup.ControlAssets {
 			for _, assetOutput := range asset.Outputs {
-				assetOutputMap[assetOutput.Vout] = types.AssetOutput{
+				assetOutputMap[assetOutput.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Vout:    assetOutput.Vout,
 					Amount:  assetOutput.Amount,
@@ -3968,7 +3946,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 			return err
 		}
 
-		var assetOutput *types.AssetOutput
+		var assetOutput *types.Asset
 		if receiver.ReceiverType == types.VtxoTypeAsset {
 			out := assetOutputMap[receiver.Index]
 			assetOutput = &out
@@ -3990,7 +3968,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 				ExpiresAt:       smallestExpiration,
 				Script:          hex.EncodeToString(receiverScript),
 				CommitmentTxids: commitmentTxidsList,
-				AssetOutput:     assetOutput,
+				Asset:           assetOutput,
 			},
 		}); err != nil {
 			log.Warnf("failed to add change vtxo: %s, skipping adding change vtxo", err)

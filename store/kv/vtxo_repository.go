@@ -259,8 +259,8 @@ func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
 
 func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
 	var assetData []byte
-	if vtxo.AssetOutput != nil {
-		encoded, err := vtxo.AssetOutput.EncodeTlv()
+	if vtxo.Asset != nil {
+		encoded, err := vtxo.Asset.EncodeTlv()
 		if err != nil {
 			return vtxoRecord{}, err
 		}
@@ -286,9 +286,9 @@ func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
 }
 
 func (r vtxoRecord) toVtxo() types.Vtxo {
-	var parsedAsset *types.AssetOutput
+	var parsedAsset *types.Asset
 	if len(r.Asset) > 0 {
-		var decoded types.AssetOutput
+		var decoded types.Asset
 		if err := decoded.DecodeTlv(r.Asset); err == nil {
 			parsedAsset = &decoded
 		}
@@ -308,6 +308,6 @@ func (r vtxoRecord) toVtxo() types.Vtxo {
 		SpentBy:         r.SpentBy,
 		SettledBy:       r.SettledBy,
 		ArkTxid:         r.ArkTxid,
-		AssetOutput:     parsedAsset,
+		Asset:           parsedAsset,
 	}
 }

@@ -91,10 +91,10 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
-	AssetOutput     *AssetOutput
+	Asset           *Asset
 }
 
-type AssetOutput struct {
+type Asset struct {
 	AssetId string
 	Amount  uint64
 	Vout    uint32
@@ -383,7 +383,8 @@ type AssetResponse struct {
 }
 
 type AssetInfo struct {
-	Id       string              `json:"id"`
-	Quantity string              `json:"quantity"` // Quantity is returned as string in JSON
-	Metadata []map[string]string `json:"metadata"`
+	Id        string            `json:"id"`
+	Quantity  uint64            `json:"quantity"`
+	Immutable bool              `json:"immutable"`
+	Metadata  map[string]string `json:"metadata"`
 }

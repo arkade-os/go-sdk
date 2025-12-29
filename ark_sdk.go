@@ -27,9 +27,9 @@ type ArkClient interface {
 	SendOffChain(
 		ctx context.Context, withExpiryCoinselect bool, receivers []types.Receiver,
 	) (string, error)
-	CreateAsset(
+	CreateAssets(
 		ctx context.Context, requests []types.AssetCreationRequest,
-	) (string, error)
+	) (string, []string, error)
 	SendAsset(
 		ctx context.Context, receivers []types.AssetReceiver,
 	) (string, error)

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func (a *AssetOutput) EncodeTlv() ([]byte, error) {
+func (a *Asset) EncodeTlv() ([]byte, error) {
 	var buf bytes.Buffer
 
 	// AssetId (Length + Bytes)
@@ -31,7 +31,7 @@ func (a *AssetOutput) EncodeTlv() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (a *AssetOutput) DecodeTlv(b []byte) error {
+func (a *Asset) DecodeTlv(b []byte) error {
 	r := bytes.NewReader(b)
 
 	// AssetId

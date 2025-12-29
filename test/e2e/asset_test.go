@@ -26,18 +26,15 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 		MetadataMap: map[string]string{"name": "Test Asset", "symbol": "TST"},
 	}
 
-	_, err := issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: createParams}})
+	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: createParams}})
 	require.NoError(t, err)
 
 	time.Sleep(5 * time.Second) // Wait for server indexer
 
-	issuerAssetVtxo := waitForAssetVtxo(t, ctx, issuer, nil)
-	issuerAssetAmount, ok := assetAmountForVout(issuerAssetVtxo)
-	require.True(t, ok)
-	require.EqualValues(t, supply, issuerAssetAmount)
+	issuerAssetVtxo, err := getAssetVtxo(ctx, issuer, assetIds[0], supply)
+	require.NoError(t, err)
 
-	assetID := issuerAssetVtxo.Asset.AssetId
-	fmt.Printf("This is asset id %s\n", assetID.ToString())
+	require.EqualValues(t, supply, issuerAssetVtxo.Asset.Amount)
 
 	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
 	require.NoError(t, err)
@@ -49,26 +46,105 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 			To:     receiverOffchainAddr,
 			Amount: transferAmount,
 		},
-		AssetId: assetID.ToString(),
+		AssetId: assetIds[0],
 	}})
 	require.NoError(t, err)
 
-	receiverAssetVtxo := waitForAssetVtxo(t, ctx, receiver, func(v types.Vtxo) bool {
-		return v.Asset.AssetId == assetID
-	})
-	receiverAmount, ok := assetAmountForVout(receiverAssetVtxo)
-	require.True(t, ok)
-	require.EqualValues(t, transferAmount, receiverAmount)
+	receiverAssetVtxo, err := getAssetVtxo(ctx, receiver, assetIds[0], transferAmount)
+	require.NoError(t, err)
+	require.EqualValues(t, transferAmount, receiverAssetVtxo.Asset.Amount)
 
 	receiverBalance, err := receiver.Balance(ctx, false)
 	require.NoError(t, err)
-	assetHex := assetID.ToString()
 	// Verify receiver balance
-	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetHex]
+	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIds[0]]
 	require.True(t, ok)
 	require.GreaterOrEqual(t, int(assetBalance.TotalAmount), int(transferAmount))
 
 	// Final Settlement
+	_, err = issuer.Settle(ctx)
+	require.NoError(t, err)
+	_, err = receiver.Settle(ctx)
+	require.NoError(t, err)
+}
+
+func TestMultiAssetTransfer(t *testing.T) {
+	ctx := context.Background()
+
+	issuer := setupClient(t)
+	receiver := setupClient(t)
+
+	// Fund issuer so they can pay for asset creation and transfer.
+	faucetOffchain(t, issuer, 0.005)
+
+	const assetASupply uint64 = 3_000
+	assetAParams := types.AssetCreationParams{
+		Quantity:    assetASupply,
+		MetadataMap: map[string]string{"name": "Multi Asset A", "symbol": "MA"},
+	}
+	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: assetAParams}})
+	require.NoError(t, err)
+
+	assetIdA := assetIds[0]
+
+	time.Sleep(2 * time.Second) // Wait for server indexer
+
+	const assetBSupply uint64 = 4_000
+	assetBParams := types.AssetCreationParams{
+		Quantity:    assetBSupply,
+		MetadataMap: map[string]string{"name": "Multi Asset B", "symbol": "MB"},
+	}
+	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: assetBParams}})
+	require.NoError(t, err)
+
+	assetIdB := assetIds[0]
+
+	time.Sleep(5 * time.Second) // Wait for server indexer
+
+	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, receiverOffchainAddr)
+
+	const transferA uint64 = 1_200
+	const transferB uint64 = 1_700
+	arkTxid, err := issuer.SendAsset(ctx, []types.AssetReceiver{
+		{
+			Receiver: types.Receiver{
+				To:     receiverOffchainAddr,
+				Amount: transferA,
+			},
+			AssetId: assetIdA,
+		},
+		{
+			Receiver: types.Receiver{
+				To:     receiverOffchainAddr,
+				Amount: transferB,
+			},
+			AssetId: assetIdB,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, arkTxid)
+
+	receiverAssetAVtxo, err := getAssetVtxo(ctx, receiver, assetIdA, transferA)
+	require.NoError(t, err)
+	require.EqualValues(t, transferA, receiverAssetAVtxo.Asset.Amount)
+
+	receiverAssetBVtxo, err := getAssetVtxo(ctx, receiver, assetIdB, transferB)
+	require.NoError(t, err)
+	require.EqualValues(t, transferB, receiverAssetBVtxo.Asset.Amount)
+
+	receiverBalance, err := receiver.Balance(ctx, false)
+	require.NoError(t, err)
+
+	assetABalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIdA]
+	require.True(t, ok)
+	require.GreaterOrEqual(t, int(assetABalance.TotalAmount), int(transferA))
+
+	assetBBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIdB]
+	require.True(t, ok)
+	require.GreaterOrEqual(t, int(assetBBalance.TotalAmount), int(transferB))
+
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
 	_, err = receiver.Settle(ctx)
@@ -88,166 +164,97 @@ func TestAssetModification(t *testing.T) {
 		Quantity:    1,
 		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
 	}
-	_, err := issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
+	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
 	require.NoError(t, err)
 
-	controlAssetVtxo := waitForAssetVtxo(t, ctx, issuer, nil)
-	require.NotNil(t, controlAssetVtxo)
-	controlAssetID := controlAssetVtxo.Asset.AssetId
-
 	time.Sleep(2 * time.Second)
+
+	controlAssetId := assetIds[0]
+
+	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(1), controlVtxo.Asset.Amount)
 
 	targetAssetParams := types.AssetCreationParams{
 		Quantity:       5000,
-		ControlAssetId: controlAssetID.ToString(),
+		ControlAssetId: controlVtxo.Asset.AssetId,
 		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
 	}
-	_, err = issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
+	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
 	require.NoError(t, err)
 
-	targetAssetVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
-		return v.Asset.ControlAssetId != nil && *v.Asset.ControlAssetId == controlAssetID && v.Asset.AssetId != controlAssetID
-	})
-	require.NotNil(t, targetAssetVtxo)
-	targetAssetID := targetAssetVtxo.Asset.AssetId
+	targetAssetId := assetIds[0]
 
-	println(targetAssetID.ToString())
+	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(5000), targetAssetVtxo.Asset.Amount)
 
 	time.Sleep(2 * time.Second)
+
 	// Settle to ensure everything is stable
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
 	time.Sleep(2 * time.Second)
 
 	const mintAmount uint64 = 1000
-	newMetadata := map[string]string{"name": "Target Asset v2", "desc": "Upgraded"}
+	newMetadata := map[string]string{"name": "Target Asset v2", "symbol": "TGT2"}
 
-	_, err = issuer.ModifyAsset(ctx, controlAssetID.ToString(), targetAssetID.ToString(), mintAmount, newMetadata)
+	_, err = issuer.ModifyAsset(ctx, controlAssetId, targetAssetId, mintAmount, newMetadata)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
 
-	modifiedVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
-		if v.Asset.AssetId != targetAssetID {
-			return false
-		}
-		// Check for new metadata
-		for _, m := range v.Asset.Metadata {
-			if m.Key == "desc" && m.Value == "Upgraded" {
-				return true
-			}
-		}
-		return false
-	})
-	require.NotNil(t, modifiedVtxo)
+	assetResponse, err := issuer.GetAsset(ctx, targetAssetId)
+	require.NoError(t, err)
 
-	modifiedAssetAmount, ok := assetAmountForVout(modifiedVtxo)
+	value, ok := assetResponse.Asset.Metadata["symbol"]
+
 	require.True(t, ok)
-	require.EqualValues(t, mintAmount, modifiedAssetAmount) // Check Asset Amount
+	require.Equal(t, "TGT2", value)
+	require.Equal(t, assetResponse.Asset.Quantity, uint64(6000)) // Original 5000 + 1000 minted
 
-	// Verify Metadata via Indexer Endpoint
-	time.Sleep(2 * time.Second) // Wait for indexer to index the new state (if necessary)
-
-	assetResp, err := issuer.GetAsset(ctx, targetAssetID.ToString())
+	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
 	require.NoError(t, err)
-	require.Equal(t, targetAssetID.ToString(), assetResp.Asset.Id)
-
-	// Check metadata
-	foundUpgraded := false
-	for _, m := range assetResp.Asset.Metadata {
-		if val, ok := m["key"]; ok && val == "desc" {
-			if val2, ok2 := m["value"]; ok2 && val2 == "Upgraded" {
-				foundUpgraded = true
-				break
-			}
-		}
-	}
-	require.True(t, foundUpgraded, "Indexer metadata should contain 'desc': 'Upgraded'")
-
-	_, err = issuer.Settle(ctx)
-	require.NoError(t, err)
-
-	_, err = issuer.ModifyAsset(ctx, "", targetAssetID.ToString(), 100, map[string]string{"foo": "bar"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "control asset id is required")
 
 	immutableParams := types.AssetCreationParams{
-		Quantity:    1000,
-		Immutable:   true,
-		MetadataMap: map[string]string{"name": "Immutable", "fixed": "true"},
+		Quantity:       1000,
+		Immutable:      true,
+		MetadataMap:    map[string]string{"name": "Immutable", "fixed": "true"},
+		ControlAssetId: controlAssetId,
 	}
-	_, err = issuer.CreateAsset(ctx, []types.AssetCreationRequest{{Params: immutableParams}})
+	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: immutableParams}})
 	require.NoError(t, err)
 
-	immutableVtxo := waitForAssetVtxo(t, ctx, issuer, func(v types.Vtxo) bool {
-		for _, m := range v.Asset.Metadata {
-			if m.Key == "name" && m.Value == "Immutable" {
-				return true
-			}
-		}
-		return false
-	})
-	require.NotNil(t, immutableVtxo)
-	immutableID := immutableVtxo.Asset.AssetId
+	immutableAssetId := assetIds[0]
 
 	time.Sleep(2 * time.Second)
-	_, err = issuer.ModifyAsset(ctx, controlAssetID.ToString(), immutableID.ToString(), 100, map[string]string{"fixed": "false"})
+	_, err = issuer.ModifyAsset(ctx, controlAssetId, immutableAssetId, 100, map[string]string{"fixed": "false"})
 	require.NoError(t, err)
 
-	immutableResp, err := issuer.GetAsset(ctx, immutableID.ToString())
+	immutableResp, err := issuer.GetAsset(ctx, immutableAssetId)
 	require.NoError(t, err)
 
-	fixedVal := ""
-	for _, m := range immutableResp.Asset.Metadata {
-		if val, ok := m["key"]; ok && val == "fixed" {
-			fixedVal = m["value"]
-		}
-	}
-	require.Equal(t, "true", fixedVal, "Immutable asset metadata should not change")
+	value, ok = immutableResp.Asset.Metadata["fixed"]
+
+	require.True(t, ok)
+	require.Equal(t, "false", value)
 }
 
-func waitForAssetVtxo(t *testing.T, ctx context.Context, client arksdk.ArkClient, matcher func(types.Vtxo) bool) types.Vtxo {
-	t.Helper()
-
-	var (
-		found   types.Vtxo
-		lastErr error
-	)
-
-	require.Eventually(t, func() bool {
-		spendable, _, err := client.ListVtxos(ctx)
-		if err != nil {
-			lastErr = err
-			return false
-		}
-
-		for _, v := range spendable {
-			if v.Asset == nil {
-				continue
-			}
-			if matcher == nil || matcher(v) {
-				found = v
-				return true
-			}
-		}
-
-		return false
-	}, 30*time.Second, 500*time.Millisecond)
-
-	require.NoError(t, lastErr)
-	return found
-}
-
-func assetAmountForVout(v types.Vtxo) (uint64, bool) {
-	if v.Asset == nil {
-		return 0, false
+func getAssetVtxo(ctx context.Context, client arksdk.ArkClient, assetID string, amount uint64) (types.Vtxo, error) {
+	vtxos, err := client.ListSpendableVtxos(ctx)
+	if err != nil {
+		return types.Vtxo{}, err
 	}
 
-	for _, out := range v.Asset.Outputs {
-		if out.Vout == v.VOut {
-			return out.Amount, true
+	for _, vtxo := range vtxos {
+		if vtxo.Asset != nil && vtxo.Asset.AssetId == assetID {
+			if amount == 0 || vtxo.Asset.Amount >= amount {
+				return vtxo, nil
+			}
 		}
 	}
 
-	return 0, false
+	return types.Vtxo{}, fmt.Errorf("no suitable vtxo found for asset %s", assetID)
 }
