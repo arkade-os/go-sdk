@@ -54,9 +54,12 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
 
-	option := grpc.WithTransportCredentials(creds)
+	options := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+		grpc.WithDisableServiceConfig(),
+	}
 
-	conn, err := grpc.NewClient(serverUrl, option)
+	conn, err := grpc.NewClient(serverUrl, options...)
 	if err != nil {
 		return nil, err
 	}

@@ -26,11 +26,8 @@ import (
 )
 
 func CoinSelect(
-	boardingUtxos []types.Utxo,
-	vtxos []client.TapscriptsVtxo,
-	outputs []types.Receiver,
-	dust uint64,
-	sortByExpirationTime bool,
+	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo,
+	outputs []types.Receiver, dust uint64, withoutExpirySorting bool,
 	feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
@@ -56,7 +53,7 @@ func CoinSelect(
 		}
 	}
 
-	if sortByExpirationTime {
+	if !withoutExpirySorting {
 		// sort vtxos by expiration (oldest last)
 		sort.SliceStable(vtxos, func(i, j int) bool {
 			return !vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)

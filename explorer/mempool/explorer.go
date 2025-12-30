@@ -40,11 +40,9 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -387,31 +385,15 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			)
 		}
 
-		conns := make(map[int]*websocketConnection)
-		subsError := make([]error, 0)
 		for i, addr := range addressesToSubscribe {
-			wsConn, found := connPool.pushAddress(addr)
-			if !found {
+			connId, err := connPool.pushAddress(addr)
+			if err != nil {
+				log.WithError(err).Warnf("failed to subscribe for address %s", addr)
 				numAddressesLeftToSubscribe = len(addressesToSubscribe[i:])
 				addressesToSubscribe = addressesToSubscribe[:i]
 				break
 			}
-
-			go func(wsConn *websocketConnection) {
-				payload := map[string][]string{"track-addresses": {wsConn.address.get()}}
-				wsConn.mu.Lock()
-				if err := wsConn.conn.WriteJSON(payload); err != nil {
-					subsError = append(subsError, fmt.Errorf(
-						"failed to subscribe for address(es) %s on connection %d: %s",
-						strings.Join(addresses, ","), wsConn.id, err,
-					))
-				}
-				log.Debugf("explorer: subscribed for new address on connection %d", wsConn.id)
-				wsConn.mu.Unlock()
-			}(wsConn)
-			conns[wsConn.id] = wsConn
-			// Make sure a new connection is create for next addresses
-			time.Sleep(time.Millisecond)
+			log.Debugf("explorer: subscribed for new address on connection %d", connId)
 			// nolint
 			connPool.addConnection()
 			time.Sleep(time.Millisecond)
@@ -457,26 +439,12 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 	connPool := e.connPool
 	e.connPoolMu.RUnlock()
 	if connPool != nil && connPool.getConnectionCount() > 0 {
-		conns := make(map[int]*websocketConnection)
-		subsToUpdate := make(map[int]struct{})
 		for _, addr := range addressesToUnsubscribe {
-			wsConn, found := connPool.getConnectionForAddress(addr)
+			_, found := connPool.getConnectionForAddress(addr)
 			if !found {
 				continue
 			}
 			connPool.popAddress(addr)
-			subsToUpdate[wsConn.id] = struct{}{}
-			conns[wsConn.id] = wsConn
-		}
-
-		// Resubscribe to each connection with its addresses
-		for connId := range subsToUpdate {
-			wsConn := conns[connId]
-			payload := map[string][]string{"track-addresses": {}}
-			wsConn.mu.Lock()
-			// nolint
-			wsConn.conn.WriteJSON(payload)
-			wsConn.mu.Unlock()
 		}
 	}
 
@@ -618,14 +586,12 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 			// Go routine to listen for addresses updates from websocket.
 			go func(ctx context.Context, wsConn *websocketConnection) {
 				if err := wsConn.conn.SetReadDeadline(time.Now().Add(pongInterval)); err != nil {
-					log.WithError(err).WithField("connection", wsConn.id).Error(
-						"explorer: failed to set read deadline",
-					)
-					go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
-						"connection for address %s dropped, please resubscribe: %w",
-						wsConn.address.get(), err,
-					)})
-					go connPool.resetConnection(wsConn)
+					if !isCloseError(err) {
+						go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
+							"connection for address %s dropped, please resubscribe: %w",
+							wsConn.address.get(), err,
+						)})
+					}
 					return
 				}
 				wsConn.conn.SetPongHandler(func(string) error {
@@ -634,22 +600,50 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 				for {
 					var payload addressNotification
 					if err := wsConn.conn.ReadJSON(&payload); err != nil {
-						if websocket.IsCloseError(
-							err,
-							websocket.CloseNormalClosure,
-							websocket.CloseGoingAway,
-							websocket.CloseAbnormalClosure,
-						) ||
-							errors.Is(err, net.ErrClosed) {
+						// The connection was closed, nothing to do but return
+						if isCloseError(err) {
 							return
 						}
+						// Connection issues, try to reconnect:
+						// If this happens all active connections will arrive to this point.
+						// Since resetConnection makes use of a lock, its inner reconnection logic
+						// is executed to only one connection and once it is restored and the lock
+						// is released, all others will be restored as well
+						if isTimeoutError(err) {
+							log.Debugf(
+								"explorer: connection %d dropped, reconnecting...", wsConn.id,
+							)
+
+							addr := wsConn.address.get()
+
+							if err := connPool.resetConnection(wsConn); err != nil {
+								go e.listeners.broadcast(types.OnchainAddressEvent{
+									Error: fmt.Errorf(
+										"failed to reset connection for address %s and "+
+											"resubscription is required: %w", addr, err,
+									)})
+								return
+							}
+
+							if len(addr) > 0 {
+								if _, err := connPool.pushAddress(addr); err != nil {
+									go e.listeners.broadcast(types.OnchainAddressEvent{
+										Error: fmt.Errorf(
+											"failed to resubscribe for address %s and "+
+												"resubscription is required: %w", addr, err,
+										)})
+									return
+								}
+							}
+							log.Debugf("explorer: connection %d restored", wsConn.id)
+							// Get rid of this go routine
+							return
+						}
+
 						go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
-							"failed to read message for address %s, better to resubscribe: %w",
+							"failed to read message for address %s: %w",
 							wsConn.address.get(), err,
 						)})
-						log.WithError(err).WithField("connection", wsConn.id).Error(
-							"explorer: failed to read address notification",
-						)
 						continue
 					}
 
@@ -670,14 +664,14 @@ func (e *explorerSvc) trackWithWebsocket(ctx context.Context, connPool *connecti
 						if err := wsConn.conn.WriteControl(
 							websocket.PingMessage, nil, deadline,
 						); err != nil {
-							go e.listeners.broadcast(types.OnchainAddressEvent{Error: fmt.Errorf(
-								"connection for address %s dropped, please resubscribe - "+
-									"failed to ping explorer: %s", wsConn.address.get(), err,
-							)})
-							go connPool.resetConnection(wsConn)
-							log.WithError(err).WithField("connection", wsConn.id).Error(
-								"explorer: failed to ping explorer",
-							)
+							if !isCloseError(err) {
+								go e.listeners.broadcast(types.OnchainAddressEvent{
+									Error: fmt.Errorf(
+										"failed to ping explorer for address %s: %s",
+										wsConn.address.get(), err,
+									),
+								})
+							}
 							return
 						}
 					}

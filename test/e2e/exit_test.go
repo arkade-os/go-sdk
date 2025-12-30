@@ -12,8 +12,6 @@ import (
 
 func TestCollaborativeExit(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		t.Parallel()
-
 		// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
 		t.Run("with change", func(t *testing.T) {
 			ctx := t.Context()
@@ -177,8 +175,6 @@ func TestCollaborativeExit(t *testing.T) {
 }
 
 func TestUnilateralExit(t *testing.T) {
-	t.Parallel()
-
 	// In this test Alice owns a leaf VTXO and unrolls it onchain
 	t.Run("leaf vtxo", func(t *testing.T) {
 		ctx := t.Context()
@@ -250,7 +246,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 		// Alice sends to Bob
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{
+		_, err = alice.SendOffChain(ctx, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 21000,
 		}})

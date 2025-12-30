@@ -10,34 +10,19 @@ const defaultExpiryThreshold int64 = 3 * 24 * 60 * 60 // 3 days
 
 type Option func(options any) error
 
-// SettleOptions allows to customize the vtxo signing process
-type SettleOptions struct {
-	ExtraSignerSessions    []tree.SignerSession
-	WalletSignerDisabled   bool
-	SelectRecoverableVtxos bool
-	ExpiryThreshold        int64 // In seconds
-
-	CancelCh <-chan struct{}
-	EventsCh chan<- any
-}
-
-func newDefaultSettleOptions() *SettleOptions {
-	return &SettleOptions{
-		ExpiryThreshold: defaultExpiryThreshold,
-	}
-}
-
 // name alias, sub-dust vtxos are recoverable vtxos
 var WithSubDustVtxos = WithRecoverableVtxos
 
-func WithRecoverableVtxos(o any) error {
-	opts, err := checkSettleOptionsType(o)
-	if err != nil {
-		return err
-	}
+func WithRecoverableVtxos() Option {
+	return func(o any) error {
+		opts, err := checkSettleOptionsType(o)
+		if err != nil {
+			return err
+		}
 
-	opts.SelectRecoverableVtxos = true
-	return nil
+		opts.withRecoverableVtxos = true
+		return nil
+	}
 }
 
 func WithEventsCh(ch chan<- any) Option {
@@ -47,20 +32,22 @@ func WithEventsCh(ch chan<- any) Option {
 			return err
 		}
 
-		opts.EventsCh = ch
+		opts.eventsCh = ch
 		return nil
 	}
 }
 
 // WithoutWalletSigner disables the wallet signer
-func WithoutWalletSigner(o any) error {
-	opts, err := checkSettleOptionsType(o)
-	if err != nil {
-		return err
-	}
+func WithoutWalletSigner() Option {
+	return func(o any) error {
+		opts, err := checkSettleOptionsType(o)
+		if err != nil {
+			return err
+		}
 
-	opts.WalletSignerDisabled = true
-	return nil
+		opts.walletSignerDisabled = true
+		return nil
+	}
 }
 
 // WithExtraSigner allows to use a set of custom signer for the vtxo tree signing process
@@ -75,7 +62,7 @@ func WithExtraSigner(signerSessions ...tree.SignerSession) Option {
 			return fmt.Errorf("no signer sessions provided")
 		}
 
-		opts.ExtraSignerSessions = signerSessions
+		opts.extraSignerSessions = signerSessions
 		return nil
 	}
 }
@@ -88,7 +75,7 @@ func WithCancelCh(ch <-chan struct{}) Option {
 			return err
 		}
 
-		opts.CancelCh = ch
+		opts.cancelCh = ch
 		return nil
 	}
 }
@@ -101,7 +88,44 @@ func WithExpiryThreshold(threshold int64) Option {
 			return err
 		}
 
-		opts.ExpiryThreshold = threshold
+		opts.expiryThreshold = threshold
+		return nil
+	}
+}
+
+// settleOptions allows to customize the vtxo signing process
+type settleOptions struct {
+	extraSignerSessions  []tree.SignerSession
+	walletSignerDisabled bool
+	withRecoverableVtxos bool
+	expiryThreshold      int64 // In seconds
+
+	cancelCh <-chan struct{}
+	eventsCh chan<- any
+}
+
+func newDefaultSettleOptions() *settleOptions {
+	return &settleOptions{
+		expiryThreshold: defaultExpiryThreshold,
+	}
+}
+
+type sendOffChainOptions struct {
+	withoutExpirySorting bool
+}
+
+func newDefaultSendOffChainOptions() *sendOffChainOptions {
+	return &sendOffChainOptions{}
+}
+
+func WithoutExpirySorting() Option {
+	return func(o any) error {
+		opts, err := checkSendOffChainOptionsType(o)
+		if err != nil {
+			return err
+		}
+
+		opts.withoutExpirySorting = true
 		return nil
 	}
 }

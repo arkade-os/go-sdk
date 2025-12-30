@@ -2,14 +2,17 @@ package mempool_explorer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 // websocketConnection represents a single WebSocket connection with its subscribed addresses.
@@ -67,17 +70,42 @@ func (cp *connectionPool) addConnection() error {
 		return fmt.Errorf("no more connections available")
 	}
 
+	// Exponential backoff parameters
+	delay := 5 * time.Second
+	multiplier := 2.0
+	attempt := 0
 	dialer := websocket.Dialer{
 		Proxy:            http.ProxyFromEnvironment,
 		HandshakeTimeout: 10 * time.Second,
 	}
-	conn, _, err := dialer.DialContext(cp.ctx, cp.wsURL, nil)
-	if err != nil {
-		cp.noMoreConnections = true
-		return err
+
+	// Retry connection until successful or context is done
+	var conn *websocket.Conn
+	connId := len(cp.connections)
+	for {
+		attempt++
+		var err error
+		conn, _, err = dialer.DialContext(cp.ctx, cp.wsURL, nil)
+		if err != nil {
+			if dnsErr := new(net.DNSError); errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+				log.Debugf(
+					"explorer: attempt %d to establish connection %d failed, retrying in %s...",
+					attempt, connId, delay,
+				)
+				select {
+				case <-cp.ctx.Done():
+					return cp.ctx.Err()
+				case <-time.After(delay):
+					delay = min(time.Duration(float64(delay)*multiplier), time.Minute)
+					continue
+				}
+			}
+			cp.noMoreConnections = true
+			return err
+		}
+		break
 	}
 
-	connId := len(cp.connections)
 	wsConn := &websocketConnection{
 		id:      connId,
 		conn:    conn,
@@ -91,7 +119,8 @@ func (cp *connectionPool) addConnection() error {
 	return nil
 }
 
-func (cp *connectionPool) resetConnection(wsConn *websocketConnection) {
+// resetConnection closes and removes the given connection from the pool, and adds a new one
+func (cp *connectionPool) resetConnection(wsConn *websocketConnection) error {
 	cp.mu.Lock()
 	// nolint
 	wsConn.conn.Close()
@@ -100,35 +129,52 @@ func (cp *connectionPool) resetConnection(wsConn *websocketConnection) {
 	cp.noMoreConnections = false
 	cp.mu.Unlock()
 
-	// nolint
-	cp.addConnection()
+	return cp.addConnection()
 }
 
-func (cp *connectionPool) pushAddress(address string) (*websocketConnection, bool) {
+// pushAddress picks an available connection and uses it to subscribe for the given address.
+// Returns the id of the selected connection.
+func (cp *connectionPool) pushAddress(address string) (int, error) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 
 	if len(cp.connections) == 0 {
-		return nil, false
+		return -1, fmt.Errorf("no connections available")
 	}
 
+	// Select the first available connection without an address assigned
 	conns := slices.Collect(maps.Values(cp.connections))
 	idx := slices.IndexFunc(conns, func(c *websocketConnection) bool {
 		return c.address.get() == ""
 	})
-	// If connections are all taken for an address, reject the request
+	// If connections are all taken, reject the request
 	if idx < 0 {
-		return nil, false
+		return -1, fmt.Errorf("no more connections available")
 	}
 
 	connId := conns[idx].id
-	cp.connectionsByAddress[address] = connId
-	cp.connections[connId].address.set(address)
 	conn := cp.connections[connId]
 
-	return conn, true
+	// Subscribe for the address
+	payload := map[string][]string{"track-addresses": {address}}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if err := conn.conn.WriteJSON(payload); err != nil {
+		return -1, fmt.Errorf(
+			"failed to subscribe for %s on connection %d: %s",
+			address, conn.id, err,
+		)
+	}
+
+	cp.connectionsByAddress[address] = connId
+	cp.connections[connId].address.set(address)
+
+	return connId, nil
 }
 
+// popAddress removes the given address from its assigned connection in the pool.
+// It also frees the connection by unsubscribing from the given address and makes it available
+// for another one
 func (cp *connectionPool) popAddress(address string) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -137,6 +183,16 @@ func (cp *connectionPool) popAddress(address string) {
 	if !ok {
 		return
 	}
+
+	// Unsubscribe from the address
+	conn := cp.connections[connId]
+	payload := map[string][]string{"track-addresses": {}}
+	conn.mu.Lock()
+	// nolint
+	conn.conn.WriteJSON(payload)
+	conn.mu.Unlock()
+
+	// Remove the address from the connection pool
 	delete(cp.connectionsByAddress, address)
 	cp.connections[connId].address.remove(address)
 }

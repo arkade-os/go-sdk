@@ -25,9 +25,7 @@ type ArkClient interface {
 		err error,
 	)
 	NewOffchainAddress(ctx context.Context) (string, error)
-	SendOffChain(
-		ctx context.Context, withExpiryCoinselect bool, receivers []types.Receiver,
-	) (string, error)
+	SendOffChain(ctx context.Context, receivers []types.Receiver, opt ...Option) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 		outputs []types.Receiver, cosignersPublicKeys []string,
