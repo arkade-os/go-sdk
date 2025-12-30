@@ -691,8 +691,6 @@ func (a *arkClient) listVtxosFromIndexer(
 		return nil, nil, err
 	}
 
-	fmt.Printf("This is my response %+v: \n", resp)
-
 	for _, vtxo := range resp.Vtxos {
 		if vtxo.IsRecoverable() {
 			spendableVtxos = append(spendableVtxos, vtxo)

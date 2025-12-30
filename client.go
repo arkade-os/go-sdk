@@ -310,8 +310,6 @@ func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCrea
 		nil, vtxos, totalDustAmount, a.Dust, false,
 	)
 
-	fmt.Printf("len of selected coins %d \n", len(selectedSatsCoins))
-
 	if err != nil {
 		return "", nil, err
 	}
@@ -357,8 +355,6 @@ func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCrea
 			*forfeitLeafHash,
 		})
 	}
-
-	fmt.Printf("inputs len %v \n", len(inputs))
 
 	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(inputs, requests, otherReceivers, a.CheckpointExitPath(), a.Dust)
 	if err != nil {
@@ -478,8 +474,6 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 	}
 	sort.Strings(assetIds)
 
-	currentVout := uint32(0)
-
 	for _, assetIdStr := range assetIds {
 		assetReceivers := receiversByAsset[assetIdStr]
 		sumOfReceivers := uint64(0)
@@ -497,8 +491,6 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 
 		selectedSealCoins = append(selectedSealCoins, seals...)
 
-		currentVout += uint32(len(assetReceivers))
-
 		if assetChangeAmount > 0 {
 			changeReceiver := types.Receiver{
 				To: offchainAddrs[0].Address, Amount: assetChangeAmount,
@@ -509,16 +501,16 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 				Receiver: changeReceiver,
 				AssetId:  assetIdStr,
 			}
+			changeIndex := uint32(len(finalAssetReceivers))
 			finalAssetReceivers = append(finalAssetReceivers, assetChangeReceiver)
 
 			dbReceiver := changeReceiver
 			dbReceiver.Amount = a.Dust
 			changeReceivers = append(changeReceivers, types.DBReceiver{
 				Receiver:     dbReceiver,
-				Index:        currentVout, // Index of this change output
+				Index:        changeIndex, // Index of this change output
 				ReceiverType: types.VtxoTypeAsset,
 			})
-			currentVout++
 		}
 	}
 
@@ -566,12 +558,13 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 		}
 		otherReceivers = append(otherReceivers, changeReceiver)
 
-		// Note: asset anchor conusmes an output
+		// Note: asset anchor consumes an output.
 		var changeIndex uint32
+		assetOutputCount := uint32(len(finalAssetReceivers))
 		if satsChangeAmount < a.Dust {
-			changeIndex = currentVout
+			changeIndex = assetOutputCount
 		} else {
-			changeIndex = currentVout + 1
+			changeIndex = assetOutputCount + 1
 		}
 
 		changeReceivers = append(changeReceivers, types.DBReceiver{
@@ -653,9 +646,19 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 
 }
 
-func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetResponse, error) {
+func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetDetails, error) {
 
-	return a.indexer.GetAssetDetails(ctx, assetID)
+	assetDetails, err := a.indexer.GetAssetDetails(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.AssetDetails{
+		ID:        assetDetails.Asset.Id,
+		Quantity:  assetDetails.Asset.Quantity,
+		Immutable: assetDetails.Asset.Immutable,
+		Metadata:  assetDetails.Asset.Metadata,
+	}, nil
 }
 
 func (a *arkClient) ModifyAsset(ctx context.Context, controlAssetId string, assetId string, amount uint64, metadata map[string]string) (string, error) {
@@ -2731,6 +2734,8 @@ func (a *arkClient) settle(
 			}
 		}
 		for nonce, receiver := range teleportNonces {
+
+			time.Sleep(10 * time.Second) // slight delay to ensure batch is processed
 			_, err := a.claimTeleportAsset(ctx, nonce, receiver)
 			if err != nil {
 				return "", fmt.Errorf("failed to claim teleport asset: %s", err)
@@ -3738,6 +3743,10 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 
 	if err != nil {
 		return "", err
+	}
+
+	if len(selectedSatsCoins) == 0 {
+		return "", fmt.Errorf("insufficient funds to cover teleport claim fees")
 	}
 
 	otherReceivers := make([]types.Receiver, 0)

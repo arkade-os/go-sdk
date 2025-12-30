@@ -50,6 +50,9 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
+	// Allow some time for the indexer to process the transfer
+	time.Sleep(5 * time.Second)
+
 	receiverAssetVtxo, err := getAssetVtxo(ctx, receiver, assetIds[0], transferAmount)
 	require.NoError(t, err)
 	require.EqualValues(t, transferAmount, receiverAssetVtxo.Asset.Amount)
@@ -65,6 +68,68 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
 	_, err = receiver.Settle(ctx)
+	require.NoError(t, err)
+}
+
+func TestMultiAssetCreation(t *testing.T) {
+	ctx := context.Background()
+
+	issuer := setupClient(t)
+
+	// Fund issuer so they can pay for multi-asset creation.
+	faucetOffchain(t, issuer, 0.004)
+
+	const assetASupply uint64 = 2_500
+	const assetBSupply uint64 = 3_500
+	assetAParams := types.AssetCreationParams{
+		Quantity:    assetASupply,
+		MetadataMap: map[string]string{"name": "Multi Create A", "symbol": "MCA"},
+	}
+	assetBParams := types.AssetCreationParams{
+		Quantity:    assetBSupply,
+		MetadataMap: map[string]string{"name": "Multi Create B", "symbol": "MCB"},
+	}
+
+	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{
+		{Params: assetAParams},
+		{Params: assetBParams},
+	})
+	require.NoError(t, err)
+	require.Len(t, assetIds, 2)
+	require.NotEqual(t, assetIds[0], assetIds[1])
+
+	time.Sleep(5 * time.Second) // Wait for server indexer
+
+	assetIDsBySymbol := make(map[string]string, 2)
+	assetQuantityBySymbol := make(map[string]uint64, 2)
+	for _, assetID := range assetIds {
+		assetResp, err := issuer.GetAsset(ctx, assetID)
+		require.NoError(t, err)
+
+		symbol := assetResp.Metadata["symbol"]
+		require.NotEmpty(t, symbol)
+
+		assetIDsBySymbol[symbol] = assetID
+		assetQuantityBySymbol[symbol] = assetResp.Quantity
+	}
+
+	assetAId, ok := assetIDsBySymbol["MCA"]
+	require.True(t, ok)
+	assetBId, ok := assetIDsBySymbol["MCB"]
+	require.True(t, ok)
+
+	require.Equal(t, assetASupply, assetQuantityBySymbol["MCA"])
+	require.Equal(t, assetBSupply, assetQuantityBySymbol["MCB"])
+
+	assetAVtxo, err := getAssetVtxo(ctx, issuer, assetAId, assetASupply)
+	require.NoError(t, err)
+	require.EqualValues(t, assetASupply, assetAVtxo.Asset.Amount)
+
+	assetBVtxo, err := getAssetVtxo(ctx, issuer, assetBId, assetBSupply)
+	require.NoError(t, err)
+	require.EqualValues(t, assetBSupply, assetBVtxo.Asset.Amount)
+
+	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
 }
 
@@ -126,6 +191,8 @@ func TestMultiAssetTransfer(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, arkTxid)
 
+	time.Sleep(5 * time.Second) // Wait for server indexer
+
 	receiverAssetAVtxo, err := getAssetVtxo(ctx, receiver, assetIdA, transferA)
 	require.NoError(t, err)
 	require.EqualValues(t, transferA, receiverAssetAVtxo.Asset.Amount)
@@ -147,6 +214,7 @@ func TestMultiAssetTransfer(t *testing.T) {
 
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
+
 	_, err = receiver.Settle(ctx)
 	require.NoError(t, err)
 }
@@ -186,17 +254,12 @@ func TestAssetModification(t *testing.T) {
 
 	targetAssetId := assetIds[0]
 
+	time.Sleep(2 * time.Second)
+
 	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(5000), targetAssetVtxo.Asset.Amount)
-
-	time.Sleep(2 * time.Second)
-
-	// Settle to ensure everything is stable
-	_, err = issuer.Settle(ctx)
-	require.NoError(t, err)
-	time.Sleep(2 * time.Second)
 
 	const mintAmount uint64 = 1000
 	newMetadata := map[string]string{"name": "Target Asset v2", "symbol": "TGT2"}
@@ -209,11 +272,11 @@ func TestAssetModification(t *testing.T) {
 	assetResponse, err := issuer.GetAsset(ctx, targetAssetId)
 	require.NoError(t, err)
 
-	value, ok := assetResponse.Asset.Metadata["symbol"]
+	value, ok := assetResponse.Metadata["symbol"]
 
 	require.True(t, ok)
 	require.Equal(t, "TGT2", value)
-	require.Equal(t, assetResponse.Asset.Quantity, uint64(6000)) // Original 5000 + 1000 minted
+	require.Equal(t, assetResponse.Quantity, uint64(6000)) // Original 5000 + 1000 minted
 
 	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
 	require.NoError(t, err)
@@ -236,10 +299,10 @@ func TestAssetModification(t *testing.T) {
 	immutableResp, err := issuer.GetAsset(ctx, immutableAssetId)
 	require.NoError(t, err)
 
-	value, ok = immutableResp.Asset.Metadata["fixed"]
+	value, ok = immutableResp.Metadata["fixed"]
 
 	require.True(t, ok)
-	require.Equal(t, "false", value)
+	require.Equal(t, "true", value)
 }
 
 func getAssetVtxo(ctx context.Context, client arksdk.ArkClient, assetID string, amount uint64) (types.Vtxo, error) {

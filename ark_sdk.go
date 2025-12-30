@@ -61,7 +61,7 @@ type ArkClient interface {
 	RedeemNotes(ctx context.Context, notes []string, opts ...Option) (string, error)
 	SignTransaction(ctx context.Context, tx string) (string, error)
 	NotifyIncomingFunds(ctx context.Context, address string) ([]types.Vtxo, error)
-	GetAsset(ctx context.Context, assetID string) (*types.AssetResponse, error)
+	GetAsset(ctx context.Context, assetID string) (*types.AssetDetails, error)
 	Reset(ctx context.Context)
 	Stop()
 }

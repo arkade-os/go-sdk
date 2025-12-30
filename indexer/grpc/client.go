@@ -478,7 +478,7 @@ func (a *grpcClient) GetBatchSweepTxs(
 
 func (a *grpcClient) GetAssetDetails(
 	ctx context.Context, assetID string,
-) (*types.AssetResponse, error) {
+) (*indexer.AssetResponse, error) {
 	req := &arkv1.GetAssetDetailsRequest{
 		AssetId: assetID,
 	}
@@ -493,8 +493,8 @@ func (a *grpcClient) GetAssetDetails(
 		metadata[mt.Key] = mt.Value
 	}
 
-	assetResp := &types.AssetResponse{
-		Asset: types.AssetInfo{
+	assetResp := &indexer.AssetResponse{
+		Asset: indexer.AssetInfo{
 			Id:        resp.GetAsset().GetId(),
 			Quantity:  resp.GetAsset().GetQuantity(),
 			Immutable: resp.GetAsset().GetImmutable(),

@@ -503,6 +503,11 @@ func buildAssetTransferTx(
 	sort.Strings(assetIds)
 
 	for _, assetIdStr := range assetIds {
+		assetId, err := asset.AssetIdFromString(assetIdStr)
+		if err != nil {
+			return "", nil, nil, err
+		}
+
 		vtxos := inputsByAsset[assetIdStr]
 		receivers := outputsByAsset[assetIdStr]
 
@@ -543,6 +548,7 @@ func buildAssetTransferTx(
 		}
 
 		newAsset := asset.Asset{
+			AssetId: *assetId,
 			Inputs:  newAssetInputs,
 			Outputs: newAssetOutputs,
 		}
@@ -742,7 +748,16 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 
 	}
 
+	decodedControlAssetId, ferr := asset.AssetIdFromString(controlAssetId)
+	if ferr != nil {
+		return "", nil, nil, ferr
+	}
+	if decodedControlAssetId == nil {
+		return "", nil, nil, fmt.Errorf("invalid control asset id: %s", controlAssetId)
+	}
+
 	newControlAsset := asset.Asset{
+		AssetId: *decodedControlAssetId,
 		Inputs:  newControlAssetInputs,
 		Outputs: newControlAssetOutputs,
 	}
@@ -779,14 +794,6 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 	}
 	if decodedAssetId == nil {
 		return "", nil, nil, fmt.Errorf("invalid asset id: %s", assetId)
-	}
-
-	decodedControlAssetId, ferr := asset.AssetIdFromString(controlAssetId)
-	if ferr != nil {
-		return "", nil, nil, ferr
-	}
-	if decodedControlAssetId == nil {
-		return "", nil, nil, fmt.Errorf("invalid control asset id: %s", controlAssetId)
 	}
 
 	newAsset := asset.Asset{

@@ -100,6 +100,13 @@ type Asset struct {
 	Vout    uint32
 }
 
+type AssetDetails struct {
+	ID        string
+	Quantity  uint64
+	Immutable bool
+	Metadata  map[string]string
+}
+
 func (v Vtxo) String() string {
 	// nolint
 	b, _ := json.MarshalIndent(v, "", "  ")
@@ -375,16 +382,4 @@ type Metadata struct {
 type AssetModificationParams struct {
 	Name   string
 	Symbol string
-}
-
-type AssetResponse struct {
-	AssetId string    `json:"assetId"`
-	Asset   AssetInfo `json:"asset"`
-}
-
-type AssetInfo struct {
-	Id        string            `json:"id"`
-	Quantity  uint64            `json:"quantity"`
-	Immutable bool              `json:"immutable"`
-	Metadata  map[string]string `json:"metadata"`
 }
