@@ -35,6 +35,7 @@ type grpcClient struct {
 	conn             *grpc.ClientConn
 	connMu           sync.RWMutex
 	monitoringCancel context.CancelFunc
+	listenerId       string
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -65,7 +66,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	}
 
 	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
-	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
+	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel, ""}
 
 	// testClient := arkv1.NewArkServiceClient(conn)
 	// streamId := ""
@@ -392,6 +393,7 @@ func (a *grpcClient) GetEventStream(
 			case *arkv1.GetEventStreamResponse_StreamStarted:
 				streamId = resp.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
 				fmt.Printf("\n\nGetEventStream set the stream id: %s\n\n", streamId)
+				a.listenerId = streamId
 			default:
 			}
 			if streamId != "" {
@@ -593,13 +595,13 @@ func (c *grpcClient) GetTransactionsStream(
 }
 
 func (c *grpcClient) ModifyStreamTopics(
-	ctx context.Context, streamId string,
+	ctx context.Context,
 	addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
 	fmt.Printf("ModifyStreamTopics called\n")
 
 	req := &arkv1.UpdateStreamTopicsRequest{
-		StreamId: streamId,
+		StreamId: c.listenerId,
 		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
 			Modify: &arkv1.ModifyTopics{
 				AddTopics:    addTopics,
@@ -616,12 +618,12 @@ func (c *grpcClient) ModifyStreamTopics(
 }
 
 func (c *grpcClient) OverwriteStreamTopics(
-	ctx context.Context, streamId string, topics []string,
+	ctx context.Context, topics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
 	fmt.Printf("OverwriteStreamTopics called\n")
 
 	req := &arkv1.UpdateStreamTopicsRequest{
-		StreamId: streamId,
+		StreamId: c.listenerId,
 		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Overwrite{
 			Overwrite: &arkv1.OverwriteTopics{
 				Topics: topics,
