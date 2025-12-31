@@ -599,6 +599,9 @@ func (c *grpcClient) ModifyStreamTopics(
 	addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
 	fmt.Printf("ModifyStreamTopics called\n")
+	if c.listenerId == "" {
+		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot modify stream topics")
+	}
 
 	req := &arkv1.UpdateStreamTopicsRequest{
 		StreamId: c.listenerId,
@@ -621,6 +624,9 @@ func (c *grpcClient) OverwriteStreamTopics(
 	ctx context.Context, topics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
 	fmt.Printf("OverwriteStreamTopics called\n")
+	if c.listenerId == "" {
+		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot overwrite stream topics")
+	}
 
 	req := &arkv1.UpdateStreamTopicsRequest{
 		StreamId: c.listenerId,
