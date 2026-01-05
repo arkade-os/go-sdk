@@ -24,6 +24,7 @@ type restClient struct {
 	serverURL      string
 	svc            *ark_service.APIClient
 	requestTimeout time.Duration
+	listenerId     string
 }
 
 // NewClient creates a new REST client for the Ark service
@@ -39,7 +40,7 @@ func NewClient(serverURL string) (client.TransportClient, error) {
 	// TODO: use twice the round interval.
 	reqTimeout := 15 * time.Second
 
-	return &restClient{serverURL, svc, reqTimeout}, nil
+	return &restClient{serverURL, svc, reqTimeout, ""}, nil
 }
 
 func (a *restClient) GetInfo(
@@ -349,11 +350,11 @@ func (c *restClient) GetEventStream(
 					Signature:  e.GetSignature(),
 				}
 			case !ark_service.IsNil(event.GetStreamStarted()):
-				fmt.Printf("--- case rest client StreamStartedEvent hit with id: %s\n", *event.GetStreamStarted().Id)
 				e := event.GetStreamStarted()
 				batchEvent = client.StreamStartedEvent{
 					Id: e.GetId(),
 				}
+				c.listenerId = e.GetId()
 			}
 
 			eventsCh <- client.BatchEventChannel{
@@ -498,15 +499,34 @@ func (c *restClient) GetTransactionsStream(
 func (a *restClient) ModifyStreamTopics(
 	ctx context.Context, addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
-	fmt.Printf("restClient ModifyStreamTopics\n")
-	return addedTopics, removedTopics, allTopics, nil
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceUpdateStreamTopics(ctx).
+		UpdateStreamTopicsRequest(ark_service.UpdateStreamTopicsRequest{
+			Modify: &ark_service.ModifyTopics{
+				AddTopics:    addTopics,
+				RemoveTopics: removeTopics,
+			},
+			StreamId: &a.listenerId,
+		}).Execute()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return resp.GetTopicsAdded(), resp.GetTopicsRemoved(), resp.GetAllTopics(), nil
 }
 
 func (a *restClient) OverwriteStreamTopics(
 	ctx context.Context, topics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
-	fmt.Printf("restClient OverwriteStreamTopics\n")
-	return addedTopics, removedTopics, allTopics, nil
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceUpdateStreamTopics(ctx).
+		UpdateStreamTopicsRequest(ark_service.UpdateStreamTopicsRequest{
+			Overwrite: &ark_service.OverwriteTopics{
+				Topics: topics,
+			},
+			StreamId: &a.listenerId,
+		}).Execute()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return resp.GetTopicsAdded(), resp.GetTopicsRemoved(), resp.GetAllTopics(), nil
 }
 
 func (c *restClient) Close() {}

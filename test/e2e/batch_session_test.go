@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -10,14 +9,13 @@ import (
 )
 
 func TestBatchSession(t *testing.T) {
-	fmt.Printf("called TestBatchSession\n")
 	// In this test Alice and Bob onboard their funds in the same commitment tx and then
 	// refresh their vtxos together in another commitment tx
 	t.Run("refresh vtxos", func(t *testing.T) {
-		fmt.Printf("called refresh vtxos\n")
 		ctx := t.Context()
 		alice := setupClient(t)
 		bob := setupClient(t)
+
 		_, _, aliceBoardingAddr, err := alice.Receive(ctx)
 		require.NoError(t, err)
 		_, _, bobBoardingAddr, err := bob.Receive(ctx)

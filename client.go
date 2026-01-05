@@ -199,7 +199,6 @@ func LoadArkClientWithWallet(
 }
 
 func (a *arkClient) Init(ctx context.Context, args InitArgs) error {
-	fmt.Printf("arkClient init\n")
 	return a.init(ctx, args)
 }
 
@@ -2379,7 +2378,6 @@ func (a *arkClient) handleBatchEvents(
 	receivers []types.Receiver, signerSessions []tree.SignerSession,
 	replayEventsCh chan<- any, cancelCh <-chan struct{},
 ) (string, error) {
-	fmt.Printf("--- handleBatchEvents called\n")
 	topics := make([]string, 0)
 	for _, n := range notes {
 		parsedNote, err := note.NewNoteFromString(n)

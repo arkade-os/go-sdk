@@ -30,13 +30,11 @@ const (
 func TestOffchainTx(t *testing.T) {
 	// In this test Alice sends several times to Bob to create a chain of offchain txs
 	t.Run("chain of txs", func(t *testing.T) {
-		fmt.Printf("--- called chain of txt\n")
 		ctx := context.Background()
 		alice := setupClient(t)
 		bob := setupClient(t)
 
 		faucetOffchain(t, alice, 0.001)
-		fmt.Printf("finished calling faucetOffchain\n")
 
 		_, bobAddress, _, err := bob.Receive(ctx)
 		require.NoError(t, err)

@@ -66,7 +66,7 @@ type BatchEventsHandler interface {
 		ctx context.Context,
 		event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
 	) error
-	OnStreamStartedEvent(ctx context.Context, event client.StreamStartedEvent) error
+	OnStreamStartedEvent(ctx context.Context, event client.StreamStartedEvent)
 }
 
 type BatchSessionOption func(*options)
@@ -93,7 +93,6 @@ func JoinBatchSession(
 	ctx context.Context, eventsCh <-chan client.BatchEventChannel,
 	eventsHandler BatchEventsHandler, opts ...BatchSessionOption,
 ) (string, error) {
-	fmt.Printf("batch_session.go JoinBatchSession\n")
 	options := newOptions()
 
 	for _, opt := range opts {
@@ -134,15 +133,9 @@ func JoinBatchSession(
 
 			switch event := notify.Event; event.(type) {
 			case client.StreamStartedEvent:
-				// TODO
 				streamStartedEvent := client.StreamStartedEvent{Id: event.(client.StreamStartedEvent).Id}
-				fmt.Printf("--- case client.StreamStartedEvent hit with id: %s\n", event.(client.StreamStartedEvent).Id)
-				err := eventsHandler.OnStreamStartedEvent(ctx, streamStartedEvent)
-				if err != nil {
-					fmt.Printf("error calling eventsHandler.OnStreamStartedEvent: %s\n", err.Error())
-				} else {
-					fmt.Printf("success calling eventHandler.OnStreamStartedEvent\n")
-				}
+				eventsHandler.OnStreamStartedEvent(ctx, streamStartedEvent)
+
 			case client.BatchStartedEvent:
 				e := event.(client.BatchStartedEvent)
 				skip, err := eventsHandler.OnBatchStarted(ctx, e)
@@ -381,10 +374,8 @@ func newBatchEventsHandler(
 }
 
 func (h *defaultBatchEventsHandler) OnStreamStartedEvent(ctx context.Context, event client.StreamStartedEvent,
-) error {
-	fmt.Printf("--- defaultBatchEventsHandler OnStreamStartedEvent hit with id: %s\n", event.Id)
+) {
 	h.arkClient.streamId = event.Id
-	return nil
 }
 
 func (h *defaultBatchEventsHandler) OnBatchStarted(

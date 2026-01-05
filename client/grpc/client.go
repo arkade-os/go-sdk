@@ -68,51 +68,6 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
 	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel, ""}
 
-	// testClient := arkv1.NewArkServiceClient(conn)
-	// streamId := ""
-	// pingCtx2, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// // get the event stream
-	// eventStreamRes, err := testClient.GetEventStream(pingCtx2, &arkv1.GetEventStreamRequest{})
-	// if err != nil {
-	// 	fmt.Printf("error getting event stream: %s", err.Error())
-	// 	// continue to retry
-	// } else {
-	// 	eventCh, err := eventStreamRes.Recv()
-	// 	if err != nil {
-	// 		fmt.Printf("error receiving from event stream: %s", err.Error())
-	// 		// continue to retry
-	// 	} else {
-	// 		fmt.Printf("successfully received from event stream: %+v", eventCh)
-	// 		switch eventCh.Event.(type) {
-	// 		case *arkv1.GetEventStreamResponse_StreamStarted:
-	// 			streamId = eventCh.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
-	// 			fmt.Printf("set stream id: %s\n", streamId)
-	// 		default:
-	// 			fmt.Printf("unexpected event type received: %T", eventCh.Event)
-	// 		}
-	// 	}
-	// }
-	// defer cancel()
-	// if streamId != "" {
-	// 	fmt.Printf("--- calling UpdateStreamTopics for stream id: %s\n", streamId)
-	// 	pingCtx3, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// 	updateRes, err := testClient.UpdateStreamTopics(pingCtx3, &arkv1.UpdateStreamTopicsRequest{
-	// 		StreamId: streamId,
-	// 		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
-	// 			Modify: &arkv1.ModifyTopics{
-	// 				AddTopics:    []string{},
-	// 				RemoveTopics: []string{},
-	// 			},
-	// 		},
-	// 	})
-	// 	if err != nil {
-	// 		fmt.Printf("error with UpdateStreamTopics: %s", err.Error())
-	// 	} else {
-	// 		fmt.Printf("UpdateStreamTopics response: added=%v removed=%v all=%v\n", updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics())
-	// 	}
-	// 	defer cancel()
-	// }
-
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
 		// Wait for the server to be actually ready for requests
 		if err := client.waitForServerReady(ctx); err != nil {
@@ -129,7 +84,6 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 }
 
 func (c *grpcClient) waitForServerReady(ctx context.Context) error {
-	fmt.Printf("--- called waitForServerReady\n")
 	delay := initialDelay
 	attempt := 0
 
@@ -341,7 +295,6 @@ func (a *grpcClient) GetEventStream(
 	ctx context.Context,
 	topics []string,
 ) (<-chan client.BatchEventChannel, func(), error) {
-	fmt.Printf("client/grpc/client.go GetEventStream\n")
 	ctx, cancel := context.WithCancel(ctx)
 
 	req := &arkv1.GetEventStreamRequest{Topics: topics}
@@ -388,32 +341,10 @@ func (a *grpcClient) GetEventStream(
 				return
 			}
 
-			streamId := ""
 			switch resp.Event.(type) {
 			case *arkv1.GetEventStreamResponse_StreamStarted:
-				streamId = resp.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
-				fmt.Printf("\n\nGetEventStream set the stream id: %s\n\n", streamId)
-				a.listenerId = streamId
+				a.listenerId = resp.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
 			default:
-			}
-			if streamId != "" {
-				fmt.Printf("--- calling UpdateStreamTopics for stream id: %s\n", streamId)
-				pingCtx3, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				updateRes, err := a.svc().UpdateStreamTopics(pingCtx3, &arkv1.UpdateStreamTopicsRequest{
-					StreamId: streamId,
-					TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
-						Modify: &arkv1.ModifyTopics{
-							AddTopics:    []string{},
-							RemoveTopics: []string{},
-						},
-					},
-				})
-				if err != nil {
-					fmt.Printf("error with UpdateStreamTopics: %s", err.Error())
-				} else {
-					fmt.Printf("UpdateStreamTopics response: added=%v removed=%v all=%v\n", updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics())
-				}
-				defer cancel()
 			}
 
 			ev, err := event{resp}.toBatchEvent()
@@ -598,7 +529,6 @@ func (c *grpcClient) ModifyStreamTopics(
 	ctx context.Context,
 	addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
-	fmt.Printf("ModifyStreamTopics called\n")
 	if c.listenerId == "" {
 		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot modify stream topics")
 	}
@@ -623,7 +553,6 @@ func (c *grpcClient) ModifyStreamTopics(
 func (c *grpcClient) OverwriteStreamTopics(
 	ctx context.Context, topics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
-	fmt.Printf("OverwriteStreamTopics called\n")
 	if c.listenerId == "" {
 		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot overwrite stream topics")
 	}
@@ -643,8 +572,6 @@ func (c *grpcClient) OverwriteStreamTopics(
 
 	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
 }
-
-// func (c *grpcClient) EventStreamStarted()
 
 func (c *grpcClient) Close() {
 	c.monitoringCancel()

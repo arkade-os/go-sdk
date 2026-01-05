@@ -16,7 +16,6 @@ SWAGGER = $(shell \
 proto:
 	@echo "Compiling stubs..."
 	@docker build -q -t buf -f buf.Dockerfile . &> /dev/null
-	@echo "Generating protobuf code..."
 	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate
 
 ## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
