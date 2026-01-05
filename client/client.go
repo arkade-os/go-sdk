@@ -53,8 +53,15 @@ type TransportClient interface {
 	FinalizeTx(ctx context.Context, arkTxid string, finalCheckpointTxs []string) error
 	GetPendingTx(ctx context.Context, proof, message string) ([]AcceptedOffchainTx, error)
 	GetTransactionsStream(ctx context.Context) (<-chan TransactionEvent, func(), error)
-	ModifyStreamTopics(ctx context.Context, addTopics []string, removeTopics []string) (addedTopics []string, removedTopics []string, allTopics []string, err error)
-	OverwriteStreamTopics(ctx context.Context, topics []string) (addedTopics []string, removedTopics []string, allTopics []string, err error)
+	ModifyStreamTopics(
+		ctx context.Context,
+		addTopics []string,
+		removeTopics []string,
+	) (addedTopics []string, removedTopics []string, allTopics []string, err error)
+	OverwriteStreamTopics(
+		ctx context.Context,
+		topics []string,
+	) (addedTopics []string, removedTopics []string, allTopics []string, err error)
 	Close()
 }
 
