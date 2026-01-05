@@ -126,7 +126,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 func buildTeleportClaimTx(
 	vtxos []arkTxInput, nonce [32]byte, receiver types.TeleportReceiver, otherReceivers []types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.AssetGroup, error) {
+) (string, []string, *asset.AssetPacket, error) {
 	if len(vtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
@@ -159,9 +159,9 @@ func buildTeleportClaimTx(
 	})
 
 	assetOutputs := []asset.AssetOutput{{
-		Type:   asset.AssetOutputTypeLocal,
+		Type:   asset.AssetTypeLocal,
 		Amount: receiver.AssetAmount,
-		Vout:   uint32(0),
+		Vout:   uint16(0),
 	}}
 
 	decodedTeleportHash, err := hex.DecodeString(receiver.TeleportHash)
@@ -183,7 +183,7 @@ func buildTeleportClaimTx(
 	copy(teleportByte[:], decodedTeleportHash)
 
 	assetInputs := []asset.AssetInput{{
-		Type:       asset.AssetInputTypeTeleport,
+		Type:       asset.AssetTypeTeleport,
 		Amount:     receiver.AssetAmount,
 		Commitment: teleportByte,
 		Witness: asset.TeleportWitness{
@@ -197,14 +197,14 @@ func buildTeleportClaimTx(
 		return "", nil, nil, err
 	}
 
-	normalAssets := asset.Asset{
+	normalAsset := asset.AssetGroup{
 		AssetId: *decodedAssetId,
 		Outputs: assetOutputs,
 		Inputs:  assetInputs,
 	}
 
-	assetGroup := asset.AssetGroup{
-		NormalAssets: []asset.Asset{normalAssets},
+	assetGroup := asset.AssetPacket{
+		NormalAssets: []asset.AssetGroup{normalAsset},
 	}
 
 	// exclude SubDust receiver from other receivers
@@ -293,7 +293,7 @@ func buildTeleportClaimTx(
 func buildAssetCreationTx(
 	vtxos []arkTxInput, assetRequests []types.AssetCreationRequest, otherReceivers []types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.AssetGroup, error) {
+) (string, []string, *asset.AssetPacket, error) {
 
 	if len(vtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
@@ -310,9 +310,9 @@ func buildAssetCreationTx(
 	}
 
 	outs := make([]*wire.TxOut, 0)
-	normalAssets := make([]asset.Asset, 0, len(assetRequests))
+	normalAssets := make([]asset.AssetGroup, 0, len(assetRequests))
 
-	var globalVoutIndex uint32 = 0
+	var globalVoutIndex uint16 = 0
 
 	for i, request := range assetRequests {
 		assetOutputs := make([]asset.AssetOutput, 0)
@@ -343,7 +343,7 @@ func buildAssetCreationTx(
 			})
 
 			assetOutputs = append(assetOutputs, asset.AssetOutput{
-				Type:   asset.AssetOutputTypeLocal,
+				Type:   asset.AssetTypeLocal,
 				Amount: assetReceiver.Amount,
 				Vout:   globalVoutIndex,
 			})
@@ -356,10 +356,10 @@ func buildAssetCreationTx(
 		var assetIdBaseByte [32]byte
 		copy(assetIdBaseByte[:], assetIdBase[:])
 
-		assetDetails := asset.Asset{
+		assetDetails := asset.AssetGroup{
 			AssetId: asset.AssetId{
 				TxId:  assetIdBase,
-				Index: uint32(i),
+				Index: uint16(i),
 			},
 			Outputs:        assetOutputs,
 			ControlAssetId: controlAssetId,
@@ -372,7 +372,7 @@ func buildAssetCreationTx(
 		normalAssets = append(normalAssets, assetDetails)
 	}
 
-	assetGroup := asset.AssetGroup{
+	assetGroup := asset.AssetPacket{
 		NormalAssets: normalAssets,
 	}
 
@@ -461,7 +461,7 @@ func buildAssetCreationTx(
 func buildAssetTransferTx(
 	sealVtxos []arkTxInput, otherVtxos []arkTxInput, assetReceivers []types.AssetReceiver, otherReceivers []types.Receiver, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.AssetGroup, error) {
+) (string, []string, *asset.AssetPacket, error) {
 	if len(sealVtxos) <= 0 {
 		return "", nil, nil, fmt.Errorf("missing vtxos")
 	}
@@ -491,7 +491,7 @@ func buildAssetTransferTx(
 		outputsByAsset[receiver.AssetId] = append(outputsByAsset[receiver.AssetId], receiver)
 	}
 
-	normalAssets := make([]asset.Asset, 0)
+	normalAssets := make([]asset.AssetGroup, 0)
 	outs := make([]*wire.TxOut, 0)
 
 	// To ensure deterministic order, let's collect all AssetIds
@@ -501,6 +501,8 @@ func buildAssetTransferTx(
 	}
 	// Sort not strictly necessary but good for determinism
 	sort.Strings(assetIds)
+
+	globalInputIndex := uint16(0)
 
 	for _, assetIdStr := range assetIds {
 		assetId, err := asset.AssetIdFromString(assetIdStr)
@@ -520,20 +522,18 @@ func buildAssetTransferTx(
 			}
 			ins = append(ins, *in)
 
-			if vtxo.Asset != nil && vtxo.Asset.Vout == vtxo.VOut {
-				hash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
-				if err != nil {
-					return "", nil, nil, err
-				}
-
-				assetInput := asset.AssetInput{
-					Type:   asset.AssetInputTypeLocal,
-					Vin:    vtxo.VOut,
-					Amount: vtxo.Asset.Amount,
-					Hash:   hash[:],
-				}
-				newAssetInputs = append(newAssetInputs, assetInput)
+			if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
+				return "", nil, nil, fmt.Errorf("vtxo %s missing asset info for transfer", vtxo.Txid)
 			}
+
+			assetInput := asset.AssetInput{
+				Type:   asset.AssetTypeLocal,
+				Vin:    globalInputIndex,
+				Amount: vtxo.Asset.Amount,
+			}
+
+			globalInputIndex++
+			newAssetInputs = append(newAssetInputs, assetInput)
 		}
 
 		newAssetOutputs := make([]asset.AssetOutput, 0)
@@ -541,13 +541,13 @@ func buildAssetTransferTx(
 		for _, receiver := range receivers {
 
 			newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
-				Type:   asset.AssetOutputTypeLocal,
+				Type:   asset.AssetTypeLocal,
 				Amount: receiver.Amount,
-				Vout:   receiver.Index,
+				Vout:   uint16(receiver.Index),
 			})
 		}
 
-		newAsset := asset.Asset{
+		newAsset := asset.AssetGroup{
 			AssetId: *assetId,
 			Inputs:  newAssetInputs,
 			Outputs: newAssetOutputs,
@@ -583,7 +583,7 @@ func buildAssetTransferTx(
 		ins = append(ins, *in)
 	}
 
-	assetGroup := asset.AssetGroup{
+	assetPacket := asset.AssetPacket{
 		NormalAssets: normalAssets,
 	}
 
@@ -610,16 +610,16 @@ func buildAssetTransferTx(
 		if err != nil {
 			return "", nil, nil, err
 		}
-		assetGroup.SubDustKey = addr.VtxoTapKey
+		assetPacket.SubDustKey = addr.VtxoTapKey
 
-		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		assetOpretOut, err = assetPacket.EncodeOpret(int64(subdustReceiver.Amount))
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 	} else {
 
-		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		assetOpretOut, err = assetPacket.EncodeOpret(0)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -672,12 +672,12 @@ func buildAssetTransferTx(
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, &assetGroup, nil
+	return arkTx, checkpointTxs, &assetPacket, nil
 }
 
 func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, otherVtxos []arkTxInput, controlAssetReceivers, assetReceivers, otherReceivers []types.Receiver, metadata map[string]string, serverUnrollScript []byte,
 	dustLimit uint64,
-) (string, []string, *asset.AssetGroup, error) {
+) (string, []string, *asset.AssetPacket, error) {
 
 	ins := make([]offchain.VtxoInput, 0, len(controlSealVtxos)+len(otherVtxos))
 
@@ -687,26 +687,24 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 	newControlAssetInputs := make([]asset.AssetInput, 0)
 	newControlAssetOutputs := make([]asset.AssetOutput, 0)
 
-	for _, vtxo := range controlSealVtxos {
-		vtxoHash, err := chainhash.NewHashFromStr(vtxo.Outpoint.Txid)
-		if err != nil {
-			return "", nil, nil, err
-		}
+	for i, vtxo := range controlSealVtxos {
 		in, err := createVtxoTxInput(vtxo)
 		if err != nil {
 			return "", nil, nil, err
 		}
 		ins = append(ins, *in)
 
-		if vtxo.Asset != nil && vtxo.Asset.Vout == vtxo.VOut {
-			assetInput := asset.AssetInput{
-				Type:   asset.AssetInputTypeLocal,
-				Vin:    vtxo.VOut,
-				Amount: vtxo.Asset.Amount,
-				Hash:   vtxoHash[:],
-			}
-			newControlAssetInputs = append(newControlAssetInputs, assetInput)
+		if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
+			return "", nil, nil, fmt.Errorf("vtxo %s missing control asset info for modification", vtxo.Txid)
+
 		}
+
+		assetInput := asset.AssetInput{
+			Type:   asset.AssetTypeLocal,
+			Vin:    uint16(i),
+			Amount: vtxo.Asset.Amount,
+		}
+		newControlAssetInputs = append(newControlAssetInputs, assetInput)
 	}
 
 	for _, vtxo := range otherVtxos {
@@ -739,9 +737,9 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		})
 
 		newControlAssetOutputs = append(newControlAssetOutputs, asset.AssetOutput{
-			Type:   asset.AssetOutputTypeLocal,
+			Type:   asset.AssetTypeLocal,
 			Amount: receiver.Amount,
-			Vout:   receiverIndex,
+			Vout:   uint16(receiverIndex),
 		})
 
 		receiverIndex += 1
@@ -756,7 +754,7 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		return "", nil, nil, fmt.Errorf("invalid control asset id: %s", controlAssetId)
 	}
 
-	newControlAsset := asset.Asset{
+	newControlAsset := asset.AssetGroup{
 		AssetId: *decodedControlAssetId,
 		Inputs:  newControlAssetInputs,
 		Outputs: newControlAssetOutputs,
@@ -779,9 +777,9 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		})
 
 		newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
-			Type:   asset.AssetOutputTypeLocal,
+			Type:   asset.AssetTypeLocal,
 			Amount: receiver.Amount,
-			Vout:   receiverIndex,
+			Vout:   uint16(receiverIndex),
 		})
 
 		receiverIndex += 1
@@ -796,7 +794,7 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		return "", nil, nil, fmt.Errorf("invalid asset id: %s", assetId)
 	}
 
-	newAsset := asset.Asset{
+	newAsset := asset.AssetGroup{
 		AssetId:        *decodedAssetId,
 		Outputs:        []asset.AssetOutput{},
 		Inputs:         []asset.AssetInput{},
@@ -808,9 +806,9 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 	newAsset.Inputs = newAssetInputs
 	newAsset.Metadata = toAssetMetadataList(metadata)
 
-	assetGroup := asset.AssetGroup{
-		ControlAssets: []asset.Asset{newControlAsset},
-		NormalAssets:  []asset.Asset{newAsset},
+	assetPacket := asset.AssetPacket{
+		ControlAssets: []asset.AssetGroup{newControlAsset},
+		NormalAssets:  []asset.AssetGroup{newAsset},
 	}
 
 	// exclude SubDust receiver from other receivers
@@ -836,16 +834,16 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		if err != nil {
 			return "", nil, nil, err
 		}
-		assetGroup.SubDustKey = addr.VtxoTapKey
+		assetPacket.SubDustKey = addr.VtxoTapKey
 
-		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		assetOpretOut, err = assetPacket.EncodeOpret(int64(subdustReceiver.Amount))
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 	} else {
 
-		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		assetOpretOut, err = assetPacket.EncodeOpret(0)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -898,7 +896,7 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, &assetGroup, nil
+	return arkTx, checkpointTxs, &assetPacket, nil
 }
 
 func buildOffchainTx(
@@ -1427,7 +1425,7 @@ func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
 	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
 }
 
-func GetAssetOutput(output []asset.AssetOutput, vout uint32) (*asset.AssetOutput, error) {
+func GetAssetOutput(output []asset.AssetOutput, vout uint16) (*asset.AssetOutput, error) {
 	for _, out := range output {
 		if out.Vout == vout {
 			return &out, nil
@@ -1514,17 +1512,17 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 	return &forfeitLeafHash, nil
 }
 
-func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*types.Asset, error) {
-	if assetGroup == nil {
+func FindAssetFromOutput(vtxo types.Vtxo, assetPacket *asset.AssetPacket) (*types.Asset, error) {
+	if assetPacket == nil {
 		return nil, fmt.Errorf("asset group is nil")
 	}
 
-	assetsToCheck := make([]*asset.Asset, 0, len(assetGroup.NormalAssets)+len(assetGroup.ControlAssets))
-	for i := range assetGroup.NormalAssets {
-		assetsToCheck = append(assetsToCheck, &assetGroup.NormalAssets[i])
+	assetsToCheck := make([]*asset.AssetGroup, 0, len(assetPacket.NormalAssets)+len(assetPacket.ControlAssets))
+	for i := range assetPacket.NormalAssets {
+		assetsToCheck = append(assetsToCheck, &assetPacket.NormalAssets[i])
 	}
-	for i := range assetGroup.ControlAssets {
-		assetsToCheck = append(assetsToCheck, &assetGroup.ControlAssets[i])
+	for i := range assetPacket.ControlAssets {
+		assetsToCheck = append(assetsToCheck, &assetPacket.ControlAssets[i])
 	}
 
 	for _, asset := range assetsToCheck {
@@ -1533,11 +1531,11 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetGroup *asset.AssetGroup) (*types.
 		}
 
 		for _, assetOut := range asset.Outputs {
-			if vtxo.VOut == assetOut.Vout {
+			if uint16(vtxo.VOut) == assetOut.Vout {
 				return &types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  assetOut.Amount,
-					Vout:    assetOut.Vout,
+					Vout:    vtxo.VOut,
 				}, nil
 			}
 

@@ -71,6 +71,8 @@ github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20251222133101-6b6f2e448b60 h1:+i
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20251222133101-6b6f2e448b60/go.mod h1:EIGiZNKRyIkkbu8ZfmMVO4Mij/Iz9/xzbS6jhGRbrVQ=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20251229151346-85253b165474 h1:rBTkRq4ME/uxcBYjqc90v5OqJQQziuRBfVqMV+4SyEg=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20251229151346-85253b165474/go.mod h1:EIGiZNKRyIkkbu8ZfmMVO4Mij/Iz9/xzbS6jhGRbrVQ=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260105181923-cae1a9038d08 h1:q04p8lzqCdVPYkoRzIgpXO+Kr8Bm1fTv4DUaUJuCqcE=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260105181923-cae1a9038d08/go.mod h1:EIGiZNKRyIkkbu8ZfmMVO4Mij/Iz9/xzbS6jhGRbrVQ=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

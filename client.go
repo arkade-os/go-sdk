@@ -3582,14 +3582,14 @@ func (a *arkClient) handleArkTx(
 
 	// Enrich vtxos with asset info if available in the tx
 	if assetGroup, err := asset.DeriveAssetGroupFromTx(arkTx.Tx); err == nil {
-		voutToAsset := make(map[uint32]types.Asset)
+		voutToAsset := make(map[uint16]types.Asset)
 
 		for _, asset := range assetGroup.ControlAssets {
 			for _, out := range asset.Outputs {
 				voutToAsset[out.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  out.Amount,
-					Vout:    out.Vout,
+					Vout:    uint32(out.Vout),
 				}
 			}
 		}
@@ -3599,13 +3599,13 @@ func (a *arkClient) handleArkTx(
 				voutToAsset[out.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  out.Amount,
-					Vout:    out.Vout,
+					Vout:    uint32(out.Vout),
 				}
 			}
 		}
 
 		for i, vtxo := range arkTx.SpendableVtxos {
-			if a, ok := voutToAsset[vtxo.VOut]; ok {
+			if a, ok := voutToAsset[uint16(vtxo.VOut)]; ok {
 				arkTx.SpendableVtxos[i].Asset = &a
 			}
 		}
@@ -3841,7 +3841,7 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 
 }
 
-func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid string, signedCheckpointTxs []string, selectedCoins []client.TapscriptsVtxo, receviers []types.DBReceiver, assetGroup *asset.AssetGroup) error {
+func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid string, signedCheckpointTxs []string, selectedCoins []client.TapscriptsVtxo, receviers []types.DBReceiver, assetGroup *asset.AssetPacket) error {
 	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
 	spentAmount := uint64(0)
 
@@ -3903,14 +3903,14 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 	}
 
 	// store asssetOUtputsIf Present
-	assetOutputMap := make(map[uint32]types.Asset)
+	assetOutputMap := make(map[uint16]types.Asset)
 
 	if assetGroup != nil {
 		for _, asset := range assetGroup.NormalAssets {
 			for _, assetOutput := range asset.Outputs {
 				assetOutputMap[assetOutput.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
-					Vout:    assetOutput.Vout,
+					Vout:    uint32(assetOutput.Vout),
 					Amount:  assetOutput.Amount,
 				}
 			}
@@ -3920,7 +3920,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 			for _, assetOutput := range asset.Outputs {
 				assetOutputMap[assetOutput.Vout] = types.Asset{
 					AssetId: asset.AssetId.ToString(),
-					Vout:    assetOutput.Vout,
+					Vout:    uint32(assetOutput.Vout),
 					Amount:  assetOutput.Amount,
 				}
 			}
@@ -3957,7 +3957,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 
 		var assetOutput *types.Asset
 		if receiver.ReceiverType == types.VtxoTypeAsset {
-			out := assetOutputMap[receiver.Index]
+			out := assetOutputMap[uint16(receiver.Index)]
 			assetOutput = &out
 		}
 
