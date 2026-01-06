@@ -377,10 +377,7 @@ err := client.Init(ctx, arksdk.InitArgs{
 - **Security**: Ensure your scripts maintain proper security properties (timelock, forfeit conditions, etc.)
 - **Testing**: Thoroughly test custom scripts before production use
 
-See `example/custom_script_builder/` for complete working examples including:
-- Extended timelock scripts
-- Logging script builder wrapper
-- Custom conditions
+See `example/custom_script_builder/` for complete working examples.
 
 For **Lightning Network channels** on Arkade, see `example/lightning_channel_scripts/`:
 - Dual-path Taproot structure for channel funding outputs
