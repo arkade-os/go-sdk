@@ -195,8 +195,8 @@ func (l *LightningChannelScriptBuilder) buildLightningScriptWithCSV(
 
 	builder := txscript.NewScriptBuilder()
 
-	// Add the original Lightning script
-	builder.AddFullScript(lightningScript)
+	// Add the original Lightning script as raw opcodes
+	builder.AddOps(lightningScript)
 
 	// Add CSV timeout
 	builder.AddInt64(int64(csvSequence))
@@ -226,8 +226,8 @@ func (l *LightningChannelScriptBuilder) encodeTapscripts(
 		PubKeys: []*btcec.PublicKey{l.AliceKey, l.BobKey},
 	}
 
-	// Create VTXO script with our closures
-	vtxoScript := &script.VtxoScript{
+	// Create VTXO script with our closures using the concrete type
+	vtxoScript := &script.TapscriptsVtxoScript{
 		Closures: []script.Closure{multisigClosure},
 	}
 
@@ -301,7 +301,7 @@ func main() {
 	defer client.Lock(ctx)
 
 	// Generate addresses - these use Lightning channel scripts
-	offchainAddr, boardingAddr, err := client.Receive(ctx)
+	_, offchainAddr, boardingAddr, err := client.Receive(ctx)
 	if err != nil {
 		log.Fatalf("Failed to generate addresses: %v", err)
 	}

@@ -122,7 +122,7 @@ func main() {
 	defer client.Lock(ctx)
 
 	// Generate addresses - these will use the custom scripts
-	offchainAddr, boardingAddr, err := client.Receive(ctx)
+	_, offchainAddr, boardingAddr, err := client.Receive(ctx)
 	if err != nil {
 		log.Fatalf("Failed to generate addresses: %v", err)
 	}

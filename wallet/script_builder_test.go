@@ -1,12 +1,14 @@
 package wallet_test
 
 import (
+	"errors"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/wallet"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,8 +81,8 @@ func TestExtractTapKeyFromScripts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, tapKey)
 
-	// Verify the tapKey is a valid schnorr public key
-	require.Equal(t, 32, len(tapKey.SerializeCompressed()))
+	// Verify the tapKey is a valid schnorr public key (x-only key = 32 bytes)
+	require.Equal(t, 32, len(schnorr.SerializePubKey(tapKey)))
 }
 
 func TestValidateScripts(t *testing.T) {
@@ -197,7 +199,7 @@ func TestCustomScriptBuilder(t *testing.T) {
 
 	t.Run("custom builder with error", func(t *testing.T) {
 		builder := &CustomScriptBuilder{
-			err: require.AnError,
+			err: errors.New("test error"),
 		}
 
 		_, err := builder.BuildOffchainScript(userKey.PubKey(), signerKey.PubKey(), exitDelay)
