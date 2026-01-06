@@ -26,7 +26,7 @@ import (
 // - Normal Lightning operation using standard commitment transactions
 // - Unilateral exit if Arkade Server becomes unavailable
 //
-// CRITICAL: The Server key does NOT appear in these scripts. The Server only
+// The Server key does NOT appear in these scripts. The Server only
 // participates in the VTXO creation (cooperative path), not in Lightning operations.
 type LightningChannelScriptBuilder struct {
 	// AliceKey is one channel participant's public key
