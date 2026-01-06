@@ -370,13 +370,6 @@ err := client.Init(ctx, arksdk.InitArgs{
 })
 ```
 
-#### Important Considerations
-
-- **Protocol Compatibility**: Custom scripts must be compatible with the ARK protocol
-- **Server Acceptance**: The ARK server must accept your custom scripts
-- **Security**: Ensure your scripts maintain proper security properties (timelock, forfeit conditions, etc.)
-- **Testing**: Thoroughly test custom scripts before production use
-
 See `example/custom_script_builder/` for complete working examples.
 
 For **Lightning Network channels** on Arkade, see `example/lightning_channel_scripts/`:
