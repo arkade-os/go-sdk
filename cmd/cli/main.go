@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -43,6 +44,8 @@ func main() {
 		&createAssetCommand,
 		&sendAssetCommand,
 		&reissueAssetCommand,
+		&burnAssetCommand,
+		&modifyAssetCommand,
 		&redeemCommand,
 		&notesCommand,
 		&recoverCommand,
@@ -116,14 +119,6 @@ var (
 		Name:  "quantity",
 		Usage: "quantity of asset to create",
 	}
-	assetNameFlag = &cli.StringFlag{
-		Name:  "name",
-		Usage: "name of the asset to create",
-	}
-	assetSymbolFlag = &cli.StringFlag{
-		Name:  "symbol",
-		Usage: "symbol of the asset to create",
-	}
 
 	zeroFeesFlag = &cli.BoolFlag{
 		Name:    "zero-fees",
@@ -170,6 +165,11 @@ var (
 		Usage:       "set the asset as immutable",
 		Value:       false,
 		DefaultText: "false",
+	}
+
+	metadataFlag = &cli.StringSliceFlag{
+		Name:  "meta",
+		Usage: "Attach metadata as key=value (repeatable)",
 	}
 
 	verboseFlag = &cli.BoolFlag{
@@ -246,7 +246,7 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return createAsset(ctx)
 		},
-		Flags: []cli.Flag{passwordFlag, assetNameFlag, assetQuantityFlag, assetSymbolFlag, controlAssetFlag, immutableFlag},
+		Flags: []cli.Flag{passwordFlag, assetQuantityFlag, controlAssetFlag, immutableFlag, metadataFlag},
 	}
 
 	sendAssetCommand = cli.Command{
@@ -264,7 +264,25 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return reissueAsset(ctx)
 		},
-		Flags: []cli.Flag{passwordFlag, assetIdFlag, amountFlag, controlAssetFlag, assetNameFlag, assetSymbolFlag},
+		Flags: []cli.Flag{passwordFlag, assetIdFlag, amountFlag, controlAssetFlag},
+	}
+
+	burnAssetCommand = cli.Command{
+		Name:  "burn-asset",
+		Usage: "Burn (destroy) units of an existing asset",
+		Action: func(ctx *cli.Context) error {
+			return burnAsset(ctx)
+		},
+		Flags: []cli.Flag{passwordFlag, assetIdFlag, amountFlag, controlAssetFlag},
+	}
+
+	modifyAssetCommand = cli.Command{
+		Name:  "modify-asset",
+		Usage: "Modify metadata of an existing asset",
+		Action: func(ctx *cli.Context) error {
+			return modifyAssetMetadata(ctx)
+		},
+		Flags: []cli.Flag{passwordFlag, assetIdFlag, controlAssetFlag, metadataFlag},
 	}
 
 	redeemCommand = cli.Command{
@@ -434,27 +452,32 @@ func send(ctx *cli.Context) error {
 
 func createAsset(ctx *cli.Context) error {
 	quantity := ctx.Uint64(assetQuantityFlag.Name)
-	name := ctx.String(assetNameFlag.Name)
-	symbol := ctx.String(assetSymbolFlag.Name)
 	controlAssetId := ctx.String(controlAssetFlag.Name)
 	immutable := ctx.Bool(immutableFlag.Name)
 
-	if quantity == 0 && name == "" {
-		return fmt.Errorf("missing asset name or quantity")
+	if quantity == 0 {
+		return errors.New("quantity must be greater than zero")
 	}
 
-	metadata := map[string]string{}
-	if name != "" {
-		metadata["name"] = name
-	}
-	if symbol != "" {
-		metadata["symbol"] = symbol
+	metadataList := make(map[string]string)
+
+	for _, meta := range ctx.StringSlice("meta") {
+		k, v, ok := strings.Cut(meta, "=") // Go 1.20+
+		if !ok {
+			return fmt.Errorf("invalid meta %q, expected key=value", meta)
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" {
+			return fmt.Errorf("empty key in %q", meta)
+		}
+		metadataList[k] = k
 	}
 
 	assetParams := types.AssetCreationParams{
 		Quantity:       quantity,
 		ControlAssetId: controlAssetId,
-		MetadataMap:    metadata,
+		MetadataMap:    metadataList,
 		Immutable:      immutable,
 	}
 
@@ -521,8 +544,6 @@ func reissueAsset(ctx *cli.Context) error {
 	assetIDHex := ctx.String(assetIdFlag.Name)
 	controlAsset := ctx.String(controlAssetFlag.Name)
 	amount := ctx.Uint64(amountFlag.Name)
-	name := ctx.String(assetNameFlag.Name)
-	symbol := ctx.String(assetSymbolFlag.Name)
 
 	if assetIDHex == "" && controlAsset == "" {
 		return fmt.Errorf("missing asset id or control asset id")
@@ -535,14 +556,6 @@ func reissueAsset(ctx *cli.Context) error {
 			return fmt.Errorf("invalid control asset id: %v", err)
 		}
 		controlAssetID = controlAsset
-	}
-
-	metadata := map[string]string{}
-	if name != "" {
-		metadata["name"] = name
-	}
-	if symbol != "" {
-		metadata["symbol"] = symbol
 	}
 
 	// Validate asset ID hex
@@ -558,7 +571,96 @@ func reissueAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.ModifyAsset(ctx.Context, controlAssetID, assetIDHex, amount, metadata)
+	arkTxid, err := arkSdkClient.ReissueAsset(ctx.Context, controlAssetID, assetIDHex, amount)
+	if err != nil {
+		return err
+	}
+	return printJSON(map[string]string{"txid": arkTxid})
+}
+
+func burnAsset(ctx *cli.Context) error {
+	assetIDHex := ctx.String(assetIdFlag.Name)
+	controlAsset := ctx.String(controlAssetFlag.Name)
+	amount := ctx.Uint64(amountFlag.Name)
+
+	if assetIDHex == "" && controlAsset == "" {
+		return fmt.Errorf("missing asset id or control asset id")
+	}
+
+	var controlAssetID string
+	if controlAsset != "" {
+		// Just validate hex
+		if _, err := hex.DecodeString(controlAsset); err != nil {
+			return fmt.Errorf("invalid control asset id: %v", err)
+		}
+		controlAssetID = controlAsset
+	}
+
+	// Validate asset ID hex
+	if _, err := hex.DecodeString(assetIDHex); err != nil {
+		return fmt.Errorf("invalid asset id: %v", err)
+	}
+
+	password, err := readPassword(ctx)
+	if err != nil {
+		return err
+	}
+	if err := arkSdkClient.Unlock(ctx.Context, string(password)); err != nil {
+		return err
+
+	}
+
+	arkTxid, err := arkSdkClient.BurnAsset(ctx.Context, controlAssetID, assetIDHex, amount)
+	if err != nil {
+		return err
+	}
+	return printJSON(map[string]string{"txid": arkTxid})
+}
+
+func modifyAssetMetadata(ctx *cli.Context) error {
+	assetIDHex := ctx.String(assetIdFlag.Name)
+	controlAsset := ctx.String(controlAssetFlag.Name)
+
+	if assetIDHex == "" && controlAsset == "" {
+		return fmt.Errorf("missing asset id or control asset id")
+	}
+
+	metadataList := make(map[string]string)
+
+	for _, meta := range ctx.StringSlice("meta") {
+		k, v, ok := strings.Cut(meta, "=") // Go 1.20+
+		if !ok {
+			return fmt.Errorf("invalid meta %q, expected key=value", meta)
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" {
+			return fmt.Errorf("empty key in %q", meta)
+		}
+		metadataList[k] = k
+	}
+
+	var controlAssetID string
+
+	if _, err := hex.DecodeString(controlAsset); err != nil {
+		return fmt.Errorf("invalid control asset id: %v", err)
+	}
+	controlAssetID = controlAsset
+
+	// Validate asset ID hex
+	if _, err := hex.DecodeString(assetIDHex); err != nil {
+		return fmt.Errorf("invalid asset id: %v", err)
+	}
+
+	password, err := readPassword(ctx)
+	if err != nil {
+		return err
+	}
+	if err := arkSdkClient.Unlock(ctx.Context, string(password)); err != nil {
+		return err
+	}
+
+	arkTxid, err := arkSdkClient.ModifyAssetMetadata(ctx.Context, controlAssetID, assetIDHex, metadataList)
 	if err != nil {
 		return err
 	}

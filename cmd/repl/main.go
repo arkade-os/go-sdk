@@ -154,7 +154,7 @@ func loadOrCreateClient(
 }
 
 func repl(ctx *cli.Context) error {
-	fmt.Println("Ark REPL (stateful) - commands: help, unlock, lock, balance, send <to> <amount>, sendasset <assetid> <to> <amount>, createasset <name> <quantity> [symbol] [control-asset-id], reissueasset <assetid> <amount> [control-asset-id], settle, recover, vtxos [all|spendable|spent], txs, config, receive, quit")
+	fmt.Println("Ark REPL (stateful) - commands: help, unlock, lock, balance, send <to> <amount>, sendasset <assetid> <to> <amount>, createasset <name> <quantity> [symbol] [control-asset-id], reissueasset <assetid> <amount> [control-asset-id], burnasset <assetid> <amount> [control-asset-id], modifyasset <assetid> <control-asset-id> <key=value> [key=value...], settle, recover, vtxos [all|spendable|spent], txs, config, receive, quit")
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
@@ -182,6 +182,8 @@ func repl(ctx *cli.Context) error {
 			fmt.Println("  sendasset <assetid> <to> <amount> - send asset offchain")
 			fmt.Println("  createasset <name> <quantity> [symbol] [control-asset-id] - create asset")
 			fmt.Println("  reissueasset <assetid> <amount> [control-asset-id] - mint more of an asset")
+			fmt.Println("  burnasset <assetid> <amount> [control-asset-id] - burn units of an asset")
+			fmt.Println("  modifyasset <assetid> <control-asset-id> <key=value> [key=value...] - modify asset metadata")
 			fmt.Println("  settle                - settle onboarding/pending funds")
 			fmt.Println("  recover               - settle recoverable vtxos")
 			fmt.Println("  vtxos [all|spendable|spent] - list VTXOs from DB")
@@ -412,7 +414,93 @@ func repl(ctx *cli.Context) error {
 				}
 				controlIDHex = hex.EncodeToString(controlID[:])
 			}
-			txid, err := arkSdkClient.ModifyAsset(ctx.Context, controlIDHex, assetIDHex, amount, map[string]string{})
+			txid, err := arkSdkClient.ReissueAsset(ctx.Context, controlIDHex, assetIDHex, amount)
+			if err != nil {
+				fmt.Printf("error: %v\n", err)
+				continue
+			}
+			_ = printJSON(map[string]string{"txid": txid})
+		case "burnasset":
+			if len(fields) < 3 {
+				fmt.Println("usage: burnasset <assetid> <amount> [control-asset-id]")
+				continue
+			}
+			if err := ensureUnlocked(ctx); err != nil {
+				fmt.Printf("error: %v\n", err)
+				continue
+			}
+			assetID, err := parseAssetID(fields[1])
+			if err != nil {
+				fmt.Printf("invalid asset id: %v\n", err)
+				continue
+			}
+			assetIDHex := hex.EncodeToString(assetID[:])
+			amount, err := strconv.ParseUint(fields[2], 10, 64)
+			if err != nil {
+				fmt.Printf("invalid amount: %v\n", err)
+				continue
+			}
+			var controlIDHex string
+			if len(fields) > 3 && fields[3] != "" {
+				controlID, err := parseAssetID(fields[3])
+				if err != nil {
+					fmt.Printf("invalid control asset id: %v\n", err)
+					continue
+				}
+				controlIDHex = hex.EncodeToString(controlID[:])
+			}
+			txid, err := arkSdkClient.BurnAsset(ctx.Context, controlIDHex, assetIDHex, amount)
+			if err != nil {
+				fmt.Printf("error: %v\n", err)
+				continue
+			}
+			_ = printJSON(map[string]string{"txid": txid})
+		case "modifyasset":
+			if len(fields) < 4 {
+				fmt.Println("usage: modifyasset <assetid> <control-asset-id> <key=value> [key=value...]")
+				continue
+			}
+			if err := ensureUnlocked(ctx); err != nil {
+				fmt.Printf("error: %v\n", err)
+				continue
+			}
+			assetID, err := parseAssetID(fields[1])
+			if err != nil {
+				fmt.Printf("invalid asset id: %v\n", err)
+				continue
+			}
+			controlID, err := parseAssetID(fields[2])
+			if err != nil {
+				fmt.Printf("invalid control asset id: %v\n", err)
+				continue
+			}
+			metadata := make(map[string]string, len(fields)-3)
+			invalidMeta := false
+			for _, meta := range fields[3:] {
+				key, value, ok := strings.Cut(meta, "=")
+				if !ok {
+					fmt.Printf("invalid meta %q, expected key=value\n", meta)
+					invalidMeta = true
+					break
+				}
+				key = strings.TrimSpace(key)
+				value = strings.TrimSpace(value)
+				if key == "" {
+					fmt.Printf("invalid meta %q, empty key\n", meta)
+					invalidMeta = true
+					break
+				}
+				metadata[key] = value
+			}
+			if invalidMeta {
+				continue
+			}
+			txid, err := arkSdkClient.ModifyAssetMetadata(
+				ctx.Context,
+				hex.EncodeToString(controlID[:]),
+				hex.EncodeToString(assetID[:]),
+				metadata,
+			)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue

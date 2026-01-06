@@ -219,7 +219,7 @@ func TestMultiAssetTransfer(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAssetModification(t *testing.T) {
+func TestAssetReissuance(t *testing.T) {
 	ctx := context.Background()
 
 	issuer := setupClient(t)
@@ -262,9 +262,124 @@ func TestAssetModification(t *testing.T) {
 	require.Equal(t, uint64(5000), targetAssetVtxo.Asset.Amount)
 
 	const mintAmount uint64 = 1000
+
+	_, err = issuer.ReissueAsset(ctx, controlAssetId, targetAssetId, mintAmount)
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
+	require.NoError(t, err)
+
+	assetResponse, err := issuer.GetAsset(ctx, targetAssetId)
+	require.NoError(t, err)
+
+	require.Equal(t, assetResponse.Quantity, uint64(6000)) // Original 5000 + 1000 minted
+
+	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
+	require.NoError(t, err)
+}
+
+func TestAssetBurn(t *testing.T) {
+	ctx := context.Background()
+
+	issuer := setupClient(t)
+
+	// Fund issuer
+	faucetOffchain(t, issuer, 0.01)
+
+	// 1. Create Control Asset (regular asset used for control)
+	controlAssetParams := types.AssetCreationParams{
+		Quantity:    1,
+		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
+	}
+	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	controlAssetId := assetIds[0]
+
+	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(1), controlVtxo.Asset.Amount)
+
+	targetAssetParams := types.AssetCreationParams{
+		Quantity:       5000,
+		ControlAssetId: controlVtxo.Asset.AssetId,
+		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
+	}
+	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
+	require.NoError(t, err)
+
+	targetAssetId := assetIds[0]
+
+	time.Sleep(2 * time.Second)
+
+	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(5000), targetAssetVtxo.Asset.Amount)
+
+	const burnAmount uint64 = 1500
+
+	_, err = issuer.BurnAsset(ctx, controlAssetId, targetAssetId, burnAmount)
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	assetResponse, err := issuer.GetAsset(ctx, targetAssetId)
+	require.NoError(t, err)
+
+	require.Equal(t, assetResponse.Quantity, uint64(3500)) // Original 5000 - 1500 burned
+}
+
+func TestAssetModification(t *testing.T) {
+	ctx := context.Background()
+
+	issuer := setupClient(t)
+
+	// Fund issuer
+	faucetOffchain(t, issuer, 0.01)
+
+	// 1. Create Control Asset (regular asset used for control)
+	controlAssetParams := types.AssetCreationParams{
+		Quantity:    1,
+		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
+	}
+	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	controlAssetId := assetIds[0]
+
+	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(1), controlVtxo.Asset.Amount)
+
+	targetAssetParams := types.AssetCreationParams{
+		Quantity:       5000,
+		ControlAssetId: controlVtxo.Asset.AssetId,
+		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
+	}
+	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
+	require.NoError(t, err)
+
+	targetAssetId := assetIds[0]
+
+	time.Sleep(2 * time.Second)
+
+	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(5000), targetAssetVtxo.Asset.Amount)
+
 	newMetadata := map[string]string{"name": "Target Asset v2", "symbol": "TGT2"}
 
-	_, err = issuer.ModifyAsset(ctx, controlAssetId, targetAssetId, mintAmount, newMetadata)
+	_, err = issuer.ModifyAssetMetadata(ctx, controlAssetId, targetAssetId, newMetadata)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
@@ -276,10 +391,6 @@ func TestAssetModification(t *testing.T) {
 
 	require.True(t, ok)
 	require.Equal(t, "TGT2", value)
-	require.Equal(t, assetResponse.Quantity, uint64(6000)) // Original 5000 + 1000 minted
-
-	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
-	require.NoError(t, err)
 
 	immutableParams := types.AssetCreationParams{
 		Quantity:       1000,
@@ -287,13 +398,14 @@ func TestAssetModification(t *testing.T) {
 		MetadataMap:    map[string]string{"name": "Immutable", "fixed": "true"},
 		ControlAssetId: controlAssetId,
 	}
+
 	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: immutableParams}})
 	require.NoError(t, err)
 
 	immutableAssetId := assetIds[0]
 
 	time.Sleep(2 * time.Second)
-	_, err = issuer.ModifyAsset(ctx, controlAssetId, immutableAssetId, 100, map[string]string{"fixed": "false"})
+	_, err = issuer.ModifyAssetMetadata(ctx, controlAssetId, immutableAssetId, map[string]string{"fixed": "false"})
 	require.NoError(t, err)
 
 	immutableResp, err := issuer.GetAsset(ctx, immutableAssetId)

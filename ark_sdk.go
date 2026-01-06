@@ -33,8 +33,14 @@ type ArkClient interface {
 	SendAsset(
 		ctx context.Context, receivers []types.AssetReceiver,
 	) (string, error)
-	ModifyAsset(
-		ctx context.Context, controlAssetId string, assetID string, amount uint64, metadata map[string]string,
+	ReissueAsset(
+		ctx context.Context, controlAssetId string, assetId string, amount uint64,
+	) (string, error)
+	BurnAsset(
+		ctx context.Context, controlAssetId string, assetID string, amount uint64,
+	) (string, error)
+	ModifyAssetMetadata(
+		ctx context.Context, controlAssetId string, assetID string, metadata map[string]string,
 	) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
