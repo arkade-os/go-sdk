@@ -273,7 +273,90 @@ basic workflow shown above. Here is a quick overview:
 - `Reset(ctx)` - clear local caches and state.
 - `Stop()` - stop any running listeners.
 
-### 6. Transport Client
+### 6. Custom VTXo Scripts (Advanced)
+
+The SDK supports custom VTXo script generation for advanced use cases. This allows you to define custom spending conditions while maintaining ARK protocol compatibility.
+
+#### Using Custom Scripts
+
+Implement the `VtxoScriptBuilder` interface to provide custom script logic:
+
+```go
+import (
+    arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+    "github.com/arkade-os/arkd/pkg/ark-lib/script"
+    "github.com/arkade-os/go-sdk/wallet"
+    "github.com/btcsuite/btcd/btcec/v2"
+)
+
+type MyCustomScriptBuilder struct{}
+
+func (c *MyCustomScriptBuilder) BuildOffchainScript(
+    userPubKey *btcec.PublicKey,
+    signerPubKey *btcec.PublicKey,
+    exitDelay arklib.RelativeLocktime,
+) ([]string, error) {
+    // Implement custom script logic here
+    // Must return hex-encoded tapscripts compatible with ARK protocol
+    vtxoScript := script.NewDefaultVtxoScript(userPubKey, signerPubKey, exitDelay)
+    return vtxoScript.Encode()
+}
+
+func (c *MyCustomScriptBuilder) BuildBoardingScript(
+    userPubKey *btcec.PublicKey,
+    signerPubKey *btcec.PublicKey,
+    exitDelay arklib.RelativeLocktime,
+) ([]string, error) {
+    // Custom boarding script logic
+    vtxoScript := script.NewDefaultVtxoScript(userPubKey, signerPubKey, exitDelay)
+    return vtxoScript.Encode()
+}
+```
+
+#### Initializing with Custom Scripts
+
+Pass your custom script builder during client initialization:
+
+```go
+customBuilder := &MyCustomScriptBuilder{}
+
+err := client.Init(ctx, arksdk.InitArgs{
+    WalletType:    arksdk.SingleKeyWallet,
+    ClientType:    arksdk.GrpcClient,
+    ServerUrl:     "localhost:7070",
+    Password:      "password",
+    ScriptBuilder: customBuilder, // Use custom scripts
+})
+```
+
+#### Default Behavior
+
+If you don't specify a `ScriptBuilder`, the SDK uses the default ARK script implementation:
+
+```go
+// This uses default ARK scripts
+err := client.Init(ctx, arksdk.InitArgs{
+    WalletType: arksdk.SingleKeyWallet,
+    ClientType: arksdk.GrpcClient,
+    ServerUrl:  "localhost:7070",
+    Password:   "password",
+    // ScriptBuilder omitted - uses default
+})
+```
+
+#### Important Considerations
+
+- **Protocol Compatibility**: Custom scripts must be compatible with the ARK protocol
+- **Server Acceptance**: The ARK server must accept your custom scripts
+- **Security**: Ensure your scripts maintain proper security properties (timelock, forfeit conditions, etc.)
+- **Testing**: Thoroughly test custom scripts before production use
+
+See `example/custom_script_builder/` for complete working examples including:
+- Extended timelock scripts
+- Logging script builder wrapper
+- Custom conditions
+
+### 7. Transport Client
 
 For lower-level control over transaction batching you can use the `TransportClient` interface directly:
 

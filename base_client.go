@@ -640,7 +640,7 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 		CheckpointTapscript:          info.CheckpointTapscript,
 		Fees:                         info.Fees,
 	}
-	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
+	walletSvc, err := getWalletWithScriptBuilder(a.store.ConfigStore(), &cfgData, supportedWallets, args.ScriptBuilder)
 	if err != nil {
 		return err
 	}
@@ -964,9 +964,17 @@ func getWallet(
 	configStore types.ConfigStore, data *types.Config,
 	supportedWallets utils.SupportedType[struct{}],
 ) (wallet.WalletService, error) {
+	return getWalletWithScriptBuilder(configStore, data, supportedWallets, nil)
+}
+
+func getWalletWithScriptBuilder(
+	configStore types.ConfigStore, data *types.Config,
+	supportedWallets utils.SupportedType[struct{}],
+	scriptBuilder wallet.VtxoScriptBuilder,
+) (wallet.WalletService, error) {
 	switch data.WalletType {
 	case wallet.SingleKeyWallet:
-		return getSingleKeyWallet(configStore)
+		return getSingleKeyWallet(configStore, scriptBuilder)
 	default:
 		return nil, fmt.Errorf(
 			"unsupported wallet type '%s', please select one of: %s",
@@ -975,13 +983,13 @@ func getWallet(
 	}
 }
 
-func getSingleKeyWallet(configStore types.ConfigStore) (wallet.WalletService, error) {
+func getSingleKeyWallet(configStore types.ConfigStore, scriptBuilder wallet.VtxoScriptBuilder) (wallet.WalletService, error) {
 	walletStore, err := getWalletStore(configStore.GetType(), configStore.GetDatadir())
 	if err != nil {
 		return nil, err
 	}
 
-	return singlekeywallet.NewBitcoinWallet(configStore, walletStore)
+	return singlekeywallet.NewBitcoinWalletWithScriptBuilder(configStore, walletStore, scriptBuilder)
 }
 
 func getWalletStore(storeType, datadir string) (walletstore.WalletStore, error) {
