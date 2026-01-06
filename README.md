@@ -382,6 +382,12 @@ See `example/custom_script_builder/` for complete working examples including:
 - Logging script builder wrapper
 - Custom conditions
 
+For **Lightning Network channels** on Arkade, see `example/lightning_channel_scripts/`:
+- Dual-path Taproot structure for channel funding outputs
+- 2-of-2 multisig between channel participants
+- CSV timeout for unilateral exit
+- Integration with Lightning protocols
+
 ### 7. Transport Client
 
 For lower-level control over transaction batching you can use the `TransportClient` interface directly:
