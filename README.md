@@ -273,7 +273,7 @@ basic workflow shown above. Here is a quick overview:
 - `Reset(ctx)` - clear local caches and state.
 - `Stop()` - stop any running listeners.
 
-### 6. Custom VTXo Scripts (Advanced)
+### 6. Custom VTXo Scripts 
 
 The SDK supports custom VTXo script generation for advanced use cases. This allows you to define custom spending conditions while maintaining ARK protocol compatibility.
 
