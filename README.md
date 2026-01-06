@@ -372,11 +372,7 @@ err := client.Init(ctx, arksdk.InitArgs{
 
 See `example/custom_script_builder/` for complete working examples.
 
-For **Lightning Network channels** on Arkade, see `example/lightning_channel_scripts/`:
-- Dual-path Taproot structure for channel funding outputs
-- 2-of-2 multisig between channel participants
-- CSV timeout for unilateral exit
-- Integration with Lightning protocols
+For **Lightning Network channels** on Arkade, see `example/lightning_channel_scripts/`.
 
 ### 7. Transport Client
 
