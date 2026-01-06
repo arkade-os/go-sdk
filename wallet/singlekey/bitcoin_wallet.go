@@ -26,21 +26,39 @@ import (
 
 type bitcoinWallet struct {
 	*singlekeyWallet
+	scriptBuilder wallet.VtxoScriptBuilder
 }
 
 func NewBitcoinWallet(
 	configStore types.ConfigStore, walletStore walletstore.WalletStore,
 ) (wallet.WalletService, error) {
+	return NewBitcoinWalletWithScriptBuilder(configStore, walletStore, nil)
+}
+
+// NewBitcoinWalletWithScriptBuilder creates a new Bitcoin wallet with an optional custom script builder.
+// If scriptBuilder is nil, the default script builder will be used.
+func NewBitcoinWalletWithScriptBuilder(
+	configStore types.ConfigStore,
+	walletStore walletstore.WalletStore,
+	scriptBuilder wallet.VtxoScriptBuilder,
+) (wallet.WalletService, error) {
 	walletData, err := walletStore.GetWallet()
 	if err != nil {
 		return nil, err
 	}
+
+	// Use default script builder if none provided
+	if scriptBuilder == nil {
+		scriptBuilder = wallet.NewDefaultScriptBuilder()
+	}
+
 	return &bitcoinWallet{
-		&singlekeyWallet{
+		singlekeyWallet: &singlekeyWallet{
 			configStore: configStore,
 			walletStore: walletStore,
 			walletData:  walletData,
 		},
+		scriptBuilder: scriptBuilder,
 	}, nil
 }
 
@@ -494,13 +512,23 @@ func (w *bitcoinWallet) getArkAddresses(
 
 	netParams := utils.ToBitcoinNetwork(data.Network)
 
-	defaultVtxoScript := script.NewDefaultVtxoScript(
+	// Use script builder to generate offchain scripts
+	offchainTapscripts, err := w.scriptBuilder.BuildOffchainScript(
 		w.walletData.PubKey, data.SignerPubKey, data.UnilateralExitDelay,
 	)
-
-	vtxoTapKey, _, err := defaultVtxoScript.TapTree()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to build offchain script: %w", err)
+	}
+
+	// Validate generated scripts
+	if err := wallet.ValidateScripts(offchainTapscripts); err != nil {
+		return nil, nil, fmt.Errorf("invalid offchain scripts: %w", err)
+	}
+
+	// Extract taproot key from the generated scripts
+	vtxoTapKey, err := wallet.ExtractTapKeyFromScripts(offchainTapscripts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to extract offchain tap key: %w", err)
 	}
 
 	offchainAddress := &arklib.Address{
@@ -509,13 +537,23 @@ func (w *bitcoinWallet) getArkAddresses(
 		VtxoTapKey: vtxoTapKey,
 	}
 
-	boardingVtxoScript := script.NewDefaultVtxoScript(
+	// Use script builder to generate boarding scripts
+	boardingTapscripts, err := w.scriptBuilder.BuildBoardingScript(
 		w.walletData.PubKey, data.SignerPubKey, data.BoardingExitDelay,
 	)
-
-	boardingTapKey, _, err := boardingVtxoScript.TapTree()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to build boarding script: %w", err)
+	}
+
+	// Validate generated boarding scripts
+	if err := wallet.ValidateScripts(boardingTapscripts); err != nil {
+		return nil, nil, fmt.Errorf("invalid boarding scripts: %w", err)
+	}
+
+	// Extract taproot key from the generated boarding scripts
+	boardingTapKey, err := wallet.ExtractTapKeyFromScripts(boardingTapscripts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to extract boarding tap key: %w", err)
 	}
 
 	boardingAddr, err := btcutil.NewAddressTaproot(
@@ -526,19 +564,9 @@ func (w *bitcoinWallet) getArkAddresses(
 		return nil, nil, err
 	}
 
-	tapscripts, err := defaultVtxoScript.Encode()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	boardingTapscripts, err := boardingVtxoScript.Encode()
-	if err != nil {
-		return nil, nil, err
-	}
-
 	return &addressWithTapscripts{
 			Address:    *offchainAddress,
-			Tapscripts: tapscripts,
+			Tapscripts: offchainTapscripts,
 		},
 		&wallet.TapscriptsAddress{
 			Tapscripts: boardingTapscripts,

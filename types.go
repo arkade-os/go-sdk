@@ -30,6 +30,7 @@ type InitArgs struct {
 	ExplorerURL          string
 	ExplorerPollInterval time.Duration
 	WithTransactionFeed  bool
+	ScriptBuilder        wallet.VtxoScriptBuilder // Optional: Custom VTXo script builder. If nil, uses default ARK scripts
 }
 
 func (a InitArgs) validate() error {
@@ -65,7 +66,7 @@ func (a InitArgs) validate() error {
 
 type InitWithWalletArgs struct {
 	ClientType           string
-	Wallet               wallet.WalletService
+	Wallet               wallet.WalletService // Wallet should already be created with desired ScriptBuilder via NewBitcoinWalletWithScriptBuilder
 	ServerUrl            string
 	Seed                 string
 	Password             string

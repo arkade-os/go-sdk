@@ -273,7 +273,108 @@ basic workflow shown above. Here is a quick overview:
 - `Reset(ctx)` - clear local caches and state.
 - `Stop()` - stop any running listeners.
 
-### 6. Transport Client
+### 6. Custom VTXo Scripts 
+
+The SDK supports custom VTXo script generation for advanced use cases. This allows you to define custom spending conditions
+
+#### Using Custom Scripts
+
+Implement the `VtxoScriptBuilder` interface to provide custom script logic:
+
+```go
+import (
+    arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+    "github.com/arkade-os/arkd/pkg/ark-lib/script"
+    "github.com/arkade-os/go-sdk/wallet"
+    "github.com/btcsuite/btcd/btcec/v2"
+)
+
+type MyCustomScriptBuilder struct{}
+
+func (c *MyCustomScriptBuilder) BuildOffchainScript(
+    userPubKey *btcec.PublicKey,
+    signerPubKey *btcec.PublicKey,
+    exitDelay arklib.RelativeLocktime,
+) ([]string, error) {
+    // Implement custom script logic here
+    // Must return hex-encoded tapscripts compatible with ARK protocol
+    vtxoScript := script.NewDefaultVtxoScript(userPubKey, signerPubKey, exitDelay)
+    return vtxoScript.Encode()
+}
+
+func (c *MyCustomScriptBuilder) BuildBoardingScript(
+    userPubKey *btcec.PublicKey,
+    signerPubKey *btcec.PublicKey,
+    exitDelay arklib.RelativeLocktime,
+) ([]string, error) {
+    // Custom boarding script logic
+    vtxoScript := script.NewDefaultVtxoScript(userPubKey, signerPubKey, exitDelay)
+    return vtxoScript.Encode()
+}
+```
+
+#### Initializing with Custom Scripts
+
+**Using Init():**
+
+Pass your custom script builder during client initialization:
+
+```go
+customBuilder := &MyCustomScriptBuilder{}
+
+err := client.Init(ctx, arksdk.InitArgs{
+    WalletType:    arksdk.SingleKeyWallet,
+    ClientType:    arksdk.GrpcClient,
+    ServerUrl:     "localhost:7070",
+    Password:      "password",
+    ScriptBuilder: customBuilder, // Use custom scripts
+})
+```
+
+**Using InitWithWallet():**
+
+If using a pre-created wallet, create it with the custom script builder:
+
+```go
+import (
+    singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
+)
+
+// Create wallet with custom script builder
+customBuilder := &MyCustomScriptBuilder{}
+wallet, err := singlekeywallet.NewBitcoinWalletWithScriptBuilder(
+    configStore, walletStore, customBuilder,
+)
+
+// Use the wallet
+err = client.InitWithWallet(ctx, arksdk.InitWithWalletArgs{
+    Wallet:     wallet,
+    ClientType: arksdk.GrpcClient,
+    ServerUrl:  "localhost:7070",
+    Password:   "password",
+})
+```
+
+#### Default Behavior
+
+If you don't specify a `ScriptBuilder`, the SDK uses the default VTXO script implementation:
+
+```go
+// This uses default scripts
+err := client.Init(ctx, arksdk.InitArgs{
+    WalletType: arksdk.SingleKeyWallet,
+    ClientType: arksdk.GrpcClient,
+    ServerUrl:  "localhost:7070",
+    Password:   "password",
+    // ScriptBuilder omitted - uses default
+})
+```
+
+See `example/custom_script_builder/` for complete working examples.
+
+For **Lightning Network channels** on Arkade, see `example/lightning_channel_scripts/`.
+
+### 7. Transport Client
 
 For lower-level control over transaction batching you can use the `TransportClient` interface directly:
 
