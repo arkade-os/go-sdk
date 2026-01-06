@@ -357,10 +357,10 @@ err = client.InitWithWallet(ctx, arksdk.InitWithWalletArgs{
 
 #### Default Behavior
 
-If you don't specify a `ScriptBuilder`, the SDK uses the default ARK script implementation:
+If you don't specify a `ScriptBuilder`, the SDK uses the default VTXO script implementation:
 
 ```go
-// This uses default ARK scripts
+// This uses default scripts
 err := client.Init(ctx, arksdk.InitArgs{
     WalletType: arksdk.SingleKeyWallet,
     ClientType: arksdk.GrpcClient,
