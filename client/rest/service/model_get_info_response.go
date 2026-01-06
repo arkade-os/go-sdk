@@ -19,11 +19,11 @@ var _ MappedNullable = &GetInfoResponse{}
 
 // GetInfoResponse struct for GetInfoResponse
 type GetInfoResponse struct {
-		BoardingExitDelay *int64 `json:"boardingExitDelay,omitempty"`
+		BoardingExitDelay *int64 `json:"boardingExitDelay,string,omitempty"`
 		CheckpointTapscript *string `json:"checkpointTapscript,omitempty"`
 		DeprecatedSigners []DeprecatedSigner `json:"deprecatedSigners,omitempty"`
 		Digest *string `json:"digest,omitempty"`
-		Dust *int64 `json:"dust,omitempty"`
+		Dust *int64 `json:"dust,string,omitempty"`
 		Fees *FeeInfo `json:"fees,omitempty"`
 		ForfeitAddress *string `json:"forfeitAddress,omitempty"`
 		ForfeitPubkey *string `json:"forfeitPubkey,omitempty"`
@@ -32,14 +32,14 @@ type GetInfoResponse struct {
 		ServiceStatus map[string]string `json:"serviceStatus,omitempty"`
 		SessionDuration *int64 `json:"sessionDuration,omitempty"`
 		SignerPubkey *string `json:"signerPubkey,omitempty"`
-		UnilateralExitDelay *int64 `json:"unilateralExitDelay,omitempty"`
+		UnilateralExitDelay *int64 `json:"unilateralExitDelay,string,omitempty"`
 	// -1 means no limit (default), 0 means boarding not allowed
-		UtxoMaxAmount *int64 `json:"utxoMaxAmount,omitempty"`
-		UtxoMinAmount *int64 `json:"utxoMinAmount,omitempty"`
+		UtxoMaxAmount *int64 `json:"utxoMaxAmount,string,omitempty"`
+		UtxoMinAmount *int64 `json:"utxoMinAmount,string,omitempty"`
 		Version *string `json:"version,omitempty"`
 	// -1 means no limit (default)
-		VtxoMaxAmount *int64 `json:"vtxoMaxAmount,omitempty"`
-		VtxoMinAmount *int64 `json:"vtxoMinAmount,omitempty"`
+		VtxoMaxAmount *int64 `json:"vtxoMaxAmount,string,omitempty"`
+		VtxoMinAmount *int64 `json:"vtxoMinAmount,string,omitempty"`
 }
 
 // NewGetInfoResponse instantiates a new GetInfoResponse object

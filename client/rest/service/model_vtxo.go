@@ -19,11 +19,11 @@ var _ MappedNullable = &Vtxo{}
 
 // Vtxo struct for Vtxo
 type Vtxo struct {
-		Amount *int32 `json:"amount,omitempty"`
+		Amount *int32 `json:"amount,string,omitempty"`
 		ArkTxid *string `json:"arkTxid,omitempty"`
 		CommitmentTxids []string `json:"commitmentTxids,omitempty"`
-		CreatedAt *int64 `json:"createdAt,omitempty"`
-		ExpiresAt *int64 `json:"expiresAt,omitempty"`
+		CreatedAt *int64 `json:"createdAt,string,omitempty"`
+		ExpiresAt *int64 `json:"expiresAt,string,omitempty"`
 		IsPreconfirmed *bool `json:"isPreconfirmed,omitempty"`
 		IsSpent *bool `json:"isSpent,omitempty"`
 		IsSwept *bool `json:"isSwept,omitempty"`
