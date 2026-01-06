@@ -315,6 +315,8 @@ func (c *MyCustomScriptBuilder) BuildBoardingScript(
 
 #### Initializing with Custom Scripts
 
+**Using Init():**
+
 Pass your custom script builder during client initialization:
 
 ```go
@@ -326,6 +328,30 @@ err := client.Init(ctx, arksdk.InitArgs{
     ServerUrl:     "localhost:7070",
     Password:      "password",
     ScriptBuilder: customBuilder, // Use custom scripts
+})
+```
+
+**Using InitWithWallet():**
+
+If using a pre-created wallet, create it with the custom script builder:
+
+```go
+import (
+    singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
+)
+
+// Create wallet with custom script builder
+customBuilder := &MyCustomScriptBuilder{}
+wallet, err := singlekeywallet.NewBitcoinWalletWithScriptBuilder(
+    configStore, walletStore, customBuilder,
+)
+
+// Use the wallet
+err = client.InitWithWallet(ctx, arksdk.InitWithWalletArgs{
+    Wallet:     wallet,
+    ClientType: arksdk.GrpcClient,
+    ServerUrl:  "localhost:7070",
+    Password:   "password",
 })
 ```
 
