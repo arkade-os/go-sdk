@@ -135,7 +135,7 @@ func JoinBatchSession(
 
 			switch event := notify.Event; event.(type) {
 			case client.StreamStartedEvent:
-				streamStartedEvent := client.StreamStartedEvent{Id: event.(client.StreamStartedEvent).Id}
+				streamStartedEvent := event.(client.StreamStartedEvent)
 				eventsHandler.OnStreamStartedEvent(streamStartedEvent)
 
 			case client.BatchStartedEvent:

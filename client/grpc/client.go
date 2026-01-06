@@ -92,7 +92,7 @@ func (c *grpcClient) waitForServerReady(ctx context.Context) error {
 
 	for {
 		attempt++
-		
+
 		// Use a short timeout for each ping attempt
 		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		_, err := testClient.GetInfo(pingCtx, &arkv1.GetInfoRequest{})
@@ -529,8 +529,7 @@ func (c *grpcClient) GetTransactionsStream(
 }
 
 func (c *grpcClient) ModifyStreamTopics(
-	ctx context.Context,
-	addTopics []string, removeTopics []string,
+	ctx context.Context, addTopics []string, removeTopics []string,
 ) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
 	if c.listenerId == "" {
 		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot modify stream topics")
@@ -555,7 +554,7 @@ func (c *grpcClient) ModifyStreamTopics(
 
 func (c *grpcClient) OverwriteStreamTopics(
 	ctx context.Context, topics []string,
-) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+) (addedTopics, removedTopics, allTopics []string, err error) {
 	if c.listenerId == "" {
 		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot overwrite stream topics")
 	}

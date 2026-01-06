@@ -54,14 +54,11 @@ type TransportClient interface {
 	GetPendingTx(ctx context.Context, proof, message string) ([]AcceptedOffchainTx, error)
 	GetTransactionsStream(ctx context.Context) (<-chan TransactionEvent, func(), error)
 	ModifyStreamTopics(
-		ctx context.Context,
-		addTopics []string,
-		removeTopics []string,
-	) (addedTopics []string, removedTopics []string, allTopics []string, err error)
+		ctx context.Context, addTopics, removeTopics []string,
+	) (addedTopics, removedTopics, allTopics []string, err error)
 	OverwriteStreamTopics(
-		ctx context.Context,
-		topics []string,
-	) (addedTopics []string, removedTopics []string, allTopics []string, err error)
+		ctx context.Context, topics []string,
+	) (addedTopics, removedTopics, allTopics []string, err error)
 	Close()
 }
 
