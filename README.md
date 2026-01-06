@@ -275,7 +275,7 @@ basic workflow shown above. Here is a quick overview:
 
 ### 6. Custom VTXo Scripts 
 
-The SDK supports custom VTXo script generation for advanced use cases. This allows you to define custom spending conditions while maintaining ARK protocol compatibility.
+The SDK supports custom VTXo script generation for advanced use cases. This allows you to define custom spending conditions
 
 #### Using Custom Scripts
 
