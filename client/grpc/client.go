@@ -92,12 +92,15 @@ func (c *grpcClient) waitForServerReady(ctx context.Context) error {
 
 	for {
 		attempt++
+		
 		// Use a short timeout for each ping attempt
 		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		_, err := testClient.GetInfo(pingCtx, &arkv1.GetInfoRequest{})
 		cancel()
 
 		if err == nil {
+			// Server responded successfully
+			log.Debugf("connection restored after %d attempt(s)", attempt)
 			return nil
 		}
 
