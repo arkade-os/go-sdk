@@ -216,6 +216,20 @@ func (a *grpcClient) DeleteIntent(ctx context.Context, proof, message string) er
 	return nil
 }
 
+func (a *grpcClient) EstimateIntentFee(ctx context.Context, proof, message string) (int64, error) {
+	req := &arkv1.EstimateIntentFeeRequest{
+		Intent: &arkv1.Intent{
+			Message: message,
+			Proof:   proof,
+		},
+	}
+	resp, err := a.svc().EstimateIntentFee(ctx, req)
+	if err != nil {
+		return -1, err
+	}
+	return resp.GetFee(), nil
+}
+
 func (a *grpcClient) ConfirmRegistration(ctx context.Context, intentID string) error {
 	req := &arkv1.ConfirmRegistrationRequest{
 		IntentId: intentID,

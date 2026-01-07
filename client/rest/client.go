@@ -127,6 +127,22 @@ func (a *restClient) DeleteIntent(ctx context.Context, proof, message string) er
 	return err
 }
 
+func (a *restClient) EstimateIntentFee(ctx context.Context, proof, message string) (int64, error) {
+	req := a.svc.ArkServiceAPI.ArkServiceEstimateIntentFee(ctx).
+		EstimateIntentFeeRequest(ark_service.EstimateIntentFeeRequest{
+			Intent: &ark_service.Intent{
+				Message: &message,
+				Proof:   &proof,
+			},
+		})
+
+	resp, _, err := req.Execute()
+	if err != nil {
+		return -1, err
+	}
+	return resp.GetFee(), nil
+}
+
 func (a *restClient) ConfirmRegistration(ctx context.Context, intentId string) error {
 	req := a.svc.ArkServiceAPI.ArkServiceConfirmRegistration(ctx).
 		ConfirmRegistrationRequest(ark_service.ConfirmRegistrationRequest{

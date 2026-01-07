@@ -28,6 +28,7 @@ type TransportClient interface {
 	GetInfo(ctx context.Context) (*Info, error)
 	RegisterIntent(ctx context.Context, proof, message string) (string, error)
 	DeleteIntent(ctx context.Context, proof, message string) error
+	EstimateIntentFee(ctx context.Context, proof, message string) (int64, error)
 	ConfirmRegistration(ctx context.Context, intentID string) error
 	SubmitTreeNonces(
 		ctx context.Context,
