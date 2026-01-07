@@ -14,6 +14,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -327,7 +328,7 @@ func (a *arkClient) SendOffChain(
 
 	// do not include boarding utxos
 	_, selectedCoins, changeAmount, err := utils.CoinSelect(
-		nil, vtxos, sumOfReceivers, a.Dust, options.withoutExpirySorting,
+		nil, vtxos, receivers, a.Dust, options.withoutExpirySorting, nil,
 	)
 	if err != nil {
 		return "", err
@@ -693,14 +694,6 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	info, err := a.client.GetInfo(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	// only 1 output
-	fees := info.Fees.IntentFees.OnchainOutput
-
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
@@ -737,13 +730,22 @@ func (a *arkClient) CollaborativeExit(
 	if balance < amount {
 		return "", fmt.Errorf("not enough funds to cover amount %d", amount)
 	}
-	// send all case: substract fees from exited amount
-	if amount == balance {
-		amount -= fees
+
+	info, err := a.client.GetInfo(ctx)
+	if err != nil {
+		return "", err
 	}
 
-	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, amount+fees, CoinSelectOptions{
+	feeEstimator, err := arkfee.New(info.Fees.IntentFees)
+	if err != nil {
+		return "", err
+	}
+
+	receivers := []types.Receiver{{To: addr, Amount: amount}}
+
+	boardingUtxos, vtxos, outputs, err := a.selectFunds(
+		ctx, receivers, feeEstimator,
+		CoinSelectOptions{
 			WithRecoverableVtxos: options.withRecoverableVtxos,
 			ExpiryThreshold:      options.expiryThreshold,
 		},
@@ -752,21 +754,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	receivers := []types.Receiver{{To: addr, Amount: amount}}
-
-	if changeAmount > 0 {
-		_, offchainAddr, _, err := a.wallet.NewAddress(ctx, true)
-		if err != nil {
-			return "", err
-		}
-
-		receivers = append(receivers, types.Receiver{
-			To:     offchainAddr.Address,
-			Amount: changeAmount,
-		})
-	}
-
-	return a.joinBatchWithRetry(ctx, nil, receivers, *options, vtxos, boardingUtxos)
+	return a.joinBatchWithRetry(ctx, nil, outputs, *options, vtxos, boardingUtxos)
 }
 
 func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) {
@@ -1973,27 +1961,30 @@ func (a *arkClient) completeUnilateralExit(ctx context.Context, to string) (stri
 }
 
 func (a *arkClient) selectFunds(
-	ctx context.Context, amount uint64, opts CoinSelectOptions,
-) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
+	ctx context.Context,
+	outputs []types.Receiver,
+	feeEstimator *arkfee.Estimator,
+	opts CoinSelectOptions,
+) ([]types.Utxo, []client.TapscriptsVtxo, []types.Receiver, error) {
 	_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 	if len(offchainAddrs) <= 0 {
-		return nil, nil, 0, fmt.Errorf("no offchain addresses found")
+		return nil, nil, nil, fmt.Errorf("no offchain addresses found")
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
 	spendableVtxos, err := a.getVtxos(ctx, &opts)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 
 	for _, offchainAddr := range offchainAddrs {
 		for _, v := range spendableVtxos {
 			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
 			if err != nil {
-				return nil, nil, 0, err
+				return nil, nil, nil, err
 			}
 
 			if vtxoAddr == offchainAddr.Address {
@@ -2007,31 +1998,50 @@ func (a *arkClient) selectFunds(
 
 	boardingUtxos, err := a.getClaimableBoardingUtxos(ctx, boardingAddrs, nil)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 
-	var selectedBoardingCoins []types.Utxo
-	var selectedCoins []client.TapscriptsVtxo
-
-	// if no receivers, self send all selected coins
-	if amount <= 0 {
-		selectedBoardingCoins = boardingUtxos
-		selectedCoins = vtxos
-
-		amount := uint64(0)
+	if len(outputs) == 0 {
+		outputs = []types.Receiver{{
+			To:     offchainAddrs[0].Address,
+			Amount: 0,
+		}}
+	}
+	if len(outputs) == 1 && outputs[0].Amount <= 0 {
 		for _, utxo := range boardingUtxos {
-			amount += utxo.Amount
-		}
-		for _, utxo := range vtxos {
-			amount += utxo.Amount
+			outputs[0].Amount += utxo.Amount
+			fees, err := feeEstimator.EvalOnchainInput(utxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
 		}
 
-		return selectedBoardingCoins, selectedCoins, 0, nil
+		for _, vtxo := range vtxos {
+			outputs[0].Amount += vtxo.Amount
+			fees, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
+		}
 	}
 
-	return utils.CoinSelect(
-		boardingUtxos, vtxos, amount, a.Dust, opts.WithoutExpirySorting,
+	selectedBoardingUtxos, selectedVtxos, changeAmount, err := utils.CoinSelect(
+		boardingUtxos, vtxos, outputs, a.Dust, opts.WithoutExpirySorting, feeEstimator,
 	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if changeAmount > 0 {
+		outputs = append(outputs, types.Receiver{
+			To:     offchainAddrs[0].Address,
+			Amount: changeAmount,
+		})
+	}
+	return selectedBoardingUtxos, selectedVtxos, outputs, nil
+
 }
 
 func (a *arkClient) settle(
@@ -2048,10 +2058,8 @@ func (a *arkClient) settle(
 	}
 
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
-	outputs := make([]types.Receiver, 0)
-	sumOfReceivers := uint64(0)
 
-	// validate receivers and create outputs
+	// validate receivers
 	for _, receiver := range receivers {
 		rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
@@ -2072,55 +2080,31 @@ func (a *arkClient) settle(
 				"invalid amount (%d), must be greater than dust %d", receiver.Amount, a.Dust,
 			)
 		}
-
-		outputs = append(outputs, types.Receiver{
-			To:     receiver.To,
-			Amount: receiver.Amount,
-		})
-		sumOfReceivers += receiver.Amount
 	}
 
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
+	info, err := a.client.GetInfo(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	feeEstimator, err := arkfee.New(info.Fees.IntentFees)
+	if err != nil {
+		return "", err
+	}
+
 	// coinselect boarding utxos and vtxos
-	boardingUtxos, vtxos, changeAmount, err := a.selectFunds(
-		ctx, sumOfReceivers, CoinSelectOptions{
+	boardingUtxos, vtxos, outputs, err := a.selectFunds(
+		ctx, receivers, feeEstimator,
+		CoinSelectOptions{
 			WithRecoverableVtxos: options.withRecoverableVtxos,
 			ExpiryThreshold:      options.expiryThreshold,
 		},
 	)
 	if err != nil {
 		return "", err
-	}
-
-	_, offchainAddr, _, err := a.wallet.NewAddress(ctx, false)
-	if err != nil {
-		return "", err
-	}
-
-	// if no outputs, self send all selected coins
-	if len(outputs) <= 0 {
-		amount := uint64(0)
-		for _, utxo := range boardingUtxos {
-			amount += utxo.Amount
-		}
-		for _, utxo := range vtxos {
-			amount += utxo.Amount
-		}
-
-		outputs = append(outputs, types.Receiver{
-			To:     offchainAddr.Address,
-			Amount: amount,
-		})
-	}
-
-	// add change output if any
-	if changeAmount > 0 {
-		outputs = append(outputs, types.Receiver{
-			To:     offchainAddr.Address,
-			Amount: changeAmount,
-		})
 	}
 
 	return a.joinBatchWithRetry(ctx, nil, outputs, *options, vtxos, boardingUtxos)
