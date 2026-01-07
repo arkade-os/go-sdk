@@ -16,6 +16,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -41,9 +42,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	ErrWaitingForConfirmation = fmt.Errorf("waiting for confirmation(s), please retry later")
-)
+var ErrWaitingForConfirmation = fmt.Errorf("waiting for confirmation(s), please retry later")
 
 func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error) {
 	cfgData, err := sdkStore.ConfigStore().GetData(context.Background())
@@ -55,7 +54,11 @@ func NewArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error)
 		return nil, ErrAlreadyInitialized
 	}
 
-	client := &arkClient{store: sdkStore, syncMu: &sync.Mutex{}}
+	client := &arkClient{
+		store:                  sdkStore,
+		syncMu:                 &sync.Mutex{},
+		withFinalizePendingTxs: true,
+	}
 	for _, opt := range opts {
 		opt(client)
 	}
@@ -121,14 +124,15 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 	syncListeners := newReadyListeners()
 
 	client := &arkClient{
-		Config:        cfgData,
-		wallet:        walletSvc,
-		store:         sdkStore,
-		explorer:      explorerSvc,
-		client:        clientSvc,
-		indexer:       indexerSvc,
-		syncListeners: syncListeners,
-		syncMu:        &sync.Mutex{},
+		Config:                 cfgData,
+		wallet:                 walletSvc,
+		store:                  sdkStore,
+		explorer:               explorerSvc,
+		client:                 clientSvc,
+		indexer:                indexerSvc,
+		syncListeners:          syncListeners,
+		syncMu:                 &sync.Mutex{},
+		withFinalizePendingTxs: true,
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -189,13 +193,14 @@ func LoadArkClientWithWallet(
 	}
 
 	client := &arkClient{
-		Config:   cfgData,
-		wallet:   walletSvc,
-		store:    sdkStore,
-		explorer: explorerSvc,
-		client:   clientSvc,
-		indexer:  indexerSvc,
-		syncMu:   &sync.Mutex{},
+		Config:                 cfgData,
+		wallet:                 walletSvc,
+		store:                  sdkStore,
+		explorer:               explorerSvc,
+		client:                 clientSvc,
+		indexer:                indexerSvc,
+		syncMu:                 &sync.Mutex{},
+		withFinalizePendingTxs: true,
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -212,15 +217,15 @@ func (a *arkClient) InitWithWallet(ctx context.Context, args InitWithWalletArgs)
 	return a.initWithWallet(ctx, args)
 }
 
-func (a *arkClient) Balance(ctx context.Context, computeVtxoExpiration bool) (*Balance, error) {
+func (a *arkClient) Balance(ctx context.Context) (*Balance, error) {
 	if a.WithTransactionFeed {
 		if err := a.safeCheck(); err != nil {
 			return nil, err
 		}
-		return a.getBalanceFromStore(ctx, computeVtxoExpiration)
+		return a.getBalanceFromStore(ctx)
 	}
 
-	return a.getBalanceFromExplorer(ctx, computeVtxoExpiration)
+	return a.getBalanceFromExplorer(ctx)
 }
 
 func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error) {
@@ -1278,7 +1283,7 @@ func (a *arkClient) BurnAsset(ctx context.Context, controlAssetId string, assetI
 }
 
 func (a *arkClient) SendOffChain(
-	ctx context.Context, withExpiryCoinselect bool, receivers []types.Receiver,
+	ctx context.Context, receivers []types.Receiver, opts ...Option,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -1317,12 +1322,19 @@ func (a *arkClient) SendOffChain(
 		sumOfReceivers += receiver.Amount
 	}
 
+	options := newDefaultSendOffChainOptions()
+	for _, opt := range opts {
+		if err := opt(options); err != nil {
+			return "", err
+		}
+	}
+
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
 	spendableVtxos, err := a.getVtxos(ctx, &CoinSelectOptions{
-		WithExpirySorting: withExpiryCoinselect,
+		WithoutExpirySorting: options.withoutExpirySorting,
 	})
 	if err != nil {
 		return "", err
@@ -1350,7 +1362,7 @@ func (a *arkClient) SendOffChain(
 
 	// do not include boarding utxos
 	_, selectedCoins, changeAmount, err := utils.CoinSelectNormal(
-		nil, vtxos, sumOfReceivers, a.Dust, withExpiryCoinselect,
+		nil, vtxos, receivers, a.Dust, options.withoutExpirySorting, nil,
 	)
 	if err != nil {
 		return "", err
@@ -1412,22 +1424,17 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
-
-	for _, checkpoint := range signedCheckpointTxs {
-		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
-		if err != nil {
-			return "", nil
-		}
-		finalCheckpoints = append(finalCheckpoints, signedTx)
-	}
-
-	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
+	txid, err := a.finalizeTx(ctx, client.AcceptedOffchainTx{
+		Txid:                arkTxid,
+		FinalArkTx:          signedArkTx,
+		SignedCheckpointTxs: signedCheckpointTxs,
+	})
+	if err != nil {
 		return "", err
 	}
 
 	if !a.WithTransactionFeed {
-		return arkTxid, nil
+		return txid, nil
 	}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
@@ -1448,7 +1455,7 @@ func (a *arkClient) RedeemNotes(
 
 	amount := uint64(0)
 
-	options := &SettleOptions{}
+	options := newDefaultSettleOptions()
 	for _, opt := range opts {
 		if err := opt(options); err != nil {
 			return "", err
@@ -1604,29 +1611,24 @@ func (a *arkClient) CompleteUnroll(
 }
 
 func (a *arkClient) CollaborativeExit(
-	ctx context.Context, addr string, amount uint64, computeVtxoExpiry bool, opts ...Option,
+	ctx context.Context, addr string, amount uint64, opts ...Option,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
 
-	info, err := a.client.GetInfo(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	// only 1 output
-	fees := info.Fees.IntentFees.OnchainOutput
-
 	if a.UtxoMaxAmount == 0 {
 		return "", fmt.Errorf("operation not allowed by the server")
 	}
 
-	options := &SettleOptions{}
+	options := newDefaultSettleOptions()
 	for _, opt := range opts {
 		if err := opt(options); err != nil {
 			return "", err
 		}
+	}
+	if options.expiryThreshold <= 0 {
+		options.expiryThreshold = defaultExpiryThreshold
 	}
 
 	netParams := utils.ToBitcoinNetwork(a.Network)
@@ -1638,8 +1640,7 @@ func (a *arkClient) CollaborativeExit(
 	defer a.dbMu.Unlock()
 
 	getVtxosOpts := &CoinSelectOptions{
-		WithExpirySorting:      false,
-		SelectRecoverableVtxos: options.SelectRecoverableVtxos,
+		WithRecoverableVtxos: options.withRecoverableVtxos,
 	}
 	spendableVtxos, err := a.getVtxos(ctx, getVtxosOpts)
 	if err != nil {
@@ -1652,33 +1653,31 @@ func (a *arkClient) CollaborativeExit(
 	if balance < amount {
 		return "", fmt.Errorf("not enough funds to cover amount %d", amount)
 	}
-	// send all case: substract fees from exited amount
-	if amount == balance {
-		amount -= fees
+
+	info, err := a.client.GetInfo(ctx)
+	if err != nil {
+		return "", err
 	}
 
-	boardingUtxos, vtxos, _, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, amount+fees, "",
-	)
+	feeEstimator, err := arkfee.New(info.Fees.IntentFees)
 	if err != nil {
 		return "", err
 	}
 
 	receivers := []types.Receiver{{To: addr, Amount: amount}}
 
-	if changeAmount > 0 {
-		_, offchainAddr, _, err := a.wallet.NewAddress(ctx, true)
-		if err != nil {
-			return "", err
-		}
-
-		receivers = append(receivers, types.Receiver{
-			To:     offchainAddr.Address,
-			Amount: changeAmount,
-		})
+	boardingUtxos, vtxos, outputs, err := a.selectFunds(
+		ctx, receivers, feeEstimator,
+		CoinSelectOptions{
+			WithRecoverableVtxos: options.withRecoverableVtxos,
+			ExpiryThreshold:      options.expiryThreshold,
+		},
+	)
+	if err != nil {
+		return "", err
 	}
 
-	return a.joinBatchWithRetry(ctx, nil, receivers, nil, *options, vtxos, boardingUtxos)
+	return a.joinBatchWithRetry(ctx, nil, outputs, *options, vtxos, boardingUtxos)
 }
 
 func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) {
@@ -1686,7 +1685,7 @@ func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) 
 		return "", err
 	}
 
-	return a.settle(ctx, false, nil, opts...)
+	return a.settle(ctx, nil, opts...)
 }
 
 func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]types.Transaction, error) {
@@ -1712,7 +1711,10 @@ func (a *arkClient) RegisterIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 	outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string,
 ) (string, error) {
-	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
 	if err != nil {
 		return "", err
@@ -1738,7 +1740,10 @@ func (a *arkClient) RegisterIntent(
 func (a *arkClient) DeleteIntent(
 	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 ) error {
-	// safeCheck is called inderectly by the function above so we can safely skip calling it here.
+	if err := a.safeCheck(); err != nil {
+		return err
+	}
+
 	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
 	if err != nil {
 		return err
@@ -1757,6 +1762,16 @@ func (a *arkClient) DeleteIntent(
 	}
 
 	return a.client.DeleteIntent(ctx, proofTx, message)
+}
+
+func (a *arkClient) FinalizePendingTxs(
+	ctx context.Context, createdAfter *time.Time,
+) ([]string, error) {
+	if err := a.safeCheck(); err != nil {
+		return nil, err
+	}
+
+	return a.finalizePendingTxs(ctx, createdAfter)
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
@@ -2374,10 +2389,10 @@ func (a *arkClient) refreshVtxoDb(
 }
 
 func (a *arkClient) getBalanceFromStore(
-	ctx context.Context, computeVtxoExpiration bool,
+	ctx context.Context
 ) (*Balance, error) {
 
-	satsBalanceMap, assetBalanceMap, err := a.getOffchainBalance(ctx, computeVtxoExpiration)
+	satsBalanceMap, assetBalanceMap, err := a.getOffchainBalance(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -2460,9 +2475,7 @@ func (a *arkClient) getBalanceFromStore(
 	}, nil
 }
 
-func (a *arkClient) getBalanceFromExplorer(
-	ctx context.Context, computeVtxoExpiration bool,
-) (*Balance, error) {
+func (a *arkClient) getBalanceFromExplorer(ctx context.Context) (*Balance, error) {
 	if a.wallet == nil {
 		return nil, fmt.Errorf("wallet not initialized")
 	}
@@ -2915,10 +2928,10 @@ func (a *arkClient) completeUnilateralExit(ctx context.Context, to string) (stri
 	return a.explorer.Broadcast(txHex)
 }
 
-func (a *arkClient) selectFunds(
-	ctx context.Context, computeVtxoExpiry bool, selectRecoverableVtxos bool, amount uint64, assetId string,
-) ([]types.Utxo, []client.TapscriptsVtxo, []client.TapscriptsVtxo, uint64, error) {
-	_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
+func (a *arkClient) selectSealFunds(ctx context.Context,
+	outputs []types.Receiver, assetId string) ([]client.TapscriptsVtxo, []types.Receivers, error) {
+
+		_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
@@ -2927,20 +2940,16 @@ func (a *arkClient) selectFunds(
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
-	opts := &CoinSelectOptions{
-		WithExpirySorting:      computeVtxoExpiry,
-		SelectRecoverableVtxos: selectRecoverableVtxos,
-	}
-	spendableVtxos, err := a.getVtxos(ctx, opts)
+	spendableVtxos, err := a.getVtxos(ctx, &opts)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 
 	for _, offchainAddr := range offchainAddrs {
 		for _, v := range spendableVtxos {
 			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
 			if err != nil {
-				return nil, nil, nil, 0, err
+				return nil, nil, nil, err
 			}
 
 			if vtxoAddr == offchainAddr.Address {
@@ -2952,55 +2961,137 @@ func (a *arkClient) selectFunds(
 		}
 	}
 
-	normalVtxos := make([]client.TapscriptsVtxo, 0)
-	sealVtxos := make([]client.TapscriptsVtxo, 0)
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 	for _, v := range vtxos {
-		if v.Asset == nil {
-			normalVtxos = append(normalVtxos, v)
-		} else {
-			sealVtxos = append(sealVtxos, v)
+		if v.Asset != nil && v.Asset.Id == assetId {
+			filteredVtxos = append(filteredVtxos, v)
+		}
+	}
+
+	amount := uint64(0)
+	for _, output := range outputs {
+		amount += output.Amount
+	}
+	if amount == 0 {
+		// return all seal vtxos if no amount specified
+		return filteredVtxos, outputs, nil
+
+	}
+
+	selectedCoins, changeAmount, err := utils.CoinSelectSeals(
+			sealVtxos, amount, assetId, a.Dust, computeVtxoExpiry,
+		)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
+	if changeAmount > 0 {
+		changeReceiver := types.Receiver{
+			To:     offchainAddrs[0].Address,
+			Amount: changeAmount,
+		}
+		outputs = append(outputs, changeReceiver)
+	}
+
+	return selectedCoins, outputs, nil
+
+}
+
+func (a *arkClient) selectFunds(
+	ctx context.Context,
+	outputs []types.Receiver,
+	feeEstimator *arkfee.Estimator,
+	opts CoinSelectOptions,
+) ([]types.Utxo, []client.TapscriptsVtxo, []types.Receiver, error) {
+	_, offchainAddrs, boardingAddrs, _, err := a.wallet.GetAddresses(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(offchainAddrs) <= 0 {
+		return nil, nil, nil, fmt.Errorf("no offchain addresses found")
+	}
+
+	vtxos := make([]client.TapscriptsVtxo, 0)
+	spendableVtxos, err := a.getVtxos(ctx, &opts)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	for _, offchainAddr := range offchainAddrs {
+		for _, v := range spendableVtxos {
+			vtxoAddr, err := v.Address(a.SignerPubKey, a.Network)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			if vtxoAddr == offchainAddr.Address {
+				vtxos = append(vtxos, client.TapscriptsVtxo{
+					Vtxo:       v,
+					Tapscripts: offchainAddr.Tapscripts,
+				})
+			}
 		}
 	}
 
 	boardingUtxos, err := a.getClaimableBoardingUtxos(ctx, boardingAddrs, nil)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 
-	// if no receivers, self send all selected coins
-	if amount <= 0 {
-		return boardingUtxos, normalVtxos, sealVtxos, 0, nil
+	if len(outputs) == 0 {
+		outputs = []types.Receiver{{
+			To:     offchainAddrs[0].Address,
+			Amount: 0,
+		}}
 	}
-
-	if len(assetId) > 0 {
-		selectedCoins, changeAmount, err := utils.CoinSelectSeals(
-			sealVtxos, amount, assetId, a.Dust, computeVtxoExpiry,
-		)
-		if err != nil {
-			return nil, nil, nil, 0, err
+	if len(outputs) == 1 && outputs[0].Amount <= 0 {
+		for _, utxo := range boardingUtxos {
+			outputs[0].Amount += utxo.Amount
+			fees, err := feeEstimator.EvalOnchainInput(utxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
 		}
 
-		return nil, nil, selectedCoins, changeAmount, nil
+		for _, vtxo := range vtxos {
+			outputs[0].Amount += vtxo.Amount
+			fees, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
+		}
 	}
 
-	boardingCoins, selectedCoins, changeAmount, err := utils.CoinSelectNormal(
-		boardingUtxos, vtxos, amount, a.Dust, computeVtxoExpiry,
+	selectedBoardingUtxos, selectedVtxos, changeAmount, err := utils.CoinSelect(
+		boardingUtxos, vtxos, outputs, a.Dust, opts.WithoutExpirySorting, feeEstimator,
 	)
 	if err != nil {
-		return nil, nil, nil, 0, err
+		return nil, nil, nil, err
 	}
 
-	return boardingCoins, selectedCoins, nil, changeAmount, nil
+	if changeAmount > 0 {
+		outputs = append(outputs, types.Receiver{
+			To:     offchainAddrs[0].Address,
+			Amount: changeAmount,
+		})
+	}
+	return selectedBoardingUtxos, selectedVtxos, outputs, nil
+
 }
 
 func (a *arkClient) settle(
-	ctx context.Context, computeVtxoExpiry bool, receivers []types.Receiver, settleOpts ...Option,
+	ctx context.Context, satsReceivers []types.Receiver, assetsReceivers map[string][]types.Receivers, settleOpts ...Option,
 ) (string, error) {
-	options := &SettleOptions{}
+	options := newDefaultSettleOptions()
 	for _, opt := range settleOpts {
 		if err := opt(options); err != nil {
 			return "", err
 		}
+	}
+	if options.expiryThreshold <= 0 {
+		options.expiryThreshold = defaultExpiryThreshold
 	}
 
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
@@ -3010,8 +3101,8 @@ func (a *arkClient) settle(
 
 	sumOfReceivers := uint64(0)
 
-	// validate receivers and create outputs
-	for _, receiver := range receivers {
+	// validate sats receivers
+	for _, receiver := range satsReceivers {
 		rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
 		if err != nil {
 			return "", fmt.Errorf("invalid receiver address: %s", err)
@@ -3031,23 +3122,60 @@ func (a *arkClient) settle(
 				"invalid amount (%d), must be greater than dust %d", receiver.Amount, a.Dust,
 			)
 		}
+	}
 
-		outputs = append(outputs, types.Receiver{
-			To:     receiver.To,
-			Amount: receiver.Amount,
-		})
-		sumOfReceivers += receiver.Amount
+	for _, assetReceivers := range assetsReceivers {
+		// validate asset receivers
+		for _, receiver := range assetReceivers {
+			rcvAddr, err := arklib.DecodeAddressV0(receiver.To)
+			if err != nil {
+				return "", fmt.Errorf("invalid asset receiver address: %s", err)
+			}
+
+			rcvSignerPubkey := schnorr.SerializePubKey(rcvAddr.Signer)
+
+			if !bytes.Equal(expectedSignerPubkey, rcvSignerPubkey) {
+				return "", fmt.Errorf(
+					"invalid asset receiver address '%s': expected signer pubkey %x, got %x",
+					receiver.To, expectedSignerPubkey, rcvSignerPubkey,
+				)
+			}
+
+			if receiver.Amount < a.Dust {
+				return "", fmt.Errorf(
+					"invalid asset amount (%d), must be greater than dust %d", receiver.Amount, a.Dust,
+				)
+			}
+		}
 	}
 
 	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
+	info, err := a.client.GetInfo(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	feeEstimator, err := arkfee.New(info.Fees.IntentFees)
+	if err != nil {
+		return "", err
+	}
+
 	// coinselect boarding utxos and vtxos
-	boardingUtxos, normalVtxos, sealVtxos, changeAmount, err := a.selectFunds(
-		ctx, computeVtxoExpiry, options.SelectRecoverableVtxos, sumOfReceivers, "",
+	boardingUtxos, satsVtxos, satsOutputs, err := a.selectFunds(
+		ctx, receivers, feeEstimator,
+		CoinSelectOptions{
+			WithRecoverableVtxos: options.withRecoverableVtxos,
+			ExpiryThreshold:      options.expiryThreshold,
+		},
 	)
 	if err != nil {
 		a.dbMu.Unlock()
 		return "", err
 	}
+
+
 
 	_, offchainAddr, _, err := a.wallet.NewAddress(ctx, false)
 	a.dbMu.Unlock()
@@ -3055,34 +3183,18 @@ func (a *arkClient) settle(
 		return "", err
 	}
 
-	// if no outputs, self send all selected coins
-	if len(outputs) == 0 {
-		amount := uint64(0)
-		for _, utxo := range boardingUtxos {
-			amount += utxo.Amount
-		}
-		for _, utxo := range normalVtxos {
-			amount += utxo.Amount
-		}
+	changeAmount := uint64(0)
 
-		if amount > a.Dust {
-			outputs = append(outputs, types.Receiver{
-				To:     offchainAddr.Address,
-				Amount: amount,
-			})
+	for assetId, assetReceiverList := range assetsReceivers {
+		// coinselect seal vtxos
+		sealVtxos, assetOutputs, err := a.selectSealFunds(
+			ctx, assetReceiverList, assetId,
+		)
+		if err != nil {
+			return "", err
 		}
 
-		groupedSeals := utils.GroupBy(sealVtxos, func(v client.TapscriptsVtxo) string {
-			return v.Asset.AssetId
-		})
-
-		for assetId, seals := range groupedSeals {
-
-			var (
-				assetAmount = uint64(0)
-			)
-
-			for _, seal := range seals {
+		for _, seal := range seals {
 				sealAssetOutput := seal.Asset
 				assetAmount += sealAssetOutput.Amount
 				changeAmount += seal.Amount
@@ -3116,7 +3228,7 @@ func (a *arkClient) settle(
 			teleportOutputs = append(teleportOutputs, teleportOutput)
 
 			teleportNonces[teleportNonce] = teleportOutput
-		}
+
 	}
 
 	// add change output if any
@@ -3167,6 +3279,22 @@ func (a *arkClient) makeRegisterIntent(
 	}
 
 	return a.makeIntent(message, inputs, outputsTxOut, leafProofs, arkFields)
+}
+
+func (a *arkClient) makeGetPendingTxIntent(
+	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
+) (string, string, error) {
+	message, err := intent.GetPendingTxMessage{
+		BaseMessage: intent.BaseMessage{
+			Type: intent.IntentMessageTypeGetPendingTx,
+		},
+		ExpireAt: time.Now().Add(10 * time.Minute).Unix(), // valid for 10 minutes
+	}.Encode()
+	if err != nil {
+		return "", "", err
+	}
+
+	return a.makeIntent(message, inputs, nil, leafProofs, arkFields)
 }
 
 func (a *arkClient) makeDeleteIntent(
@@ -3337,7 +3465,7 @@ func (a *arkClient) populateVtxosWithTapscripts(
 }
 
 func (a *arkClient) joinBatchWithRetry(
-	ctx context.Context, notes []string, outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, options SettleOptions,
+	ctx context.Context, notes []string, outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, options settleOptions,
 	selectedCoins []client.TapscriptsVtxo, selectedBoardingCoins []types.Utxo,
 ) (string, error) {
 	inputs, exitLeaves, arkFields, err := toIntentInputs(
@@ -3517,10 +3645,7 @@ func (a *arkClient) getRedeemBranches(
 func (a *arkClient) getOffchainBalance(
 	ctx context.Context, computeVtxoExpiration bool,
 ) (map[int64]uint64, map[string]map[int64]uint64, error) {
-	opts := &CoinSelectOptions{
-		WithExpirySorting:      computeVtxoExpiration,
-		SelectRecoverableVtxos: true,
-	}
+	opts := &CoinSelectOptions{WithRecoverableVtxos: true}
 	vtxos, err := a.getVtxos(ctx, opts)
 	if err != nil {
 		return nil, nil, err
@@ -3739,7 +3864,7 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 
 	recoverableVtxos := make([]types.Vtxo, 0)
 	spendableVtxos := make([]types.Vtxo, 0, len(spendable))
-	if opts != nil && opts.SelectRecoverableVtxos {
+	if opts != nil && opts.WithRecoverableVtxos {
 		for _, vtxo := range spendable {
 			if vtxo.IsRecoverable() {
 				recoverableVtxos = append(recoverableVtxos, vtxo)
@@ -3753,28 +3878,35 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 	}
 
 	allVtxos := append(recoverableVtxos, spendableVtxos...)
-	if opts == nil || !opts.WithExpirySorting {
-		return allVtxos, nil
-	}
 
-	// if sorting by expiry is required, we need to get the expiration date of each vtxo
-	redeemBranches, err := a.getRedeemBranches(ctx, spendableVtxos)
-	if err != nil {
-		return nil, err
-	}
-
-	for vtxoTxid, branch := range redeemBranches {
-		expiration, err := branch.ExpiresAt()
+	if opts != nil && opts.RecomputeExpiry {
+		// if sorting by expiry is required, we need to get the expiration date of each vtxo
+		redeemBranches, err := a.getRedeemBranches(ctx, spendableVtxos)
 		if err != nil {
 			return nil, err
 		}
 
-		for i, vtxo := range allVtxos {
-			if vtxo.Txid == vtxoTxid {
-				allVtxos[i].ExpiresAt = *expiration
-				break
+		for vtxoTxid, branch := range redeemBranches {
+			expiration, err := branch.ExpiresAt()
+			if err != nil {
+				return nil, err
+			}
+
+			for i, vtxo := range allVtxos {
+				if vtxo.Txid == vtxoTxid {
+					allVtxos[i].ExpiresAt = *expiration
+					break
+				}
 			}
 		}
+	}
+
+	if opts != nil && opts.ExpiryThreshold > 0 {
+		allVtxos = utils.FilterVtxosByExpiry(allVtxos, opts.ExpiryThreshold)
+	}
+
+	if opts == nil || !opts.WithoutExpirySorting {
+		allVtxos = utils.SortVtxosByExpiry(allVtxos)
 	}
 
 	return allVtxos, nil
@@ -4416,12 +4548,12 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 }
 
 func (a *arkClient) handleOptions(
-	options SettleOptions, inputs []intent.Input, notesInputs []string,
+	options settleOptions, inputs []intent.Input, notesInputs []string,
 ) ([]tree.SignerSession, []string, error) {
 	sessions := make([]tree.SignerSession, 0)
-	sessions = append(sessions, options.ExtraSignerSessions...)
+	sessions = append(sessions, options.extraSignerSessions...)
 
-	if !options.WalletSignerDisabled {
+	if !options.walletSignerDisabled {
 		outpoints := make([]types.Outpoint, 0, len(inputs))
 		for _, input := range inputs {
 			outpoints = append(outpoints, types.Outpoint{
@@ -4605,6 +4737,11 @@ func (i *arkClient) vtxosToTxs(
 			resp, err := i.indexer.GetVtxos(ctx, *opts)
 			if err != nil {
 				return nil, err
+			}
+			// Pending tx, skip
+			// TODO: maybe we want to handle this somehow?
+			if len(resp.Vtxos) <= 0 {
+				continue
 			}
 			vtxo = resp.Vtxos[0]
 		}

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,15 +15,20 @@ import (
 	"time"
 
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/client"
+	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet"
+	singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
+	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
 const (
 	password  = "secret"
-	serverUrl = "localhost:7070"
+	serverUrl = "127.0.0.1:7070"
 )
 
 func setupClient(t *testing.T) arksdk.ArkClient {
@@ -60,6 +66,60 @@ func setupClient(t *testing.T) arksdk.ArkClient {
 	require.Nil(t, synced.Err)
 
 	return client
+}
+
+func setupClientWithWallet(
+	t *testing.T, withoutFinalizePendingTxs bool, prvkey string,
+) (arksdk.ArkClient, wallet.WalletService, client.TransportClient) {
+	appDataStore, err := store.NewStore(store.Config{
+		ConfigStoreType:  types.InMemoryStore,
+		AppDataStoreType: types.KVStore,
+	})
+	require.NoError(t, err)
+
+	var opts []arksdk.ClientOption
+	if withoutFinalizePendingTxs {
+		opts = append(opts, arksdk.WithoutFinalizePendingTxs())
+	}
+	client, err := arksdk.NewArkClient(appDataStore, opts...)
+	require.NoError(t, err)
+
+	walletStore, err := inmemorystore.NewWalletStore()
+	require.NoError(t, err)
+	require.NotNil(t, walletStore)
+
+	wallet, err := singlekeywallet.NewBitcoinWallet(appDataStore.ConfigStore(), walletStore)
+	require.NoError(t, err)
+
+	if len(prvkey) <= 0 {
+		key, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		prvkey = hex.EncodeToString(key.Serialize())
+	}
+
+	err = client.InitWithWallet(context.Background(), arksdk.InitWithWalletArgs{
+		Wallet:               wallet,
+		ClientType:           arksdk.GrpcClient,
+		ServerUrl:            serverUrl,
+		Password:             password,
+		Seed:                 prvkey,
+		WithTransactionFeed:  true,
+		ExplorerPollInterval: 2 * time.Second,
+	})
+	require.NoError(t, err)
+
+	err = client.Unlock(context.Background(), password)
+	require.NoError(t, err)
+
+	synced := <-client.IsSynced(t.Context())
+	require.True(t, synced.Synced)
+	require.Nil(t, synced.Err)
+
+	grpcClient, err := grpcclient.NewClient(serverUrl)
+	require.NoError(t, err)
+
+	return client, wallet, grpcClient
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
@@ -106,7 +166,7 @@ func generateNote(t *testing.T, amount uint64) string {
 	}
 
 	reqBody := bytes.NewReader([]byte(fmt.Sprintf(`{"amount": "%d"}`, amount)))
-	req, err := http.NewRequest("POST", "http://localhost:7071/v1/admin/note", reqBody)
+	req, err := http.NewRequest("POST", "http://127.0.0.1:7071/v1/admin/note", reqBody)
 	if err != nil {
 		t.Fatalf("failed to prepare note request: %s", err)
 	}

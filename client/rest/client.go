@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/client"
 	ark_service "github.com/arkade-os/go-sdk/client/rest/service"
@@ -124,6 +125,22 @@ func (a *restClient) DeleteIntent(ctx context.Context, proof, message string) er
 
 	_, _, err := req.Execute()
 	return err
+}
+
+func (a *restClient) EstimateIntentFee(ctx context.Context, proof, message string) (int64, error) {
+	req := a.svc.ArkServiceAPI.ArkServiceEstimateIntentFee(ctx).
+		EstimateIntentFeeRequest(ark_service.EstimateIntentFeeRequest{
+			Intent: &ark_service.Intent{
+				Message: &message,
+				Proof:   &proof,
+			},
+		})
+
+	resp, _, err := req.Execute()
+	if err != nil {
+		return -1, err
+	}
+	return resp.GetFee(), nil
 }
 
 func (a *restClient) ConfirmRegistration(ctx context.Context, intentId string) error {
@@ -376,6 +393,34 @@ func (a *restClient) FinalizeTx(
 	return err
 }
 
+func (a *restClient) GetPendingTx(
+	ctx context.Context,
+	proof, message string,
+) ([]client.AcceptedOffchainTx, error) {
+	req := a.svc.ArkServiceAPI.ArkServiceGetPendingTx(ctx).
+		GetPendingTxRequest(ark_service.GetPendingTxRequest{
+			Intent: &ark_service.Intent{
+				Message: &message,
+				Proof:   &proof,
+			},
+		})
+
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceGetPendingTxExecute(req)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingTxs := make([]client.AcceptedOffchainTx, 0, len(resp.GetPendingTxs()))
+	for _, tx := range resp.GetPendingTxs() {
+		pendingTxs = append(pendingTxs, client.AcceptedOffchainTx{
+			Txid:                tx.GetArkTxid(),
+			FinalArkTx:          tx.GetFinalArkTx(),
+			SignedCheckpointTxs: tx.GetSignedCheckpointTxs(),
+		})
+	}
+	return pendingTxs, nil
+}
+
 func (c *restClient) GetTransactionsStream(
 	ctx context.Context,
 ) (<-chan client.TransactionEvent, func(), error) {
@@ -500,9 +545,8 @@ func vtxosFromRest(restVtxos []ark_service.Vtxo) []types.Vtxo {
 
 func parseFees(fees ark_service.FeeInfo) (types.FeeInfo, error) {
 	var (
-		err                               error
-		txFeeRate                         float64
-		onchainInputFee, onchainOutputFee uint64
+		err       error
+		txFeeRate float64
 	)
 	if fees.GetTxFeeRate() != "" {
 		txFeeRate, err = strconv.ParseFloat(fees.GetTxFeeRate(), 64)
@@ -510,26 +554,15 @@ func parseFees(fees ark_service.FeeInfo) (types.FeeInfo, error) {
 			return types.FeeInfo{}, err
 		}
 	}
+
 	intentFee := fees.GetIntentFee()
-	if intentFee.GetOnchainInput() != "" {
-		onchainInputFee, err = strconv.ParseUint(intentFee.GetOnchainInput(), 10, 64)
-		if err != nil {
-			return types.FeeInfo{}, err
-		}
-	}
-	if intentFee.GetOnchainOutput() != "" {
-		onchainOutputFee, err = strconv.ParseUint(intentFee.GetOnchainOutput(), 10, 64)
-		if err != nil {
-			return types.FeeInfo{}, err
-		}
-	}
 	return types.FeeInfo{
 		TxFeeRate: txFeeRate,
-		IntentFees: types.IntentFeeInfo{
-			OffchainInput:  intentFee.GetOffchainInput(),
-			OffchainOutput: intentFee.GetOffchainOutput(),
-			OnchainInput:   onchainInputFee,
-			OnchainOutput:  onchainOutputFee,
+		IntentFees: arkfee.Config{
+			IntentOffchainInputProgram:  intentFee.GetOffchainInput(),
+			IntentOffchainOutputProgram: intentFee.GetOffchainOutput(),
+			IntentOnchainInputProgram:   intentFee.GetOnchainInput(),
+			IntentOnchainOutputProgram:  intentFee.GetOnchainOutput(),
 		},
 	}, nil
 }

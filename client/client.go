@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -17,10 +18,17 @@ var (
 	ErrConnectionClosedByServer = fmt.Errorf("connection closed by server")
 )
 
+type AcceptedOffchainTx struct {
+	Txid                string
+	FinalArkTx          string
+	SignedCheckpointTxs []string
+}
+
 type TransportClient interface {
 	GetInfo(ctx context.Context) (*Info, error)
 	RegisterIntent(ctx context.Context, proof, message string) (string, error)
 	DeleteIntent(ctx context.Context, proof, message string) error
+	EstimateIntentFee(ctx context.Context, proof, message string) (int64, error)
 	ConfirmRegistration(ctx context.Context, intentID string) error
 	SubmitTreeNonces(
 		ctx context.Context,
@@ -39,9 +47,11 @@ type TransportClient interface {
 	) error
 	GetEventStream(ctx context.Context, topics []string) (<-chan BatchEventChannel, func(), error)
 	SubmitTx(ctx context.Context, signedArkTx string, checkpointTxs []string) (
+		// TODO SubmitTx should return AcceptedOffchainTx struct
 		arkTxid, finalArkTx string, signedCheckpointTxs []string, err error,
 	)
 	FinalizeTx(ctx context.Context, arkTxid string, finalCheckpointTxs []string) error
+	GetPendingTx(ctx context.Context, proof, message string) ([]AcceptedOffchainTx, error)
 	GetTransactionsStream(ctx context.Context) (<-chan TransactionEvent, func(), error)
 	Close()
 }
@@ -90,6 +100,21 @@ type Input struct {
 type TapscriptsVtxo struct {
 	types.Vtxo
 	Tapscripts []string
+}
+
+func (v TapscriptsVtxo) ToArkFeeInput() arkfee.OffchainInput {
+	vtxoType := arkfee.VtxoTypeVtxo
+	if v.Swept {
+		vtxoType = arkfee.VtxoTypeRecoverable
+	}
+
+	return arkfee.OffchainInput{
+		Amount: v.Amount,
+		Expiry: v.ExpiresAt,
+		Birth:  v.CreatedAt,
+		Type:   vtxoType,
+		Weight: 0,
+	}
 }
 
 type BatchFinalizationEvent struct {

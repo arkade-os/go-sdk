@@ -15,6 +15,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -29,9 +30,8 @@ const UNIT_AMOUNT = uint64(1)
 func CoinSelectNormal(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,
-	amount,
-	dust uint64,
-	sortByExpirationTime bool,
+	outputs []types.Receiver, dust uint64, withoutExpirySorting bool,
+	feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
@@ -45,10 +45,29 @@ func CoinSelectNormal(
 	}
 	vtxos = filteredVtxos
 
-	if sortByExpirationTime {
-		// sort vtxos by expiration (older first)
+	amount := uint64(0)
+	for _, output := range outputs {
+		amount += output.Amount
+		if feeEstimator != nil {
+			var fees arkfee.FeeAmount
+			var err error
+			arkFeeOutput := output.ToArkFeeOutput()
+			if output.IsOnchain() {
+				fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
+			} else {
+				fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
+			}
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(fees.ToSatoshis())
+		}
+	}
+
+	if !withoutExpirySorting {
+		// sort vtxos by expiration (oldest last)
 		sort.SliceStable(vtxos, func(i, j int) bool {
-			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+			return !vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
 		})
 
 		sort.SliceStable(boardingUtxos, func(i, j int) bool {
@@ -64,6 +83,13 @@ func CoinSelectNormal(
 
 		selectedBoarding = append(selectedBoarding, boardingUtxo)
 		selectedAmount += boardingUtxo.Amount
+		if feeEstimator != nil {
+			fees, err := feeEstimator.EvalOnchainInput(boardingUtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(fees.ToSatoshis())
+		}
 	}
 
 	for _, vtxo := range vtxos {
@@ -74,6 +100,13 @@ func CoinSelectNormal(
 
 		selected = append(selected, vtxo)
 		selectedAmount += vtxo.Amount
+		if feeEstimator != nil {
+			feesForInput, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(feesForInput.ToSatoshis())
+		}
 	}
 
 	if selectedAmount < amount {
@@ -82,13 +115,41 @@ func CoinSelectNormal(
 
 	change := selectedAmount - amount
 
+	if feeEstimator != nil {
+		fees, err := feeEstimator.EvalOffchainOutput(arkfee.Output{
+			Amount: change,
+		})
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		change -= uint64(fees.ToSatoshis())
+	}
+
 	if change < dust {
 		if len(notSelected) > 0 {
 			selected = append(selected, notSelected[0])
 			change += notSelected[0].Amount
+
+			if feeEstimator != nil {
+				fees, err := feeEstimator.EvalOffchainInput(notSelected[0].ToArkFeeInput())
+				if err != nil {
+					return nil, nil, 0, err
+				}
+				change -= uint64(fees.ToSatoshis())
+			}
 		} else if len(notSelectedBoarding) > 0 {
 			selectedBoarding = append(selectedBoarding, notSelectedBoarding[0])
 			change += notSelectedBoarding[0].Amount
+
+			if feeEstimator != nil {
+				fees, err := feeEstimator.EvalOnchainInput(notSelectedBoarding[0].ToArkFeeInput())
+				if err != nil {
+					return nil, nil, 0, err
+				}
+				change -= uint64(fees.ToSatoshis())
+			}
+		} else {
+			change = 0
 		}
 	}
 
@@ -372,4 +433,29 @@ func GroupBy[T any](items []T, keyFn func(T) string) map[string][]T {
 	}
 
 	return result
+}
+
+func FilterVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) []types.Vtxo {
+	now := time.Now()
+	threshold := time.Duration(expiryThreshold) * time.Second
+
+	nearExpiry := make([]types.Vtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		// time until expiry
+		timeLeft := vtxo.ExpiresAt.Sub(now)
+
+		// if already expired or within threshold
+		if timeLeft <= threshold {
+			nearExpiry = append(nearExpiry, vtxo)
+		}
+	}
+
+	return nearExpiry
+}
+
+func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+	return vtxos
 }

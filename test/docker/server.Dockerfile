@@ -1,11 +1,11 @@
 # First image used to build the sources
-FROM golang:1.25.3 AS builder
+FROM golang:1.25.5 AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION
 
-ARG BRANCH=v0.8.5
+ARG BRANCH=master
 
 WORKDIR /app
 

@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	serverUrl  = "localhost:7070"
+	serverUrl  = "127.0.0.1:7070"
 	clientType = arksdk.GrpcClient
 	password   = "password"
 	walletType = arksdk.SingleKeyWallet
@@ -70,7 +70,7 @@ func main() {
 	onboardAmount := uint64(1_0000_0000) // 1 BTC
 	log.Infof("alice is onboarding with %d sats offchain...", onboardAmount)
 
-	aliceBalance, err := aliceArkClient.Balance(ctx, false)
+	aliceBalance, err := aliceArkClient.Balance(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	bobBalance, err := bobArkClient.Balance(ctx, false)
+	bobBalance, err := bobArkClient.Balance(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func main() {
 	fmt.Println("")
 	log.Infof("alice is sending %d sats to bob offchain...", amount)
 
-	if _, err = aliceArkClient.SendOffChain(ctx, false, receivers); err != nil {
+	if _, err = aliceArkClient.SendOffChain(ctx, receivers); err != nil {
 		log.Fatal(err)
 	}
 
@@ -132,7 +132,7 @@ func main() {
 
 	time.Sleep(5 * time.Second)
 
-	aliceBalance, err = aliceArkClient.Balance(ctx, false)
+	aliceBalance, err = aliceArkClient.Balance(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func main() {
 	log.Infof("alice onchain balance: %d", aliceBalance.OnchainBalance.SpendableAmount)
 	log.Infof("alice offchain balance: %d", aliceBalance.OffchainBalance.Total)
 
-	bobBalance, err = bobArkClient.Balance(ctx, false)
+	bobBalance, err = bobArkClient.Balance(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

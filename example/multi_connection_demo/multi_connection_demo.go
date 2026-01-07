@@ -198,7 +198,7 @@ func newTestAddr(url string) string {
 	if strings.Contains(url, "signet") || strings.Contains(url, "mutinynet") {
 		net = &chaincfg.SigNetParams
 	}
-	if strings.Contains(url, "localhost") {
+	if strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1") {
 		net = &chaincfg.RegressionNetParams
 	}
 

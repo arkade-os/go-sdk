@@ -51,9 +51,12 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		serverUrl = fmt.Sprintf("%s:%d", serverUrl, port)
 	}
 
-	option := grpc.WithTransportCredentials(creds)
+	options := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+		grpc.WithDisableServiceConfig(),
+	}
 
-	conn, err := grpc.NewClient(serverUrl, option)
+	conn, err := grpc.NewClient(serverUrl, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -355,6 +358,7 @@ func (a *grpcClient) GetVtxos(
 		SpendableOnly:   opt.GetSpendableOnly(),
 		SpentOnly:       opt.GetSpentOnly(),
 		RecoverableOnly: opt.GetRecoverableOnly(),
+		PendingOnly:     opt.GetPendingOnly(),
 		Page:            page,
 	}
 

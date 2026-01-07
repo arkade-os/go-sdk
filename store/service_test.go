@@ -21,7 +21,7 @@ var (
 	key, _         = btcec.NewPrivateKey()
 	forfeitkKey, _ = btcec.NewPrivateKey()
 	testConfigData = types.Config{
-		ServerUrl:           "localhost:7070",
+		ServerUrl:           "127.0.0.1:7070",
 		SignerPubKey:        key.PubKey(),
 		ForfeitPubKey:       forfeitkKey.PubKey(),
 		WalletType:          wallet.SingleKeyWallet,

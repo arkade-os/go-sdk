@@ -12,8 +12,6 @@ import (
 
 func TestCollaborativeExit(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		t.Parallel()
-
 		// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
 		t.Run("with change", func(t *testing.T) {
 			ctx := t.Context()
@@ -23,12 +21,12 @@ func TestCollaborativeExit(t *testing.T) {
 			// Faucet Alice
 			faucetOffchain(t, alice, 0.001)
 
-			aliceBalance, err := alice.Balance(ctx, false)
+			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)
 
-			bobBalance, err := bob.Balance(ctx, false)
+			bobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
@@ -41,7 +39,7 @@ func TestCollaborativeExit(t *testing.T) {
 			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 			// Send to Bob's onchain address
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000, false)
+			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.NoError(t, err)
 
 			// next event received by bob utxo channel should be the added event
@@ -73,7 +71,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)
 			require.Less(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), prevTotalBalance)
 
-			bobBalance, err = bob.Balance(ctx, false)
+			bobBalance, err = bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
@@ -90,13 +88,13 @@ func TestCollaborativeExit(t *testing.T) {
 			// Faucet Alice
 			faucetOffchain(t, alice, 0.00021)
 
-			aliceBalance, err := alice.Balance(ctx, false)
+			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)
 			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
-			bobBalance, err := bob.Balance(ctx, false)
+			bobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
@@ -109,7 +107,7 @@ func TestCollaborativeExit(t *testing.T) {
 			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 			// Send all to Bob's onchain address
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000, false)
+			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.NoError(t, err)
 
 			// next event received by bob utxo channel should be the added event
@@ -134,13 +132,13 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
 			require.True(t, bobConfirmedUtxo.IsConfirmed())
 
-			aliceBalance, err = alice.Balance(ctx, false)
+			aliceBalance, err = alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Zero(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount))
 			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
-			bobBalance, err = bob.Balance(ctx, false)
+			bobBalance, err = bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
@@ -168,7 +166,7 @@ func TestCollaborativeExit(t *testing.T) {
 			faucetOnchain(t, aliceBoardingAddr, 0.001)
 			time.Sleep(5 * time.Second)
 
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000, false)
+			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.Error(t, err)
 
 			require.ErrorContains(t, err, "include onchain inputs and outputs")
@@ -177,8 +175,6 @@ func TestCollaborativeExit(t *testing.T) {
 }
 
 func TestUnilateralExit(t *testing.T) {
-	t.Parallel()
-
 	// In this test Alice owns a leaf VTXO and unrolls it onchain
 	t.Run("leaf vtxo", func(t *testing.T) {
 		ctx := t.Context()
@@ -242,7 +238,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.NotEmpty(t, bobOnchainAddr)
 		require.NotEmpty(t, bobOffchainAddr)
 
-		bobBalance, err := bob.Balance(ctx, false)
+		bobBalance, err := bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
 		require.Zero(t, bobBalance.OffchainBalance.SatsBalance.TotalAmount)
@@ -250,7 +246,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 		// Alice sends to Bob
-		_, err = alice.SendOffChain(ctx, false, []types.Receiver{{
+		_, err = alice.SendOffChain(ctx, []types.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 21000,
 		}})

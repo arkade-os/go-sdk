@@ -1292,6 +1292,7 @@ type ApiIndexerServiceGetVtxosRequest struct {
 	spendableOnly *bool
 	spentOnly *bool
 	recoverableOnly *bool
+	pendingOnly *bool
 	pageSize *int32
 	pageIndex *int32
 }
@@ -1323,6 +1324,12 @@ func (r ApiIndexerServiceGetVtxosRequest) SpentOnly(spentOnly bool) ApiIndexerSe
 // Retrieve only recoverable vtxos (notes, subdust or swept vtxos). The 3 filters are mutually exclusive,
 func (r ApiIndexerServiceGetVtxosRequest) RecoverableOnly(recoverableOnly bool) ApiIndexerServiceGetVtxosRequest {
 	r.recoverableOnly = &recoverableOnly
+	return r
+}
+
+// Include only spent vtxos that are not finalized.
+func (r ApiIndexerServiceGetVtxosRequest) PendingOnly(pendingOnly bool) ApiIndexerServiceGetVtxosRequest {
+	r.pendingOnly = &pendingOnly
 	return r
 }
 
@@ -1392,6 +1399,9 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVtxosExecute(r ApiIndexerSer
 	}
 	if r.recoverableOnly != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "recoverableOnly", r.recoverableOnly, "form", "")
+	}
+	if r.pendingOnly != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "pendingOnly", r.pendingOnly, "form", "")
 	}
 	if r.pageSize != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "page.size", r.pageSize, "form", "")

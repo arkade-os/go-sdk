@@ -15,7 +15,7 @@ import (
 
 const (
 	password = "secret"
-	adminUrl = "http://localhost:7071"
+	adminUrl = "http://127.0.0.1:7071"
 )
 
 func main() {
