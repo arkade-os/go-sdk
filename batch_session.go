@@ -376,7 +376,6 @@ func newBatchEventsHandler(
 }
 
 func (h *defaultBatchEventsHandler) OnStreamStartedEvent(event client.StreamStartedEvent) {
-	h.streamId = event.Id
 }
 
 func (h *defaultBatchEventsHandler) OnBatchStarted(
