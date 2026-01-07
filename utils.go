@@ -231,14 +231,14 @@ func buildTeleportClaimTx(
 		}
 		assetGroup.SubDustKey = addr.VtxoTapKey
 
-		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		assetOpretOut, err = assetGroup.EncodeAssetPacket(int64(subdustReceiver.Amount))
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 	} else {
 
-		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		assetOpretOut, err = assetGroup.EncodeAssetPacket(0)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -401,14 +401,14 @@ func buildAssetCreationTx(
 		}
 		assetGroup.SubDustKey = addr.VtxoTapKey
 
-		assetOpretOut, err = assetGroup.EncodeOpret(int64(subdustReceiver.Amount))
+		assetOpretOut, err = assetGroup.EncodeAssetPacket(int64(subdustReceiver.Amount))
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 	} else {
 
-		assetOpretOut, err = assetGroup.EncodeOpret(0)
+		assetOpretOut, err = assetGroup.EncodeAssetPacket(0)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -612,14 +612,14 @@ func buildAssetTransferTx(
 		}
 		assetPacket.SubDustKey = addr.VtxoTapKey
 
-		assetOpretOut, err = assetPacket.EncodeOpret(int64(subdustReceiver.Amount))
+		assetOpretOut, err = assetPacket.EncodeAssetPacket(int64(subdustReceiver.Amount))
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 	} else {
 
-		assetOpretOut, err = assetPacket.EncodeOpret(0)
+		assetOpretOut, err = assetPacket.EncodeAssetPacket(0)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -857,14 +857,14 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		}
 		assetPacket.SubDustKey = addr.VtxoTapKey
 
-		assetOpretOut, err = assetPacket.EncodeOpret(int64(subdustReceiver.Amount))
+		assetOpretOut, err = assetPacket.EncodeAssetPacket(int64(subdustReceiver.Amount))
 		if err != nil {
 			return "", nil, nil, err
 		}
 
 	} else {
 
-		assetOpretOut, err = assetPacket.EncodeOpret(0)
+		assetOpretOut, err = assetPacket.EncodeAssetPacket(0)
 		if err != nil {
 			return "", nil, nil, err
 		}

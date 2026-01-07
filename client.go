@@ -4350,7 +4350,7 @@ func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid
 		var receiverScript []byte
 		if receiver.Amount < a.Dust {
 			if assetGroup != nil {
-				receiverTxout, err := assetGroup.EncodeOpret(int64(receiver.Amount))
+				receiverTxout, err := assetGroup.EncodeAssetPacket(int64(receiver.Amount))
 				if err != nil {
 					return err
 				}
