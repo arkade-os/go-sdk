@@ -1,7 +1,6 @@
 package store_test
 
 import (
-	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -79,10 +78,26 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
-	testVtxoAssets = []*asset.Asset{
+	testVtxoAssets = []*asset.AssetGroup{
 		newTestAsset(0x01, "asset-one"),
 		newTestAsset(0x02, "asset-two"),
 	}
+
+	// testAsset1 := types.Asset {
+	// 	AssetId: testVtxoAssets[0].AssetId,
+	// 	Amount:  testVtxoAssets[0].Outputs[0].Amount,
+	// }
+
+	testAsset1 = types.Asset{
+		AssetId: testVtxoAssets[0].AssetId.ToString(),
+		Amount:  testVtxoAssets[0].Outputs[0].Amount,
+	}
+
+	testAsset2 = types.Asset{
+		AssetId: testVtxoAssets[1].AssetId.ToString(),
+		Amount:  testVtxoAssets[1].Outputs[0].Amount,
+	}
+
 	testVtxos = []types.Vtxo{
 		{
 			Outpoint: types.Outpoint{
@@ -97,7 +112,7 @@ var (
 			ExpiresAt:    time.Unix(1748143068, 0),
 			CreatedAt:    time.Unix(1746143068, 0),
 			Preconfirmed: true,
-			Asset:        testVtxoAssets[0],
+			Asset:        &testAsset1,
 		},
 		{
 			Outpoint: types.Outpoint{
@@ -111,7 +126,7 @@ var (
 			},
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
-			Asset:     testVtxoAssets[1],
+			Asset:     &testAsset2,
 		},
 	}
 	testVtxoKeys = []types.Outpoint{
@@ -171,28 +186,32 @@ var (
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
 
-func newTestAsset(seed byte, name string) *asset.Asset {
-	var assetID [32]byte
-	var controlAssetID [32]byte
-	for i := range assetID {
-		assetID[i] = seed
-		controlAssetID[i] = seed + 1
+func newTestAsset(seed byte, name string) *asset.AssetGroup {
+	var assetTxId [32]byte
+	var controlAssetTxId [32]byte
+	for i := range assetTxId {
+		assetTxId[i] = seed
+		controlAssetTxId[i] = seed + 1
 	}
 
-	return &asset.Asset{
-		AssetId:        assetID,
-		ControlAssetId: controlAssetID,
+	return &asset.AssetGroup{
+		AssetId: asset.AssetId{
+			TxId:  assetTxId,
+			Index: 0,
+		},
+		ControlAssetId: &asset.AssetId{
+			TxId:  controlAssetTxId,
+			Index: 0,
+		},
 		Outputs: []asset.AssetOutput{
 			{
-				PublicKey: *key.PubKey(),
-				Vout:      0,
-				Amount:    uint64(seed) * 1000,
+				Vout:   0,
+				Amount: uint64(seed) * 1000,
 			},
 		},
 		Inputs: []asset.AssetInput{
 			{
-				Txhash: bytes.Repeat([]byte{seed}, 32),
-				Vout:   0,
+				Vin:    0,
 				Amount: uint64(seed) * 500,
 			},
 		},
@@ -410,7 +429,7 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	ctx := context.Background()
 
-	expectedAssets := map[types.Outpoint]*asset.Asset{
+	expectedAssets := map[types.Outpoint]*asset.AssetGroup{
 		testVtxoKeys[0]: testVtxoAssets[0],
 		testVtxoKeys[1]: testVtxoAssets[1],
 	}

@@ -20,7 +20,11 @@ func appendDustReceivers(dst []types.Receiver, src []types.Receiver, dust uint64
 	return dst
 }
 
-func appendDustReceiversFromAssets(dst []types.Receiver, src []types.AssetReceiver, dust uint64) []types.Receiver {
+func appendDustReceiversFromAssets(
+	dst []types.Receiver,
+	src []types.AssetReceiver,
+	dust uint64,
+) []types.Receiver {
 	for _, r := range src {
 		dst = append(dst, types.Receiver{
 			To:     r.To,
@@ -38,7 +42,10 @@ func dustReceiversFromAssetReceivers(src []types.AssetReceiver, dust uint64) []t
 	return appendDustReceiversFromAssets(make([]types.Receiver, 0, len(src)), src, dust)
 }
 
-func buildAssetDustOutputs(assetOutputMap map[string][]types.Receiver, dust uint64) []types.Receiver {
+func buildAssetDustOutputs(
+	assetOutputMap map[string][]types.Receiver,
+	dust uint64,
+) []types.Receiver {
 	outputs := make([]types.Receiver, 0)
 	for _, outputList := range assetOutputMap {
 		outputs = appendDustReceivers(outputs, outputList, dust)

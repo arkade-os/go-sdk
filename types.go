@@ -128,14 +128,6 @@ type VtxoDetails struct {
 	Amount     uint64 `json:"amount"`
 }
 
-type balanceRes struct {
-	offchainBalance             uint64
-	onchainSpendableBalance     uint64
-	onchainLockedBalance        map[int64]uint64
-	offchainBalanceByExpiration map[int64]uint64
-	err                         error
-}
-
 type CoinSelectOptions struct {
 	// If true, coin selector won't select coins closest to expiryirst
 	WithoutExpirySorting bool

@@ -110,7 +110,9 @@ func getReplClient(ctx *cli.Context) (arksdk.ArkClient, error) {
 	if cfgData == nil {
 		serverURL := ctx.String(urlFlag.Name)
 		if serverURL == "" {
-			return nil, fmt.Errorf("missing config; provide --server-url to initialize the REPL client")
+			return nil, fmt.Errorf(
+				"missing config; provide --server-url to initialize the REPL client",
+			)
 		}
 
 		password, err := readPassword(ctx)
@@ -154,7 +156,9 @@ func loadOrCreateClient(
 }
 
 func repl(ctx *cli.Context) error {
-	fmt.Println("Ark REPL (stateful) - commands: help, unlock, lock, balance, send <to> <amount>, sendasset <assetid> <to> <amount>, createasset <name> <quantity> [symbol] [control-asset-id], reissueasset <assetid> <amount> [control-asset-id], burnasset <assetid> <amount> [control-asset-id], modifyasset <assetid> <control-asset-id> <key=value> [key=value...], settle, recover, vtxos [all|spendable|spent], txs, config, receive, quit")
+	fmt.Println(
+		"Ark REPL (stateful) - commands: help, unlock, lock, balance, send <to> <amount>, sendasset <assetid> <to> <amount>, createasset <name> <quantity> [symbol] [control-asset-id], reissueasset <assetid> <amount> [control-asset-id], burnasset <assetid> <amount> [control-asset-id], modifyasset <assetid> <control-asset-id> <key=value> [key=value...], settle, recover, vtxos [all|spendable|spent], txs, config, receive, quit",
+	)
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
@@ -175,15 +179,27 @@ func repl(ctx *cli.Context) error {
 			return nil
 		case "help":
 			fmt.Println("Commands:")
-			fmt.Println("  unlock [password]     - unlock the wallet (password optional, will prompt if omitted)")
+			fmt.Println(
+				"  unlock [password]     - unlock the wallet (password optional, will prompt if omitted)",
+			)
 			fmt.Println("  lock                  - lock the wallet")
-			fmt.Println("  balance [expiry]      - show balance, include 'expiry' to compute expiration details")
+			fmt.Println(
+				"  balance [expiry]      - show balance, include 'expiry' to compute expiration details",
+			)
 			fmt.Println("  send <to> <amount>    - send sats offchain")
 			fmt.Println("  sendasset <assetid> <to> <amount> - send asset offchain")
-			fmt.Println("  createasset <name> <quantity> [symbol] [control-asset-id] - create asset")
-			fmt.Println("  reissueasset <assetid> <amount> [control-asset-id] - mint more of an asset")
-			fmt.Println("  burnasset <assetid> <amount> [control-asset-id] - burn units of an asset")
-			fmt.Println("  modifyasset <assetid> <control-asset-id> <key=value> [key=value...] - modify asset metadata")
+			fmt.Println(
+				"  createasset <name> <quantity> [symbol] [control-asset-id] - create asset",
+			)
+			fmt.Println(
+				"  reissueasset <assetid> <amount> [control-asset-id] - mint more of an asset",
+			)
+			fmt.Println(
+				"  burnasset <assetid> <amount> [control-asset-id] - burn units of an asset",
+			)
+			fmt.Println(
+				"  modifyasset <assetid> <control-asset-id> <key=value> [key=value...] - modify asset metadata",
+			)
 			fmt.Println("  settle                - settle onboarding/pending funds")
 			fmt.Println("  recover               - settle recoverable vtxos")
 			fmt.Println("  vtxos [all|spendable|spent] - list VTXOs from DB")
@@ -221,11 +237,7 @@ func repl(ctx *cli.Context) error {
 			}
 			fmt.Println("wallet locked")
 		case "balance":
-			compute := false
-			if len(fields) > 1 && strings.ToLower(fields[1]) == "expiry" {
-				compute = true
-			}
-			bal, err := arkSdkClient.Balance(ctx.Context, compute)
+			bal, err := arkSdkClient.Balance(ctx.Context)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue
@@ -301,7 +313,7 @@ func repl(ctx *cli.Context) error {
 				fmt.Printf("invalid amount: %v\n", err)
 				continue
 			}
-			txid, err := arkSdkClient.SendOffChain(ctx.Context, false, []types.Receiver{
+			txid, err := arkSdkClient.SendOffChain(ctx.Context, []types.Receiver{
 				{To: fields[1], Amount: amount},
 			})
 			if err != nil {
@@ -457,7 +469,9 @@ func repl(ctx *cli.Context) error {
 			_ = printJSON(map[string]string{"txid": txid})
 		case "modifyasset":
 			if len(fields) < 4 {
-				fmt.Println("usage: modifyasset <assetid> <control-asset-id> <key=value> [key=value...]")
+				fmt.Println(
+					"usage: modifyasset <assetid> <control-asset-id> <key=value> [key=value...]",
+				)
 				continue
 			}
 			if err := ensureUnlocked(ctx); err != nil {
@@ -522,7 +536,7 @@ func repl(ctx *cli.Context) error {
 				fmt.Printf("error: %v\n", err)
 				continue
 			}
-			txid, err := arkSdkClient.Settle(ctx.Context, arksdk.WithRecoverableVtxos)
+			txid, err := arkSdkClient.Settle(ctx.Context)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue

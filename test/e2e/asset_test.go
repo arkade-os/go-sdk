@@ -20,13 +20,19 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	// Fund issuer so they can pay for asset creation and transfer.
 	faucetOffchain(t, issuer, 0.002)
 
+	// Fund receiver so they can pay for settlement.
+	faucetOffchain(t, receiver, 0.001)
+
 	const supply uint64 = 5_000
 	createParams := types.AssetCreationParams{
 		Quantity:    supply,
 		MetadataMap: map[string]string{"name": "Test Asset", "symbol": "TST"},
 	}
 
-	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: createParams}})
+	_, assetIds, err := issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: createParams}},
+	)
 	require.NoError(t, err)
 
 	time.Sleep(5 * time.Second) // Wait for server indexer
@@ -147,7 +153,10 @@ func TestMultiAssetTransfer(t *testing.T) {
 		Quantity:    assetASupply,
 		MetadataMap: map[string]string{"name": "Multi Asset A", "symbol": "MA"},
 	}
-	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: assetAParams}})
+	_, assetIds, err := issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: assetAParams}},
+	)
 	require.NoError(t, err)
 
 	assetIdA := assetIds[0]
@@ -159,7 +168,10 @@ func TestMultiAssetTransfer(t *testing.T) {
 		Quantity:    assetBSupply,
 		MetadataMap: map[string]string{"name": "Multi Asset B", "symbol": "MB"},
 	}
-	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: assetBParams}})
+	_, assetIds, err = issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: assetBParams}},
+	)
 	require.NoError(t, err)
 
 	assetIdB := assetIds[0]
@@ -232,7 +244,10 @@ func TestAssetReissuance(t *testing.T) {
 		Quantity:    1,
 		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
 	}
-	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
+	_, assetIds, err := issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: controlAssetParams}},
+	)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
@@ -249,7 +264,10 @@ func TestAssetReissuance(t *testing.T) {
 		ControlAssetId: controlVtxo.Asset.AssetId,
 		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
 	}
-	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
+	_, assetIds, err = issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: targetAssetParams}},
+	)
 	require.NoError(t, err)
 
 	targetAssetId := assetIds[0]
@@ -293,7 +311,10 @@ func TestAssetBurn(t *testing.T) {
 		Quantity:    1,
 		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
 	}
-	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
+	_, assetIds, err := issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: controlAssetParams}},
+	)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
@@ -310,7 +331,10 @@ func TestAssetBurn(t *testing.T) {
 		ControlAssetId: controlVtxo.Asset.AssetId,
 		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
 	}
-	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
+	_, assetIds, err = issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: targetAssetParams}},
+	)
 	require.NoError(t, err)
 
 	targetAssetId := assetIds[0]
@@ -348,7 +372,10 @@ func TestAssetModification(t *testing.T) {
 		Quantity:    1,
 		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
 	}
-	_, assetIds, err := issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: controlAssetParams}})
+	_, assetIds, err := issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: controlAssetParams}},
+	)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
@@ -365,7 +392,10 @@ func TestAssetModification(t *testing.T) {
 		ControlAssetId: controlVtxo.Asset.AssetId,
 		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
 	}
-	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: targetAssetParams}})
+	_, assetIds, err = issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: targetAssetParams}},
+	)
 	require.NoError(t, err)
 
 	targetAssetId := assetIds[0]
@@ -399,13 +429,21 @@ func TestAssetModification(t *testing.T) {
 		ControlAssetId: controlAssetId,
 	}
 
-	_, assetIds, err = issuer.CreateAssets(ctx, []types.AssetCreationRequest{{Params: immutableParams}})
+	_, assetIds, err = issuer.CreateAssets(
+		ctx,
+		[]types.AssetCreationRequest{{Params: immutableParams}},
+	)
 	require.NoError(t, err)
 
 	immutableAssetId := assetIds[0]
 
 	time.Sleep(2 * time.Second)
-	_, err = issuer.ModifyAssetMetadata(ctx, controlAssetId, immutableAssetId, map[string]string{"fixed": "false"})
+	_, err = issuer.ModifyAssetMetadata(
+		ctx,
+		controlAssetId,
+		immutableAssetId,
+		map[string]string{"fixed": "false"},
+	)
 	require.NoError(t, err)
 
 	immutableResp, err := issuer.GetAsset(ctx, immutableAssetId)
@@ -417,7 +455,12 @@ func TestAssetModification(t *testing.T) {
 	require.Equal(t, "true", value)
 }
 
-func getAssetVtxo(ctx context.Context, client arksdk.ArkClient, assetID string, amount uint64) (types.Vtxo, error) {
+func getAssetVtxo(
+	ctx context.Context,
+	client arksdk.ArkClient,
+	assetID string,
+	amount uint64,
+) (types.Vtxo, error) {
 	vtxos, err := client.ListSpendableVtxos(ctx)
 	if err != nil {
 		return types.Vtxo{}, err

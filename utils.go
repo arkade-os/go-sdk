@@ -124,7 +124,11 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 }
 
 func buildTeleportClaimTx(
-	vtxos []arkTxInput, nonce [32]byte, receiver types.TeleportReceiver, otherReceivers []types.Receiver, serverUnrollScript []byte,
+	vtxos []arkTxInput,
+	nonce [32]byte,
+	receiver types.TeleportReceiver,
+	otherReceivers []types.Receiver,
+	serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.AssetPacket, error) {
 	if len(vtxos) <= 0 {
@@ -267,7 +271,12 @@ func buildTeleportClaimTx(
 
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
+		outs,
+		assetAnchorIndex,
+		ins,
+		serverUnrollScript,
+	)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -291,7 +300,10 @@ func buildTeleportClaimTx(
 }
 
 func buildAssetCreationTx(
-	vtxos []arkTxInput, assetRequests []types.AssetCreationRequest, otherReceivers []types.Receiver, serverUnrollScript []byte,
+	vtxos []arkTxInput,
+	assetRequests []types.AssetCreationRequest,
+	otherReceivers []types.Receiver,
+	serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.AssetPacket, error) {
 
@@ -435,7 +447,12 @@ func buildAssetCreationTx(
 
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, int(globalVoutIndex), ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
+		outs,
+		int(globalVoutIndex),
+		ins,
+		serverUnrollScript,
+	)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -459,7 +476,11 @@ func buildAssetCreationTx(
 }
 
 func buildAssetTransferTx(
-	sealVtxos []arkTxInput, otherVtxos []arkTxInput, assetReceivers []types.AssetReceiver, otherReceivers []types.Receiver, serverUnrollScript []byte,
+	sealVtxos []arkTxInput,
+	otherVtxos []arkTxInput,
+	assetReceivers []types.AssetReceiver,
+	otherReceivers []types.Receiver,
+	serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.AssetPacket, error) {
 	if len(sealVtxos) <= 0 {
@@ -523,7 +544,10 @@ func buildAssetTransferTx(
 			ins = append(ins, *in)
 
 			if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
-				return "", nil, nil, fmt.Errorf("vtxo %s missing asset info for transfer", vtxo.Txid)
+				return "", nil, nil, fmt.Errorf(
+					"vtxo %s missing asset info for transfer",
+					vtxo.Txid,
+				)
 			}
 
 			assetInput := asset.AssetInput{
@@ -653,7 +677,12 @@ func buildAssetTransferTx(
 
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
+		outs,
+		assetAnchorIndex,
+		ins,
+		serverUnrollScript,
+	)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -675,7 +704,12 @@ func buildAssetTransferTx(
 	return arkTx, checkpointTxs, &assetPacket, nil
 }
 
-func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, assetVtxos, otherVtxos []arkTxInput, controlAssetReceivers, assetReceivers, otherReceivers []types.Receiver, metadata map[string]string, serverUnrollScript []byte,
+func buildAssetModificationTx(
+	controlAssetId, assetId string,
+	controlSealVtxos, assetVtxos, otherVtxos []arkTxInput,
+	controlAssetReceivers, assetReceivers, otherReceivers []types.Receiver,
+	metadata map[string]string,
+	serverUnrollScript []byte,
 	dustLimit uint64,
 ) (string, []string, *asset.AssetPacket, error) {
 
@@ -697,7 +731,10 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		ins = append(ins, *in)
 
 		if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
-			return "", nil, nil, fmt.Errorf("vtxo %s missing control asset info for modification", vtxo.Txid)
+			return "", nil, nil, fmt.Errorf(
+				"vtxo %s missing control asset info for modification",
+				vtxo.Txid,
+			)
 
 		}
 
@@ -719,7 +756,10 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 		ins = append(ins, *in)
 
 		if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
-			return "", nil, nil, fmt.Errorf("vtxo %s missing asset info for modification", vtxo.Txid)
+			return "", nil, nil, fmt.Errorf(
+				"vtxo %s missing asset info for modification",
+				vtxo.Txid,
+			)
 		}
 
 		assetInput := asset.AssetInput{
@@ -898,7 +938,12 @@ func buildAssetModificationTx(controlAssetId, assetId string, controlSealVtxos, 
 
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(outs, assetAnchorIndex, ins, serverUnrollScript)
+	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
+		outs,
+		assetAnchorIndex,
+		ins,
+		serverUnrollScript,
+	)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -1319,7 +1364,11 @@ func checkSendOffChainOptionsType(o interface{}) (*sendOffChainOptions, error) {
 	return opts, nil
 }
 
-func createRegisterIntentMessage(outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string) (
+func createRegisterIntentMessage(
+	outputs []types.Receiver,
+	teleportOutputs []types.TeleportReceiver,
+	cosignersPublicKeys []string,
+) (
 	string, []*wire.TxOut, error,
 ) {
 	validAt := time.Now()
@@ -1545,7 +1594,11 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetPacket *asset.AssetPacket) (*type
 		return nil, fmt.Errorf("asset group is nil")
 	}
 
-	assetsToCheck := make([]*asset.AssetGroup, 0, len(assetPacket.NormalAssets)+len(assetPacket.ControlAssets))
+	assetsToCheck := make(
+		[]*asset.AssetGroup,
+		0,
+		len(assetPacket.NormalAssets)+len(assetPacket.ControlAssets),
+	)
 	for i := range assetPacket.NormalAssets {
 		assetsToCheck = append(assetsToCheck, &assetPacket.NormalAssets[i])
 	}

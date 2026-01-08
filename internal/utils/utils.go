@@ -27,7 +27,11 @@ import (
 
 const UNIT_AMOUNT = uint64(1)
 
-func CalculateFees(inputs []client.TapscriptsVtxo, receivers []types.Receiver, feeEstimator *arkfee.Estimator) (uint64, error) {
+func CalculateFees(
+	inputs []client.TapscriptsVtxo,
+	receivers []types.Receiver,
+	feeEstimator *arkfee.Estimator,
+) (uint64, error) {
 	totalFees := uint64(0)
 
 	if feeEstimator == nil {

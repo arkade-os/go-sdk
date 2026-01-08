@@ -237,7 +237,15 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return send(ctx)
 		},
-		Flags: []cli.Flag{receiversFlag, toFlag, amountFlag, enableExpiryCoinselectFlag, passwordFlag, zeroFeesFlag, controlAssetFlag},
+		Flags: []cli.Flag{
+			receiversFlag,
+			toFlag,
+			amountFlag,
+			enableExpiryCoinselectFlag,
+			passwordFlag,
+			zeroFeesFlag,
+			controlAssetFlag,
+		},
 	}
 
 	createAssetCommand = cli.Command{
@@ -246,7 +254,13 @@ var (
 		Action: func(ctx *cli.Context) error {
 			return createAsset(ctx)
 		},
-		Flags: []cli.Flag{passwordFlag, assetQuantityFlag, controlAssetFlag, immutableFlag, metadataFlag},
+		Flags: []cli.Flag{
+			passwordFlag,
+			assetQuantityFlag,
+			controlAssetFlag,
+			immutableFlag,
+			metadataFlag,
+		},
 	}
 
 	sendAssetCommand = cli.Command{
@@ -660,7 +674,12 @@ func modifyAssetMetadata(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.ModifyAssetMetadata(ctx.Context, controlAssetID, assetIDHex, metadataList)
+	arkTxid, err := arkSdkClient.ModifyAssetMetadata(
+		ctx.Context,
+		controlAssetID,
+		assetIDHex,
+		metadataList,
+	)
 	if err != nil {
 		return err
 	}
@@ -669,8 +688,7 @@ func modifyAssetMetadata(ctx *cli.Context) error {
 }
 
 func balance(ctx *cli.Context) error {
-	computeExpiration := ctx.Bool(expiryDetailsFlag.Name)
-	bal, err := arkSdkClient.Balance(ctx.Context, computeExpiration)
+	bal, err := arkSdkClient.Balance(ctx.Context)
 	if err != nil {
 		return err
 	}
@@ -690,7 +708,6 @@ func redeem(ctx *cli.Context) error {
 	complete := ctx.Bool(completeFlag.Name)
 	address := ctx.String(addressFlag.Name)
 	amount := ctx.Uint64(amountToRedeemFlag.Name)
-	computeExpiration := ctx.Bool(expiryDetailsFlag.Name)
 
 	if force && complete {
 		return fmt.Errorf("cannot use --force and --complete at the same time")
@@ -714,7 +731,7 @@ func redeem(ctx *cli.Context) error {
 		return fmt.Errorf("missing amount")
 	}
 	txID, err := arkSdkClient.CollaborativeExit(
-		ctx.Context, address, amount, computeExpiration,
+		ctx.Context, address, amount,
 	)
 	if err != nil {
 		return err
@@ -733,7 +750,7 @@ func recoverVtxos(ctx *cli.Context) error {
 		return err
 	}
 
-	txid, err := arkSdkClient.Settle(ctx.Context, arksdk.WithRecoverableVtxos)
+	txid, err := arkSdkClient.Settle(ctx.Context)
 	if err != nil {
 		return err
 	}
@@ -832,10 +849,9 @@ func sendCovenantLess(ctx *cli.Context, receivers []types.Receiver, withZeroFees
 		}
 	}
 
-	computeExpiration := ctx.Bool(enableExpiryCoinselectFlag.Name)
 	if len(onchainReceivers) > 0 {
 		txid, err := arkSdkClient.CollaborativeExit(
-			ctx.Context, onchainReceivers[0].To, onchainReceivers[0].Amount, computeExpiration,
+			ctx.Context, onchainReceivers[0].To, onchainReceivers[0].Amount,
 		)
 		if err != nil {
 			return err
@@ -843,7 +859,7 @@ func sendCovenantLess(ctx *cli.Context, receivers []types.Receiver, withZeroFees
 		return printJSON(map[string]string{"txid": txid})
 	}
 
-	arkTxid, err := arkSdkClient.SendOffChain(ctx.Context, computeExpiration, offchainReceivers)
+	arkTxid, err := arkSdkClient.SendOffChain(ctx.Context, offchainReceivers)
 	if err != nil {
 		return err
 	}

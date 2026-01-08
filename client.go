@@ -259,7 +259,11 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 	return a.sendExpiredBoardingUtxos(ctx, to)
 }
 
-func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCreationRequest, opts ...Option) (string, []string, error) {
+func (a *arkClient) CreateAssets(
+	ctx context.Context,
+	requests []types.AssetCreationRequest,
+	opts ...Option,
+) (string, []string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", nil, err
 	}
@@ -332,7 +336,12 @@ func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCrea
 
 	// do not include boarding utxos
 	_, selectedSatsCoins, changeSatsAmount, err := utils.CoinSelectNormal(
-		nil, vtxos, uint64(feeTotals.TotalDelta), a.Dust, options.withoutExpirySorting, feeEstimator,
+		nil,
+		vtxos,
+		uint64(feeTotals.TotalDelta),
+		a.Dust,
+		options.withoutExpirySorting,
+		feeEstimator,
 	)
 
 	if err != nil {
@@ -368,7 +377,13 @@ func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCrea
 		})
 	}
 
-	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(inputs, requests, otherReceivers, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetDetails, err := buildAssetCreationTx(
+		inputs,
+		requests,
+		otherReceivers,
+		a.CheckpointExitPath(),
+		a.Dust,
+	)
 	if err != nil {
 		return "", nil, err
 	}
@@ -421,7 +436,15 @@ func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCrea
 	dbReceivers := dbReceiverBuilder.Receivers()
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, selectedSatsCoins, dbReceivers, assetDetails)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		selectedSatsCoins,
+		dbReceivers,
+		assetDetails,
+	)
 	if err != nil {
 		return "", nil, err
 	}
@@ -429,7 +452,11 @@ func (a *arkClient) CreateAssets(ctx context.Context, requests []types.AssetCrea
 	return arkTxid, assetIds, nil
 }
 
-func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiver, opts ...Option) (string, error) {
+func (a *arkClient) SendAsset(
+	ctx context.Context,
+	receivers []types.AssetReceiver,
+	opts ...Option,
+) (string, error) {
 
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -553,7 +580,12 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 	var feeEstimator *arkfee.Estimator
 
 	assetFeeReceivers := dustReceiversFromAssetReceivers(finalAssetReceivers, a.Dust)
-	feeTotals, err := deriveAssetFeeTotals(selectedAssetCoins, assetFeeReceivers, a.Dust, feeEstimator)
+	feeTotals, err := deriveAssetFeeTotals(
+		selectedAssetCoins,
+		assetFeeReceivers,
+		a.Dust,
+		feeEstimator,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -597,7 +629,14 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 		})
 	}
 
-	arkTx, checkpointTxs, assetGroupDetails, err := buildAssetTransferTx(assetInputs, satsInputs, finalAssetReceivers, otherReceivers, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetGroupDetails, err := buildAssetTransferTx(
+		assetInputs,
+		satsInputs,
+		finalAssetReceivers,
+		otherReceivers,
+		a.CheckpointExitPath(),
+		a.Dust,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -641,14 +680,26 @@ func (a *arkClient) SendAsset(ctx context.Context, receivers []types.AssetReceiv
 		return arkTxid, nil
 	}
 
-	totalSelectedCoins := make([]client.TapscriptsVtxo, 0, len(selectedAssetCoins)+len(selectedSatsCoins))
+	totalSelectedCoins := make(
+		[]client.TapscriptsVtxo,
+		0,
+		len(selectedAssetCoins)+len(selectedSatsCoins),
+	)
 	totalSelectedCoins = append(totalSelectedCoins, selectedAssetCoins...)
 	totalSelectedCoins = append(totalSelectedCoins, selectedSatsCoins...)
 
 	dbReceivers := dbReceiverBuilder.Receivers()
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, totalSelectedCoins, dbReceivers, assetGroupDetails)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		totalSelectedCoins,
+		dbReceivers,
+		assetGroupDetails,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -672,7 +723,13 @@ func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetD
 	}, nil
 }
 
-func (a *arkClient) ModifyAssetMetadata(ctx context.Context, controlAssetId string, assetId string, metadata map[string]string, opts ...Option) (string, error) {
+func (a *arkClient) ModifyAssetMetadata(
+	ctx context.Context,
+	controlAssetId string,
+	assetId string,
+	metadata map[string]string,
+	opts ...Option,
+) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -758,7 +815,12 @@ func (a *arkClient) ModifyAssetMetadata(ctx context.Context, controlAssetId stri
 
 	// Calculate Fees for asset Vtxo Outputs
 	assetFeeReceivers := dustReceiversFromReceivers(controlReceivers, a.Dust)
-	feeTotals, err := deriveAssetFeeTotals(controlAssetCoins, assetFeeReceivers, a.Dust, feeEstimator)
+	feeTotals, err := deriveAssetFeeTotals(
+		controlAssetCoins,
+		assetFeeReceivers,
+		a.Dust,
+		feeEstimator,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -801,7 +863,19 @@ func (a *arkClient) ModifyAssetMetadata(ctx context.Context, controlAssetId stri
 		})
 	}
 
-	arkTx, checkpointTxs, assetGroup, err := buildAssetModificationTx(controlAssetId, assetId, controlAssetInputs, nil, otherInputs, controlReceivers, nil, otherReceivers, metadata, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetGroup, err := buildAssetModificationTx(
+		controlAssetId,
+		assetId,
+		controlAssetInputs,
+		nil,
+		otherInputs,
+		controlReceivers,
+		nil,
+		otherReceivers,
+		metadata,
+		a.CheckpointExitPath(),
+		a.Dust,
+	)
 
 	if err != nil {
 		return "", err
@@ -846,14 +920,26 @@ func (a *arkClient) ModifyAssetMetadata(ctx context.Context, controlAssetId stri
 		return arkTxid, nil
 	}
 
-	totalSelectedCoins := make([]client.TapscriptsVtxo, 0, len(selectedSatCoins)+len(controlAssetCoins))
+	totalSelectedCoins := make(
+		[]client.TapscriptsVtxo,
+		0,
+		len(selectedSatCoins)+len(controlAssetCoins),
+	)
 	totalSelectedCoins = append(totalSelectedCoins, controlAssetCoins...)
 	totalSelectedCoins = append(totalSelectedCoins, selectedSatCoins...)
 
 	dbReceivers := dbReceiverBuilder.Receivers()
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, totalSelectedCoins, dbReceivers, assetGroup)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		totalSelectedCoins,
+		dbReceivers,
+		assetGroup,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -861,7 +947,13 @@ func (a *arkClient) ModifyAssetMetadata(ctx context.Context, controlAssetId stri
 	return arkTxid, nil
 }
 
-func (a *arkClient) ReissueAsset(ctx context.Context, controlAssetId string, assetId string, amount uint64, opts ...Option) (string, error) {
+func (a *arkClient) ReissueAsset(
+	ctx context.Context,
+	controlAssetId string,
+	assetId string,
+	amount uint64,
+	opts ...Option,
+) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -954,7 +1046,12 @@ func (a *arkClient) ReissueAsset(ctx context.Context, controlAssetId string, ass
 		append(controlReceivers, assetReceivers...),
 		a.Dust,
 	)
-	feeTotals, err := deriveAssetFeeTotals(controlSealAssetCoins, assetFeeReceivers, a.Dust, feeEstimator)
+	feeTotals, err := deriveAssetFeeTotals(
+		controlSealAssetCoins,
+		assetFeeReceivers,
+		a.Dust,
+		feeEstimator,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1001,7 +1098,19 @@ func (a *arkClient) ReissueAsset(ctx context.Context, controlAssetId string, ass
 		})
 	}
 
-	arkTx, checkpointTxs, assetGroup, err := buildAssetModificationTx(controlAssetId, assetId, controlSealInputs, nil, otherInputs, controlReceivers, assetReceivers, otherReceivers, nil, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetGroup, err := buildAssetModificationTx(
+		controlAssetId,
+		assetId,
+		controlSealInputs,
+		nil,
+		otherInputs,
+		controlReceivers,
+		assetReceivers,
+		otherReceivers,
+		nil,
+		a.CheckpointExitPath(),
+		a.Dust,
+	)
 
 	if err != nil {
 		return "", err
@@ -1046,14 +1155,26 @@ func (a *arkClient) ReissueAsset(ctx context.Context, controlAssetId string, ass
 		return arkTxid, nil
 	}
 
-	totalSelectedCoins := make([]client.TapscriptsVtxo, 0, len(selectedSatsCoins)+len(controlSealAssetCoins))
+	totalSelectedCoins := make(
+		[]client.TapscriptsVtxo,
+		0,
+		len(selectedSatsCoins)+len(controlSealAssetCoins),
+	)
 	totalSelectedCoins = append(totalSelectedCoins, controlSealAssetCoins...)
 	totalSelectedCoins = append(totalSelectedCoins, selectedSatsCoins...)
 
 	dbReceivers := dbReceiverBuilder.Receivers()
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, totalSelectedCoins, dbReceivers, assetGroup)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		totalSelectedCoins,
+		dbReceivers,
+		assetGroup,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1061,7 +1182,13 @@ func (a *arkClient) ReissueAsset(ctx context.Context, controlAssetId string, ass
 	return arkTxid, nil
 }
 
-func (a *arkClient) BurnAsset(ctx context.Context, controlAssetId string, assetId string, amount uint64, opts ...Option) (string, error) {
+func (a *arkClient) BurnAsset(
+	ctx context.Context,
+	controlAssetId string,
+	assetId string,
+	amount uint64,
+	opts ...Option,
+) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -1227,7 +1354,19 @@ func (a *arkClient) BurnAsset(ctx context.Context, controlAssetId string, assetI
 		})
 	}
 
-	arkTx, checkpointTxs, assetGroup, err := buildAssetModificationTx(controlAssetId, assetId, controlSealInputs, assetInputs, otherInputs, controlReceivers, assetReceivers, otherReceivers, nil, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetGroup, err := buildAssetModificationTx(
+		controlAssetId,
+		assetId,
+		controlSealInputs,
+		assetInputs,
+		otherInputs,
+		controlReceivers,
+		assetReceivers,
+		otherReceivers,
+		nil,
+		a.CheckpointExitPath(),
+		a.Dust,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1271,7 +1410,11 @@ func (a *arkClient) BurnAsset(ctx context.Context, controlAssetId string, assetI
 		return arkTxid, nil
 	}
 
-	totalSelectedCoins := make([]client.TapscriptsVtxo, 0, len(controlAssetCoins)+len(assetCoins)+len(selectedSatCoins))
+	totalSelectedCoins := make(
+		[]client.TapscriptsVtxo,
+		0,
+		len(controlAssetCoins)+len(assetCoins)+len(selectedSatCoins),
+	)
 	totalSelectedCoins = append(totalSelectedCoins, controlAssetCoins...)
 	totalSelectedCoins = append(totalSelectedCoins, assetCoins...)
 	totalSelectedCoins = append(totalSelectedCoins, selectedSatCoins...)
@@ -1279,7 +1422,15 @@ func (a *arkClient) BurnAsset(ctx context.Context, controlAssetId string, assetI
 	dbReceivers := dbReceiverBuilder.Receivers()
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, totalSelectedCoins, dbReceivers, assetGroup)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		totalSelectedCoins,
+		dbReceivers,
+		assetGroup,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1456,7 +1607,15 @@ func (a *arkClient) SendOffChain(
 	}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, selectedCoins, changeReceivers, nil)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		selectedCoins,
+		changeReceivers,
+		nil,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1726,8 +1885,13 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]types.Transact
 }
 
 func (a *arkClient) RegisterIntent(
-	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
-	outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string,
+	ctx context.Context,
+	vtxos []types.Vtxo,
+	boardingUtxos []types.Utxo,
+	notes []string,
+	outputs []types.Receiver,
+	teleportOutputs []types.TeleportReceiver,
+	cosignersPublicKeys []string,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -3032,7 +3196,12 @@ func (a *arkClient) selectNormalFunds(
 	}
 
 	selectedBoardingUtxos, selectedVtxos, changeAmount, err := utils.CoinSelectNormal(
-		boardingUtxos, vtxos, receiversAmount+satsFees+otherFee, a.Dust, opts.WithoutExpirySorting, feeEstimator,
+		boardingUtxos,
+		vtxos,
+		receiversAmount+satsFees+otherFee,
+		a.Dust,
+		opts.WithoutExpirySorting,
+		feeEstimator,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -3049,7 +3218,10 @@ func (a *arkClient) selectNormalFunds(
 }
 
 func (a *arkClient) settle(
-	ctx context.Context, satsReceivers []types.Receiver, assetsReceivers map[string][]types.Receiver, settleOpts ...Option,
+	ctx context.Context,
+	satsReceivers []types.Receiver,
+	assetsReceivers map[string][]types.Receiver,
+	settleOpts ...Option,
 ) (string, error) {
 	options := newDefaultSettleOptions()
 	for _, opt := range settleOpts {
@@ -3108,7 +3280,9 @@ func (a *arkClient) settle(
 
 			if receiver.Amount < a.Dust {
 				return "", fmt.Errorf(
-					"invalid asset amount (%d), must be greater than dust %d", receiver.Amount, a.Dust,
+					"invalid asset amount (%d), must be greater than dust %d",
+					receiver.Amount,
+					a.Dust,
 				)
 			}
 		}
@@ -3212,7 +3386,15 @@ func (a *arkClient) settle(
 	totalVtxos = append(totalVtxos, satsVtxos...)
 	totalVtxos = append(totalVtxos, assetVtxos...)
 
-	commitmentId, err := a.joinBatchWithRetry(ctx, nil, outputs, teleportOutputs, *options, totalVtxos, boardingUtxos)
+	commitmentId, err := a.joinBatchWithRetry(
+		ctx,
+		nil,
+		outputs,
+		teleportOutputs,
+		*options,
+		totalVtxos,
+		boardingUtxos,
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to join batch: %s", err)
 	}
@@ -3241,10 +3423,18 @@ func (a *arkClient) settle(
 }
 
 func (a *arkClient) makeRegisterIntent(
-	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof,
-	outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, cosignersPublicKeys []string, arkFields [][]*psbt.Unknown,
+	inputs []intent.Input,
+	leafProofs []*arklib.TaprootMerkleProof,
+	outputs []types.Receiver,
+	teleportOutputs []types.TeleportReceiver,
+	cosignersPublicKeys []string,
+	arkFields [][]*psbt.Unknown,
 ) (string, string, error) {
-	message, outputsTxOut, err := createRegisterIntentMessage(outputs, teleportOutputs, cosignersPublicKeys)
+	message, outputsTxOut, err := createRegisterIntentMessage(
+		outputs,
+		teleportOutputs,
+		cosignersPublicKeys,
+	)
 	if err != nil {
 		return "", "", err
 	}
@@ -3436,8 +3626,13 @@ func (a *arkClient) populateVtxosWithTapscripts(
 }
 
 func (a *arkClient) joinBatchWithRetry(
-	ctx context.Context, notes []string, outputs []types.Receiver, teleportOutputs []types.TeleportReceiver, options settleOptions,
-	selectedCoins []client.TapscriptsVtxo, selectedBoardingCoins []types.Utxo,
+	ctx context.Context,
+	notes []string,
+	outputs []types.Receiver,
+	teleportOutputs []types.TeleportReceiver,
+	options settleOptions,
+	selectedCoins []client.TapscriptsVtxo,
+	selectedBoardingCoins []types.Utxo,
 ) (string, error) {
 	inputs, exitLeaves, arkFields, err := toIntentInputs(
 		selectedBoardingCoins, selectedCoins, notes,
@@ -3505,9 +3700,15 @@ func (a *arkClient) joinBatchWithRetry(
 
 func (a *arkClient) handleBatchEvents(
 	ctx context.Context,
-	intentId string, vtxos []client.TapscriptsVtxo, notes []string, boardingUtxos []types.Utxo,
-	receivers []types.Receiver, teleportReceivers []types.TeleportReceiver, signerSessions []tree.SignerSession,
-	replayEventsCh chan<- any, cancelCh <-chan struct{},
+	intentId string,
+	vtxos []client.TapscriptsVtxo,
+	notes []string,
+	boardingUtxos []types.Utxo,
+	receivers []types.Receiver,
+	teleportReceivers []types.TeleportReceiver,
+	signerSessions []tree.SignerSession,
+	replayEventsCh chan<- any,
+	cancelCh <-chan struct{},
 ) (string, error) {
 	topics := make([]string, 0)
 	for _, n := range notes {
@@ -3533,11 +3734,7 @@ func (a *arkClient) handleBatchEvents(
 	}
 
 	// skip only if there is no offchain output
-	skipVtxoTreeSigning := true
-
-	if len(teleportReceivers) > 0 || len(receivers) > 0 {
-		skipVtxoTreeSigning = false
-	}
+	skipVtxoTreeSigning := !(len(teleportReceivers) > 0 || len(receivers) > 0)
 
 	options := []BatchSessionOption{WithCancel(cancelCh)}
 
@@ -4222,7 +4419,12 @@ func (a *arkClient) handleArkTx(
 	return nil
 }
 
-func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, receiver types.TeleportReceiver, opts CoinSelectOptions) (string, error) {
+func (a *arkClient) claimTeleportAsset(
+	ctx context.Context,
+	nonce [32]byte,
+	receiver types.TeleportReceiver,
+	opts CoinSelectOptions,
+) (string, error) {
 	dbReceiverBuilder := newDBReceiverBuilder(0, a.Dust)
 	dbReceiverBuilder.AddAssetReceiver(types.Receiver{
 		To:     receiver.ClaimAddress,
@@ -4295,7 +4497,14 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 		})
 	}
 
-	arkTx, checkpointTxs, assetDetails, err := buildTeleportClaimTx(inputs, nonce, receiver, otherReceivers, a.CheckpointExitPath(), a.Dust)
+	arkTx, checkpointTxs, assetDetails, err := buildTeleportClaimTx(
+		inputs,
+		nonce,
+		receiver,
+		otherReceivers,
+		a.CheckpointExitPath(),
+		a.Dust,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -4342,7 +4551,15 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 	dbReceivers := dbReceiverBuilder.Receivers()
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(ctx, arkTx, arkTxid, signedCheckpointTxs, selectedSatsCoins, dbReceivers, assetDetails)
+	err = a.saveToDatabase(
+		ctx,
+		arkTx,
+		arkTxid,
+		signedCheckpointTxs,
+		selectedSatsCoins,
+		dbReceivers,
+		assetDetails,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -4351,7 +4568,15 @@ func (a *arkClient) claimTeleportAsset(ctx context.Context, nonce [32]byte, rece
 
 }
 
-func (a *arkClient) saveToDatabase(ctx context.Context, arkTxHex string, arkTxid string, signedCheckpointTxs []string, selectedCoins []client.TapscriptsVtxo, receviers []types.DBReceiver, assetGroup *asset.AssetPacket) error {
+func (a *arkClient) saveToDatabase(
+	ctx context.Context,
+	arkTxHex string,
+	arkTxid string,
+	signedCheckpointTxs []string,
+	selectedCoins []client.TapscriptsVtxo,
+	receviers []types.DBReceiver,
+	assetGroup *asset.AssetPacket,
+) error {
 	spentVtxos := make([]types.Vtxo, 0, len(selectedCoins))
 	spentAmount := uint64(0)
 
@@ -4581,7 +4806,11 @@ func (a *arkClient) fetchTxHistory(ctx context.Context) ([]types.Transaction, er
 	return history, nil
 }
 
-func (a *arkClient) getTapscripVtxos(ctx context.Context, offchainAddrs []wallet.TapscriptsAddress, opts CoinSelectOptions) ([]client.TapscriptsVtxo, error) {
+func (a *arkClient) getTapscripVtxos(
+	ctx context.Context,
+	offchainAddrs []wallet.TapscriptsAddress,
+	opts CoinSelectOptions,
+) ([]client.TapscriptsVtxo, error) {
 	vtxos := make([]client.TapscriptsVtxo, 0)
 
 	spendableVtxos, err := a.getVtxos(ctx, &opts)
@@ -4925,7 +5154,11 @@ func verifyFinalArkTx(
 	return nil
 }
 
-func verifyInputSignatures(tx *psbt.Packet, pubkey *btcec.PublicKey, tapLeaves map[int]txscript.TapLeaf) error {
+func verifyInputSignatures(
+	tx *psbt.Packet,
+	pubkey *btcec.PublicKey,
+	tapLeaves map[int]txscript.TapLeaf,
+) error {
 	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
 
 	prevouts := make(map[wire.OutPoint]*wire.TxOut)
@@ -4950,7 +5183,8 @@ func verifyInputSignatures(tx *psbt.Packet, pubkey *btcec.PublicKey, tapLeaves m
 		// check if pubkey has a tapscript sig
 		hasSig := false
 		for _, sig := range input.TaprootScriptSpendSig {
-			if bytes.Equal(sig.XOnlyPubKey, xOnlyPubkey) && bytes.Equal(sig.LeafHash, tapLeafHash[:]) {
+			if bytes.Equal(sig.XOnlyPubKey, xOnlyPubkey) &&
+				bytes.Equal(sig.LeafHash, tapLeafHash[:]) {
 				hasSig = true
 				sigsToVerify[inputIndex] = sig
 				break
@@ -5026,7 +5260,11 @@ func verifyAndSignCheckpoints(
 		}
 
 		// verify the server has signed the checkpoint tx
-		err = verifyInputSignatures(signedCheckpointPtx, arkSigner, getInputTapLeaves(myCheckpointTx))
+		err = verifyInputSignatures(
+			signedCheckpointPtx,
+			arkSigner,
+			getInputTapLeaves(myCheckpointTx),
+		)
 		if err != nil {
 			return nil, err
 		}

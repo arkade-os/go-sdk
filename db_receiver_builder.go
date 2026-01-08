@@ -24,7 +24,11 @@ func (b *dbReceiverBuilder) Receivers() []types.DBReceiver {
 	return b.receivers
 }
 
-func (b *dbReceiverBuilder) add(receiver types.Receiver, index uint32, receiverType types.VtxoType) types.DBReceiver {
+func (b *dbReceiverBuilder) add(
+	receiver types.Receiver,
+	index uint32,
+	receiverType types.VtxoType,
+) types.DBReceiver {
 	dbReceiver := types.DBReceiver{
 		Receiver:     receiver,
 		Index:        index,
@@ -42,7 +46,10 @@ func (b *dbReceiverBuilder) AddAssetReceiver(receiver types.Receiver) types.DBRe
 	return b.add(receiver, b.nextIndex, types.VtxoTypeAsset)
 }
 
-func (b *dbReceiverBuilder) AddAssetReceiverAt(receiver types.Receiver, index uint32) types.DBReceiver {
+func (b *dbReceiverBuilder) AddAssetReceiverAt(
+	receiver types.Receiver,
+	index uint32,
+) types.DBReceiver {
 	receiver.Amount = b.dust
 	return b.add(receiver, index, types.VtxoTypeAsset)
 }
@@ -51,11 +58,17 @@ func (b *dbReceiverBuilder) AddNormalReceiver(receiver types.Receiver) types.DBR
 	return b.add(receiver, b.nextIndex, types.VtxoTypeNormal)
 }
 
-func (b *dbReceiverBuilder) AddNormalReceiverAt(receiver types.Receiver, index uint32) types.DBReceiver {
+func (b *dbReceiverBuilder) AddNormalReceiverAt(
+	receiver types.Receiver,
+	index uint32,
+) types.DBReceiver {
 	return b.add(receiver, index, types.VtxoTypeNormal)
 }
 
-func (b *dbReceiverBuilder) AddNormalChangeAfterAnchor(changeReceiver types.Receiver, changeAmount uint64) types.DBReceiver {
+func (b *dbReceiverBuilder) AddNormalChangeAfterAnchor(
+	changeReceiver types.Receiver,
+	changeAmount uint64,
+) types.DBReceiver {
 	changeIndex := assetAnchorChangeIndex(b.nextIndex, changeAmount, b.dust)
 	return b.add(changeReceiver, changeIndex, types.VtxoTypeNormal)
 }
