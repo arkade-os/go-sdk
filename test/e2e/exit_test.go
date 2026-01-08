@@ -65,7 +65,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.True(t, bobConfirmedUtxo.IsConfirmed())
 
 			prevTotalBalance := int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount)
-			aliceBalance, err = alice.Balance(ctx, false)
+			aliceBalance, err = alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
 			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)

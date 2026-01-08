@@ -27,42 +27,58 @@ import (
 
 const UNIT_AMOUNT = uint64(1)
 
+func CalculateFees(inputs []client.TapscriptsVtxo, receivers []types.Receiver, feeEstimator *arkfee.Estimator) (uint64, error) {
+	totalFees := uint64(0)
+
+	if feeEstimator == nil {
+		return totalFees, nil
+	}
+
+	for _, rv := range receivers {
+		var fees arkfee.FeeAmount
+		var err error
+		arkFeeOutput := rv.ToArkFeeOutput()
+		if rv.IsOnchain() {
+			fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
+		} else {
+			fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
+		}
+		if err != nil {
+			return 0, err
+		}
+		totalFees += uint64(fees.ToSatoshis())
+
+	}
+
+	for _, input := range inputs {
+		feesForInput, err := feeEstimator.EvalOffchainInput(input.ToArkFeeInput())
+		if err != nil {
+			return 0, err
+		}
+		totalFees += uint64(feesForInput.ToSatoshis())
+	}
+
+	return totalFees, nil
+}
+
 func CoinSelectNormal(
 	boardingUtxos []types.Utxo,
 	vtxos []client.TapscriptsVtxo,
-	outputs []types.Receiver, dust uint64, withoutExpirySorting bool,
-	feeEstimator *arkfee.Estimator,
+	amount uint64, dust uint64, withoutExpirySorting bool, feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+
+	// Filter out asset vtxos
 	for _, vtxo := range vtxos {
 		if vtxo.Asset == nil {
 			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
 	vtxos = filteredVtxos
-
-	amount := uint64(0)
-	for _, output := range outputs {
-		amount += output.Amount
-		if feeEstimator != nil {
-			var fees arkfee.FeeAmount
-			var err error
-			arkFeeOutput := output.ToArkFeeOutput()
-			if output.IsOnchain() {
-				fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
-			} else {
-				fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
-			}
-			if err != nil {
-				return nil, nil, 0, err
-			}
-			amount += uint64(fees.ToSatoshis())
-		}
-	}
 
 	if !withoutExpirySorting {
 		// sort vtxos by expiration (oldest last)
@@ -156,12 +172,12 @@ func CoinSelectNormal(
 	return selectedBoarding, selected, change, nil
 }
 
-func CoinSelectSeals(
+func CoinSelectAsset(
 	vtxos []client.TapscriptsVtxo,
 	amount uint64,
 	assetID string,
 	dust uint64,
-	sortByExpirationTime bool,
+	withoutExpirySorting bool,
 ) ([]client.TapscriptsVtxo, uint64, error) {
 	selected := make([]client.TapscriptsVtxo, 0)
 	selectedAmount := uint64(0)
@@ -176,7 +192,7 @@ func CoinSelectSeals(
 
 	vtxos = filteredVtxos
 
-	if sortByExpirationTime {
+	if !withoutExpirySorting {
 		// sort vtxos by expiration (older first)
 		sort.SliceStable(vtxos, func(i, j int) bool {
 			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
@@ -191,7 +207,6 @@ func CoinSelectSeals(
 
 		selected = append(selected, vtxo)
 		selectedAmount += vtxo.Asset.Amount
-		break
 	}
 
 	if selectedAmount < amount {

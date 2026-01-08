@@ -57,7 +57,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, transferAmount, receiverAssetVtxo.Asset.Amount)
 
-	receiverBalance, err := receiver.Balance(ctx, false)
+	receiverBalance, err := receiver.Balance(ctx)
 	require.NoError(t, err)
 	// Verify receiver balance
 	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIds[0]]
@@ -201,7 +201,7 @@ func TestMultiAssetTransfer(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, transferB, receiverAssetBVtxo.Asset.Amount)
 
-	receiverBalance, err := receiver.Balance(ctx, false)
+	receiverBalance, err := receiver.Balance(ctx)
 	require.NoError(t, err)
 
 	assetABalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIdA]
