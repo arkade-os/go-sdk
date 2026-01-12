@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"testing"
+	"time"
 
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -117,7 +118,7 @@ func TestTransactionHistory(t *testing.T) {
 	// alice sends funds to bob
 	bob := setupClient(t)
 	bobVtxoCh := bob.GetVtxoEventChannel(ctx)
-	_, bobAddress, _, err := bob.Receive(ctx)
+	bobOnchainAddr, bobAddress, _, err := bob.Receive(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddress)
 
@@ -178,6 +179,33 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, offchainReceivedTx, history[0])
 	requireTxEqual(t, offchainTx, history[1])
 	requireTxEqual(t, settledBoardingTx, history[2])
+
+	time.Sleep(5 * time.Second)
+
+	commitmentTxid, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 2000)
+	require.NoError(t, err)
+	require.NotEmpty(t, commitmentTxid)
+
+	// should receive the offchain settled tx event
+	event = <-aliceTxChan
+	require.Equal(t, types.TxsAdded, event.Type)
+	require.Len(t, event.Txs, 1)
+	collabExitTx := event.Txs[0]
+	require.True(t, collabExitTx.Settled)
+	require.Equal(t, types.TxSent, collabExitTx.Type)
+	require.Equal(t, 2000, int(collabExitTx.Amount))
+	require.Empty(t, collabExitTx.BoardingTxid)
+	require.NotEmpty(t, collabExitTx.CommitmentTxid)
+	require.Empty(t, collabExitTx.ArkTxid)
+
+	history, err = alice.GetTransactionHistory(ctx)
+	require.NoError(t, err)
+	require.Len(t, history, 4)
+
+	requireTxEqual(t, collabExitTx, history[0])
+	requireTxEqual(t, offchainReceivedTx, history[1])
+	requireTxEqual(t, offchainTx, history[2])
+	requireTxEqual(t, settledBoardingTx, history[3])
 }
 
 func requireTxEqual(t *testing.T, expected, actual types.Transaction) {
