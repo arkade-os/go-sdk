@@ -25,10 +25,25 @@ type ArkClient interface {
 		err error,
 	)
 	NewOffchainAddress(ctx context.Context) (string, error)
+	CreateAssets(
+		ctx context.Context, requests []types.AssetCreationRequest, opt ...Option,
+	) (string, []string, error)
+	SendAsset(
+		ctx context.Context, receivers []types.AssetReceiver, opt ...Option,
+	) (string, error)
+	ReissueAsset(
+		ctx context.Context, controlAssetId string, assetId string, amount uint64, opt ...Option,
+	) (string, error)
+	BurnAsset(
+		ctx context.Context, controlAssetId string, assetID string, amount uint64, opt ...Option,
+	) (string, error)
+	ModifyAssetMetadata(
+		ctx context.Context, controlAssetId string, assetID string, metadata map[string]string, opt ...Option,
+	) (string, error)
 	SendOffChain(ctx context.Context, receivers []types.Receiver, opt ...Option) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
-		outputs []types.Receiver, cosignersPublicKeys []string,
+		outputs []types.Receiver, teleportOutput []types.TeleportReceiver, cosignersPublicKeys []string,
 	) (intentID string, err error)
 	DeleteIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
@@ -51,6 +66,7 @@ type ArkClient interface {
 	RedeemNotes(ctx context.Context, notes []string, opts ...Option) (string, error)
 	SignTransaction(ctx context.Context, tx string) (string, error)
 	NotifyIncomingFunds(ctx context.Context, address string) ([]types.Vtxo, error)
+	GetAsset(ctx context.Context, assetID string) (*types.AssetDetails, error)
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()

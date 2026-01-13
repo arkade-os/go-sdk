@@ -85,6 +85,20 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
+	Asset           *Asset
+}
+
+type Asset struct {
+	AssetId string
+	Amount  uint64
+	Vout    uint32
+}
+
+type AssetDetails struct {
+	ID        string
+	Quantity  uint64
+	Immutable bool
+	Metadata  map[string]string
 }
 
 func (v Vtxo) String() string {
@@ -247,9 +261,49 @@ func (u *Utxo) Sequence() (uint32, error) {
 }
 
 type Receiver struct {
-	To     string
-	Amount uint64
+	To       string
+	Amount   uint64
+	IsChange bool
 }
+
+type AssetReceiver struct {
+	Receiver
+	AssetId string
+	Index   uint32
+}
+
+type AssetCreationRequest struct {
+	AssetId   string
+	Receivers []Receiver
+	Params    AssetCreationParams
+}
+
+type VtxoType int
+
+const (
+	VtxoTypeNormal VtxoType = iota
+	VtxoTypeAsset
+)
+
+type DBReceiver struct {
+	Receiver
+	Index        uint32
+	ReceiverType VtxoType
+}
+
+type TeleportReceiver struct {
+	TeleportHash string
+	AssetAmount  uint64
+	ClaimAddress string
+	AssetId      string
+}
+
+type AssetManagementType uint
+
+const (
+	AssetManagementTypeMint AssetManagementType = iota
+	AssetManagementTypeBurn
+)
 
 func (r Receiver) ToArkFeeOutput() arkfee.Output {
 	txout, _, err := r.ToTxOut()
@@ -322,4 +376,21 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
+}
+
+type AssetCreationParams struct {
+	Quantity       uint64
+	ControlAssetId string
+	Immutable      bool
+	MetadataMap    map[string]string
+}
+
+type Metadata struct {
+	Key   string
+	Value string
+}
+
+type AssetModificationParams struct {
+	Name   string
+	Symbol string
 }

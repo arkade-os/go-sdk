@@ -480,6 +480,35 @@ func (a *grpcClient) GetBatchSweepTxs(
 	return resp.GetSweptBy(), nil
 }
 
+func (a *grpcClient) GetAssetDetails(
+	ctx context.Context, assetID string,
+) (*indexer.AssetResponse, error) {
+	req := &arkv1.GetAssetGroupRequest{
+		AssetId: assetID,
+	}
+
+	resp, err := a.svc().GetAssetGroup(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := make(map[string]string)
+	for _, mt := range resp.GetAssetGroup().GetMetadata() {
+		metadata[mt.Key] = mt.Value
+	}
+
+	assetResp := &indexer.AssetResponse{
+		Asset: indexer.AssetInfo{
+			Id:        resp.GetAssetGroup().GetId(),
+			Quantity:  resp.GetAssetGroup().GetQuantity(),
+			Immutable: resp.GetAssetGroup().GetImmutable(),
+			Metadata:  metadata,
+		},
+	}
+
+	return assetResp, nil
+}
+
 func (a *grpcClient) GetSubscription(
 	ctx context.Context, subscriptionId string,
 ) (<-chan *indexer.ScriptEvent, func(), error) {
@@ -634,6 +663,15 @@ func newIndexerVtxos(vtxos []*arkv1.IndexerVtxo) []types.Vtxo {
 }
 
 func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
+	var assetOutput *types.Asset
+
+	if vtxo.GetAsset() != nil {
+		assetOutput = &types.Asset{
+			AssetId: vtxo.GetAsset().GetAssetId(),
+			Vout:    vtxo.Outpoint.Vout,
+			Amount:  vtxo.GetAsset().GetAmount(),
+		}
+	}
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: vtxo.GetOutpoint().GetTxid(),
@@ -651,5 +689,6 @@ func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
 		SpentBy:         vtxo.GetSpentBy(),
 		SettledBy:       vtxo.GetSettledBy(),
 		ArkTxid:         vtxo.GetArkTxid(),
+		Asset:           assetOutput,
 	}
 }

@@ -686,6 +686,7 @@ func (a *arkClient) listVtxosFromIndexer(
 		if err != nil {
 			return nil, nil, err
 		}
+
 		scripts = append(scripts, hex.EncodeToString(vtxoScript))
 	}
 	opt := indexer.GetVtxosRequestOption{}
@@ -711,6 +712,7 @@ func (a *arkClient) listVtxosFromIndexer(
 
 		spendableVtxos = append(spendableVtxos, vtxo)
 	}
+
 	return
 }
 

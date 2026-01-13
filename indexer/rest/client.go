@@ -237,6 +237,32 @@ func (a *restClient) GetConnectors(
 	}, nil
 }
 
+func (a *restClient) GetAssetDetails(
+	ctx context.Context, assetID string,
+) (*indexer.AssetResponse, error) {
+	req := a.svc.IndexerServiceAPI.IndexerServiceGetAssetDetails(ctx, assetID)
+
+	resp, _, err := req.Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := make(map[string]string)
+	for _, mt := range resp.GetAsset().Metadata {
+		metadata[mt.GetKey()] = mt.GetValue()
+	}
+
+	return &indexer.AssetResponse{
+		AssetId: resp.GetAssetId(),
+		Asset: indexer.AssetInfo{
+			Id:        *resp.GetAsset().Id,
+			Quantity:  uint64(*resp.GetAsset().Quantity),
+			Immutable: *resp.GetAsset().Immutable,
+			Metadata:  metadata,
+		},
+	}, nil
+}
+
 func (a *restClient) GetVtxos(
 	ctx context.Context, opts ...indexer.GetVtxosRequestOption,
 ) (*indexer.VtxosResponse, error) {

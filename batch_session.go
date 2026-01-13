@@ -345,6 +345,7 @@ func newBatchEventsHandler(
 	vtxos []client.TapscriptsVtxo,
 	boardingUtxos []types.Utxo,
 	receivers []types.Receiver,
+	teleportReceivers []types.TeleportReceiver,
 	signerSessions []tree.SignerSession,
 ) *defaultBatchEventsHandler {
 	vtxosToSign := make([]client.TapscriptsVtxo, 0, len(vtxos))

@@ -24,6 +24,23 @@ type vtxoStore struct {
 	eventCh chan types.VtxoEvent
 }
 
+type vtxoRecord struct {
+	Outpoint        types.Outpoint
+	Script          string
+	Amount          uint64
+	CommitmentTxids []string
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	Preconfirmed    bool
+	Swept           bool
+	Unrolled        bool
+	Spent           bool
+	SpentBy         string
+	SettledBy       string
+	ArkTxid         string
+	Asset           []byte
+}
+
 func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 	if dir != "" {
 		dir = filepath.Join(dir, vtxoStoreDir)
@@ -42,7 +59,11 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []types.Vtxo) (int, error) {
 	addedVtxos := make([]types.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		if err := s.db.Insert(vtxo.Outpoint.String(), &vtxo); err != nil {
+		record, err := toVtxoRecord(vtxo)
+		if err != nil {
+			return -1, err
+		}
+		if err := s.db.Insert(vtxo.Outpoint.String(), &record); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
 				continue
 			}
@@ -79,7 +100,11 @@ func (s *vtxoStore) SpendVtxos(
 		vtxo.SpentBy = spentVtxoMap[vtxo.Outpoint]
 		vtxo.ArkTxid = arkTxid
 
-		if err := s.db.Update(vtxo.Outpoint.String(), &vtxo); err != nil {
+		record, err := toVtxoRecord(vtxo)
+		if err != nil {
+			return -1, err
+		}
+		if err := s.db.Update(vtxo.Outpoint.String(), &record); err != nil {
 			return -1, err
 		}
 		spentVtxos = append(spentVtxos, vtxo)
@@ -113,7 +138,11 @@ func (s *vtxoStore) SettleVtxos(
 		vtxo.SpentBy = spentVtxoMap[vtxo.Outpoint]
 		vtxo.SettledBy = settledBy
 
-		if err := s.db.Update(vtxo.Outpoint.String(), &vtxo); err != nil {
+		record, err := toVtxoRecord(vtxo)
+		if err != nil {
+			return -1, err
+		}
+		if err := s.db.Update(vtxo.Outpoint.String(), &record); err != nil {
 			return -1, err
 		}
 		spentVtxos = append(spentVtxos, vtxo)
@@ -128,7 +157,11 @@ func (s *vtxoStore) SettleVtxos(
 
 func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error) {
 	for _, vtxo := range vtxos {
-		if err := s.db.Upsert(vtxo.Outpoint.String(), &vtxo); err != nil {
+		record, err := toVtxoRecord(vtxo)
+		if err != nil {
+			return -1, err
+		}
+		if err := s.db.Upsert(vtxo.Outpoint.String(), &record); err != nil {
 			return -1, err
 		}
 	}
@@ -142,13 +175,14 @@ func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (int, e
 func (s *vtxoStore) GetAllVtxos(
 	_ context.Context,
 ) (spendable, spent []types.Vtxo, err error) {
-	var allVtxos []types.Vtxo
-	err = s.db.Find(&allVtxos, nil)
+	var allVtxoRecords []vtxoRecord
+	err = s.db.Find(&allVtxoRecords, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	for _, vtxo := range allVtxos {
+	for _, record := range allVtxoRecords {
+		vtxo := record.toVtxo()
 		if vtxo.Spent || vtxo.Unrolled {
 			spent = append(spent, vtxo)
 		} else {
@@ -159,13 +193,14 @@ func (s *vtxoStore) GetAllVtxos(
 }
 
 func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []types.Vtxo, err error) {
-	var allVtxos []types.Vtxo
-	err = s.db.Find(&allVtxos, nil)
+	var allVtxoRecords []vtxoRecord
+	err = s.db.Find(&allVtxoRecords, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, vtxo := range allVtxos {
+	for _, record := range allVtxoRecords {
+		vtxo := record.toVtxo()
 		if !vtxo.Spent && !vtxo.Unrolled {
 			spendable = append(spendable, vtxo)
 		}
@@ -178,8 +213,8 @@ func (s *vtxoStore) GetVtxos(
 ) ([]types.Vtxo, error) {
 	var vtxos []types.Vtxo
 	for _, key := range keys {
-		var vtxo types.Vtxo
-		err := s.db.Get(key.String(), &vtxo)
+		var record vtxoRecord
+		err := s.db.Get(key.String(), &record)
 		if err != nil {
 			if errors.Is(err, badgerhold.ErrNotFound) {
 				continue
@@ -187,7 +222,7 @@ func (s *vtxoStore) GetVtxos(
 
 			return nil, err
 		}
-		vtxos = append(vtxos, vtxo)
+		vtxos = append(vtxos, record.toVtxo())
 	}
 
 	return vtxos, nil
@@ -219,5 +254,60 @@ func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
 		return
 	default:
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
+	var assetData []byte
+	if vtxo.Asset != nil {
+		encoded, err := vtxo.Asset.EncodeTlv()
+		if err != nil {
+			return vtxoRecord{}, err
+		}
+		assetData = encoded
+	}
+
+	return vtxoRecord{
+		Outpoint:        vtxo.Outpoint,
+		Script:          vtxo.Script,
+		Amount:          vtxo.Amount,
+		CommitmentTxids: vtxo.CommitmentTxids,
+		ExpiresAt:       vtxo.ExpiresAt,
+		CreatedAt:       vtxo.CreatedAt,
+		Preconfirmed:    vtxo.Preconfirmed,
+		Swept:           vtxo.Swept,
+		Unrolled:        vtxo.Unrolled,
+		Spent:           vtxo.Spent,
+		SpentBy:         vtxo.SpentBy,
+		SettledBy:       vtxo.SettledBy,
+		ArkTxid:         vtxo.ArkTxid,
+		Asset:           assetData,
+	}, nil
+}
+
+func (r vtxoRecord) toVtxo() types.Vtxo {
+	var parsedAsset *types.Asset
+	if len(r.Asset) > 0 {
+		var decoded types.Asset
+		if err := decoded.DecodeTlv(r.Asset); err == nil {
+			parsedAsset = &decoded
+		}
+	}
+
+	return types.Vtxo{
+		Outpoint:        r.Outpoint,
+		Script:          r.Script,
+		Amount:          r.Amount,
+		CommitmentTxids: r.CommitmentTxids,
+		ExpiresAt:       r.ExpiresAt,
+		CreatedAt:       r.CreatedAt,
+		Preconfirmed:    r.Preconfirmed,
+		Swept:           r.Swept,
+		Unrolled:        r.Unrolled,
+		Spent:           r.Spent,
+		SpentBy:         r.SpentBy,
+		SettledBy:       r.SettledBy,
+		ArkTxid:         r.ArkTxid,
+		Asset:           parsedAsset,
 	}
 }
