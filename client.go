@@ -1299,24 +1299,32 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 
 	// Index the old data for quick lookups.
 	oldTxsMap := make(map[string]types.Transaction, len(oldTxs))
-	txsToUpdate := make(map[string]types.Transaction, 0)
+	updateTxsMap := make(map[string]types.Transaction, 0)
+	unconfirmedTxsMap := make(map[string]types.Transaction, 0)
 	for _, tx := range oldTxs {
-		if tx.CreatedAt.IsZero() || tx.SettledBy == "" {
-			txsToUpdate[tx.TransactionKey.String()] = tx
+		if tx.CreatedAt.IsZero() {
+			unconfirmedTxsMap[tx.TransactionKey.String()] = tx
+		} else if tx.SettledBy == "" {
+			updateTxsMap[tx.TransactionKey.String()] = tx
 		}
 		oldTxsMap[tx.TransactionKey.String()] = tx
 	}
 
 	txsToAdd := make([]types.Transaction, 0, len(newTxs))
-	txsToReplace := make([]types.Transaction, 0, len(newTxs))
+	txsToSettle := make([]types.Transaction, 0, len(newTxs))
+	txsToConfirm := make([]types.Transaction, 0, len(newTxs))
 	for _, tx := range newTxs {
 		if _, ok := oldTxsMap[tx.TransactionKey.String()]; !ok {
 			txsToAdd = append(txsToAdd, tx)
 			continue
 		}
 
-		if _, ok := txsToUpdate[tx.TransactionKey.String()]; ok {
-			txsToReplace = append(txsToReplace, tx)
+		if _, ok := unconfirmedTxsMap[tx.TransactionKey.String()]; ok && !tx.CreatedAt.IsZero() {
+			txsToConfirm = append(txsToConfirm, tx)
+			continue
+		}
+		if _, ok := updateTxsMap[tx.TransactionKey.String()]; ok && tx.SettledBy != "" {
+			txsToSettle = append(txsToSettle, tx)
 		}
 	}
 
@@ -1329,13 +1337,22 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 			log.Debugf("added %d new transaction(s)", count)
 		}
 	}
-	if len(txsToReplace) > 0 {
-		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToReplace)
+	if len(txsToSettle) > 0 {
+		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToSettle)
 		if err != nil {
 			return err
 		}
 		if count > 0 {
-			log.Debugf("replaced %d transaction(s)", count)
+			log.Debugf("settled %d transaction(s)", count)
+		}
+	}
+	if len(txsToConfirm) > 0 {
+		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToConfirm)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			log.Debugf("confirmed %d transaction(s)", count)
 		}
 	}
 
