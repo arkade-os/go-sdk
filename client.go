@@ -453,7 +453,7 @@ func (a *arkClient) SendOffChain(
 		return arkTxid, nil
 	}
 
-	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
+	log.Debugf("spent %d vtxos", len(spentVtxos))
 
 	createdAt := time.Now()
 
@@ -656,7 +656,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 				return fmt.Errorf("failed to update vtxos: %w", err)
 			}
 			if count > 0 {
-				log.Debugf("marked %d vtxos as unrolled", count)
+				log.Debugf("unrolled %d vtxos", count)
 			}
 		}
 
@@ -2906,7 +2906,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("added %d transaction(s)", count)
+		if count > 0 {
+			log.Debugf("added %d transaction(s)", count)
+		}
 	}
 
 	if len(txsToSettle) > 0 {
@@ -2915,7 +2917,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("settled %d transaction(s)", count)
+		if count > 0 {
+			log.Debugf("settled %d transaction(s)", count)
+		}
 	}
 
 	if len(vtxosToAdd) > 0 {
@@ -2923,7 +2927,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("added %d vtxo(s)", count)
+		if count > 0 {
+			log.Debugf("added %d vtxo(s)", count)
+		}
 	}
 
 	if len(vtxosToSpend) > 0 {
@@ -2931,7 +2937,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("spent %d vtxo(s)", count)
+		if count > 0 {
+			log.Debugf("spent %d vtxo(s)", count)
+		}
 	}
 
 	return nil
