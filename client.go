@@ -1237,7 +1237,6 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 			Amount:    u.Amount,
 			Type:      types.TxReceived,
 			CreatedAt: u.CreatedAt,
-			Settled:   u.Spent,
 			SettledBy: u.SpentBy,
 			Hex:       u.Tx,
 		}
@@ -1302,7 +1301,7 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 	oldTxsMap := make(map[string]types.Transaction, len(oldTxs))
 	txsToUpdate := make(map[string]types.Transaction, 0)
 	for _, tx := range oldTxs {
-		if tx.CreatedAt.IsZero() || !tx.Settled {
+		if tx.CreatedAt.IsZero() || tx.SettledBy == "" {
 			txsToUpdate[tx.TransactionKey.String()] = tx
 		}
 		oldTxsMap[tx.TransactionKey.String()] = tx
@@ -2759,7 +2758,6 @@ func (a *arkClient) getBoardingTxs(ctx context.Context) ([]types.Transaction, er
 			Amount:    u.Amount,
 			Type:      types.TxReceived,
 			CreatedAt: u.CreatedAt,
-			Settled:   u.Spent,
 			SettledBy: u.SpentBy,
 			Hex:       u.Tx,
 		}
@@ -2857,7 +2855,6 @@ func (a *arkClient) handleCommitmentTx(
 				},
 				Amount:    amount,
 				Type:      types.TxReceived,
-				Settled:   true,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
 			})
@@ -2877,7 +2874,6 @@ func (a *arkClient) handleCommitmentTx(
 					},
 					Amount:    settledBoardingAmount - vtxosToAddAmount,
 					Type:      types.TxSent,
-					Settled:   true,
 					CreatedAt: time.Now(),
 					Hex:       commitmentTx.Tx,
 				})
@@ -2899,7 +2895,6 @@ func (a *arkClient) handleCommitmentTx(
 				},
 				Amount:    amount,
 				Type:      types.TxSent,
-				Settled:   true,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
 			})
@@ -3011,7 +3006,6 @@ func (a *arkClient) handleArkTx(
 			},
 			Amount:    inAmount - outAmount,
 			Type:      types.TxSent,
-			Settled:   true,
 			CreatedAt: time.Now(),
 		})
 	}
@@ -3146,12 +3140,10 @@ func (i *arkClient) vtxosToTxs(
 
 		commitmentTxid := vtxo.CommitmentTxids[0]
 		arkTxid := ""
-		settled := !vtxo.Preconfirmed
 		settledBy := ""
 		if vtxo.Preconfirmed {
 			arkTxid = vtxo.Txid
 			commitmentTxid = ""
-			settled = vtxo.Spent
 			settledBy = vtxo.SettledBy
 		}
 
@@ -3163,7 +3155,6 @@ func (i *arkClient) vtxosToTxs(
 			Amount:    vtxo.Amount - settleAmount - spentAmount,
 			Type:      types.TxReceived,
 			CreatedAt: vtxo.CreatedAt,
-			Settled:   settled,
 			SettledBy: settledBy,
 		})
 	}
@@ -3212,7 +3203,6 @@ func (i *arkClient) vtxosToTxs(
 				Amount:    forfeitAmount - resultedAmount,
 				Type:      types.TxSent,
 				CreatedAt: vtxo.CreatedAt,
-				Settled:   true,
 			})
 		}
 	}
@@ -3257,7 +3247,7 @@ func (i *arkClient) vtxosToTxs(
 			Amount:    spentAmount - resultedAmount,
 			Type:      types.TxSent,
 			CreatedAt: vtxo.CreatedAt,
-			Settled:   true,
+			SettledBy: vtxo.SettledBy,
 		})
 	}
 

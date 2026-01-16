@@ -43,7 +43,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.NotEmpty(t, boardingTx.BoardingTxid)
 	require.Empty(t, boardingTx.CommitmentTxid)
 	require.Empty(t, boardingTx.ArkTxid)
-	require.False(t, boardingTx.Settled)
+	require.Empty(t, boardingTx.SettledBy)
 
 	// verify history contains the boarding tx
 	history, err = alice.GetTransactionHistory(ctx)
@@ -61,7 +61,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsSettled, event.Type)
 	require.Len(t, event.Txs, 1)
 	settledBoardingTx := event.Txs[0]
-	require.True(t, settledBoardingTx.Settled)
+	require.NotEmpty(t, settledBoardingTx.SettledBy)
 	require.Equal(t, types.TxReceived, settledBoardingTx.Type)
 	require.Equal(t, 21000, int(settledBoardingTx.Amount))
 	require.NotEmpty(t, settledBoardingTx.BoardingTxid)
@@ -191,7 +191,6 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	collabExitTx := event.Txs[0]
-	require.True(t, collabExitTx.Settled)
 	require.Equal(t, types.TxSent, collabExitTx.Type)
 	require.Equal(t, 2000, int(collabExitTx.Amount))
 	require.Empty(t, collabExitTx.BoardingTxid)
@@ -213,7 +212,6 @@ func requireTxEqual(t *testing.T, expected, actual types.Transaction) {
 	require.Equal(t, expected.Type, actual.Type)
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.Hex, actual.Hex)
-	require.Equal(t, expected.Settled, actual.Settled)
 	require.Equal(t, expected.SettledBy, actual.SettledBy)
 	require.Equal(t, expected.CreatedAt.Unix(), actual.CreatedAt.Unix())
 }
