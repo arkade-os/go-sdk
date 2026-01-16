@@ -228,15 +228,18 @@ func (v *txStore) GetTransactions(
 func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
-			var settled sql.NullBool
+			var settledBy sql.NullString
+			if tx.SettledBy != "" {
+				settledBy = sql.NullString{String: tx.SettledBy, Valid: true}
+			}
 			var createdAt sql.NullInt64
 			if !tx.CreatedAt.IsZero() {
 				createdAt = sql.NullInt64{Int64: tx.CreatedAt.Unix(), Valid: true}
 			}
-			if settled.Valid || createdAt.Valid {
+			if settledBy.Valid || createdAt.Valid {
 				if err := querierWithTx.UpdateTx(ctx, queries.UpdateTxParams{
 					Txid:      tx.TransactionKey.String(),
-					Settled:   settled,
+					SettledBy: settledBy,
 					CreatedAt: createdAt,
 				}); err != nil {
 					return err
