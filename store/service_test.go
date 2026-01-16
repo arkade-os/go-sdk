@@ -128,17 +128,15 @@ var (
 			TransactionKey: types.TransactionKey{
 				BoardingTxid: "0000000000000000000000000000000000000000000000000000000000000000",
 			},
-			Amount:  5000,
-			Type:    types.TxReceived,
-			Settled: false,
+			Amount: 5000,
+			Type:   types.TxReceived,
 		},
 		{
 			TransactionKey: types.TransactionKey{
 				ArkTxid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
-			Amount:  12000,
-			Type:    types.TxReceived,
-			Settled: false,
+			Amount: 12000,
+			Type:   types.TxReceived,
 		},
 	}
 
@@ -551,6 +549,6 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		txs, err := storeSvc.GetTransactions(ctx, testSettledTxids)
 		require.NoError(t, err)
 		require.Len(t, txs, 1)
-		require.True(t, txs[0].Settled)
+		require.NotEmpty(t, txs[0].SettledBy)
 	})
 }

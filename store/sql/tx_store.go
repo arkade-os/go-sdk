@@ -49,7 +49,6 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					TxidType:  txidType,
 					Amount:    int64(tx.Amount),
 					Type:      string(tx.Type),
-					Settled:   tx.Settled,
 					CreatedAt: createdAt,
 					Hex:       sql.NullString{String: tx.Hex, Valid: true},
 					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
@@ -89,10 +88,9 @@ func (v *txStore) SettleTransactions(
 	settledTxs := make([]types.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
-			if tx.Settled {
+			if tx.SettledBy != "" {
 				continue
 			}
-			tx.Settled = true
 			tx.SettledBy = settledBy
 			if err := querierWithTx.UpdateTx(ctx, queries.UpdateTxParams{
 				Txid:      tx.TransactionKey.String(),
@@ -185,7 +183,6 @@ func (v *txStore) RbfTransactions(
 				TxidType:  txidType,
 				Amount:    int64(tx.Amount),
 				Type:      string(tx.Type),
-				Settled:   tx.Settled,
 				CreatedAt: createdAt,
 				Hex:       sql.NullString{String: tx.Hex, Valid: len(tx.Hex) > 0},
 				OldTxid:   tx.TransactionKey.String(),
@@ -233,9 +230,6 @@ func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transactio
 		for _, tx := range txs {
 			var settled sql.NullBool
 			var createdAt sql.NullInt64
-			if tx.Settled {
-				settled = sql.NullBool{Bool: true, Valid: true}
-			}
 			if !tx.CreatedAt.IsZero() {
 				createdAt = sql.NullInt64{Int64: tx.CreatedAt.Unix(), Valid: true}
 			}
@@ -311,7 +305,6 @@ func rowToTx(row queries.Tx) types.Transaction {
 		},
 		Amount:    uint64(row.Amount),
 		Type:      types.TxType(row.Type),
-		Settled:   row.Settled,
 		SettledBy: row.SettledBy.String,
 		CreatedAt: createdAt,
 		Hex:       row.Hex.String,
