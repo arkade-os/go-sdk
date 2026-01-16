@@ -3186,7 +3186,7 @@ func (i *arkClient) vtxosToTxs(
 			}
 		}
 
-		if len(v.SpentBy) <= 0 {
+		if len(v.ArkTxid) <= 0 {
 			continue
 		}
 

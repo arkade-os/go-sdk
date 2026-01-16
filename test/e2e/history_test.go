@@ -49,7 +49,7 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	requireTxEqual(t, boardingTx, history[0])
+	requireTxEqual(t, boardingTx, history[0], "")
 
 	// Alice completes the boarding in a commitment tx
 	commitmentTxid, err := alice.Settle(ctx)
@@ -73,7 +73,7 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	requireTxEqual(t, settledBoardingTx, history[0])
+	requireTxEqual(t, settledBoardingTx, history[0], commitmentTxid)
 
 	// should receive the vtxo added event
 	vtxoEvent := <-vtxoCh
@@ -113,7 +113,7 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	requireTxEqual(t, settledBoardingTx, history[0])
+	requireTxEqual(t, settledBoardingTx, history[0], "")
 
 	// alice sends funds to bob
 	bob := setupClient(t)
@@ -143,8 +143,8 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 2)
-	requireTxEqual(t, offchainTx, history[0])
-	requireTxEqual(t, settledBoardingTx, history[1])
+	requireTxEqual(t, offchainTx, history[0], "")
+	requireTxEqual(t, settledBoardingTx, history[1], "")
 
 	// wait for bob to receive the tx
 	vtxoEvent = <-bobVtxoCh
@@ -176,9 +176,9 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 3)
-	requireTxEqual(t, offchainReceivedTx, history[0])
-	requireTxEqual(t, offchainTx, history[1])
-	requireTxEqual(t, settledBoardingTx, history[2])
+	requireTxEqual(t, offchainReceivedTx, history[0], "")
+	requireTxEqual(t, offchainTx, history[1], "")
+	requireTxEqual(t, settledBoardingTx, history[2], "")
 
 	time.Sleep(5 * time.Second)
 
@@ -197,21 +197,28 @@ func TestTransactionHistory(t *testing.T) {
 	require.NotEmpty(t, collabExitTx.CommitmentTxid)
 	require.Empty(t, collabExitTx.ArkTxid)
 
+	// Give time to update also the other records
+	time.Sleep(5 * time.Second)
+
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 4)
 
-	requireTxEqual(t, collabExitTx, history[0])
-	requireTxEqual(t, offchainReceivedTx, history[1])
-	requireTxEqual(t, offchainTx, history[2])
-	requireTxEqual(t, settledBoardingTx, history[3])
+	requireTxEqual(t, collabExitTx, history[0], "")
+	requireTxEqual(t, offchainReceivedTx, history[1], commitmentTxid)
+	requireTxEqual(t, offchainTx, history[2], commitmentTxid)
+	requireTxEqual(t, settledBoardingTx, history[3], "")
 }
 
-func requireTxEqual(t *testing.T, expected, actual types.Transaction) {
+func requireTxEqual(t *testing.T, expected, actual types.Transaction, settledBy string) {
 	require.Equal(t, expected.TransactionKey, actual.TransactionKey)
 	require.Equal(t, expected.Type, actual.Type)
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.Hex, actual.Hex)
-	require.Equal(t, expected.SettledBy, actual.SettledBy)
 	require.Equal(t, expected.CreatedAt.Unix(), actual.CreatedAt.Unix())
+	if settledBy != "" {
+		require.Equal(t, settledBy, actual.SettledBy)
+		return
+	}
+	require.Equal(t, expected.SettledBy, actual.SettledBy)
 }
