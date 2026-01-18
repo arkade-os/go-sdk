@@ -529,8 +529,8 @@ func (c *grpcClient) GetTransactionsStream(
 }
 
 func (c *grpcClient) ModifyStreamTopics(
-	ctx context.Context, addTopics []string, removeTopics []string,
-) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	ctx context.Context, addTopics, removeTopics []string,
+) (addedTopics, removedTopics, allTopics []string, err error) {
 	if c.listenerId == "" {
 		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot modify stream topics")
 	}
