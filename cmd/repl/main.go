@@ -341,14 +341,11 @@ func repl(ctx *cli.Context) error {
 				continue
 			}
 			assetIDHex := hex.EncodeToString(assetID[:])
-			receivers := []types.AssetReceiver{{
-				Receiver: types.Receiver{
-					To:     fields[2],
-					Amount: amount,
-				},
-				AssetId: assetIDHex,
+			receivers := []types.Receiver{{
+				To:     fields[2],
+				Amount: amount,
 			}}
-			txid, err := arkSdkClient.SendAsset(ctx.Context, receivers)
+			txid, err := arkSdkClient.SendAsset(ctx.Context, receivers, assetIDHex)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue
@@ -385,10 +382,10 @@ func repl(ctx *cli.Context) error {
 				}
 				assetParams.ControlAssetId = hex.EncodeToString(controlID[:])
 			}
-			requests := []types.AssetCreationRequest{
-				{Params: assetParams},
+			request := types.AssetCreationRequest{
+				Params: assetParams,
 			}
-			txid, assetIds, err := arkSdkClient.CreateAssets(ctx.Context, requests)
+			txid, assetIds, err := arkSdkClient.CreateAsset(ctx.Context, request)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue

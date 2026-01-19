@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	restclient "github.com/arkade-os/go-sdk/client/rest"
 	"github.com/arkade-os/go-sdk/internal/utils"
@@ -140,3 +141,28 @@ type CoinSelectOptions struct {
 	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
 	RecomputeExpiry bool
 }
+
+type IntentInput struct {
+	intent.Input
+	AssetExtension *AssetExtension
+}
+
+type TapscriptsVtxo struct {
+	types.Vtxo
+	Tapscripts []string
+}
+
+type AssetExtension struct {
+	Id     string
+	Amount uint64
+	Index  uint32
+}
+
+type AssetGroupOperation int
+
+const (
+	AssetGroupIssuance AssetGroupOperation = iota
+	AssetGroupTransfer
+	AssetGroupBurn
+	AssetGroupClaimTeleport
+)

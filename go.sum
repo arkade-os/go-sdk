@@ -23,6 +23,14 @@ github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8
 github.com/antlr4-go/antlr/v4 v4.13.0/go.mod h1:pfChB/xh/Unjila75QW7+VU4TSnWnnk9UTnmpPaOR2g=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260107184345-108941e00792 h1:tOw7vxeapMHN2MufiuCW8WPtzTCug6o36sufp2uZ2qY=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260107184345-108941e00792/go.mod h1:0qz9emEemKohm0e29jdGSzHXmBUdQ6JYSGFzmuM+ZSk=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260114141323-38a9a38c9f4d h1:Pdyny14oycOSsrLj0/TA3G8jr6twU28DlaNV6vXow/o=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260114141323-38a9a38c9f4d/go.mod h1:0qz9emEemKohm0e29jdGSzHXmBUdQ6JYSGFzmuM+ZSk=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260114160502-b7630a63663b h1:/hA2NGT13ojMGkGu6pCsLcRskZYr2B58j/i68w0WR3M=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260114160502-b7630a63663b/go.mod h1:0qz9emEemKohm0e29jdGSzHXmBUdQ6JYSGFzmuM+ZSk=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260115171137-dee9d592e748 h1:+eSf9zTYZ9IKYN7jw/1IRQ38Hht/Rd74IImg5AOWAbs=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260115171137-dee9d592e748/go.mod h1:0qz9emEemKohm0e29jdGSzHXmBUdQ6JYSGFzmuM+ZSk=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260118113754-1bc961cd3146 h1:7ltVOEDfGQEB0jH6UwXvfNt8N8PcmLYdVVHm6TySl3E=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260118113754-1bc961cd3146/go.mod h1:0qz9emEemKohm0e29jdGSzHXmBUdQ6JYSGFzmuM+ZSk=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

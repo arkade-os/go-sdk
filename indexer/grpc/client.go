@@ -663,15 +663,18 @@ func newIndexerVtxos(vtxos []*arkv1.IndexerVtxo) []types.Vtxo {
 }
 
 func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
-	var assetOutput *types.Asset
+	var assetLists []types.Asset
 
-	if vtxo.GetAsset() != nil {
-		assetOutput = &types.Asset{
-			AssetId: vtxo.GetAsset().GetAssetId(),
-			Vout:    vtxo.Outpoint.Vout,
-			Amount:  vtxo.GetAsset().GetAmount(),
+	for _, ext := range vtxo.GetExtensions() {
+		asst := ext.GetAsset()
+		if asst != nil {
+			assetLists = append(assetLists, types.Asset{
+				AssetId: asst.GetAssetId(),
+				Amount:  asst.GetAmount(),
+			})
 		}
 	}
+
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: vtxo.GetOutpoint().GetTxid(),
@@ -689,6 +692,6 @@ func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
 		SpentBy:         vtxo.GetSpentBy(),
 		SettledBy:       vtxo.GetSettledBy(),
 		ArkTxid:         vtxo.GetArkTxid(),
-		Asset:           assetOutput,
+		Assets:          assetLists,
 	}
 }

@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
@@ -856,12 +858,20 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 			vtxoSequence = wire.MaxTxInSequenceNum - 1
 		}
 
-		forfeitTx, err := tree.BuildForfeitTx(
-			[]*wire.OutPoint{vtxoInput, connectorOutpoint},
-			[]uint32{vtxoSequence, wire.MaxTxInSequenceNum},
-			[]*wire.TxOut{vtxoPrevout, connector},
+		assetAnchor, err := buildForfeitAssetAnchor(vtxo, 0, forfeitScript)
+		if err != nil {
+			return nil, err
+		}
+
+		forfeitTx, err := buildForfeitTxWithAssetAnchor(
+			vtxoInput,
+			connectorOutpoint,
+			vtxoPrevout,
+			connector,
 			forfeitPkScript,
+			vtxoSequence,
 			uint32(vtxoLocktime),
+			assetAnchor,
 		)
 		if err != nil {
 			return nil, err
@@ -883,4 +893,109 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 	}
 
 	return signedForfeitTxs, nil
+}
+
+func buildForfeitTxWithAssetAnchor(
+	vtxoInput, connectorOutpoint *wire.OutPoint,
+	vtxoPrevout, connectorPrevout *wire.TxOut,
+	forfeitPkScript []byte,
+	vtxoSequence uint32,
+	txLocktime uint32,
+	assetAnchor *wire.TxOut,
+) (*psbt.Packet, error) {
+	inputs := []*wire.OutPoint{vtxoInput, connectorOutpoint}
+	sequences := []uint32{vtxoSequence, wire.MaxTxInSequenceNum}
+	prevouts := []*wire.TxOut{vtxoPrevout, connectorPrevout}
+
+	sumPrevout := int64(0)
+	for _, prevout := range prevouts {
+		sumPrevout += prevout.Value
+	}
+	sumPrevout -= txutils.ANCHOR_VALUE
+
+	forfeitOut := wire.NewTxOut(sumPrevout, forfeitPkScript)
+
+	outs := []*wire.TxOut{forfeitOut}
+	if assetAnchor != nil {
+		outs = append(outs, assetAnchor)
+	}
+	outs = append(outs, txutils.AnchorOutput())
+
+	partialTx, err := psbt.New(inputs, outs, 3, txLocktime, sequences)
+	if err != nil {
+		return nil, err
+	}
+
+	updater, err := psbt.NewUpdater(partialTx)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, prevout := range prevouts {
+		if err := updater.AddInWitnessUtxo(prevout, i); err != nil {
+			return nil, err
+		}
+	}
+
+	return partialTx, nil
+}
+
+func buildForfeitAssetAnchor(
+	vtxo client.TapscriptsVtxo,
+	vtxoVin uint32,
+	forfeitPkScript []byte,
+) (*wire.TxOut, error) {
+	if len(vtxo.Assets) == 0 {
+		return nil, nil
+	}
+
+	assetSums := make(map[string]uint64)
+	for _, asset := range vtxo.Assets {
+		assetSums[asset.AssetId] += asset.Amount
+	}
+
+	assetIds := make([]string, 0, len(assetSums))
+	for assetId := range assetSums {
+		assetIds = append(assetIds, assetId)
+	}
+	sort.Strings(assetIds)
+
+	assetGroups := make([]extension.AssetGroup, 0, len(assetIds))
+	for _, assetId := range assetIds {
+		decodedAssetId, err := extension.AssetIdFromString(assetId)
+		if err != nil {
+			return nil, err
+		}
+		if decodedAssetId == nil {
+			return nil, fmt.Errorf("invalid asset id: %s", assetId)
+		}
+
+		assetGroups = append(assetGroups, extension.AssetGroup{
+			AssetId: decodedAssetId,
+			Inputs: []extension.AssetInput{{
+				Type:   extension.AssetTypeLocal,
+				Vin:    vtxoVin,
+				Amount: assetSums[assetId],
+			}},
+			Outputs: []extension.AssetOutput{{
+				Type:   extension.AssetTypeTeleport,
+				Amount: assetSums[assetId],
+				Script: forfeitPkScript,
+			}},
+		})
+	}
+
+	assetPacket := extension.AssetPacket{
+		Assets: assetGroups,
+	}
+	extensionPacket := extension.ExtensionPacket{
+		Asset: &assetPacket,
+	}
+
+	txOut, err := extensionPacket.EncodeExtensionPacket()
+	if err != nil {
+		return nil, err
+	}
+
+	return &txOut, nil
 }

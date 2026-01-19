@@ -485,7 +485,7 @@ func createAsset(ctx *cli.Context) error {
 		if k == "" {
 			return fmt.Errorf("empty key in %q", meta)
 		}
-		metadataList[k] = k
+		metadataList[k] = v
 	}
 
 	assetParams := types.AssetCreationParams{
@@ -503,13 +503,11 @@ func createAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	requests := []types.AssetCreationRequest{
-		{
-			Params: assetParams,
-		},
+	request := types.AssetCreationRequest{
+		Params: assetParams,
 	}
 
-	arkTxid, assetIds, err := arkSdkClient.CreateAssets(ctx.Context, requests)
+	arkTxid, assetIds, err := arkSdkClient.CreateAsset(ctx.Context, request)
 	if err != nil {
 		return err
 	}
@@ -532,11 +530,8 @@ func sendAsset(ctx *cli.Context) error {
 		return fmt.Errorf("invalid asset id: %v", err)
 	}
 
-	receivers := []types.AssetReceiver{
-		{
-			Receiver: types.Receiver{To: assetFlagReceiver, Amount: amount},
-			AssetId:  assetIDHex,
-		},
+	receivers := []types.Receiver{
+		{To: assetFlagReceiver, Amount: amount},
 	}
 
 	password, err := readPassword(ctx)
@@ -547,7 +542,7 @@ func sendAsset(ctx *cli.Context) error {
 		return err
 	}
 
-	arkTxid, err := arkSdkClient.SendAsset(ctx.Context, receivers)
+	arkTxid, err := arkSdkClient.SendAsset(ctx.Context, receivers, assetIDHex)
 	if err != nil {
 		return err
 	}
@@ -651,7 +646,7 @@ func modifyAssetMetadata(ctx *cli.Context) error {
 		if k == "" {
 			return fmt.Errorf("empty key in %q", meta)
 		}
-		metadataList[k] = k
+		metadataList[k] = v
 	}
 
 	var controlAssetID string

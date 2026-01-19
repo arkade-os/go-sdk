@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
@@ -123,846 +122,432 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 	return nil
 }
 
-func buildTeleportClaimTx(
-	vtxos []arkTxInput,
-	nonce [32]byte,
-	receiver types.TeleportReceiver,
-	otherReceivers []types.Receiver,
-	serverUnrollScript []byte,
-	dustLimit uint64,
-) (string, []string, *asset.AssetPacket, error) {
-	if len(vtxos) <= 0 {
-		return "", nil, nil, fmt.Errorf("missing vtxos")
+func buildArkInputs(vtxos []client.TapscriptsVtxo) ([]arkTxInput, error) {
+	if len(vtxos) == 0 {
+		return nil, nil
 	}
 
-	ins := make([]offchain.VtxoInput, 0, len(vtxos))
+	inputs := make([]arkTxInput, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		in, err := createVtxoTxInput(vtxo)
+		forfeitLeafHash, err := DeriveForfeitLeafHash(vtxo.Tapscripts)
 		if err != nil {
-			return "", nil, nil, err
+			return nil, err
 		}
 
-		ins = append(ins, *in)
+		inputs = append(inputs, arkTxInput{
+			TapscriptsVtxo:  vtxo,
+			ForfeitLeafHash: *forfeitLeafHash,
+		})
 	}
 
-	outs := make([]*wire.TxOut, 0)
+	return inputs, nil
+}
 
-	sealAddr, err := arklib.DecodeAddressV0(receiver.ClaimAddress)
+type AssetTxBuilder struct {
+	vtxos                []client.TapscriptsVtxo
+	ins                  []offchain.VtxoInput
+	outs                 []*wire.TxOut
+	inputIndex           uint32
+	outputIndex          uint32
+	uniqueAssetInput     map[wire.OutPoint]uint32
+	withoutExpirySorting bool
+	changeAddr           string
+	changeReceivers      []types.DBReceiver
+	assetGroupList       []extension.AssetGroup
+	assetGroupIndex      uint32
+	eVtxoAmount          uint64
+
+	subdustPacket *extension.SubDustPacket
+
+	extensionScript []byte
+}
+
+func NewAssetTxBuilder(
+	vtxos []client.TapscriptsVtxo,
+	withoutExpirySorting bool,
+	changeAddr string,
+	eVtxoAmount uint64,
+) *AssetTxBuilder {
+
+	return &AssetTxBuilder{
+		vtxos:                vtxos,
+		ins:                  make([]offchain.VtxoInput, 0),
+		outs:                 make([]*wire.TxOut, 0),
+		inputIndex:           0,
+		outputIndex:          0,
+		uniqueAssetInput:     make(map[wire.OutPoint]uint32),
+		withoutExpirySorting: withoutExpirySorting,
+		changeAddr:           changeAddr,
+		eVtxoAmount:          eVtxoAmount,
+	}
+}
+
+func (b *AssetTxBuilder) InsertAssetGroup(
+	assetIdStr string,
+	receivers []types.Receiver,
+	opType AssetGroupOperation,
+) (uint32, error) {
+	assetAmountTotal := uint64(0)
+	for _, r := range receivers {
+		assetAmountTotal += uint64(r.Amount)
+	}
+
+	if opType == AssetGroupIssuance || opType == AssetGroupClaimTeleport {
+		assetAmountTotal = 0
+	}
+
+	if opType == AssetGroupBurn {
+		receivers = []types.Receiver{}
+	}
+
+	assetCoins, assetChangeAmount, err := utils.CoinSelectAsset(
+		b.vtxos, assetAmountTotal, assetIdStr, b.eVtxoAmount, b.withoutExpirySorting,
+	)
+
 	if err != nil {
-		return "", nil, nil, err
+		return 0, err
 	}
 
-	sealAddrScript, err := script.P2TRScript(sealAddr.VtxoTapKey)
+	inputs, err := buildArkInputs(assetCoins)
+
 	if err != nil {
-		return "", nil, nil, err
+		return 0, err
 	}
 
-	outs = append(outs, &wire.TxOut{
-		Value:    int64(dustLimit),
-		PkScript: sealAddrScript,
-	})
-
-	assetOutputs := []asset.AssetOutput{{
-		Type:   asset.AssetTypeLocal,
-		Amount: receiver.AssetAmount,
-		Vout:   uint32(0),
-	}}
-
-	decodedTeleportHash, err := hex.DecodeString(receiver.TeleportHash)
-	if err != nil {
-		return "", nil, nil, err
+	if assetChangeAmount > 0 {
+		receivers = append(receivers, types.Receiver{
+			To:     b.changeAddr,
+			Amount: assetChangeAmount,
+		})
 	}
 
-	decodedAddr, err := arklib.DecodeAddressV0(receiver.ClaimAddress)
-	if err != nil {
-		return "", nil, nil, err
+	var assetId *extension.AssetId
+
+	if assetIdStr != "" {
+		assetId, err = extension.AssetIdFromString(assetIdStr)
+		if err != nil {
+			return 0, err
+		}
 	}
 
-	teleportScript, err := script.P2TRScript(decodedAddr.VtxoTapKey)
-	if err != nil {
-		return "", nil, nil, err
+	assetOutputs := make([]extension.AssetOutput, 0)
+	assetInputs := make([]extension.AssetInput, 0)
+
+	for _, rv := range receivers {
+		addr, err := arklib.DecodeAddressV0(rv.To)
+		if err != nil {
+			return 0, err
+		}
+
+		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
+		if err != nil {
+			return 0, err
+		}
+
+		assetOutputs = append(assetOutputs, extension.AssetOutput{
+			Type:   extension.AssetTypeLocal,
+			Amount: rv.Amount,
+			Vout:   b.outputIndex,
+		})
+
+		b.outs = append(b.outs, &wire.TxOut{
+			Value:    int64(b.eVtxoAmount),
+			PkScript: newVtxoScript,
+		})
+
+		if rv.To == b.changeAddr {
+			b.changeReceivers = append(b.changeReceivers, types.DBReceiver{
+				Receiver: rv,
+				Index:    b.outputIndex,
+				Assets: []types.DBAsset{{
+					GroupIndex: b.assetGroupIndex,
+					AssetId:    assetIdStr,
+					Amount:     rv.Amount,
+				}},
+			})
+		}
+
+		b.outputIndex++
 	}
 
-	var teleportByte [32]byte
-	copy(teleportByte[:], decodedTeleportHash)
+	for _, vtxo := range inputs {
+		in, err := createVtxoTxInput(vtxo)
+		if err != nil {
+			return 0, err
+		}
 
-	assetInputs := []asset.AssetInput{{
-		Type:       asset.AssetTypeTeleport,
-		Amount:     receiver.AssetAmount,
-		Commitment: teleportByte,
-		Witness: asset.TeleportWitness{
-			Script: teleportScript,
-			Nonce:  nonce,
-		},
-	}}
+		//check if it exists already
+		if i, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
 
-	decodedAssetId, err := asset.AssetIdFromString(receiver.AssetId)
-	if err != nil {
-		return "", nil, nil, err
+			assetInputs = append(assetInputs, extension.AssetInput{
+				Type:   extension.AssetTypeLocal,
+				Vin:    i,
+				Amount: vtxo.Assets[0].Amount,
+			})
+		} else {
+			b.ins = append(b.ins, *in)
+			assetInputs = append(assetInputs, extension.AssetInput{
+				Type:   extension.AssetTypeLocal,
+				Vin:    b.inputIndex,
+				Amount: vtxo.Assets[0].Amount,
+			})
+
+			inputIndex := b.inputIndex
+			b.uniqueAssetInput[*in.Outpoint] = inputIndex
+			b.inputIndex++
+		}
+
 	}
 
-	normalAsset := asset.AssetGroup{
-		AssetId: *decodedAssetId,
+	newAssetGroup := extension.AssetGroup{
+		AssetId: assetId,
 		Outputs: assetOutputs,
 		Inputs:  assetInputs,
 	}
 
-	assetGroup := asset.AssetPacket{
-		NormalAssets: []asset.AssetGroup{normalAsset},
+	b.assetGroupList = append(b.assetGroupList, newAssetGroup)
+
+	assetGroupIndex := b.assetGroupIndex
+
+	b.assetGroupIndex++
+
+	return assetGroupIndex, nil
+}
+
+func (b *AssetTxBuilder) AddWitness(
+	assetGroupIndex uint32,
+	intentID, script []byte,
+	amount uint64,
+	index uint32,
+) error {
+
+	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+		return fmt.Errorf("invalid asset group index")
+	}
+	witness := extension.TeleportWitness{
+		Script:   script,
+		IntentId: intentID,
 	}
 
-	// exclude SubDust receiver from other receivers
-	var subdustReceiver *types.Receiver
-
-	for i, receiver := range otherReceivers {
-		if receiver.Amount < dustLimit {
-			// copy value to avoid aliasing issues
-			r := receiver
-			subdustReceiver = &r
-
-			// remove from slice
-			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
-			break
-		}
-	}
-
-	var assetOpretOut wire.TxOut
-
-	if subdustReceiver != nil {
-		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		assetGroup.SubDustKey = addr.VtxoTapKey
-
-		assetOpretOut, err = assetGroup.EncodeAssetPacket(int64(subdustReceiver.Amount))
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-	} else {
-
-		assetOpretOut, err = assetGroup.EncodeAssetPacket(0)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-	}
-
-	outs = append(outs, &assetOpretOut)
-
-	assetAnchorIndex := len(outs) - 1
-
-	for _, receiver := range otherReceivers {
-		changeAddr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		changeAddrScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(receiver.Amount),
-			PkScript: changeAddrScript,
-		})
-
-	}
-
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
-		outs,
-		assetAnchorIndex,
-		ins,
-		serverUnrollScript,
+	b.assetGroupList[assetGroupIndex].Inputs = append(
+		b.assetGroupList[assetGroupIndex].Inputs,
+		extension.AssetInput{
+			Type:    extension.AssetTypeTeleport,
+			Vin:     index,
+			Amount:  amount,
+			Witness: witness,
+		},
 	)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	arkTx, err := arkPtx.B64Encode()
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	checkpointTxs := make([]string, 0, len(checkpointPtxs))
-	for _, ptx := range checkpointPtxs {
-		tx, err := ptx.B64Encode()
-		if err != nil {
-			return "", nil, nil, err
-		}
-		checkpointTxs = append(checkpointTxs, tx)
-	}
-
-	return arkTx, checkpointTxs, &assetGroup, nil
+	return nil
 
 }
 
-func buildAssetCreationTx(
-	vtxos []arkTxInput,
-	assetRequests []types.AssetCreationRequest,
-	otherReceivers []types.Receiver,
-	serverUnrollScript []byte,
-	dustLimit uint64,
-) (string, []string, *asset.AssetPacket, error) {
-
-	if len(vtxos) <= 0 {
-		return "", nil, nil, fmt.Errorf("missing vtxos")
+func (b *AssetTxBuilder) InsertIssuance(
+	assetGroupIndex uint32,
+	controlAsset string,
+	immutable bool,
+) error {
+	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+		return fmt.Errorf("invalid asset group index")
 	}
-
-	ins := make([]offchain.VtxoInput, 0, len(vtxos))
-	for _, vtxo := range vtxos {
-		in, err := createVtxoTxInput(vtxo)
+	var controlAssetId *extension.AssetId
+	if controlAsset != "" {
+		cAssetId, err := extension.AssetIdFromString(controlAsset)
 		if err != nil {
-			return "", nil, nil, err
+			return err
 		}
+		controlAssetId = cAssetId
+	}
+	if controlAssetId != nil {
+		b.assetGroupList[assetGroupIndex].ControlAsset = &extension.AssetRef{
+			Type:    extension.AssetRefByID,
+			AssetId: *controlAssetId,
+		}
+	}
+	b.assetGroupList[assetGroupIndex].Immutable = immutable
 
-		ins = append(ins, *in)
+	return nil
+}
+
+func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint32, metadata map[string]string) error {
+	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+		return fmt.Errorf("invalid asset group index")
+	}
+	assetMetadata := toAssetMetadataList(metadata)
+	b.assetGroupList[assetGroupIndex].Metadata = assetMetadata
+
+	return nil
+}
+
+func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
+	satsNeeded, isChange := b.calculateSatsNeeded()
+	if satsNeeded == 0 {
+		return nil
 	}
 
-	outs := make([]*wire.TxOut, 0)
-	normalAssets := make([]asset.AssetGroup, 0, len(assetRequests))
+	addr, err := arklib.DecodeAddressV0(b.changeAddr)
+	if err != nil {
+		return err
+	}
 
-	var globalVoutIndex uint32 = 0
-
-	for i, request := range assetRequests {
-		assetOutputs := make([]asset.AssetOutput, 0)
-		var controlAssetId *asset.AssetId
-		var err error
-
-		if request.Params.ControlAssetId != "" {
-			controlAssetId, err = asset.AssetIdFromString(request.Params.ControlAssetId)
-			if err != nil {
-				return "", nil, nil, err
+	var receiver *types.Receiver
+	if isChange {
+		if satsNeeded < dust {
+			b.subdustPacket = &extension.SubDustPacket{
+				Amount: satsNeeded,
+				Key:    addr.VtxoTapKey,
 			}
-		}
 
-		for _, assetReceiver := range request.Receivers {
-			sealAddr, err := arklib.DecodeAddressV0(assetReceiver.To)
-			if err != nil {
-				return "", nil, nil, err
+		} else {
+			receiver = &types.Receiver{
+				To:     b.changeAddr,
+				Amount: satsNeeded,
 			}
-
-			sealAddrScript, err := script.P2TRScript(sealAddr.VtxoTapKey)
-			if err != nil {
-				return "", nil, nil, err
-			}
-
-			outs = append(outs, &wire.TxOut{
-				Value:    int64(dustLimit),
-				PkScript: sealAddrScript,
-			})
-
-			assetOutputs = append(assetOutputs, asset.AssetOutput{
-				Type:   asset.AssetTypeLocal,
-				Amount: assetReceiver.Amount,
-				Vout:   globalVoutIndex,
-			})
-			globalVoutIndex++
-		}
-
-		assetMetadata := toAssetMetadataList(request.Params.MetadataMap)
-
-		assetIdBase := ins[0].Outpoint.Hash
-		var assetIdBaseByte [32]byte
-		copy(assetIdBaseByte[:], assetIdBase[:])
-
-		assetDetails := asset.AssetGroup{
-			AssetId: asset.AssetId{
-				TxId:  assetIdBase,
-				Index: uint16(i),
-			},
-			Outputs:        assetOutputs,
-			ControlAssetId: controlAssetId,
-			Inputs:         []asset.AssetInput{},
-			Metadata:       assetMetadata,
-			Immutable:      request.Params.Immutable,
-			Version:        asset.AssetVersion,
-			Magic:          asset.AssetMagic,
-		}
-		normalAssets = append(normalAssets, assetDetails)
-	}
-
-	assetGroup := asset.AssetPacket{
-		NormalAssets: normalAssets,
-	}
-
-	// exclude SubDust receiver from other receivers
-	var subdustReceiver *types.Receiver
-
-	for i, receiver := range otherReceivers {
-		if receiver.Amount < dustLimit {
-			// copy value to avoid aliasing issues
-			r := receiver
-			subdustReceiver = &r
-
-			// remove from slice
-			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
-			break
-		}
-	}
-
-	var assetOpretOut wire.TxOut
-	var err error
-
-	if subdustReceiver != nil {
-		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		assetGroup.SubDustKey = addr.VtxoTapKey
-
-		assetOpretOut, err = assetGroup.EncodeAssetPacket(int64(subdustReceiver.Amount))
-		if err != nil {
-			return "", nil, nil, err
 		}
 
 	} else {
-
-		assetOpretOut, err = assetGroup.EncodeAssetPacket(0)
+		_, vtxos, changeAmount, err := utils.CoinSelectNormal(nil, b.vtxos, satsNeeded, dust, b.withoutExpirySorting, nil)
 		if err != nil {
-			return "", nil, nil, err
+			return err
 		}
 
-	}
+		if changeAmount > 0 && changeAmount < dust {
+			b.subdustPacket = &extension.SubDustPacket{
+				Amount: changeAmount,
+				Key:    addr.VtxoTapKey,
+			}
+		} else if changeAmount >= dust {
+			receiver = &types.Receiver{
+				To:     b.changeAddr,
+				Amount: changeAmount,
+			}
+		}
 
-	outs = append(outs, &assetOpretOut)
-
-	for _, receiver := range otherReceivers {
-		changeAddr, err := arklib.DecodeAddressV0(receiver.To)
+		inputs, err := buildArkInputs(vtxos)
 		if err != nil {
-			return "", nil, nil, err
+			return err
 		}
-
-		changeAddrScript, err := script.P2TRScript(changeAddr.VtxoTapKey)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(receiver.Amount),
-			PkScript: changeAddrScript,
-		})
-
-	}
-
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
-		outs,
-		int(globalVoutIndex),
-		ins,
-		serverUnrollScript,
-	)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	arkTx, err := arkPtx.B64Encode()
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	checkpointTxs := make([]string, 0, len(checkpointPtxs))
-	for _, ptx := range checkpointPtxs {
-		tx, err := ptx.B64Encode()
-		if err != nil {
-			return "", nil, nil, err
-		}
-		checkpointTxs = append(checkpointTxs, tx)
-	}
-
-	return arkTx, checkpointTxs, &assetGroup, nil
-
-}
-
-func buildAssetTransferTx(
-	sealVtxos []arkTxInput,
-	otherVtxos []arkTxInput,
-	assetReceivers []types.AssetReceiver,
-	otherReceivers []types.Receiver,
-	serverUnrollScript []byte,
-	dustLimit uint64,
-) (string, []string, *asset.AssetPacket, error) {
-	if len(sealVtxos) <= 0 {
-		return "", nil, nil, fmt.Errorf("missing vtxos")
-	}
-
-	ins := make([]offchain.VtxoInput, 0, len(sealVtxos)+len(otherVtxos))
-
-	//assign Index for assetReceiver
-	finalAssetReceivers := assetReceivers
-	for i := range assetReceivers {
-		finalAssetReceivers[i].Index = uint32(i)
-	}
-
-	// Group inputs by AssetId
-	inputsByAsset := make(map[string][]arkTxInput)
-
-	for _, vtxo := range sealVtxos {
-		if vtxo.Asset == nil {
-			return "", nil, nil, fmt.Errorf("vtxo %s has no asset info", vtxo.Txid)
-		}
-		assetId := vtxo.Asset.AssetId
-		inputsByAsset[assetId] = append(inputsByAsset[assetId], vtxo)
-	}
-
-	// Group outputs by AssetId
-	outputsByAsset := make(map[string][]types.AssetReceiver)
-	for _, receiver := range finalAssetReceivers {
-		outputsByAsset[receiver.AssetId] = append(outputsByAsset[receiver.AssetId], receiver)
-	}
-
-	normalAssets := make([]asset.AssetGroup, 0)
-	outs := make([]*wire.TxOut, 0)
-
-	// To ensure deterministic order, let's collect all AssetIds
-	assetIds := make([]string, 0, len(inputsByAsset))
-	for id := range inputsByAsset {
-		assetIds = append(assetIds, id)
-	}
-	// Sort not strictly necessary but good for determinism
-	sort.Strings(assetIds)
-
-	globalInputIndex := uint32(0)
-
-	for _, assetIdStr := range assetIds {
-		assetId, err := asset.AssetIdFromString(assetIdStr)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		vtxos := inputsByAsset[assetIdStr]
-		receivers := outputsByAsset[assetIdStr]
-
-		newAssetInputs := make([]asset.AssetInput, 0)
-
-		for _, vtxo := range vtxos {
+		for _, vtxo := range inputs {
 			in, err := createVtxoTxInput(vtxo)
 			if err != nil {
-				return "", nil, nil, err
+				return err
 			}
-			ins = append(ins, *in)
-
-			if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
-				return "", nil, nil, fmt.Errorf(
-					"vtxo %s missing asset info for transfer",
-					vtxo.Txid,
-				)
+			if _, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
+				continue
 			}
+			b.ins = append(b.ins, *in)
 
-			assetInput := asset.AssetInput{
-				Type:   asset.AssetTypeLocal,
-				Vin:    globalInputIndex,
-				Amount: vtxo.Asset.Amount,
-			}
-
-			globalInputIndex++
-			newAssetInputs = append(newAssetInputs, assetInput)
-		}
-
-		newAssetOutputs := make([]asset.AssetOutput, 0)
-
-		for _, receiver := range receivers {
-
-			newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
-				Type:   asset.AssetTypeLocal,
-				Amount: receiver.Amount,
-				Vout:   receiver.Index,
-			})
-		}
-
-		newAsset := asset.AssetGroup{
-			AssetId: *assetId,
-			Inputs:  newAssetInputs,
-			Outputs: newAssetOutputs,
-		}
-
-		normalAssets = append(normalAssets, newAsset)
-	}
-
-	// add the outputs to the asset receivers to maintain indexing
-	for _, receiver := range finalAssetReceivers {
-		addr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(dustLimit),
-			PkScript: newVtxoScript,
-		})
-	}
-
-	for _, vtxo := range otherVtxos {
-		in, err := createVtxoTxInput(vtxo)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		ins = append(ins, *in)
-	}
-
-	assetPacket := asset.AssetPacket{
-		NormalAssets: normalAssets,
-	}
-
-	// exclude SubDust receiver from other receivers
-	var subdustReceiver *types.Receiver
-
-	for i, receiver := range otherReceivers {
-		if receiver.Amount < dustLimit {
-			// copy value to avoid aliasing issues
-			r := receiver
-			subdustReceiver = &r
-
-			// remove from slice
-			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
-			break
-		}
-	}
-
-	var assetOpretOut wire.TxOut
-	var err error
-
-	if subdustReceiver != nil {
-		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		assetPacket.SubDustKey = addr.VtxoTapKey
-
-		assetOpretOut, err = assetPacket.EncodeAssetPacket(int64(subdustReceiver.Amount))
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-	} else {
-
-		assetOpretOut, err = assetPacket.EncodeAssetPacket(0)
-		if err != nil {
-			return "", nil, nil, err
+			b.uniqueAssetInput[*in.Outpoint] = b.inputIndex
+			b.inputIndex++
 		}
 
 	}
 
-	outs = append(outs, &assetOpretOut)
-
-	assetAnchorIndex := len(outs) - 1
-
-	for _, receiver := range otherReceivers {
-
-		var vtxoScript []byte
-		var err error
-
-		addr, err := arklib.DecodeAddressV0(receiver.To)
+	if receiver != nil {
+		changeAddrScript, err := script.P2TRScript(addr.VtxoTapKey)
 		if err != nil {
-			return "", nil, nil, err
+			return err
 		}
 
-		vtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
-
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
+		b.outs = append(b.outs, &wire.TxOut{
 			Value:    int64(receiver.Amount),
-			PkScript: vtxoScript,
+			PkScript: changeAddrScript,
 		})
-
 	}
 
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
-		outs,
-		assetAnchorIndex,
-		ins,
-		serverUnrollScript,
-	)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	arkTx, err := arkPtx.B64Encode()
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	checkpointTxs := make([]string, 0, len(checkpointPtxs))
-	for _, ptx := range checkpointPtxs {
-		tx, err := ptx.B64Encode()
-		if err != nil {
-			return "", nil, nil, err
-		}
-		checkpointTxs = append(checkpointTxs, tx)
-	}
-
-	return arkTx, checkpointTxs, &assetPacket, nil
+	return nil
 }
 
-func buildAssetModificationTx(
-	controlAssetId, assetId string,
-	controlSealVtxos, assetVtxos, otherVtxos []arkTxInput,
-	controlAssetReceivers, assetReceivers, otherReceivers []types.Receiver,
-	metadata map[string]string,
-	serverUnrollScript []byte,
-	dustLimit uint64,
-) (string, []string, *asset.AssetPacket, error) {
-
-	ins := make([]offchain.VtxoInput, 0, len(controlSealVtxos)+len(assetVtxos)+len(otherVtxos))
-
-	newAssetInputs := make([]asset.AssetInput, 0, len(assetVtxos))
-	newAssetOutputs := make([]asset.AssetOutput, 0)
-
-	newControlAssetInputs := make([]asset.AssetInput, 0, len(controlSealVtxos))
-	newControlAssetOutputs := make([]asset.AssetOutput, 0)
-
-	globalInputIndex := uint32(0)
-
-	for _, vtxo := range controlSealVtxos {
-		in, err := createVtxoTxInput(vtxo)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		ins = append(ins, *in)
-
-		if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
-			return "", nil, nil, fmt.Errorf(
-				"vtxo %s missing control asset info for modification",
-				vtxo.Txid,
-			)
-
-		}
-
-		assetInput := asset.AssetInput{
-			Type:   asset.AssetTypeLocal,
-			Vin:    globalInputIndex,
-			Amount: vtxo.Asset.Amount,
-		}
-
-		globalInputIndex++
-		newControlAssetInputs = append(newControlAssetInputs, assetInput)
+func (b *AssetTxBuilder) Build(signerUnrollScript []byte) (string, []string, error) {
+	extensionPacket := extension.ExtensionPacket{
+		Asset: &extension.AssetPacket{
+			Assets: b.assetGroupList,
+		},
+		SubDust: b.subdustPacket,
 	}
 
-	for _, vtxo := range assetVtxos {
-		in, err := createVtxoTxInput(vtxo)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		ins = append(ins, *in)
-
-		if vtxo.Asset == nil || vtxo.Asset.Vout != vtxo.VOut {
-			return "", nil, nil, fmt.Errorf(
-				"vtxo %s missing asset info for modification",
-				vtxo.Txid,
-			)
-		}
-
-		assetInput := asset.AssetInput{
-			Type:   asset.AssetTypeLocal,
-			Vin:    globalInputIndex,
-			Amount: vtxo.Asset.Amount,
-		}
-		globalInputIndex++
-
-		newAssetInputs = append(newAssetInputs, assetInput)
+	extensionOut, err := extensionPacket.EncodeExtensionPacket()
+	if err != nil {
+		return "", nil, err
 	}
 
-	for _, vtxo := range otherVtxos {
-		in, err := createVtxoTxInput(vtxo)
-		if err != nil {
-			return "", nil, nil, err
-		}
+	b.outs = append(b.outs, &extensionOut)
 
-		ins = append(ins, *in)
-	}
-
-	outs := make([]*wire.TxOut, 0)
-
-	receiverIndex := uint32(0)
-
-	for _, receiver := range controlAssetReceivers {
-		addr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(dustLimit),
-			PkScript: newVtxoScript,
-		})
-
-		newControlAssetOutputs = append(newControlAssetOutputs, asset.AssetOutput{
-			Type:   asset.AssetTypeLocal,
-			Amount: receiver.Amount,
-			Vout:   receiverIndex,
-		})
-
-		receiverIndex += 1
-
-	}
-
-	decodedControlAssetId, ferr := asset.AssetIdFromString(controlAssetId)
-	if ferr != nil {
-		return "", nil, nil, ferr
-	}
-	if decodedControlAssetId == nil {
-		return "", nil, nil, fmt.Errorf("invalid control asset id: %s", controlAssetId)
-	}
-
-	newControlAsset := asset.AssetGroup{
-		AssetId: *decodedControlAssetId,
-		Inputs:  newControlAssetInputs,
-		Outputs: newControlAssetOutputs,
-	}
-
-	for _, receiver := range assetReceivers {
-		addr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		newVtxoScript, err := script.P2TRScript(addr.VtxoTapKey)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(dustLimit),
-			PkScript: newVtxoScript,
-		})
-
-		newAssetOutputs = append(newAssetOutputs, asset.AssetOutput{
-			Type:   asset.AssetTypeLocal,
-			Amount: receiver.Amount,
-			Vout:   receiverIndex,
-		})
-
-		receiverIndex += 1
-
-	}
-
-	decodedAssetId, ferr := asset.AssetIdFromString(assetId)
-	if ferr != nil {
-		return "", nil, nil, ferr
-	}
-	if decodedAssetId == nil {
-		return "", nil, nil, fmt.Errorf("invalid asset id: %s", assetId)
-	}
-
-	newAsset := asset.AssetGroup{
-		AssetId:        *decodedAssetId,
-		Outputs:        newAssetOutputs,
-		Inputs:         newAssetInputs,
-		Metadata:       toAssetMetadataList(metadata),
-		ControlAssetId: &newControlAsset.AssetId,
-	}
-
-	assetPacket := asset.AssetPacket{
-		ControlAssets: []asset.AssetGroup{newControlAsset},
-		NormalAssets:  []asset.AssetGroup{newAsset},
-	}
-
-	// exclude SubDust receiver from other receivers
-	var subdustReceiver *types.Receiver
-
-	for i, receiver := range otherReceivers {
-		if receiver.Amount < dustLimit {
-			// copy value to avoid aliasing issues
-			r := receiver
-			subdustReceiver = &r
-
-			// remove from slice
-			otherReceivers = append(otherReceivers[:i], otherReceivers[i+1:]...)
-			break
-		}
-	}
-
-	var assetOpretOut wire.TxOut
-	var err error
-
-	if subdustReceiver != nil {
-		addr, err := arklib.DecodeAddressV0(subdustReceiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		assetPacket.SubDustKey = addr.VtxoTapKey
-
-		assetOpretOut, err = assetPacket.EncodeAssetPacket(int64(subdustReceiver.Amount))
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-	} else {
-
-		assetOpretOut, err = assetPacket.EncodeAssetPacket(0)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-	}
-
-	outs = append(outs, &assetOpretOut)
-
-	assetAnchorIndex := len(outs) - 1
-
-	for _, receiver := range otherReceivers {
-
-		var vtxoScript []byte
-		var err error
-
-		addr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		vtxoScript, err = script.P2TRScript(addr.VtxoTapKey)
-
-		if err != nil {
-			return "", nil, nil, err
-		}
-
-		outs = append(outs, &wire.TxOut{
-			Value:    int64(receiver.Amount),
-			PkScript: vtxoScript,
-		})
-
-	}
-
-	arkPtx, checkpointPtxs, err := offchain.BuildAssetTxs(
-		outs,
-		assetAnchorIndex,
-		ins,
-		serverUnrollScript,
+	arkPtx, checkpointPtxs, err := offchain.BuildTxs(
+		b.ins,
+		b.outs,
+		signerUnrollScript,
 	)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 
 	arkTx, err := arkPtx.B64Encode()
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 
 	checkpointTxs := make([]string, 0, len(checkpointPtxs))
 	for _, ptx := range checkpointPtxs {
 		tx, err := ptx.B64Encode()
 		if err != nil {
-			return "", nil, nil, err
+			return "", nil, err
 		}
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	return arkTx, checkpointTxs, &assetPacket, nil
+	b.extensionScript = extensionOut.PkScript
+
+	return arkTx, checkpointTxs, nil
+
+}
+
+func (b *AssetTxBuilder) GetSpentInputs() []client.TapscriptsVtxo {
+	spentInputs := make([]client.TapscriptsVtxo, 0, len(b.uniqueAssetInput))
+	for outpoint := range b.uniqueAssetInput {
+		for _, vtxo := range b.vtxos {
+			vtxoTxID, _ := chainhash.NewHashFromStr(vtxo.Txid)
+			if outpoint.Hash.IsEqual(vtxoTxID) && outpoint.Index == vtxo.VOut {
+				spentInputs = append(spentInputs, vtxo)
+				break
+			}
+		}
+	}
+	return spentInputs
+}
+
+func (b *AssetTxBuilder) GetChangeReceivers() []types.DBReceiver {
+	for i, rcv := range b.changeReceivers {
+		for j, asset := range rcv.Assets {
+			asset.ExtensionScript = b.extensionScript
+			rcv.Assets[j] = asset
+		}
+		b.changeReceivers[i] = rcv
+	}
+	return b.changeReceivers
+}
+
+func (b *AssetTxBuilder) calculateSatsNeeded() (uint64, bool) {
+	totalSatsOutput := uint64(0)
+	for _, out := range b.outs {
+		totalSatsOutput += uint64(out.Value)
+	}
+
+	totalSatsInput := uint64(0)
+	for _, in := range b.ins {
+		if in.Amount <= 0 {
+			continue
+		}
+		totalSatsInput += uint64(in.Amount)
+	}
+
+	if totalSatsInput >= totalSatsOutput {
+		satsChange := totalSatsInput - totalSatsOutput
+		return satsChange, true
+	}
+
+	totalSatsNeeded := totalSatsOutput - totalSatsInput
+	return totalSatsNeeded, false
 }
 
 func buildOffchainTx(
@@ -1154,12 +739,12 @@ func extractCollaborativePath(tapscripts []string) ([]byte, *arklib.TaprootMerkl
 // it also returns the necessary data used to sign the proof PSBT
 func toIntentInputs(
 	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo, notes []string,
-) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
-	inputs := make([]intent.Input, 0, len(boardingUtxos)+len(vtxos))
+) ([]IntentInput, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
+	inputs := make([]IntentInput, 0, len(boardingUtxos)+len(vtxos))
 	signingLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
 	arkFields := make([][]*psbt.Unknown, 0, len(boardingUtxos)+len(vtxos))
 
-	for _, coin := range vtxos {
+	for i, coin := range vtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
 			return nil, nil, nil, err
@@ -1173,29 +758,36 @@ func toIntentInputs(
 
 		signingLeaves = append(signingLeaves, leafProof)
 
-		isSeal := coin.Asset != nil
-
-		inputs = append(inputs, intent.Input{
+		rawIntentInput := intent.Input{
 			OutPoint: outpoint,
 			Sequence: wire.MaxTxInSequenceNum,
 			WitnessUtxo: &wire.TxOut{
 				Value:    int64(coin.Amount),
 				PkScript: pkScript,
 			},
-			IsSeal: isSeal,
-		})
+		}
+
+		input := IntentInput{
+			Input: rawIntentInput,
+		}
 
 		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
-		vtxoSealField, err := txutils.AssetSealVtxoField.Encode(isSeal)
-		if err != nil {
-			return nil, nil, nil, err
+		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
+
+		if coin.Assets != nil {
+			input.AssetExtension = &AssetExtension{
+				Id:     coin.Assets[0].AssetId,
+				Amount: coin.Assets[0].Amount,
+				Index:  uint32(i),
+			}
+
 		}
 
-		arkFields = append(arkFields, []*psbt.Unknown{taptreeField, vtxoSealField})
+		inputs = append(inputs, input)
 	}
 
 	for _, coin := range boardingUtxos {
@@ -1212,14 +804,15 @@ func toIntentInputs(
 
 		signingLeaves = append(signingLeaves, leafProof)
 
-		inputs = append(inputs, intent.Input{
-			OutPoint: outpoint,
-			Sequence: wire.MaxTxInSequenceNum,
-			WitnessUtxo: &wire.TxOut{
-				Value:    int64(coin.Amount),
-				PkScript: pkScript,
-			},
-		})
+		inputs = append(inputs, IntentInput{
+			Input: intent.Input{
+				OutPoint: outpoint,
+				Sequence: wire.MaxTxInSequenceNum,
+				WitnessUtxo: &wire.TxOut{
+					Value:    int64(coin.Amount),
+					PkScript: pkScript,
+				},
+			}})
 
 		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
 		if err != nil {
@@ -1245,14 +838,15 @@ func toIntentInputs(
 			return nil, nil, nil, err
 		}
 
-		inputs = append(inputs, intent.Input{
-			OutPoint: outpoint,
-			Sequence: wire.MaxTxInSequenceNum,
-			WitnessUtxo: &wire.TxOut{
-				Value:    input.WitnessUtxo.Value,
-				PkScript: input.WitnessUtxo.PkScript,
-			},
-		})
+		inputs = append(inputs, IntentInput{
+			Input: intent.Input{
+				OutPoint: outpoint,
+				Sequence: wire.MaxTxInSequenceNum,
+				WitnessUtxo: &wire.TxOut{
+					Value:    input.WitnessUtxo.Value,
+					PkScript: input.WitnessUtxo.PkScript,
+				},
+			}})
 
 		vtxoScript := parsedNote.VtxoScript()
 
@@ -1279,12 +873,6 @@ func toIntentInputs(
 		}
 
 		signingLeaves = append(signingLeaves, leafProof)
-
-		vtxoSealField, err := txutils.AssetSealVtxoField.Encode(false)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		input.Unknowns = append(input.Unknowns, vtxoSealField)
 
 		arkFields = append(arkFields, input.Unknowns)
 	}
@@ -1365,6 +953,7 @@ func checkSendOffChainOptionsType(o interface{}) (*sendOffChainOptions, error) {
 }
 
 func createRegisterIntentMessage(
+	inputs []IntentInput,
 	outputs []types.Receiver,
 	teleportOutputs []types.TeleportReceiver,
 	cosignersPublicKeys []string,
@@ -1375,7 +964,6 @@ func createRegisterIntentMessage(
 	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
 	onchainOutputsIndexes := make([]int, 0)
-	assetOutputsIndexes := make([]intent.AssetOutput, 0)
 
 	outputCounter := 0
 
@@ -1394,12 +982,12 @@ func createRegisterIntentMessage(
 		outputCounter++
 	}
 
-	for _, output := range teleportOutputs {
-		assetOutputsIndexes = append(assetOutputsIndexes, intent.AssetOutput{
-			AssetId:      output.AssetId,
-			Amount:       output.AssetAmount,
-			TeleportHash: output.TeleportHash,
-		})
+	assetAssetAnchor, err := createTeleportAssetAnchor(inputs, teleportOutputs)
+	if err != nil {
+		return "", nil, err
+	}
+	if assetAssetAnchor != nil {
+		outputsTxOut = append(outputsTxOut, assetAssetAnchor)
 	}
 
 	message, err := intent.RegisterMessage{
@@ -1407,7 +995,6 @@ func createRegisterIntentMessage(
 			Type: intent.IntentMessageTypeRegister,
 		},
 		OnchainOutputIndexes: onchainOutputsIndexes,
-		AssetOutputIndexes:   assetOutputsIndexes,
 		ExpireAt:             expireAt,
 		ValidAt:              validAt.Unix(),
 		CosignersPublicKeys:  cosignersPublicKeys,
@@ -1419,6 +1006,85 @@ func createRegisterIntentMessage(
 	return message, outputsTxOut, nil
 }
 
+func createTeleportAssetAnchor(
+	intentInputs []IntentInput,
+	teleportOutputs []types.TeleportReceiver,
+) (*wire.TxOut, error) {
+	if len(teleportOutputs) == 0 {
+		return nil, nil
+	}
+
+	groupedIntentInputs := make(map[string][]IntentInput)
+	for _, input := range intentInputs {
+		if input.AssetExtension != nil {
+			groupedIntentInputs[input.AssetExtension.Id] = append(
+				groupedIntentInputs[input.AssetExtension.Id],
+				input,
+			)
+		}
+	}
+
+	groupedTeleportOutputs := make(map[string][]types.TeleportReceiver)
+	for _, output := range teleportOutputs {
+		groupedTeleportOutputs[output.AssetId] = append(
+			groupedTeleportOutputs[output.AssetId],
+			output,
+		)
+	}
+
+	assetGroups := make([]extension.AssetGroup, 0)
+	for assetId, inputs := range groupedIntentInputs {
+		assetOutputs := make([]extension.AssetOutput, 0)
+
+		for i, output := range groupedTeleportOutputs[assetId] {
+
+			assetOutputs = append(assetOutputs, extension.AssetOutput{
+				Type:   extension.AssetTypeTeleport,
+				Amount: output.AssetAmount,
+				Vout:   uint32(i),
+				Script: output.Script,
+			})
+		}
+
+		assetInputs := make([]extension.AssetInput, 0)
+		for _, input := range inputs {
+			assetInputs = append(assetInputs, extension.AssetInput{
+				Type:   extension.AssetTypeLocal,
+				Vin:    input.AssetExtension.Index + 1, // +1 for the intent proof input
+				Amount: input.AssetExtension.Amount,
+			})
+		}
+
+		decodedAssetId, ferr := extension.AssetIdFromString(assetId)
+		if ferr != nil {
+			return nil, ferr
+		}
+		if decodedAssetId == nil {
+			return nil, fmt.Errorf("invalid asset id: %s", assetId)
+		}
+
+		assetGroups = append(assetGroups, extension.AssetGroup{
+			AssetId: decodedAssetId,
+			Inputs:  assetInputs,
+			Outputs: assetOutputs,
+		})
+	}
+
+	assetPacket := extension.AssetPacket{
+		Assets: assetGroups,
+	}
+	extensionPacket := extension.ExtensionPacket{
+		Asset: &assetPacket,
+	}
+
+	txout, err := extensionPacket.EncodeExtensionPacket()
+	if err != nil {
+		return nil, err
+	}
+
+	return &txout, nil
+
+}
 func findVtxosSpentInSettlement(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {
 	if vtxo.Preconfirmed {
 		return nil
@@ -1502,7 +1168,7 @@ func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
 	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
 }
 
-func GetAssetOutput(output []asset.AssetOutput, vout uint32) (*asset.AssetOutput, error) {
+func GetAssetOutput(output []extension.AssetOutput, vout uint32) (*extension.AssetOutput, error) {
 	for _, out := range output {
 		if out.Vout == vout {
 			return &out, nil
@@ -1589,34 +1255,20 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 	return &forfeitLeafHash, nil
 }
 
-func FindAssetFromOutput(vtxo types.Vtxo, assetPacket *asset.AssetPacket) (*types.Asset, error) {
+func FindAssetFromOutput(
+	vtxo types.Vtxo,
+	assetPacket *extension.AssetPacket,
+) (*types.Asset, error) {
 	if assetPacket == nil {
 		return nil, fmt.Errorf("asset group is nil")
 	}
 
-	assetsToCheck := make(
-		[]*asset.AssetGroup,
-		0,
-		len(assetPacket.NormalAssets)+len(assetPacket.ControlAssets),
-	)
-	for i := range assetPacket.NormalAssets {
-		assetsToCheck = append(assetsToCheck, &assetPacket.NormalAssets[i])
-	}
-	for i := range assetPacket.ControlAssets {
-		assetsToCheck = append(assetsToCheck, &assetPacket.ControlAssets[i])
-	}
-
-	for _, asset := range assetsToCheck {
-		if asset == nil {
-			continue
-		}
-
+	for _, asset := range assetPacket.Assets {
 		for _, assetOut := range asset.Outputs {
 			if vtxo.VOut == assetOut.Vout {
 				return &types.Asset{
 					AssetId: asset.AssetId.ToString(),
 					Amount:  assetOut.Amount,
-					Vout:    vtxo.VOut,
 				}, nil
 			}
 
@@ -1628,10 +1280,10 @@ func FindAssetFromOutput(vtxo types.Vtxo, assetPacket *asset.AssetPacket) (*type
 
 }
 
-func toAssetMetadataList(metadataMap map[string]string) []asset.Metadata {
-	metadataList := make([]asset.Metadata, 0, len(metadataMap))
+func toAssetMetadataList(metadataMap map[string]string) []extension.Metadata {
+	metadataList := make([]extension.Metadata, 0, len(metadataMap))
 	for k, v := range metadataMap {
-		metadataList = append(metadataList, asset.Metadata{
+		metadataList = append(metadataList, extension.Metadata{
 			Key:   k,
 			Value: v,
 		})

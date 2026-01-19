@@ -38,7 +38,7 @@ type vtxoRecord struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
-	Asset           []byte
+	Assets          []types.Asset
 }
 
 func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
@@ -258,15 +258,6 @@ func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
 }
 
 func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
-	var assetData []byte
-	if vtxo.Asset != nil {
-		encoded, err := vtxo.Asset.EncodeTlv()
-		if err != nil {
-			return vtxoRecord{}, err
-		}
-		assetData = encoded
-	}
-
 	return vtxoRecord{
 		Outpoint:        vtxo.Outpoint,
 		Script:          vtxo.Script,
@@ -281,18 +272,11 @@ func toVtxoRecord(vtxo types.Vtxo) (vtxoRecord, error) {
 		SpentBy:         vtxo.SpentBy,
 		SettledBy:       vtxo.SettledBy,
 		ArkTxid:         vtxo.ArkTxid,
-		Asset:           assetData,
+		Assets:          vtxo.Assets,
 	}, nil
 }
 
 func (r vtxoRecord) toVtxo() types.Vtxo {
-	var parsedAsset *types.Asset
-	if len(r.Asset) > 0 {
-		var decoded types.Asset
-		if err := decoded.DecodeTlv(r.Asset); err == nil {
-			parsedAsset = &decoded
-		}
-	}
 
 	return types.Vtxo{
 		Outpoint:        r.Outpoint,
@@ -308,6 +292,6 @@ func (r vtxoRecord) toVtxo() types.Vtxo {
 		SpentBy:         r.SpentBy,
 		SettledBy:       r.SettledBy,
 		ArkTxid:         r.ArkTxid,
-		Asset:           parsedAsset,
+		Assets:          r.Assets,
 	}
 }

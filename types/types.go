@@ -8,6 +8,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -85,13 +86,26 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
-	Asset           *Asset
+	Assets          []Asset
 }
 
 type Asset struct {
-	AssetId string
-	Amount  uint64
-	Vout    uint32
+	AssetId string `json:"asset_id"`
+	Amount  uint64 `json:"amount"`
+}
+
+func ToJSON(arr []Asset) ([]byte, error) {
+	b, err := json.Marshal(arr)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func FromJSON(data []byte) ([]Asset, error) {
+	var a []Asset
+	err := json.Unmarshal(data, &a)
+	return a, err
 }
 
 type AssetDetails struct {
@@ -268,9 +282,15 @@ type Receiver struct {
 
 type AssetReceiver struct {
 	Receiver
-	AssetId string
-	Index   uint32
+	AssetOutputType AssetType
 }
+
+type AssetType int
+
+const (
+	AssetTypeLocal AssetType = iota
+	AssetTypeTeleport
+)
 
 type AssetCreationRequest struct {
 	AssetId   string
@@ -287,15 +307,28 @@ const (
 
 type DBReceiver struct {
 	Receiver
-	Index        uint32
-	ReceiverType VtxoType
+	Index  uint32
+	Assets []DBAsset
+}
+
+type DBAsset struct {
+	AssetId         string
+	GroupIndex      uint32
+	Amount          uint64
+	ExtensionScript []byte
+}
+
+type AssetAnchor struct {
+	TxOut  wire.TxOut
+	Packet extension.ExtensionPacket
 }
 
 type TeleportReceiver struct {
-	TeleportHash string
-	AssetAmount  uint64
-	ClaimAddress string
-	AssetId      string
+	Script        []byte
+	To            string
+	AssetAmount   uint64
+	AssetId       string
+	VtxoIndexList []uint32
 }
 
 type AssetManagementType uint

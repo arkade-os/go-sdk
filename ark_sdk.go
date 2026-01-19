@@ -25,11 +25,11 @@ type ArkClient interface {
 		err error,
 	)
 	NewOffchainAddress(ctx context.Context) (string, error)
-	CreateAssets(
-		ctx context.Context, requests []types.AssetCreationRequest, opt ...Option,
+	CreateAsset(
+		ctx context.Context, request types.AssetCreationRequest, opt ...Option,
 	) (string, []string, error)
 	SendAsset(
-		ctx context.Context, receivers []types.AssetReceiver, opt ...Option,
+		ctx context.Context, receivers []types.Receiver, assetId string, opt ...Option,
 	) (string, error)
 	ReissueAsset(
 		ctx context.Context, controlAssetId string, assetId string, amount uint64, opt ...Option,
