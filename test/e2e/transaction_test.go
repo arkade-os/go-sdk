@@ -516,7 +516,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, finalizedTxIds)
 
-		time.Sleep(3 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		history, err = restoredAlice.GetTransactionHistory(ctx)
 		require.NoError(t, err)

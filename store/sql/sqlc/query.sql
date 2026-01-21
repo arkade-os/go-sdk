@@ -30,14 +30,13 @@ DELETE FROM vtxo;
 
 -- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, settled, created_at, hex, settled_by
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    txid, txid_type, amount, type, created_at, hex, settled_by
+) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateTx :exec
 UPDATE tx
 SET
     created_at     = COALESCE(sqlc.narg(created_at), created_at),
-    settled    = CASE WHEN :settled IS TRUE THEN TRUE ELSE settled END,
     settled_by    = COALESCE(sqlc.narg(settled_by), settled_by)
 WHERE txid = :txid; 
 
@@ -47,7 +46,6 @@ SET    txid       = :new_txid,
        txid_type  = :txid_type,
        amount     = :amount,
        type       = :type,
-       settled    = :settled,
        settled_by    = :settled_by,
        created_at = :created_at,
        hex        = :hex

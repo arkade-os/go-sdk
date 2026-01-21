@@ -23,27 +23,27 @@ import (
 // IndexerServiceAPIService IndexerServiceAPI service
 type IndexerServiceAPIService service
 
-type ApiIndexerServiceGetAssetDetailsRequest struct {
+type ApiIndexerServiceGetAssetGroupRequest struct {
 	ctx context.Context
 	ApiService *IndexerServiceAPIService
 	assetId string
 }
 
-func (r ApiIndexerServiceGetAssetDetailsRequest) Execute() (*GetAssetDetailsResponse, *http.Response, error) {
-	return r.ApiService.IndexerServiceGetAssetDetailsExecute(r)
+func (r ApiIndexerServiceGetAssetGroupRequest) Execute() (*GetAssetGroupResponse, *http.Response, error) {
+	return r.ApiService.IndexerServiceGetAssetGroupExecute(r)
 }
 
 /*
-IndexerServiceGetAssetDetails Method for IndexerServiceGetAssetDetails
+IndexerServiceGetAssetGroup Method for IndexerServiceGetAssetGroup
 
 GetAsset returns the asset information and metadata for the specified asset ID.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param assetId
- @return ApiIndexerServiceGetAssetDetailsRequest
+ @return ApiIndexerServiceGetAssetGroupRequest
 */
-func (a *IndexerServiceAPIService) IndexerServiceGetAssetDetails(ctx context.Context, assetId string) ApiIndexerServiceGetAssetDetailsRequest {
-	return ApiIndexerServiceGetAssetDetailsRequest{
+func (a *IndexerServiceAPIService) IndexerServiceGetAssetGroup(ctx context.Context, assetId string) ApiIndexerServiceGetAssetGroupRequest {
+	return ApiIndexerServiceGetAssetGroupRequest{
 		ApiService: a,
 		ctx: ctx,
 		assetId: assetId,
@@ -51,21 +51,21 @@ func (a *IndexerServiceAPIService) IndexerServiceGetAssetDetails(ctx context.Con
 }
 
 // Execute executes the request
-//  @return GetAssetDetailsResponse
-func (a *IndexerServiceAPIService) IndexerServiceGetAssetDetailsExecute(r ApiIndexerServiceGetAssetDetailsRequest) (*GetAssetDetailsResponse, *http.Response, error) {
+//  @return GetAssetGroupResponse
+func (a *IndexerServiceAPIService) IndexerServiceGetAssetGroupExecute(r ApiIndexerServiceGetAssetGroupRequest) (*GetAssetGroupResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *GetAssetDetailsResponse
+		localVarReturnValue  *GetAssetGroupResponse
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IndexerServiceAPIService.IndexerServiceGetAssetDetails")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IndexerServiceAPIService.IndexerServiceGetAssetGroup")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/asset/{asset_id}"
+	localVarPath := localBasePath + "/v1/indexer/assetGroup/{asset_id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"assetId"+"}", url.PathEscape(parameterValueToString(r.assetId, "assetId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -1293,6 +1293,8 @@ type ApiIndexerServiceGetVtxosRequest struct {
 	spentOnly *bool
 	recoverableOnly *bool
 	pendingOnly *bool
+	after *int64
+	before *int64
 	pageSize *int32
 	pageIndex *int32
 }
@@ -1330,6 +1332,18 @@ func (r ApiIndexerServiceGetVtxosRequest) RecoverableOnly(recoverableOnly bool) 
 // Include only spent vtxos that are not finalized.
 func (r ApiIndexerServiceGetVtxosRequest) PendingOnly(pendingOnly bool) ApiIndexerServiceGetVtxosRequest {
 	r.pendingOnly = &pendingOnly
+	return r
+}
+
+// Include only vtxos with last update after the given unix time in milliseconds. A value of 0 means no lower bound.
+func (r ApiIndexerServiceGetVtxosRequest) After(after int64) ApiIndexerServiceGetVtxosRequest {
+	r.after = &after
+	return r
+}
+
+// Include only vtxos with last update before the given unix time in milliseconds, greater value than the after when specified. A value of 0 means no upper bound.
+func (r ApiIndexerServiceGetVtxosRequest) Before(before int64) ApiIndexerServiceGetVtxosRequest {
+	r.before = &before
 	return r
 }
 
@@ -1402,6 +1416,12 @@ func (a *IndexerServiceAPIService) IndexerServiceGetVtxosExecute(r ApiIndexerSer
 	}
 	if r.pendingOnly != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "pendingOnly", r.pendingOnly, "form", "")
+	}
+	if r.after != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "after", r.after, "form", "")
+	}
+	if r.before != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "before", r.before, "form", "")
 	}
 	if r.pageSize != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "page.size", r.pageSize, "form", "")
@@ -1590,125 +1610,6 @@ func (a *IndexerServiceAPIService) IndexerServiceSubscribeForScriptsExecute(r Ap
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiIndexerServiceSubscribeForTeleportHashRequest struct {
-	ctx context.Context
-	ApiService *IndexerServiceAPIService
-	subscribeForTeleportHashRequest *SubscribeForTeleportHashRequest
-}
-
-func (r ApiIndexerServiceSubscribeForTeleportHashRequest) SubscribeForTeleportHashRequest(subscribeForTeleportHashRequest SubscribeForTeleportHashRequest) ApiIndexerServiceSubscribeForTeleportHashRequest {
-	r.subscribeForTeleportHashRequest = &subscribeForTeleportHashRequest
-	return r
-}
-
-func (r ApiIndexerServiceSubscribeForTeleportHashRequest) Execute() (*SubscribeForTeleportHashResponse, *http.Response, error) {
-	return r.ApiService.IndexerServiceSubscribeForTeleportHashExecute(r)
-}
-
-/*
-IndexerServiceSubscribeForTeleportHash Method for IndexerServiceSubscribeForTeleportHash
-
-SubscribeForTeleportHash allows to subscribe for tx notifications related to the provided
-teleport hashes. It can also be used to update an existing subscribtion by adding new hashes to it.
-
- @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return ApiIndexerServiceSubscribeForTeleportHashRequest
-*/
-func (a *IndexerServiceAPIService) IndexerServiceSubscribeForTeleportHash(ctx context.Context) ApiIndexerServiceSubscribeForTeleportHashRequest {
-	return ApiIndexerServiceSubscribeForTeleportHashRequest{
-		ApiService: a,
-		ctx: ctx,
-	}
-}
-
-// Execute executes the request
-//  @return SubscribeForTeleportHashResponse
-func (a *IndexerServiceAPIService) IndexerServiceSubscribeForTeleportHashExecute(r ApiIndexerServiceSubscribeForTeleportHashRequest) (*SubscribeForTeleportHashResponse, *http.Response, error) {
-	var (
-		localVarHTTPMethod   = http.MethodPost
-		localVarPostBody     interface{}
-		formFiles            []formFile
-		localVarReturnValue  *SubscribeForTeleportHashResponse
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IndexerServiceAPIService.IndexerServiceSubscribeForTeleportHash")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/v1/indexer/teleport/subscribe"
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-	if r.subscribeForTeleportHashRequest == nil {
-		return localVarReturnValue, nil, reportError("subscribeForTeleportHashRequest is required and must be specified")
-	}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	// body params
-	localVarPostBody = r.subscribeForTeleportHashRequest
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-			var v Status
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-					newErr.model = v
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
 type ApiIndexerServiceUnsubscribeForScriptsRequest struct {
 	ctx context.Context
 	ApiService *IndexerServiceAPIService
@@ -1782,124 +1683,6 @@ func (a *IndexerServiceAPIService) IndexerServiceUnsubscribeForScriptsExecute(r 
 	}
 	// body params
 	localVarPostBody = r.unsubscribeForScriptsRequest
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-			var v Status
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-					newErr.model = v
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
-type ApiIndexerServiceUnsubscribeForTeleportHashRequest struct {
-	ctx context.Context
-	ApiService *IndexerServiceAPIService
-	unsubscribeForTeleportHashRequest *UnsubscribeForTeleportHashRequest
-}
-
-func (r ApiIndexerServiceUnsubscribeForTeleportHashRequest) UnsubscribeForTeleportHashRequest(unsubscribeForTeleportHashRequest UnsubscribeForTeleportHashRequest) ApiIndexerServiceUnsubscribeForTeleportHashRequest {
-	r.unsubscribeForTeleportHashRequest = &unsubscribeForTeleportHashRequest
-	return r
-}
-
-func (r ApiIndexerServiceUnsubscribeForTeleportHashRequest) Execute() (map[string]interface{}, *http.Response, error) {
-	return r.ApiService.IndexerServiceUnsubscribeForTeleportHashExecute(r)
-}
-
-/*
-IndexerServiceUnsubscribeForTeleportHash Method for IndexerServiceUnsubscribeForTeleportHash
-
-UnsubscribeForTeleportHash allows to remove teleport hashes from an existing subscription.
-
- @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return ApiIndexerServiceUnsubscribeForTeleportHashRequest
-*/
-func (a *IndexerServiceAPIService) IndexerServiceUnsubscribeForTeleportHash(ctx context.Context) ApiIndexerServiceUnsubscribeForTeleportHashRequest {
-	return ApiIndexerServiceUnsubscribeForTeleportHashRequest{
-		ApiService: a,
-		ctx: ctx,
-	}
-}
-
-// Execute executes the request
-//  @return map[string]interface{}
-func (a *IndexerServiceAPIService) IndexerServiceUnsubscribeForTeleportHashExecute(r ApiIndexerServiceUnsubscribeForTeleportHashRequest) (map[string]interface{}, *http.Response, error) {
-	var (
-		localVarHTTPMethod   = http.MethodPost
-		localVarPostBody     interface{}
-		formFiles            []formFile
-		localVarReturnValue  map[string]interface{}
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IndexerServiceAPIService.IndexerServiceUnsubscribeForTeleportHash")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/v1/indexer/teleport/unsubscribe"
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-	if r.unsubscribeForTeleportHashRequest == nil {
-		return localVarReturnValue, nil, reportError("unsubscribeForTeleportHashRequest is required and must be specified")
-	}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	// body params
-	localVarPostBody = r.unsubscribeForTeleportHashRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

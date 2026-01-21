@@ -2,10 +2,10 @@ api_indexer_service.go
 client.go
 configuration.go
 model_any.go
-model_asset.go
+model_asset_group.go
 model_asset_metadata.go
-model_get_asset_details_request.go
-model_get_asset_details_response.go
+model_get_asset_group_request.go
+model_get_asset_group_response.go
 model_get_batch_sweep_transactions_request.go
 model_get_batch_sweep_transactions_response.go
 model_get_commitment_tx_request.go
@@ -42,9 +42,6 @@ model_indexer_vtxo.go
 model_status.go
 model_subscribe_for_scripts_request.go
 model_subscribe_for_scripts_response.go
-model_subscribe_for_teleport_hash_request.go
-model_subscribe_for_teleport_hash_response.go
 model_teleport_event.go
 model_unsubscribe_for_scripts_request.go
-model_unsubscribe_for_teleport_hash_request.go
 utils.go

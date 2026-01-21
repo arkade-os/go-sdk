@@ -68,6 +68,9 @@ type BatchEventsHandler interface {
 		ctx context.Context,
 		event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
 	) error
+	OnStreamStartedEvent(
+		event client.StreamStartedEvent,
+	)
 }
 
 type BatchSessionOption func(*options)
@@ -133,6 +136,10 @@ func JoinBatchSession(
 			}
 
 			switch event := notify.Event; event.(type) {
+			case client.StreamStartedEvent:
+				streamStartedEvent := event.(client.StreamStartedEvent)
+				eventsHandler.OnStreamStartedEvent(streamStartedEvent)
+
 			case client.BatchStartedEvent:
 				e := event.(client.BatchStartedEvent)
 				skip, err := eventsHandler.OnBatchStarted(ctx, e)
@@ -390,6 +397,9 @@ func newBatchEventsHandler(
 		batchSessionId:   "",
 		countSigningDone: 0,
 	}
+}
+
+func (h *defaultBatchEventsHandler) OnStreamStartedEvent(event client.StreamStartedEvent) {
 }
 
 func (h *defaultBatchEventsHandler) OnBatchStarted(

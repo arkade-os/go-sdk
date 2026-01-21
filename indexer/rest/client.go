@@ -240,7 +240,7 @@ func (a *restClient) GetConnectors(
 func (a *restClient) GetAssetDetails(
 	ctx context.Context, assetID string,
 ) (*indexer.AssetResponse, error) {
-	req := a.svc.IndexerServiceAPI.IndexerServiceGetAssetDetails(ctx, assetID)
+	req := a.svc.IndexerServiceAPI.IndexerServiceGetAssetGroup(ctx, assetID)
 
 	resp, _, err := req.Execute()
 	if err != nil {
@@ -248,16 +248,16 @@ func (a *restClient) GetAssetDetails(
 	}
 
 	metadata := make(map[string]string)
-	for _, mt := range resp.GetAsset().Metadata {
+	for _, mt := range resp.GetAssetGroup().Metadata {
 		metadata[mt.GetKey()] = mt.GetValue()
 	}
 
 	return &indexer.AssetResponse{
 		AssetId: resp.GetAssetId(),
 		Asset: indexer.AssetInfo{
-			Id:        *resp.GetAsset().Id,
-			Quantity:  uint64(*resp.GetAsset().Quantity),
-			Immutable: *resp.GetAsset().Immutable,
+			Id:        *resp.GetAssetGroup().Id,
+			Quantity:  uint64(*resp.GetAssetGroup().Quantity),
+			Immutable: *resp.GetAssetGroup().Immutable,
 			Metadata:  metadata,
 		},
 	}, nil

@@ -14,36 +14,36 @@ import (
 	"encoding/json"
 )
 
-// checks if the Asset type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &Asset{}
+// checks if the AssetGroup type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &AssetGroup{}
 
-// Asset struct for Asset
-type Asset struct {
+// AssetGroup struct for AssetGroup
+type AssetGroup struct {
 		Id *string `json:"id,omitempty"`
 		Immutable *bool `json:"immutable,omitempty"`
 		Metadata []AssetMetadata `json:"metadata,omitempty"`
 		Quantity *int32 `json:"quantity,omitempty"`
 }
 
-// NewAsset instantiates a new Asset object
+// NewAssetGroup instantiates a new AssetGroup object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAsset() *Asset {
-	this := Asset{}
+func NewAssetGroup() *AssetGroup {
+	this := AssetGroup{}
 	return &this
 }
 
-// NewAssetWithDefaults instantiates a new Asset object
+// NewAssetGroupWithDefaults instantiates a new AssetGroup object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewAssetWithDefaults() *Asset {
-	this := Asset{}
+func NewAssetGroupWithDefaults() *AssetGroup {
+	this := AssetGroup{}
 	return &this
 }
 
 // GetId returns the Id field value if set, zero value otherwise.
-func (o *Asset) GetId() string {
+func (o *AssetGroup) GetId() string {
 	if o == nil || IsNil(o.Id) {
 		var ret string
 		return ret
@@ -53,7 +53,7 @@ func (o *Asset) GetId() string {
 
 // GetIdOk returns a tuple with the Id field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Asset) GetIdOk() (*string, bool) {
+func (o *AssetGroup) GetIdOk() (*string, bool) {
 	if o == nil || IsNil(o.Id) {
 		return nil, false
 	}
@@ -61,7 +61,7 @@ func (o *Asset) GetIdOk() (*string, bool) {
 }
 
 // HasId returns a boolean if a field has been set.
-func (o *Asset) HasId() bool {
+func (o *AssetGroup) HasId() bool {
 	if o != nil && !IsNil(o.Id) {
 		return true
 	}
@@ -70,12 +70,12 @@ func (o *Asset) HasId() bool {
 }
 
 // SetId gets a reference to the given string and assigns it to the Id field.
-func (o *Asset) SetId(v string) {
+func (o *AssetGroup) SetId(v string) {
 	o.Id = &v
 }
 
 // GetImmutable returns the Immutable field value if set, zero value otherwise.
-func (o *Asset) GetImmutable() bool {
+func (o *AssetGroup) GetImmutable() bool {
 	if o == nil || IsNil(o.Immutable) {
 		var ret bool
 		return ret
@@ -85,7 +85,7 @@ func (o *Asset) GetImmutable() bool {
 
 // GetImmutableOk returns a tuple with the Immutable field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Asset) GetImmutableOk() (*bool, bool) {
+func (o *AssetGroup) GetImmutableOk() (*bool, bool) {
 	if o == nil || IsNil(o.Immutable) {
 		return nil, false
 	}
@@ -93,7 +93,7 @@ func (o *Asset) GetImmutableOk() (*bool, bool) {
 }
 
 // HasImmutable returns a boolean if a field has been set.
-func (o *Asset) HasImmutable() bool {
+func (o *AssetGroup) HasImmutable() bool {
 	if o != nil && !IsNil(o.Immutable) {
 		return true
 	}
@@ -102,12 +102,12 @@ func (o *Asset) HasImmutable() bool {
 }
 
 // SetImmutable gets a reference to the given bool and assigns it to the Immutable field.
-func (o *Asset) SetImmutable(v bool) {
+func (o *AssetGroup) SetImmutable(v bool) {
 	o.Immutable = &v
 }
 
 // GetMetadata returns the Metadata field value if set, zero value otherwise.
-func (o *Asset) GetMetadata() []AssetMetadata {
+func (o *AssetGroup) GetMetadata() []AssetMetadata {
 	if o == nil || IsNil(o.Metadata) {
 		var ret []AssetMetadata
 		return ret
@@ -117,7 +117,7 @@ func (o *Asset) GetMetadata() []AssetMetadata {
 
 // GetMetadataOk returns a tuple with the Metadata field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Asset) GetMetadataOk() ([]AssetMetadata, bool) {
+func (o *AssetGroup) GetMetadataOk() ([]AssetMetadata, bool) {
 	if o == nil || IsNil(o.Metadata) {
 		return nil, false
 	}
@@ -125,7 +125,7 @@ func (o *Asset) GetMetadataOk() ([]AssetMetadata, bool) {
 }
 
 // HasMetadata returns a boolean if a field has been set.
-func (o *Asset) HasMetadata() bool {
+func (o *AssetGroup) HasMetadata() bool {
 	if o != nil && !IsNil(o.Metadata) {
 		return true
 	}
@@ -134,12 +134,12 @@ func (o *Asset) HasMetadata() bool {
 }
 
 // SetMetadata gets a reference to the given []AssetMetadata and assigns it to the Metadata field.
-func (o *Asset) SetMetadata(v []AssetMetadata) {
+func (o *AssetGroup) SetMetadata(v []AssetMetadata) {
 	o.Metadata = v
 }
 
 // GetQuantity returns the Quantity field value if set, zero value otherwise.
-func (o *Asset) GetQuantity() int32 {
+func (o *AssetGroup) GetQuantity() int32 {
 	if o == nil || IsNil(o.Quantity) {
 		var ret int32
 		return ret
@@ -149,7 +149,7 @@ func (o *Asset) GetQuantity() int32 {
 
 // GetQuantityOk returns a tuple with the Quantity field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Asset) GetQuantityOk() (*int32, bool) {
+func (o *AssetGroup) GetQuantityOk() (*int32, bool) {
 	if o == nil || IsNil(o.Quantity) {
 		return nil, false
 	}
@@ -157,7 +157,7 @@ func (o *Asset) GetQuantityOk() (*int32, bool) {
 }
 
 // HasQuantity returns a boolean if a field has been set.
-func (o *Asset) HasQuantity() bool {
+func (o *AssetGroup) HasQuantity() bool {
 	if o != nil && !IsNil(o.Quantity) {
 		return true
 	}
@@ -166,11 +166,11 @@ func (o *Asset) HasQuantity() bool {
 }
 
 // SetQuantity gets a reference to the given int32 and assigns it to the Quantity field.
-func (o *Asset) SetQuantity(v int32) {
+func (o *AssetGroup) SetQuantity(v int32) {
 	o.Quantity = &v
 }
 
-func (o Asset) MarshalJSON() ([]byte, error) {
+func (o AssetGroup) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -178,7 +178,7 @@ func (o Asset) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o Asset) ToMap() (map[string]interface{}, error) {
+func (o AssetGroup) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Id) {
 		toSerialize["id"] = o.Id
@@ -195,38 +195,38 @@ func (o Asset) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableAsset struct {
-	value *Asset
+type NullableAssetGroup struct {
+	value *AssetGroup
 	isSet bool
 }
 
-func (v NullableAsset) Get() *Asset {
+func (v NullableAssetGroup) Get() *AssetGroup {
 	return v.value
 }
 
-func (v *NullableAsset) Set(val *Asset) {
+func (v *NullableAssetGroup) Set(val *AssetGroup) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableAsset) IsSet() bool {
+func (v NullableAssetGroup) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableAsset) Unset() {
+func (v *NullableAssetGroup) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableAsset(val *Asset) *NullableAsset {
-	return &NullableAsset{value: val, isSet: true}
+func NewNullableAssetGroup(val *AssetGroup) *NullableAssetGroup {
+	return &NullableAssetGroup{value: val, isSet: true}
 }
 
-func (v NullableAsset) MarshalJSON() ([]byte, error) {
+func (v NullableAssetGroup) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableAsset) UnmarshalJSON(src []byte) error {
+func (v *NullableAssetGroup) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

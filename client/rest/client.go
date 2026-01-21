@@ -24,6 +24,7 @@ type restClient struct {
 	serverURL      string
 	svc            *ark_service.APIClient
 	requestTimeout time.Duration
+	listenerId     string
 }
 
 // NewClient creates a new REST client for the Ark service
@@ -39,7 +40,7 @@ func NewClient(serverURL string) (client.TransportClient, error) {
 	// TODO: use twice the round interval.
 	reqTimeout := 15 * time.Second
 
-	return &restClient{serverURL, svc, reqTimeout}, nil
+	return &restClient{serverURL, svc, reqTimeout, ""}, nil
 }
 
 func (a *restClient) GetInfo(
@@ -348,6 +349,12 @@ func (c *restClient) GetEventStream(
 					Txid:       e.GetTxid(),
 					Signature:  e.GetSignature(),
 				}
+			case !ark_service.IsNil(event.GetStreamStarted()):
+				e := event.GetStreamStarted()
+				batchEvent = client.StreamStartedEvent{
+					Id: e.GetId(),
+				}
+				c.listenerId = e.GetId()
 			}
 
 			eventsCh <- client.BatchEventChannel{
@@ -487,6 +494,39 @@ func (c *restClient) GetTransactionsStream(
 	}
 
 	return eventsCh, sseClient.Close, nil
+}
+
+func (a *restClient) ModifyStreamTopics(
+	ctx context.Context, addTopics []string, removeTopics []string,
+) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceUpdateStreamTopics(ctx).
+		UpdateStreamTopicsRequest(ark_service.UpdateStreamTopicsRequest{
+			Modify: &ark_service.ModifyTopics{
+				AddTopics:    addTopics,
+				RemoveTopics: removeTopics,
+			},
+			StreamId: &a.listenerId,
+		}).Execute()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return resp.GetTopicsAdded(), resp.GetTopicsRemoved(), resp.GetAllTopics(), nil
+}
+
+func (a *restClient) OverwriteStreamTopics(
+	ctx context.Context, topics []string,
+) (addedTopics []string, removedTopics []string, allTopics []string, err error) {
+	resp, _, err := a.svc.ArkServiceAPI.ArkServiceUpdateStreamTopics(ctx).
+		UpdateStreamTopicsRequest(ark_service.UpdateStreamTopicsRequest{
+			Overwrite: &ark_service.OverwriteTopics{
+				Topics: topics,
+			},
+			StreamId: &a.listenerId,
+		}).Execute()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return resp.GetTopicsAdded(), resp.GetTopicsRemoved(), resp.GetAllTopics(), nil
 }
 
 func (c *restClient) Close() {}

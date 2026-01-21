@@ -35,6 +35,7 @@ type grpcClient struct {
 	conn             *grpc.ClientConn
 	connMu           sync.RWMutex
 	monitoringCancel context.CancelFunc
+	listenerId       string
 }
 
 func NewClient(serverUrl string) (client.TransportClient, error) {
@@ -65,7 +66,7 @@ func NewClient(serverUrl string) (client.TransportClient, error) {
 	}
 
 	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
-	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel}
+	client := &grpcClient{conn, sync.RWMutex{}, monitoringCancel, ""}
 
 	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
 		// Wait for the server to be actually ready for requests
@@ -343,10 +344,20 @@ func (a *grpcClient) GetEventStream(
 				return
 			}
 
+			switch resp.Event.(type) {
+			case *arkv1.GetEventStreamResponse_StreamStarted:
+				a.listenerId = resp.Event.(*arkv1.GetEventStreamResponse_StreamStarted).StreamStarted.Id
+			default:
+			}
+
 			ev, err := event{resp}.toBatchEvent()
 			if err != nil {
 				eventsCh <- client.BatchEventChannel{Err: err}
 				return
+			}
+			if ev == nil {
+				// heartbeat, skip
+				continue
 			}
 
 			eventsCh <- client.BatchEventChannel{Event: ev}
@@ -519,6 +530,53 @@ func (c *grpcClient) GetTransactionsStream(
 	}
 
 	return eventsCh, closeFn, nil
+}
+
+func (c *grpcClient) ModifyStreamTopics(
+	ctx context.Context, addTopics, removeTopics []string,
+) (addedTopics, removedTopics, allTopics []string, err error) {
+	if c.listenerId == "" {
+		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot modify stream topics")
+	}
+
+	req := &arkv1.UpdateStreamTopicsRequest{
+		StreamId: c.listenerId,
+		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Modify{
+			Modify: &arkv1.ModifyTopics{
+				AddTopics:    addTopics,
+				RemoveTopics: removeTopics,
+			},
+		},
+	}
+	updateRes, err := c.svc().UpdateStreamTopics(ctx, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
+}
+
+func (c *grpcClient) OverwriteStreamTopics(
+	ctx context.Context, topics []string,
+) (addedTopics, removedTopics, allTopics []string, err error) {
+	if c.listenerId == "" {
+		return nil, nil, nil, fmt.Errorf("listenerId is not set; cannot overwrite stream topics")
+	}
+
+	req := &arkv1.UpdateStreamTopicsRequest{
+		StreamId: c.listenerId,
+		TopicsChange: &arkv1.UpdateStreamTopicsRequest_Overwrite{
+			Overwrite: &arkv1.OverwriteTopics{
+				Topics: topics,
+			},
+		},
+	}
+	updateRes, err := c.svc().UpdateStreamTopics(ctx, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
 }
 
 func (c *grpcClient) Close() {
