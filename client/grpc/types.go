@@ -23,6 +23,7 @@ type eventResponse interface {
 	GetTreeTx() *arkv1.TreeTxEvent
 	GetTreeSignature() *arkv1.TreeSignatureEvent
 	GetStreamStarted() *arkv1.StreamStartedEvent
+	GetHeartbeat() *arkv1.Heartbeat
 }
 
 type event struct {
@@ -30,6 +31,10 @@ type event struct {
 }
 
 func (e event) toBatchEvent() (any, error) {
+	if ee := e.GetHeartbeat(); ee != nil {
+		return nil, nil
+	}
+
 	if ee := e.GetBatchFailed(); ee != nil {
 		return client.BatchFailedEvent{
 			Id:     ee.GetId(),

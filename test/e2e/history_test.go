@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"testing"
+	"time"
 
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -42,13 +43,13 @@ func TestTransactionHistory(t *testing.T) {
 	require.NotEmpty(t, boardingTx.BoardingTxid)
 	require.Empty(t, boardingTx.CommitmentTxid)
 	require.Empty(t, boardingTx.ArkTxid)
-	require.False(t, boardingTx.Settled)
+	require.Empty(t, boardingTx.SettledBy)
 
 	// verify history contains the boarding tx
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	requireTxEqual(t, boardingTx, history[0])
+	requireTxEqual(t, boardingTx, history[0], "")
 
 	// Alice completes the boarding in a commitment tx
 	commitmentTxid, err := alice.Settle(ctx)
@@ -60,7 +61,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsSettled, event.Type)
 	require.Len(t, event.Txs, 1)
 	settledBoardingTx := event.Txs[0]
-	require.True(t, settledBoardingTx.Settled)
+	require.NotEmpty(t, settledBoardingTx.SettledBy)
 	require.Equal(t, types.TxReceived, settledBoardingTx.Type)
 	require.Equal(t, 21000, int(settledBoardingTx.Amount))
 	require.NotEmpty(t, settledBoardingTx.BoardingTxid)
@@ -72,7 +73,7 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	requireTxEqual(t, settledBoardingTx, history[0])
+	requireTxEqual(t, settledBoardingTx, history[0], commitmentTxid)
 
 	// should receive the vtxo added event
 	vtxoEvent := <-vtxoCh
@@ -112,12 +113,12 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
-	requireTxEqual(t, settledBoardingTx, history[0])
+	requireTxEqual(t, settledBoardingTx, history[0], "")
 
 	// alice sends funds to bob
 	bob := setupClient(t)
 	bobVtxoCh := bob.GetVtxoEventChannel(ctx)
-	_, bobAddress, _, err := bob.Receive(ctx)
+	bobOnchainAddr, bobAddress, _, err := bob.Receive(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddress)
 
@@ -142,8 +143,8 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 2)
-	requireTxEqual(t, offchainTx, history[0])
-	requireTxEqual(t, settledBoardingTx, history[1])
+	requireTxEqual(t, offchainTx, history[0], "")
+	requireTxEqual(t, settledBoardingTx, history[1], "")
 
 	// wait for bob to receive the tx
 	vtxoEvent = <-bobVtxoCh
@@ -175,17 +176,49 @@ func TestTransactionHistory(t *testing.T) {
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 3)
-	requireTxEqual(t, offchainReceivedTx, history[0])
-	requireTxEqual(t, offchainTx, history[1])
-	requireTxEqual(t, settledBoardingTx, history[2])
+	requireTxEqual(t, offchainReceivedTx, history[0], "")
+	requireTxEqual(t, offchainTx, history[1], "")
+	requireTxEqual(t, settledBoardingTx, history[2], "")
+
+	time.Sleep(5 * time.Second)
+
+	commitmentTxid, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 2000)
+	require.NoError(t, err)
+	require.NotEmpty(t, commitmentTxid)
+
+	// should receive the offchain settled tx event
+	event = <-aliceTxChan
+	require.Equal(t, types.TxsAdded, event.Type)
+	require.Len(t, event.Txs, 1)
+	collabExitTx := event.Txs[0]
+	require.Equal(t, types.TxSent, collabExitTx.Type)
+	require.Equal(t, 2000, int(collabExitTx.Amount))
+	require.Empty(t, collabExitTx.BoardingTxid)
+	require.NotEmpty(t, collabExitTx.CommitmentTxid)
+	require.Empty(t, collabExitTx.ArkTxid)
+
+	// Give time to update also the other records
+	time.Sleep(5 * time.Second)
+
+	history, err = alice.GetTransactionHistory(ctx)
+	require.NoError(t, err)
+	require.Len(t, history, 4)
+
+	requireTxEqual(t, collabExitTx, history[0], "")
+	requireTxEqual(t, offchainReceivedTx, history[1], commitmentTxid)
+	requireTxEqual(t, offchainTx, history[2], commitmentTxid)
+	requireTxEqual(t, settledBoardingTx, history[3], "")
 }
 
-func requireTxEqual(t *testing.T, expected, actual types.Transaction) {
+func requireTxEqual(t *testing.T, expected, actual types.Transaction, settledBy string) {
 	require.Equal(t, expected.TransactionKey, actual.TransactionKey)
 	require.Equal(t, expected.Type, actual.Type)
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.Hex, actual.Hex)
-	require.Equal(t, expected.Settled, actual.Settled)
-	require.Equal(t, expected.SettledBy, actual.SettledBy)
 	require.Equal(t, expected.CreatedAt.Unix(), actual.CreatedAt.Unix())
+	if settledBy != "" {
+		require.Equal(t, settledBy, actual.SettledBy)
+		return
+	}
+	require.Equal(t, expected.SettledBy, actual.SettledBy)
 }

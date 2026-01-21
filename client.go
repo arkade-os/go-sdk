@@ -453,7 +453,7 @@ func (a *arkClient) SendOffChain(
 		return arkTxid, nil
 	}
 
-	log.Debugf("marked %d vtxos as spent", len(spentVtxos))
+	log.Debugf("spent %d vtxos", len(spentVtxos))
 
 	createdAt := time.Now()
 
@@ -656,7 +656,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 				return fmt.Errorf("failed to update vtxos: %w", err)
 			}
 			if count > 0 {
-				log.Debugf("marked %d vtxos as unrolled", count)
+				log.Debugf("unrolled %d vtxos", count)
 			}
 		}
 
@@ -1237,7 +1237,6 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 			Amount:    u.Amount,
 			Type:      types.TxReceived,
 			CreatedAt: u.CreatedAt,
-			Settled:   u.Spent,
 			SettledBy: u.SpentBy,
 			Hex:       u.Tx,
 		}
@@ -1300,24 +1299,32 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 
 	// Index the old data for quick lookups.
 	oldTxsMap := make(map[string]types.Transaction, len(oldTxs))
-	txsToUpdate := make(map[string]types.Transaction, 0)
+	updateTxsMap := make(map[string]types.Transaction, 0)
+	unconfirmedTxsMap := make(map[string]types.Transaction, 0)
 	for _, tx := range oldTxs {
-		if tx.CreatedAt.IsZero() || !tx.Settled {
-			txsToUpdate[tx.TransactionKey.String()] = tx
+		if tx.CreatedAt.IsZero() {
+			unconfirmedTxsMap[tx.TransactionKey.String()] = tx
+		} else if tx.SettledBy == "" {
+			updateTxsMap[tx.TransactionKey.String()] = tx
 		}
 		oldTxsMap[tx.TransactionKey.String()] = tx
 	}
 
 	txsToAdd := make([]types.Transaction, 0, len(newTxs))
-	txsToReplace := make([]types.Transaction, 0, len(newTxs))
+	txsToSettle := make([]types.Transaction, 0, len(newTxs))
+	txsToConfirm := make([]types.Transaction, 0, len(newTxs))
 	for _, tx := range newTxs {
 		if _, ok := oldTxsMap[tx.TransactionKey.String()]; !ok {
 			txsToAdd = append(txsToAdd, tx)
 			continue
 		}
 
-		if _, ok := txsToUpdate[tx.TransactionKey.String()]; ok {
-			txsToReplace = append(txsToReplace, tx)
+		if _, ok := unconfirmedTxsMap[tx.TransactionKey.String()]; ok && !tx.CreatedAt.IsZero() {
+			txsToConfirm = append(txsToConfirm, tx)
+			continue
+		}
+		if _, ok := updateTxsMap[tx.TransactionKey.String()]; ok && tx.SettledBy != "" {
+			txsToSettle = append(txsToSettle, tx)
 		}
 	}
 
@@ -1330,13 +1337,22 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []types.Transaction)
 			log.Debugf("added %d new transaction(s)", count)
 		}
 	}
-	if len(txsToReplace) > 0 {
-		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToReplace)
+	if len(txsToSettle) > 0 {
+		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToSettle)
 		if err != nil {
 			return err
 		}
 		if count > 0 {
-			log.Debugf("replaced %d transaction(s)", count)
+			log.Debugf("settled %d transaction(s)", count)
+		}
+	}
+	if len(txsToConfirm) > 0 {
+		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToConfirm)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			log.Debugf("confirmed %d transaction(s)", count)
 		}
 	}
 
@@ -2759,7 +2775,6 @@ func (a *arkClient) getBoardingTxs(ctx context.Context) ([]types.Transaction, er
 			Amount:    u.Amount,
 			Type:      types.TxReceived,
 			CreatedAt: u.CreatedAt,
-			Settled:   u.Spent,
 			SettledBy: u.SpentBy,
 			Hex:       u.Tx,
 		}
@@ -2857,7 +2872,6 @@ func (a *arkClient) handleCommitmentTx(
 				},
 				Amount:    amount,
 				Type:      types.TxReceived,
-				Settled:   true,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
 			})
@@ -2877,34 +2891,30 @@ func (a *arkClient) handleCommitmentTx(
 					},
 					Amount:    settledBoardingAmount - vtxosToAddAmount,
 					Type:      types.TxSent,
-					Settled:   true,
 					CreatedAt: time.Now(),
 					Hex:       commitmentTx.Tx,
 				})
 			}
 		}
 	} else {
-		if len(txsToSettle) <= 0 {
-			amount := uint64(0)
-			for _, v := range myVtxos {
-				amount += v.Amount
-			}
-			for _, v := range vtxosToAdd {
-				amount -= v.Amount
-			}
+		amount := uint64(0)
+		for _, v := range myVtxos {
+			amount += v.Amount
+		}
+		for _, v := range vtxosToAdd {
+			amount -= v.Amount
+		}
 
-			if amount > 0 {
-				txsToAdd = append(txsToAdd, types.Transaction{
-					TransactionKey: types.TransactionKey{
-						CommitmentTxid: commitmentTx.Txid,
-					},
-					Amount:    amount,
-					Type:      types.TxSent,
-					Settled:   true,
-					CreatedAt: time.Now(),
-					Hex:       commitmentTx.Tx,
-				})
-			}
+		if amount > 0 {
+			txsToAdd = append(txsToAdd, types.Transaction{
+				TransactionKey: types.TransactionKey{
+					CommitmentTxid: commitmentTx.Txid,
+				},
+				Amount:    amount,
+				Type:      types.TxSent,
+				CreatedAt: time.Now(),
+				Hex:       commitmentTx.Tx,
+			})
 		}
 	}
 
@@ -2913,7 +2923,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("added %d transaction(s)", count)
+		if count > 0 {
+			log.Debugf("added %d transaction(s)", count)
+		}
 	}
 
 	if len(txsToSettle) > 0 {
@@ -2922,7 +2934,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("settled %d transaction(s)", count)
+		if count > 0 {
+			log.Debugf("settled %d transaction(s)", count)
+		}
 	}
 
 	if len(vtxosToAdd) > 0 {
@@ -2930,7 +2944,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("added %d vtxo(s)", count)
+		if count > 0 {
+			log.Debugf("added %d vtxo(s)", count)
+		}
 	}
 
 	if len(vtxosToSpend) > 0 {
@@ -2938,7 +2954,9 @@ func (a *arkClient) handleCommitmentTx(
 		if err != nil {
 			return err
 		}
-		log.Debugf("spent %d vtxo(s)", count)
+		if count > 0 {
+			log.Debugf("spent %d vtxo(s)", count)
+		}
 	}
 
 	return nil
@@ -3013,7 +3031,6 @@ func (a *arkClient) handleArkTx(
 			},
 			Amount:    inAmount - outAmount,
 			Type:      types.TxSent,
-			Settled:   true,
 			CreatedAt: time.Now(),
 		})
 	}
@@ -3127,7 +3144,7 @@ func (i *arkClient) vtxosToTxs(
 
 	// All vtxos are receivals unless:
 	// - they resulted from a settlement (either boarding or refresh)
-	// - they are the change of a spend tx
+	// - they are the change of a spend tx or a collaborative exit
 	vtxosLeftToCheck := append([]types.Vtxo{}, spent...)
 	for _, vtxo := range append(spendable, spent...) {
 		if _, ok := commitmentTxsToIgnore[vtxo.CommitmentTxids[0]]; !vtxo.Preconfirmed && ok {
@@ -3148,12 +3165,10 @@ func (i *arkClient) vtxosToTxs(
 
 		commitmentTxid := vtxo.CommitmentTxids[0]
 		arkTxid := ""
-		settled := !vtxo.Preconfirmed
 		settledBy := ""
 		if vtxo.Preconfirmed {
 			arkTxid = vtxo.Txid
 			commitmentTxid = ""
-			settled = vtxo.Spent
 			settledBy = vtxo.SettledBy
 		}
 
@@ -3165,23 +3180,30 @@ func (i *arkClient) vtxosToTxs(
 			Amount:    vtxo.Amount - settleAmount - spentAmount,
 			Type:      types.TxReceived,
 			CreatedAt: vtxo.CreatedAt,
-			Settled:   settled,
 			SettledBy: settledBy,
 		})
 	}
 
 	// Sendings
 
-	// All "spentBy" vtxos are payments unless:
-	// - they are settlements
+	// All spent vtxos are payments unless they are settlements of boarding utxos or refreshes
 
-	// aggregate spent by spentId
+	// aggregate settled vtxos by "settledBy" (commitment txid)
+	vtxosBySettledBy := make(map[string][]types.Vtxo)
+	// aggregate spent vtxos by "arkTxid"
 	vtxosBySpentBy := make(map[string][]types.Vtxo)
 	for _, v := range spent {
-		if len(v.SpentBy) <= 0 {
-			continue
-		}
 		if v.SettledBy != "" {
+			if _, ok := commitmentTxsToIgnore[v.SettledBy]; !ok {
+				if _, ok := vtxosBySettledBy[v.SettledBy]; !ok {
+					vtxosBySettledBy[v.SettledBy] = make([]types.Vtxo, 0)
+				}
+				vtxosBySettledBy[v.SettledBy] = append(vtxosBySettledBy[v.SettledBy], v)
+				continue
+			}
+		}
+
+		if len(v.ArkTxid) <= 0 {
 			continue
 		}
 
@@ -3189,6 +3211,25 @@ func (i *arkClient) vtxosToTxs(
 			vtxosBySpentBy[v.ArkTxid] = make([]types.Vtxo, 0)
 		}
 		vtxosBySpentBy[v.ArkTxid] = append(vtxosBySpentBy[v.ArkTxid], v)
+	}
+
+	for sb := range vtxosBySettledBy {
+		resultedVtxos := findVtxosResultedFromSettledBy(append(spendable, spent...), sb)
+		resultedAmount := reduceVtxosAmount(resultedVtxos)
+		forfeitAmount := reduceVtxosAmount(vtxosBySettledBy[sb])
+		// If the forfeit amount is bigger than the resulted amount, we have a collaborative exit
+		if forfeitAmount > resultedAmount {
+			vtxo := getVtxo(resultedVtxos, vtxosBySettledBy[sb])
+
+			txs = append(txs, types.Transaction{
+				TransactionKey: types.TransactionKey{
+					CommitmentTxid: vtxo.CommitmentTxids[0],
+				},
+				Amount:    forfeitAmount - resultedAmount,
+				Type:      types.TxSent,
+				CreatedAt: vtxo.CreatedAt,
+			})
+		}
 	}
 
 	for sb := range vtxosBySpentBy {
@@ -3231,9 +3272,8 @@ func (i *arkClient) vtxosToTxs(
 			Amount:    spentAmount - resultedAmount,
 			Type:      types.TxSent,
 			CreatedAt: vtxo.CreatedAt,
-			Settled:   true,
+			SettledBy: vtxo.SettledBy,
 		})
-
 	}
 
 	return txs, nil

@@ -73,10 +73,9 @@ func (s *txStore) SettleTransactions(
 
 	settledTxs := make([]types.Transaction, 0, len(txs))
 	for _, tx := range txs {
-		if tx.Settled {
+		if tx.SettledBy != "" {
 			continue
 		}
-		tx.Settled = true
 		tx.SettledBy = settledBy
 		if err := s.db.Upsert(tx.TransactionKey.String(), &tx); err != nil {
 			return -1, err
@@ -144,7 +143,6 @@ func (s *txStore) RbfTransactions(
 			},
 			Type:      tx.Type,
 			Amount:    tx.Amount,
-			Settled:   tx.Settled,
 			CreatedAt: tx.CreatedAt,
 			Hex:       tx.Hex,
 			SettledBy: tx.SettledBy,
