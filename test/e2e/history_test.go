@@ -20,7 +20,6 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	aliceTxChan := alice.GetTransactionEventChannel(ctx)
-	vtxoCh := alice.GetVtxoEventChannel(ctx)
 	utxoCh := alice.GetUtxoEventChannel(ctx)
 
 	// Alice sends fund to boarding address
@@ -75,15 +74,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.Len(t, history, 1)
 	requireTxEqual(t, settledBoardingTx, history[0], commitmentTxid)
 
-	// should receive the vtxo added event
-	vtxoEvent := <-vtxoCh
-	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
-	require.Len(t, vtxoEvent.Vtxos, 1)
-	require.Equal(t, 21000, int(vtxoEvent.Vtxos[0].Amount))
-	require.False(t, vtxoEvent.Vtxos[0].Preconfirmed)
-	require.False(t, vtxoEvent.Vtxos[0].Spent)
-
-	// should receive the utxo spent event
+	// wait for the utxo to be detected as spent and settle again
 	utxoEvent = <-utxoCh
 	require.Equal(t, types.UtxosSpent, utxoEvent.Type)
 	require.Len(t, utxoEvent.Utxos, 1)
@@ -95,20 +86,6 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentRefreshTxid)
 
-	// should receive the vtxo added event
-	vtxoEvent = <-vtxoCh
-	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
-	require.Len(t, vtxoEvent.Vtxos, 1)
-	require.Equal(t, 21000, int(vtxoEvent.Vtxos[0].Amount))
-	require.False(t, vtxoEvent.Vtxos[0].Spent)
-
-	// should receive the vtxo spent event
-	vtxoEvent = <-vtxoCh
-	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-	require.Len(t, vtxoEvent.Vtxos, 1)
-	require.Equal(t, 21000, int(vtxoEvent.Vtxos[0].Amount))
-	require.True(t, vtxoEvent.Vtxos[0].Spent)
-
 	// check history didn't change, we should not see commitment refresh tx in history
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
@@ -117,7 +94,8 @@ func TestTransactionHistory(t *testing.T) {
 
 	// alice sends funds to bob
 	bob := setupClient(t)
-	bobVtxoCh := bob.GetVtxoEventChannel(ctx)
+	bobTxChan := bob.GetTransactionEventChannel(ctx)
+
 	bobOnchainAddr, bobAddress, _, err := bob.Receive(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddress)
@@ -146,12 +124,24 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, offchainTx, history[0], "")
 	requireTxEqual(t, settledBoardingTx, history[1], "")
 
-	// wait for bob to receive the tx
-	vtxoEvent = <-bobVtxoCh
-	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
-	require.Len(t, vtxoEvent.Vtxos, 1)
-	require.Equal(t, 1000, int(vtxoEvent.Vtxos[0].Amount))
-	require.Equal(t, arkTxid, vtxoEvent.Vtxos[0].Txid)
+	event = <-bobTxChan
+
+	require.Equal(t, types.TxsAdded, event.Type)
+	require.Len(t, event.Txs, 1)
+	offchainReceivedTx := event.Txs[0]
+	require.Equal(t, types.TxReceived, offchainReceivedTx.Type)
+	require.Equal(t, 1000, int(offchainReceivedTx.Amount))
+	require.NotEmpty(t, offchainReceivedTx.Hex)
+	require.Empty(t, offchainReceivedTx.BoardingTxid)
+	require.Empty(t, offchainReceivedTx.CommitmentTxid)
+	require.NotEmpty(t, offchainReceivedTx.ArkTxid)
+	require.Empty(t, offchainReceivedTx.SettledBy)
+
+	// verify history contains the offchain tx
+	history, err = bob.GetTransactionHistory(ctx)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	requireTxEqual(t, offchainReceivedTx, history[0], "")
 
 	// bob sends funds to alice
 	arkTxid, err = bob.SendOffChain(ctx, []types.Receiver{{
@@ -164,7 +154,7 @@ func TestTransactionHistory(t *testing.T) {
 	event = <-aliceTxChan
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
-	offchainReceivedTx := event.Txs[0]
+	offchainReceivedTx = event.Txs[0]
 	require.Equal(t, types.TxReceived, offchainReceivedTx.Type)
 	require.Equal(t, arkTxid, offchainReceivedTx.ArkTxid)
 	require.Empty(t, offchainReceivedTx.BoardingTxid)
