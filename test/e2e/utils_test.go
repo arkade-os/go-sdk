@@ -54,7 +54,7 @@ func setupClient(t *testing.T) arksdk.ArkClient {
 		Password:             password,
 		Seed:                 privkeyHex,
 		WithTransactionFeed:  true,
-		ExplorerPollInterval: 2 * time.Second,
+		ExplorerPollInterval: time.Second,
 	})
 	require.NoError(t, err)
 
