@@ -16,6 +16,8 @@ model_finalize_tx_request.go
 model_get_event_stream_request.go
 model_get_event_stream_response.go
 model_get_info_response.go
+model_get_intent_request.go
+model_get_intent_response.go
 model_get_pending_tx_request.go
 model_get_pending_tx_response.go
 model_get_transactions_stream_response.go
