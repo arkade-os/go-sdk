@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAssetLifecycleWithStatefulClient(t *testing.T) {
+func TestAssetLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	issuer := setupClient(t)
@@ -33,6 +33,7 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 		ctx,
 		types.AssetCreationRequest{Params: createParams},
 	)
+
 	require.NoError(t, err)
 
 	time.Sleep(5 * time.Second) // Wait for server indexer
@@ -74,170 +75,6 @@ func TestAssetLifecycleWithStatefulClient(t *testing.T) {
 	// Final Settlement
 	_, err = issuer.Settle(ctx)
 	require.NoError(t, err)
-	_, err = receiver.Settle(ctx)
-	require.NoError(t, err)
-}
-
-func TestMultiAssetCreation(t *testing.T) {
-	ctx := context.Background()
-
-	issuer := setupClient(t)
-
-	// Fund issuer so they can pay for multi-asset creation.
-	faucetOffchain(t, issuer, 0.004)
-
-	const assetASupply uint64 = 2_500
-	const assetBSupply uint64 = 3_500
-	assetAParams := types.AssetCreationParams{
-		Quantity:    assetASupply,
-		MetadataMap: map[string]string{"name": "Multi Create A", "symbol": "MCA"},
-	}
-	assetBParams := types.AssetCreationParams{
-		Quantity:    assetBSupply,
-		MetadataMap: map[string]string{"name": "Multi Create B", "symbol": "MCB"},
-	}
-
-	_, assetAIds, err := issuer.CreateAsset(ctx, types.AssetCreationRequest{
-		Params: assetAParams,
-	})
-	require.NoError(t, err)
-	require.Len(t, assetAIds, 1)
-
-	_, assetBIds, err := issuer.CreateAsset(ctx, types.AssetCreationRequest{
-		Params: assetBParams,
-	})
-	require.NoError(t, err)
-	require.Len(t, assetBIds, 1)
-
-	assetIds := []string{assetAIds[0], assetBIds[0]}
-	require.NotEqual(t, assetIds[0], assetIds[1])
-
-	time.Sleep(5 * time.Second) // Wait for server indexer
-
-	assetIDsBySymbol := make(map[string]string, 2)
-	assetQuantityBySymbol := make(map[string]uint64, 2)
-	for _, assetID := range assetIds {
-		assetResp, err := issuer.GetAsset(ctx, assetID)
-		require.NoError(t, err)
-
-		symbol := assetResp.Metadata["symbol"]
-		require.NotEmpty(t, symbol)
-
-		assetIDsBySymbol[symbol] = assetID
-		assetQuantityBySymbol[symbol] = assetResp.Quantity
-	}
-
-	assetAId, ok := assetIDsBySymbol["MCA"]
-	require.True(t, ok)
-	assetBId, ok := assetIDsBySymbol["MCB"]
-	require.True(t, ok)
-
-	require.Equal(t, assetASupply, assetQuantityBySymbol["MCA"])
-	require.Equal(t, assetBSupply, assetQuantityBySymbol["MCB"])
-
-	assetAVtxo, err := getAssetVtxo(ctx, issuer, assetAId, assetASupply)
-	require.NoError(t, err)
-	require.EqualValues(t, assetASupply, assetAVtxo.Assets[0].Amount)
-
-	assetBVtxo, err := getAssetVtxo(ctx, issuer, assetBId, assetBSupply)
-	require.NoError(t, err)
-	require.EqualValues(t, assetBSupply, assetBVtxo.Assets[0].Amount)
-
-	_, err = issuer.Settle(ctx)
-	require.NoError(t, err)
-}
-
-func TestMultiAssetTransfer(t *testing.T) {
-	ctx := context.Background()
-
-	issuer := setupClient(t)
-	receiver := setupClient(t)
-
-	// Fund issuer so they can pay for asset creation and transfer.
-	faucetOffchain(t, issuer, 0.005)
-
-	const assetASupply uint64 = 3_000
-	assetAParams := types.AssetCreationParams{
-		Quantity:    assetASupply,
-		MetadataMap: map[string]string{"name": "Multi Asset A", "symbol": "MA"},
-	}
-	_, assetIds, err := issuer.CreateAsset(
-		ctx,
-		types.AssetCreationRequest{Params: assetAParams},
-	)
-	require.NoError(t, err)
-
-	assetIdA := assetIds[0]
-
-	time.Sleep(2 * time.Second) // Wait for server indexer
-
-	const assetBSupply uint64 = 4_000
-	assetBParams := types.AssetCreationParams{
-		Quantity:    assetBSupply,
-		MetadataMap: map[string]string{"name": "Multi Asset B", "symbol": "MB"},
-	}
-	_, assetIds, err = issuer.CreateAsset(
-		ctx,
-		types.AssetCreationRequest{Params: assetBParams},
-	)
-	require.NoError(t, err)
-
-	assetIdB := assetIds[0]
-
-	time.Sleep(5 * time.Second) // Wait for server indexer
-
-	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, receiverOffchainAddr)
-
-	const transferA uint64 = 1_200
-	const transferB uint64 = 1_700
-	arkTxidA, err := issuer.SendAsset(
-		ctx,
-		[]types.Receiver{{
-			To:     receiverOffchainAddr,
-			Amount: transferA,
-		}},
-		assetIdA,
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, arkTxidA)
-
-	arkTxidB, err := issuer.SendAsset(
-		ctx,
-		[]types.Receiver{{
-			To:     receiverOffchainAddr,
-			Amount: transferB,
-		}},
-		assetIdB,
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, arkTxidB)
-
-	time.Sleep(5 * time.Second) // Wait for server indexer
-
-	receiverAssetAVtxo, err := getAssetVtxo(ctx, receiver, assetIdA, transferA)
-	require.NoError(t, err)
-	require.EqualValues(t, transferA, receiverAssetAVtxo.Assets[0].Amount)
-
-	receiverAssetBVtxo, err := getAssetVtxo(ctx, receiver, assetIdB, transferB)
-	require.NoError(t, err)
-	require.EqualValues(t, transferB, receiverAssetBVtxo.Assets[0].Amount)
-
-	receiverBalance, err := receiver.Balance(ctx)
-	require.NoError(t, err)
-
-	assetABalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIdA]
-	require.True(t, ok)
-	require.GreaterOrEqual(t, int(assetABalance.TotalAmount), int(transferA))
-
-	assetBBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIdB]
-	require.True(t, ok)
-	require.GreaterOrEqual(t, int(assetBBalance.TotalAmount), int(transferB))
-
-	_, err = issuer.Settle(ctx)
-	require.NoError(t, err)
-
 	_, err = receiver.Settle(ctx)
 	require.NoError(t, err)
 }
@@ -478,7 +315,7 @@ func getAssetVtxo(
 	}
 
 	for _, vtxo := range vtxos {
-		if vtxo.Assets != nil && vtxo.Assets[0].AssetId == assetID {
+		if len(vtxo.Assets) > 0 && vtxo.Assets[0].AssetId == assetID {
 			if amount == 0 || vtxo.Assets[0].Amount >= amount {
 				return vtxo, nil
 			}

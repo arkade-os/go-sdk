@@ -136,6 +136,17 @@ type vtxo struct {
 }
 
 func (v vtxo) toVtxo() types.Vtxo {
+	assets := make([]types.Asset, 0, len(v.GetExtensions()))
+	for _, a := range v.GetExtensions() {
+		if a.GetAsset() != nil {
+			assets = append(assets, types.Asset{
+				AssetId: a.GetAsset().AssetId,
+				Amount:  a.GetAsset().Amount,
+			})
+		}
+
+	}
+
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
 			Txid: v.GetOutpoint().GetTxid(),
@@ -153,6 +164,7 @@ func (v vtxo) toVtxo() types.Vtxo {
 		SpentBy:         v.GetSpentBy(),
 		SettledBy:       v.GetSettledBy(),
 		ArkTxid:         v.GetArkTxid(),
+		Assets:          assets,
 	}
 }
 

@@ -453,6 +453,13 @@ func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
 			Value:    int64(receiver.Amount),
 			PkScript: changeAddrScript,
 		})
+
+		b.changeReceivers = append(b.changeReceivers, types.DBReceiver{
+			Receiver: *receiver,
+			Index:    b.outputIndex,
+		})
+
+		b.outputIndex++
 	}
 
 	return nil
@@ -1243,7 +1250,11 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 		return nil, err
 	}
 
-	forfeitClosure := vtxoScript.ForfeitClosures()[0]
+	forfeitClosures := vtxoScript.ForfeitClosures()
+	if len(forfeitClosures) == 0 {
+		return nil, fmt.Errorf("no forfeit closures found")
+	}
+	forfeitClosure := forfeitClosures[0]
 
 	forfeitScript, err := forfeitClosure.Script()
 	if err != nil {

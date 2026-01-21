@@ -136,6 +136,8 @@ func JoinBatchSession(
 			case client.BatchStartedEvent:
 				e := event.(client.BatchStartedEvent)
 				skip, err := eventsHandler.OnBatchStarted(ctx, e)
+
+				fmt.Printf("skip part %b ,  %+v", skip, err)
 				if err != nil {
 					return "", err
 				}
@@ -176,6 +178,9 @@ func JoinBatchSession(
 					return "", err
 				}
 
+				//log err
+				fmt.Println("tree tx event reached here")
+
 				if treeTxEvent.BatchIndex == 0 {
 					flatVtxoTree = append(flatVtxoTree, treeTxEvent.Node)
 				} else {
@@ -199,6 +204,10 @@ func JoinBatchSession(
 				if err := addSignatureToTxTree(event, vtxoTree); err != nil {
 					return "", err
 				}
+
+				//log err
+				fmt.Println("tree signature event reached here")
+
 				continue
 			// the musig2 session started, let's send our nonces.
 			case client.TreeSigningStartedEvent:
@@ -218,6 +227,9 @@ func JoinBatchSession(
 					return "", err
 				}
 
+				// log err
+				fmt.Println("tree signing started event reached here")
+
 				if !skip {
 					step++
 				}
@@ -233,6 +245,9 @@ func JoinBatchSession(
 				if err != nil {
 					return "", err
 				}
+
+				// log err
+				fmt.Println("tree nonces aggregated event reached here")
 
 				if signed {
 					step++
@@ -253,6 +268,10 @@ func JoinBatchSession(
 				if signed {
 					step++
 				}
+
+				// log err
+				fmt.Println("tree nonces event reached here")
+
 				continue
 			case client.BatchFinalizationEvent:
 				if step != treeNoncesAggregated {
@@ -275,6 +294,9 @@ func JoinBatchSession(
 				if err := eventsHandler.OnBatchFinalization(ctx, event, vtxoTree, connectorTree); err != nil {
 					return "", err
 				}
+
+				// log err
+				fmt.Println("batch finalization event reached here")
 
 				log.Debug("done.")
 				log.Debug("waiting for batch finalization...")
@@ -347,7 +369,6 @@ func newBatchEventsHandler(
 	vtxos []client.TapscriptsVtxo,
 	boardingUtxos []types.Utxo,
 	receivers []types.Receiver,
-	teleportReceivers []types.TeleportReceiver,
 	signerSessions []tree.SignerSession,
 ) *defaultBatchEventsHandler {
 	vtxosToSign := make([]client.TapscriptsVtxo, 0, len(vtxos))
@@ -589,6 +610,8 @@ func (h *defaultBatchEventsHandler) OnBatchFinalization(
 	var signedCommitmentTx string
 
 	vtxos := h.vtxosToForfeit()
+
+	println("forfeit trabsaction reached here")
 
 	// if we spend vtxos, we must create and sign forfeits.
 	if len(vtxos) > 0 && connectorTree != nil {
@@ -858,20 +881,20 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 			vtxoSequence = wire.MaxTxInSequenceNum - 1
 		}
 
+		println("forfiet done here")
+
 		assetAnchor, err := buildForfeitAssetAnchor(vtxo, 0, forfeitScript)
 		if err != nil {
 			return nil, err
 		}
 
-		forfeitTx, err := buildForfeitTxWithAssetAnchor(
-			vtxoInput,
-			connectorOutpoint,
-			vtxoPrevout,
-			connector,
-			forfeitPkScript,
-			vtxoSequence,
-			uint32(vtxoLocktime),
+		forfeitTx, err := tree.BuildForfeitTx(
+			[]*wire.OutPoint{vtxoInput, connectorOutpoint},
+			[]uint32{vtxoSequence, wire.MaxTxInSequenceNum},
+			[]*wire.TxOut{vtxoPrevout, connector},
 			assetAnchor,
+			forfeitPkScript,
+			uint32(vtxoLocktime),
 		)
 		if err != nil {
 			return nil, err
@@ -893,51 +916,6 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 	}
 
 	return signedForfeitTxs, nil
-}
-
-func buildForfeitTxWithAssetAnchor(
-	vtxoInput, connectorOutpoint *wire.OutPoint,
-	vtxoPrevout, connectorPrevout *wire.TxOut,
-	forfeitPkScript []byte,
-	vtxoSequence uint32,
-	txLocktime uint32,
-	assetAnchor *wire.TxOut,
-) (*psbt.Packet, error) {
-	inputs := []*wire.OutPoint{vtxoInput, connectorOutpoint}
-	sequences := []uint32{vtxoSequence, wire.MaxTxInSequenceNum}
-	prevouts := []*wire.TxOut{vtxoPrevout, connectorPrevout}
-
-	sumPrevout := int64(0)
-	for _, prevout := range prevouts {
-		sumPrevout += prevout.Value
-	}
-	sumPrevout -= txutils.ANCHOR_VALUE
-
-	forfeitOut := wire.NewTxOut(sumPrevout, forfeitPkScript)
-
-	outs := []*wire.TxOut{forfeitOut}
-	if assetAnchor != nil {
-		outs = append(outs, assetAnchor)
-	}
-	outs = append(outs, txutils.AnchorOutput())
-
-	partialTx, err := psbt.New(inputs, outs, 3, txLocktime, sequences)
-	if err != nil {
-		return nil, err
-	}
-
-	updater, err := psbt.NewUpdater(partialTx)
-	if err != nil {
-		return nil, err
-	}
-
-	for i, prevout := range prevouts {
-		if err := updater.AddInWitnessUtxo(prevout, i); err != nil {
-			return nil, err
-		}
-	}
-
-	return partialTx, nil
 }
 
 func buildForfeitAssetAnchor(

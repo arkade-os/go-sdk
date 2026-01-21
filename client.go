@@ -392,10 +392,6 @@ func (a *arkClient) CreateAsset(
 		changeReceivers[i].Assets[0].AssetId = assetId
 	}
 
-	if err != nil {
-		return "", nil, err
-	}
-
 	// validate and verify transactions returned by the server
 	if err := verifySignedArk(arkTx, signedArkTx, a.SignerPubKey); err != nil {
 		return "", nil, err
@@ -410,7 +406,7 @@ func (a *arkClient) CreateAsset(
 	for _, checkpoint := range signedCheckpointTxs {
 		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
 		if err != nil {
-			return "", nil, nil
+			return "", nil, err
 		}
 		finalCheckpoints = append(finalCheckpoints, signedTx)
 	}
@@ -782,6 +778,10 @@ func (a *arkClient) ReissueAsset(
 	_, err = assetTxBuilder.InsertAssetGroup(controlAssetId, []types.Receiver{{
 		To: offchainAddrs[0].Address, Amount: 1,
 	}}, AssetGroupTransfer)
+
+	if err != nil {
+		return "", err
+	}
 
 	err = assetTxBuilder.AddSatsInputs(a.Dust)
 	if err != nil {
@@ -1461,7 +1461,7 @@ func (a *arkClient) RegisterIntent(
 		return "", err
 	}
 
-	proofTx, message, err := a.makeRegisterIntent(
+	proofTx, message, _, err := a.makeRegisterIntent(
 		inputs, tapLeaves, outputs, teleportOutputs, cosignersPublicKeys, arkFields,
 	)
 
@@ -2846,7 +2846,12 @@ func (a *arkClient) settle(
 	}
 
 	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+	releasedDbMu := false
+	defer func() {
+		if !releasedDbMu {
+			a.dbMu.Unlock()
+		}
+	}()
 
 	info, err := a.client.GetInfo(ctx)
 	if err != nil {
@@ -2934,7 +2939,7 @@ func (a *arkClient) settle(
 	totalVtxos = append(totalVtxos, satsVtxos...)
 	totalVtxos = append(totalVtxos, assetVtxos...)
 
-	commitmentId, intentId, err := a.joinBatchWithRetry(
+	commitmentId, intentTxHash, err := a.joinBatchWithRetry(
 		ctx,
 		nil,
 		outputs,
@@ -2952,15 +2957,17 @@ func (a *arkClient) settle(
 
 		if a.WithTransactionFeed {
 			a.dbMu.Unlock()
+			releasedDbMu = true
 			if err := a.refreshDb(ctx); err != nil {
 				return "", fmt.Errorf("failed to refresh db: %s", err)
 			}
 			a.dbMu.Lock()
+			releasedDbMu = false
 		}
 		for _, receiver := range teleportOutputs {
 
 			time.Sleep(10 * time.Second) // slight delay to ensure batch is processed
-			_, err := a.claimTeleportAsset(ctx, intentId, receiver, CoinSelectOptions{})
+			_, err := a.claimTeleportAsset(ctx, intentTxHash, receiver, CoinSelectOptions{})
 			if err != nil {
 				return "", fmt.Errorf("failed to claim teleport asset: %s", err)
 			}
@@ -2977,7 +2984,7 @@ func (a *arkClient) makeRegisterIntent(
 	teleportOutputs []types.TeleportReceiver,
 	cosignersPublicKeys []string,
 	arkFields [][]*psbt.Unknown,
-) (string, string, error) {
+) (string, string, []byte, error) {
 	message, outputsTxOut, err := createRegisterIntentMessage(
 		inputs,
 		outputs,
@@ -2985,7 +2992,7 @@ func (a *arkClient) makeRegisterIntent(
 		cosignersPublicKeys,
 	)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 
 	rawIntentInputs := make([]intent.Input, len(inputs))
@@ -2993,7 +3000,16 @@ func (a *arkClient) makeRegisterIntent(
 		rawIntentInputs[i] = in.Input
 	}
 
-	return a.makeIntent(message, rawIntentInputs, outputsTxOut, leafProofs, arkFields)
+	proofTx, proof, err := a.makeIntent(message, rawIntentInputs, outputsTxOut, leafProofs, arkFields)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	proofTxhash := proof.UnsignedTx.TxHash()
+	proofTxbytes := make([]byte, 32)
+	copy(proofTxbytes, proofTxhash[:])
+
+	return proofTx, message, proofTxbytes, nil
 }
 
 func (a *arkClient) makeGetPendingTxIntent(
@@ -3009,7 +3025,12 @@ func (a *arkClient) makeGetPendingTxIntent(
 		return "", "", err
 	}
 
-	return a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+	intentTx, _, err := a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+	if err != nil {
+		return "", "", err
+	}
+
+	return intentTx, message, nil
 }
 
 func (a *arkClient) makeDeleteIntent(
@@ -3025,16 +3046,21 @@ func (a *arkClient) makeDeleteIntent(
 		return "", "", err
 	}
 
-	return a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+	intentTx, _, err := a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+	if err != nil {
+		return "", "", err
+	}
+
+	return intentTx, message, nil
 }
 
 func (a *arkClient) makeIntent(
 	message string, inputs []intent.Input, outputsTxOut []*wire.TxOut,
 	leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
-) (string, string, error) {
+) (string, *intent.Proof, error) {
 	proof, err := intent.New(message, inputs, outputsTxOut)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
 	for i, input := range proof.Inputs {
@@ -3060,15 +3086,15 @@ func (a *arkClient) makeIntent(
 
 	unsignedProofTx, err := proof.B64Encode()
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
 	signedTx, err := a.wallet.SignTransaction(context.Background(), a.explorer, unsignedProofTx)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
-	return signedTx, message, nil
+	return signedTx, proof, nil
 }
 
 func (a *arkClient) addInputs(
@@ -3187,12 +3213,12 @@ func (a *arkClient) joinBatchWithRetry(
 	options settleOptions,
 	selectedCoins []client.TapscriptsVtxo,
 	selectedBoardingCoins []types.Utxo,
-) (string, string, error) {
+) (string, []byte, error) {
 	inputs, exitLeaves, arkFields, err := toIntentInputs(
 		selectedBoardingCoins, selectedCoins, notes,
 	)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
 	rawIntents := make([]intent.Input, len(inputs))
@@ -3202,7 +3228,7 @@ func (a *arkClient) joinBatchWithRetry(
 
 	signerSessions, signerPubKeys, err := a.handleOptions(options, rawIntents, notes)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
 	deleteIntent := func() {
@@ -3223,16 +3249,16 @@ func (a *arkClient) joinBatchWithRetry(
 	retryCount := 0
 	var batchErr error
 	for retryCount < maxRetry {
-		proofTx, message, err := a.makeRegisterIntent(
+		proofTx, message, intentTxHash, err := a.makeRegisterIntent(
 			inputs, exitLeaves, outputs, teleportOutputs, signerPubKeys, arkFields,
 		)
 		if err != nil {
-			return "", "", err
+			return "", nil, err
 		}
 
 		intentID, err := a.client.RegisterIntent(ctx, proofTx, message)
 		if err != nil {
-			return "", "", fmt.Errorf("failed to register intent: %w", err)
+			return "", nil, fmt.Errorf("failed to register intent: %w", err)
 		}
 
 		log.Debugf("registered inputs and outputs with request id: %s", intentID)
@@ -3251,10 +3277,10 @@ func (a *arkClient) joinBatchWithRetry(
 			continue
 		}
 
-		return commitmentTxid, intentID, nil
+		return commitmentTxid, intentTxHash, nil
 	}
 
-	return "", "", fmt.Errorf("reached max atttempt of retries, last batch error: %s", batchErr)
+	return "", nil, fmt.Errorf("reached max atttempt of retries, last batch error: %s", batchErr)
 }
 
 func (a *arkClient) handleBatchEvents(
@@ -3315,7 +3341,7 @@ func (a *arkClient) handleBatchEvents(
 	}
 
 	batchEventsHandler := newBatchEventsHandler(
-		a, intentId, vtxos, boardingUtxos, receivers, teleportReceivers, signerSessions,
+		a, intentId, vtxos, boardingUtxos, receivers, signerSessions,
 	)
 
 	commitmentTxid, err := JoinBatchSession(ctx, eventsCh, batchEventsHandler, options...)
@@ -3852,33 +3878,6 @@ func (a *arkClient) handleArkTx(
 	vtxosToSpend := make(map[types.Outpoint]string)
 	txsToAdd := make([]types.Transaction, 0)
 
-	// Enrich vtxos with asset info if available in the tx
-	decodedArkTx, err := psbt.NewFromRawBytes(strings.NewReader(arkTx.Tx), true)
-	if err != nil {
-		return fmt.Errorf("error decoding Ark Tx: %s", err)
-	}
-
-	if assetPacket, _, err := extension.DeriveAssetPacketFromTx(*decodedArkTx.UnsignedTx); err == nil {
-		voutToAsset := make(map[uint32]types.Asset)
-
-		for _, asset := range assetPacket.Assets {
-			for _, out := range asset.Outputs {
-				voutToAsset[out.Vout] = types.Asset{
-					AssetId: asset.AssetId.ToString(),
-					Amount:  out.Amount,
-				}
-			}
-		}
-
-		for i, vtxo := range arkTx.SpendableVtxos {
-			if a, ok := voutToAsset[vtxo.VOut]; ok {
-				assets := arkTx.SpendableVtxos[i].Assets
-				assets = append(assets, a)
-				arkTx.SpendableVtxos[i].Assets = assets
-			}
-		}
-	}
-
 	for _, vtxo := range arkTx.SpendableVtxos {
 		// remove opcodes from P2TR script
 		tapkey := vtxo.Script[4:]
@@ -3978,7 +3977,7 @@ func (a *arkClient) handleArkTx(
 
 func (a *arkClient) claimTeleportAsset(
 	ctx context.Context,
-	intentId string,
+	intentTxhash []byte,
 	receiver types.TeleportReceiver,
 	opts CoinSelectOptions,
 ) (string, error) {
@@ -4005,14 +4004,9 @@ func (a *arkClient) claimTeleportAsset(
 		return "", err
 	}
 
-	intentIdHex, err := hex.DecodeString(intentId)
-	if err != nil {
-		return "", err
-	}
-
 	err = assetTxBuilder.AddWitness(
 		groupIndex,
-		intentIdHex,
+		intentTxhash,
 		receiver.Script,
 		receiver.AssetAmount,
 		0,
@@ -4057,7 +4051,7 @@ func (a *arkClient) claimTeleportAsset(
 	for _, checkpoint := range signedCheckpointTxs {
 		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
 		if err != nil {
-			return "", nil
+			return "", err
 		}
 		finalCheckpoints = append(finalCheckpoints, signedTx)
 	}
@@ -4158,11 +4152,14 @@ func (a *arkClient) saveToDatabase(
 		commitmentTxidsList = append(commitmentTxidsList, commitmentTxid)
 	}
 
-	var arkTx wire.MsgTx
-	if err := arkTx.Deserialize(hex.NewDecoder(strings.NewReader(arkTxHex))); err != nil {
+	arkPacket, err := psbt.NewFromRawBytes(strings.NewReader(arkTxHex), true)
+
+	if err != nil {
 		log.Warnf("failed to parse ark tx: %s, skipping adding change vtxo", err)
 		return nil
 	}
+
+	arkTx := *arkPacket.UnsignedTx
 
 	for _, receiver := range receviers {
 		if int(receiver.Index) >= len(arkTx.TxOut) {

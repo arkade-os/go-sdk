@@ -535,6 +535,19 @@
           }
         }
       },
+      "Asset": {
+        "title": "Asset",
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "assetId": {
+            "type": "string"
+          }
+        }
+      },
       "BatchFailedEvent": {
         "title": "BatchFailedEvent",
         "type": "object",
@@ -1270,6 +1283,12 @@
             "format": "int64",
             "x-go-json-string": true
           },
+          "extensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VtxoExtension"
+            }
+          },
           "isPreconfirmed": {
             "type": "boolean"
           },
@@ -1293,6 +1312,15 @@
           },
           "spentBy": {
             "type": "string"
+          }
+        }
+      },
+      "VtxoExtension": {
+        "title": "VtxoExtension",
+        "type": "object",
+        "properties": {
+          "asset": {
+            "$ref": "#/components/schemas/Asset"
           }
         }
       }
