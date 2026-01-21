@@ -2852,7 +2852,7 @@ func (a *arkClient) handleCommitmentTx(
 	// Add also our preconfirmed txs the list of those to settle, and also add the related
 	// vtxos to the list of those to mark as spent.
 	for _, vtxo := range myVtxos {
-		vtxosToSpend[vtxo.Outpoint] = indexedSpentVtxos[vtxo.Outpoint].SpentBy
+		vtxosToSpend[vtxo.Outpoint] = indexedSpentVtxos[vtxo.Outpoint].ArkTxid
 		if !vtxo.Preconfirmed {
 			continue
 		}
