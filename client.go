@@ -648,11 +648,9 @@ func (a *arkClient) ModifyAssetMetadata(
 		return "", err
 	}
 
-	groupIndex, err = assetTxBuilder.InsertAssetGroup(controlAssetId, []types.Receiver{{
+	if _, err = assetTxBuilder.InsertAssetGroup(controlAssetId, []types.Receiver{{
 		To: offchainAddrs[0].Address, Amount: 1,
-	}}, AssetGroupTransfer)
-
-	if err != nil {
+	}}, AssetGroupTransfer); err != nil {
 		return "", err
 	}
 
@@ -2890,6 +2888,9 @@ func (a *arkClient) settle(
 			ExpiryThreshold:      options.expiryThreshold,
 		},
 	)
+	if err != nil {
+		return "", err
+	}
 
 	assetOutputList := buildAssetDustOutputs(assetOutputMap, a.Dust)
 
@@ -3016,7 +3017,9 @@ func (a *arkClient) makeRegisterIntent(
 		rawIntentInputs[i] = in.Input
 	}
 
-	proofTx, proof, err := a.makeIntent(message, rawIntentInputs, outputsTxOut, leafProofs, arkFields)
+	proofTx, proof, err := a.makeIntent(
+		message, rawIntentInputs, outputsTxOut, leafProofs, arkFields,
+	)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -4683,131 +4686,131 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 	return nil
 }
 
-func verifyInputSignatures(
-	tx *psbt.Packet,
-	pubkey *btcec.PublicKey,
-	tapLeaves map[int]txscript.TapLeaf,
-) error {
-	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
+// func verifyInputSignatures(
+// 	tx *psbt.Packet,
+// 	pubkey *btcec.PublicKey,
+// 	tapLeaves map[int]txscript.TapLeaf,
+// ) error {
+// 	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
 
-	prevouts := make(map[wire.OutPoint]*wire.TxOut)
-	sigsToVerify := make(map[int]*psbt.TaprootScriptSpendSig)
+// 	prevouts := make(map[wire.OutPoint]*wire.TxOut)
+// 	sigsToVerify := make(map[int]*psbt.TaprootScriptSpendSig)
 
-	for inputIndex, input := range tx.Inputs {
-		// collect previous outputs
-		if input.WitnessUtxo == nil {
-			return fmt.Errorf("input %d has no witness utxo, cannot verify signature", inputIndex)
-		}
+// 	for inputIndex, input := range tx.Inputs {
+// 		// collect previous outputs
+// 		if input.WitnessUtxo == nil {
+// 			return fmt.Errorf("input %d has no witness utxo, cannot verify signature", inputIndex)
+// 		}
 
-		outpoint := tx.UnsignedTx.TxIn[inputIndex].PreviousOutPoint
-		prevouts[outpoint] = input.WitnessUtxo
+// 		outpoint := tx.UnsignedTx.TxIn[inputIndex].PreviousOutPoint
+// 		prevouts[outpoint] = input.WitnessUtxo
 
-		tapLeaf, ok := tapLeaves[inputIndex]
-		if !ok {
-			return fmt.Errorf("input %d has no tapscript leaf, cannot verify signature", inputIndex)
-		}
+// 		tapLeaf, ok := tapLeaves[inputIndex]
+// 		if !ok {
+// 			return fmt.Errorf("input %d has no tapscript leaf, cannot verify signature", inputIndex)
+// 		}
 
-		tapLeafHash := tapLeaf.TapHash()
+// 		tapLeafHash := tapLeaf.TapHash()
 
-		// check if pubkey has a tapscript sig
-		hasSig := false
-		for _, sig := range input.TaprootScriptSpendSig {
-			if bytes.Equal(sig.XOnlyPubKey, xOnlyPubkey) &&
-				bytes.Equal(sig.LeafHash, tapLeafHash[:]) {
-				hasSig = true
-				sigsToVerify[inputIndex] = sig
-				break
-			}
-		}
+// 		// check if pubkey has a tapscript sig
+// 		hasSig := false
+// 		for _, sig := range input.TaprootScriptSpendSig {
+// 			if bytes.Equal(sig.XOnlyPubKey, xOnlyPubkey) &&
+// 				bytes.Equal(sig.LeafHash, tapLeafHash[:]) {
+// 				hasSig = true
+// 				sigsToVerify[inputIndex] = sig
+// 				break
+// 			}
+// 		}
 
-		if !hasSig {
-			return fmt.Errorf("input %d has no signature for pubkey %x", inputIndex, xOnlyPubkey)
-		}
-	}
+// 		if !hasSig {
+// 			return fmt.Errorf("input %d has no signature for pubkey %x", inputIndex, xOnlyPubkey)
+// 		}
+// 	}
 
-	prevoutFetcher := txscript.NewMultiPrevOutFetcher(prevouts)
-	txSigHashes := txscript.NewTxSigHashes(tx.UnsignedTx, prevoutFetcher)
+// 	prevoutFetcher := txscript.NewMultiPrevOutFetcher(prevouts)
+// 	txSigHashes := txscript.NewTxSigHashes(tx.UnsignedTx, prevoutFetcher)
 
-	for inputIndex, sig := range sigsToVerify {
-		msgHash, err := txscript.CalcTapscriptSignaturehash(
-			txSigHashes,
-			sig.SigHash,
-			tx.UnsignedTx,
-			inputIndex,
-			prevoutFetcher,
-			tapLeaves[inputIndex],
-		)
-		if err != nil {
-			return fmt.Errorf("failed to calculate tapscript signature hash: %w", err)
-		}
+// 	for inputIndex, sig := range sigsToVerify {
+// 		msgHash, err := txscript.CalcTapscriptSignaturehash(
+// 			txSigHashes,
+// 			sig.SigHash,
+// 			tx.UnsignedTx,
+// 			inputIndex,
+// 			prevoutFetcher,
+// 			tapLeaves[inputIndex],
+// 		)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to calculate tapscript signature hash: %w", err)
+// 		}
 
-		signature, err := schnorr.ParseSignature(sig.Signature)
-		if err != nil {
-			return fmt.Errorf("failed to parse signature: %w", err)
-		}
+// 		signature, err := schnorr.ParseSignature(sig.Signature)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to parse signature: %w", err)
+// 		}
 
-		if !signature.Verify(msgHash, pubkey) {
-			return fmt.Errorf("input %d: invalid signature", inputIndex)
-		}
-	}
+// 		if !signature.Verify(msgHash, pubkey) {
+// 			return fmt.Errorf("input %d: invalid signature", inputIndex)
+// 		}
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-func getInputTapLeaves(tx *psbt.Packet) map[int]txscript.TapLeaf {
-	tapLeaves := make(map[int]txscript.TapLeaf)
-	for inputIndex, input := range tx.Inputs {
-		if input.TaprootLeafScript == nil {
-			continue
-		}
-		tapLeaves[inputIndex] = txscript.NewBaseTapLeaf(input.TaprootLeafScript[0].Script)
-	}
-	return tapLeaves
-}
+// func getInputTapLeaves(tx *psbt.Packet) map[int]txscript.TapLeaf {
+// 	tapLeaves := make(map[int]txscript.TapLeaf)
+// 	for inputIndex, input := range tx.Inputs {
+// 		if input.TaprootLeafScript == nil {
+// 			continue
+// 		}
+// 		tapLeaves[inputIndex] = txscript.NewBaseTapLeaf(input.TaprootLeafScript[0].Script)
+// 	}
+// 	return tapLeaves
+// }
 
-func verifyAndSignCheckpoints(
-	signedCheckpoints []string, myCheckpoints []*psbt.Packet,
-	arkSigner *btcec.PublicKey, sign func(tx *psbt.Packet) (string, error),
-) ([]string, error) {
-	finalCheckpoints := make([]string, 0, len(signedCheckpoints))
-	for _, checkpoint := range signedCheckpoints {
-		signedCheckpointPtx, err := psbt.NewFromRawBytes(strings.NewReader(checkpoint), true)
-		if err != nil {
-			return nil, err
-		}
+// func verifyAndSignCheckpoints(
+// 	signedCheckpoints []string, myCheckpoints []*psbt.Packet,
+// 	arkSigner *btcec.PublicKey, sign func(tx *psbt.Packet) (string, error),
+// ) ([]string, error) {
+// 	finalCheckpoints := make([]string, 0, len(signedCheckpoints))
+// 	for _, checkpoint := range signedCheckpoints {
+// 		signedCheckpointPtx, err := psbt.NewFromRawBytes(strings.NewReader(checkpoint), true)
+// 		if err != nil {
+// 			return nil, err
+// 		}
 
-		// search for the checkpoint tx we initially created
-		var myCheckpointTx *psbt.Packet
-		for _, chk := range myCheckpoints {
-			if chk.UnsignedTx.TxID() == signedCheckpointPtx.UnsignedTx.TxID() {
-				myCheckpointTx = chk
-				break
-			}
-		}
-		if myCheckpointTx == nil {
-			return nil, fmt.Errorf("checkpoint tx not found")
-		}
+// 		// search for the checkpoint tx we initially created
+// 		var myCheckpointTx *psbt.Packet
+// 		for _, chk := range myCheckpoints {
+// 			if chk.UnsignedTx.TxID() == signedCheckpointPtx.UnsignedTx.TxID() {
+// 				myCheckpointTx = chk
+// 				break
+// 			}
+// 		}
+// 		if myCheckpointTx == nil {
+// 			return nil, fmt.Errorf("checkpoint tx not found")
+// 		}
 
-		// verify the server has signed the checkpoint tx
-		err = verifyInputSignatures(
-			signedCheckpointPtx,
-			arkSigner,
-			getInputTapLeaves(myCheckpointTx),
-		)
-		if err != nil {
-			return nil, err
-		}
+// 		// verify the server has signed the checkpoint tx
+// 		err = verifyInputSignatures(
+// 			signedCheckpointPtx,
+// 			arkSigner,
+// 			getInputTapLeaves(myCheckpointTx),
+// 		)
+// 		if err != nil {
+// 			return nil, err
+// 		}
 
-		finalCheckpoint, err := sign(signedCheckpointPtx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to sign checkpoint transaction: %w", err)
-		}
+// 		finalCheckpoint, err := sign(signedCheckpointPtx)
+// 		if err != nil {
+// 			return nil, fmt.Errorf("failed to sign checkpoint transaction: %w", err)
+// 		}
 
-		finalCheckpoints = append(finalCheckpoints, finalCheckpoint)
-	}
+// 		finalCheckpoints = append(finalCheckpoints, finalCheckpoint)
+// 	}
 
-	return finalCheckpoints, nil
-}
+// 	return finalCheckpoints, nil
+// }
 
 func Unique[T comparable](in []T) []T {
 	seen := make(map[T]struct{})

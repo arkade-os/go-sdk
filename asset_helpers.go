@@ -61,43 +61,43 @@ func deriveAssetFeeTotals(
 	return totals, nil
 }
 
-func selectSatsForAssetDelta(
-	vtxos []client.TapscriptsVtxo,
-	totalDelta int64,
-	dust uint64,
-	opts CoinSelectOptions,
-	changeAddr string,
-	feeEstimator *arkfee.Estimator,
-) ([]client.TapscriptsVtxo, uint64, error) {
-	selectedSatsCoins := make([]client.TapscriptsVtxo, 0)
-	satsChangeAmount := uint64(0)
+// func selectSatsForAssetDelta(
+// 	vtxos []client.TapscriptsVtxo,
+// 	totalDelta int64,
+// 	dust uint64,
+// 	opts CoinSelectOptions,
+// 	changeAddr string,
+// 	feeEstimator *arkfee.Estimator,
+// ) ([]client.TapscriptsVtxo, uint64, error) {
+// 	selectedSatsCoins := make([]client.TapscriptsVtxo, 0)
+// 	satsChangeAmount := uint64(0)
 
-	var err error
+// 	var err error
 
-	if totalDelta > 0 {
-		_, selectedSatsCoins, satsChangeAmount, err = utils.CoinSelectNormal(
-			nil, vtxos, uint64(totalDelta), dust, opts.WithoutExpirySorting, feeEstimator,
-		)
-		if err != nil {
-			return nil, 0, err
-		}
-	} else if totalDelta < 0 {
-		delta := -totalDelta
-		changeFee, err := utils.CalculateFees(
-			nil,
-			[]types.Receiver{{To: changeAddr, Amount: uint64(delta)}},
-			feeEstimator,
-		)
-		if err != nil {
-			return nil, 0, err
-		}
-		if delta-int64(changeFee) > 0 {
-			satsChangeAmount = uint64(delta) - changeFee
-		}
-	}
+// 	if totalDelta > 0 {
+// 		_, selectedSatsCoins, satsChangeAmount, err = utils.CoinSelectNormal(
+// 			nil, vtxos, uint64(totalDelta), dust, opts.WithoutExpirySorting, feeEstimator,
+// 		)
+// 		if err != nil {
+// 			return nil, 0, err
+// 		}
+// 	} else if totalDelta < 0 {
+// 		delta := -totalDelta
+// 		changeFee, err := utils.CalculateFees(
+// 			nil,
+// 			[]types.Receiver{{To: changeAddr, Amount: uint64(delta)}},
+// 			feeEstimator,
+// 		)
+// 		if err != nil {
+// 			return nil, 0, err
+// 		}
+// 		if delta-int64(changeFee) > 0 {
+// 			satsChangeAmount = uint64(delta) - changeFee
+// 		}
+// 	}
 
-	return selectedSatsCoins, satsChangeAmount, nil
-}
+// 	return selectedSatsCoins, satsChangeAmount, nil
+// }
 
 func (a *arkClient) selectAssetFunds(
 	ctx context.Context,

@@ -144,7 +144,6 @@ func JoinBatchSession(
 				e := event.(client.BatchStartedEvent)
 				skip, err := eventsHandler.OnBatchStarted(ctx, e)
 
-				fmt.Printf("skip part %b ,  %+v", skip, err)
 				if err != nil {
 					return "", err
 				}
@@ -185,9 +184,6 @@ func JoinBatchSession(
 					return "", err
 				}
 
-				//log err
-				fmt.Println("tree tx event reached here")
-
 				if treeTxEvent.BatchIndex == 0 {
 					flatVtxoTree = append(flatVtxoTree, treeTxEvent.Node)
 				} else {
@@ -212,9 +208,6 @@ func JoinBatchSession(
 					return "", err
 				}
 
-				//log err
-				fmt.Println("tree signature event reached here")
-
 				continue
 			// the musig2 session started, let's send our nonces.
 			case client.TreeSigningStartedEvent:
@@ -234,9 +227,6 @@ func JoinBatchSession(
 					return "", err
 				}
 
-				// log err
-				fmt.Println("tree signing started event reached here")
-
 				if !skip {
 					step++
 				}
@@ -252,9 +242,6 @@ func JoinBatchSession(
 				if err != nil {
 					return "", err
 				}
-
-				// log err
-				fmt.Println("tree nonces aggregated event reached here")
 
 				if signed {
 					step++
@@ -275,9 +262,6 @@ func JoinBatchSession(
 				if signed {
 					step++
 				}
-
-				// log err
-				fmt.Println("tree nonces event reached here")
 
 				continue
 			case client.BatchFinalizationEvent:
@@ -301,9 +285,6 @@ func JoinBatchSession(
 				if err := eventsHandler.OnBatchFinalization(ctx, event, vtxoTree, connectorTree); err != nil {
 					return "", err
 				}
-
-				// log err
-				fmt.Println("batch finalization event reached here")
 
 				log.Debug("done.")
 				log.Debug("waiting for batch finalization...")
