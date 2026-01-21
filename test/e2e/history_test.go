@@ -137,7 +137,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.NotEmpty(t, offchainReceivedTx.ArkTxid)
 	require.Empty(t, offchainReceivedTx.SettledBy)
 
-	// verify history contains the boarding tx
+	// verify history contains the offchain tx
 	history, err = bob.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
