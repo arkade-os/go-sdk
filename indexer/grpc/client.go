@@ -665,12 +665,11 @@ func newIndexerVtxos(vtxos []*arkv1.IndexerVtxo) []types.Vtxo {
 func newIndexerVtxo(vtxo *arkv1.IndexerVtxo) types.Vtxo {
 	var assetLists []types.Asset
 
-	for _, ext := range vtxo.GetExtensions() {
-		asst := ext.GetAsset()
-		if asst != nil {
+	for _, asset := range vtxo.GetAssets() {
+		if asset != nil {
 			assetLists = append(assetLists, types.Asset{
-				AssetId: asst.GetAssetId(),
-				Amount:  asst.GetAmount(),
+				AssetId: asset.GetAssetId(),
+				Amount:  asset.GetAmount(),
 			})
 		}
 	}

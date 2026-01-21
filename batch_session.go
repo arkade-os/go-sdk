@@ -888,7 +888,7 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 			return nil, err
 		}
 
-		forfeitTx, err := tree.BuildForfeitTx(
+		forfeitTx, err := tree.BuildForfeitTxWithAnchor(
 			[]*wire.OutPoint{vtxoInput, connectorOutpoint},
 			[]uint32{vtxoSequence, wire.MaxTxInSequenceNum},
 			[]*wire.TxOut{vtxoPrevout, connector},

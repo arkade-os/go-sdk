@@ -136,12 +136,12 @@ type vtxo struct {
 }
 
 func (v vtxo) toVtxo() types.Vtxo {
-	assets := make([]types.Asset, 0, len(v.GetExtensions()))
-	for _, a := range v.GetExtensions() {
-		if a.GetAsset() != nil {
+	assets := make([]types.Asset, 0, len(v.GetAssets()))
+	for _, a := range v.GetAssets() {
+		if a != nil {
 			assets = append(assets, types.Asset{
-				AssetId: a.GetAsset().AssetId,
-				Amount:  a.GetAsset().Amount,
+				AssetId: a.AssetId,
+				Amount:  a.Amount,
 			})
 		}
 

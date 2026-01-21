@@ -405,6 +405,12 @@
           "arkTxid": {
             "type": "string"
           },
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          },
           "commitmentTxids": {
             "type": "array",
             "items": {
@@ -420,12 +426,6 @@
             "type": "integer",
             "format": "int64",
             "x-go-json-string": true
-          },
-          "extensions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/VtxoExtension"
-            }
           },
           "isPreconfirmed": {
             "type": "boolean"
@@ -450,15 +450,6 @@
           },
           "spentBy": {
             "type": "string"
-          }
-        }
-      },
-      "VtxoExtension": {
-        "title": "VtxoExtension",
-        "type": "object",
-        "properties": {
-          "asset": {
-            "$ref": "#/components/schemas/Asset"
           }
         }
       }

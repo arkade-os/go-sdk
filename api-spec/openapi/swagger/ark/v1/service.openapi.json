@@ -368,6 +368,45 @@
         }
       }
     },
+    "/v1/intent": {
+      "get": {
+        "tags": [
+          "ArkService"
+        ],
+        "operationId": "ArkService_GetIntent",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "a successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetIntentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tx/finalize": {
       "post": {
         "tags": [
@@ -831,6 +870,24 @@
           }
         }
       },
+      "GetIntentRequest": {
+        "title": "GetIntentRequest",
+        "type": "object",
+        "properties": {
+          "txid": {
+            "type": "string"
+          }
+        }
+      },
+      "GetIntentResponse": {
+        "title": "GetIntentResponse",
+        "type": "object",
+        "properties": {
+          "intent": {
+            "$ref": "#/components/schemas/Intent"
+          }
+        }
+      },
       "GetPendingTxRequest": {
         "title": "GetPendingTxRequest",
         "type": "object",
@@ -1267,6 +1324,12 @@
           "arkTxid": {
             "type": "string"
           },
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          },
           "commitmentTxids": {
             "type": "array",
             "items": {
@@ -1282,12 +1345,6 @@
             "type": "integer",
             "format": "int64",
             "x-go-json-string": true
-          },
-          "extensions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/VtxoExtension"
-            }
           },
           "isPreconfirmed": {
             "type": "boolean"
@@ -1312,15 +1369,6 @@
           },
           "spentBy": {
             "type": "string"
-          }
-        }
-      },
-      "VtxoExtension": {
-        "title": "VtxoExtension",
-        "type": "object",
-        "properties": {
-          "asset": {
-            "$ref": "#/components/schemas/Asset"
           }
         }
       }
