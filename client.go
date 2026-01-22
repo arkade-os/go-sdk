@@ -315,9 +315,19 @@ func (a *arkClient) CreateAsset(
 		return "", nil, err
 	}
 
+	assetID, err := extension.AssetIdFromString(request.Params.ControlAssetId)
+	if err != nil {
+		return "", nil, err
+	}
+
+	constrolAsset := extension.AssetRef{
+		Type:    extension.AssetRefByID,
+		AssetId: *assetID,
+	}
+
 	err = assetTxBuilder.InsertIssuance(
 		groupIndex,
-		request.Params.ControlAssetId,
+		&constrolAsset,
 	)
 
 	if err != nil {
@@ -365,8 +375,8 @@ func (a *arkClient) CreateAsset(
 	changeReceivers := assetTxBuilder.GetChangeReceivers()
 
 	assetIds := make([]string, 0, 1)
-	assetIdsByGroup := make(map[uint32]string, 1)
-	addAssetId := func(groupIndex uint32) string {
+	assetIdsByGroup := make(map[uint16]string, 1)
+	addAssetId := func(groupIndex uint16) string {
 		if assetId, ok := assetIdsByGroup[groupIndex]; ok {
 			return assetId
 		}
