@@ -316,7 +316,7 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 
 func (b *AssetTxBuilder) AddWitness(
 	assetGroupIndex uint32,
-	intentID, script []byte,
+	intentID [32]byte, script []byte,
 	amount uint64,
 	index uint32,
 ) error {
@@ -325,15 +325,15 @@ func (b *AssetTxBuilder) AddWitness(
 		return fmt.Errorf("invalid asset group index")
 	}
 	witness := extension.TeleportWitness{
-		Script:   script,
-		IntentId: intentID,
+		Script: script,
+		Txid:   intentID,
+		Index:  index,
 	}
 
 	b.assetGroupList[assetGroupIndex].Inputs = append(
 		b.assetGroupList[assetGroupIndex].Inputs,
 		extension.AssetInput{
 			Type:    extension.AssetTypeTeleport,
-			Vin:     index,
 			Amount:  amount,
 			Witness: witness,
 		},

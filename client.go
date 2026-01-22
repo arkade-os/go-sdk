@@ -373,8 +373,8 @@ func (a *arkClient) CreateAsset(
 		}
 
 		assetId := extension.AssetId{
-			TxHash: arkTxhashArr,
-			Index:  uint16(groupIndex),
+			Txid:  arkTxhashArr,
+			Index: uint16(groupIndex),
 		}.ToString()
 		assetIdsByGroup[groupIndex] = assetId
 		assetIds = append(assetIds, assetId)
@@ -2982,9 +2982,12 @@ func (a *arkClient) settle(
 			releasedDbMu = false
 		}
 		for _, receiver := range teleportOutputs {
+			// copy intentTxhash to [32]byte
+			var intentTxHashArr [32]byte
+			copy(intentTxHashArr[:], intentTxHash)
 
 			time.Sleep(10 * time.Second) // slight delay to ensure batch is processed
-			_, err := a.claimTeleportAsset(ctx, intentTxHash, receiver, CoinSelectOptions{})
+			_, err := a.claimTeleportAsset(ctx, intentTxHashArr, receiver, CoinSelectOptions{})
 			if err != nil {
 				return "", fmt.Errorf("failed to claim teleport asset: %s", err)
 			}
@@ -3025,10 +3028,7 @@ func (a *arkClient) makeRegisterIntent(
 	}
 
 	proofTxhash := proof.UnsignedTx.TxHash()
-	proofTxbytes := make([]byte, 32)
-	copy(proofTxbytes, proofTxhash[:])
-
-	return proofTx, message, proofTxbytes, nil
+	return proofTx, message, proofTxhash[:], nil
 }
 
 func (a *arkClient) makeGetPendingTxIntent(
@@ -3997,7 +3997,7 @@ func (a *arkClient) handleArkTx(
 
 func (a *arkClient) claimTeleportAsset(
 	ctx context.Context,
-	intentTxhash []byte,
+	intentTxhash [32]byte,
 	receiver types.TeleportReceiver,
 	opts CoinSelectOptions,
 ) (string, error) {
