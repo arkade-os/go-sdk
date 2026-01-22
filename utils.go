@@ -154,7 +154,7 @@ type AssetTxBuilder struct {
 	changeAddr           string
 	changeReceivers      []types.DBReceiver
 	assetGroupList       []extension.AssetGroup
-	assetGroupIndex      uint32
+	assetGroupIndex      uint16
 	eVtxoAmount          uint64
 
 	subdustPacket *extension.SubDustPacket
@@ -186,7 +186,7 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 	assetIdStr string,
 	receivers []types.Receiver,
 	opType AssetGroupOperation,
-) (uint32, error) {
+) (uint16, error) {
 	assetAmountTotal := uint64(0)
 	for _, r := range receivers {
 		assetAmountTotal += uint64(r.Amount)
@@ -315,13 +315,13 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 }
 
 func (b *AssetTxBuilder) AddWitness(
-	assetGroupIndex uint32,
+	assetGroupIndex uint16,
 	intentID [32]byte, script []byte,
 	amount uint64,
 	index uint32,
 ) error {
 
-	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+	if assetGroupIndex >= uint16(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
 	witness := extension.TeleportWitness{
@@ -343,34 +343,38 @@ func (b *AssetTxBuilder) AddWitness(
 }
 
 func (b *AssetTxBuilder) InsertIssuance(
-	assetGroupIndex uint32,
-	controlAsset string,
+	assetGroupIndex uint16,
+	controlAsset *extension.AssetRef,
 	immutable bool,
 ) error {
-	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+	if assetGroupIndex >= uint16(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
-	var controlAssetId *extension.AssetId
-	if controlAsset != "" {
-		cAssetId, err := extension.AssetIdFromString(controlAsset)
-		if err != nil {
-			return err
-		}
-		controlAssetId = cAssetId
+
+	if controlAsset == nil {
+		b.assetGroupList[assetGroupIndex].Immutable = false
 	}
-	if controlAssetId != nil {
+
+	switch controlAsset.Type {
+	case extension.AssetRefByID:
 		b.assetGroupList[assetGroupIndex].ControlAsset = &extension.AssetRef{
 			Type:    extension.AssetRefByID,
-			AssetId: *controlAssetId,
+			AssetId: controlAsset.AssetId,
+		}
+	case extension.AssetRefByGroup:
+		b.assetGroupList[assetGroupIndex].ControlAsset = &extension.AssetRef{
+			Type:       extension.AssetRefByGroup,
+			GroupIndex: controlAsset.GroupIndex,
 		}
 	}
-	b.assetGroupList[assetGroupIndex].Immutable = immutable
+
+	b.assetGroupList[assetGroupIndex].Immutable = false
 
 	return nil
 }
 
-func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint32, metadata map[string]string) error {
-	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint16, metadata map[string]string) error {
+	if assetGroupIndex >= uint16(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
 	assetMetadata := toAssetMetadataList(metadata)
