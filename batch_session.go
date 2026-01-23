@@ -7,12 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
@@ -872,18 +870,10 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 			vtxoSequence = wire.MaxTxInSequenceNum - 1
 		}
 
-		println("forfiet done here")
-
-		assetAnchor, err := buildForfeitAssetAnchor(vtxo, 0, forfeitScript)
-		if err != nil {
-			return nil, err
-		}
-
-		forfeitTx, err := tree.BuildForfeitTxWithAnchor(
+		forfeitTx, err := tree.BuildForfeitTx(
 			[]*wire.OutPoint{vtxoInput, connectorOutpoint},
 			[]uint32{vtxoSequence, wire.MaxTxInSequenceNum},
 			[]*wire.TxOut{vtxoPrevout, connector},
-			assetAnchor,
 			forfeitPkScript,
 			uint32(vtxoLocktime),
 		)
@@ -907,64 +897,4 @@ func (h *defaultBatchEventsHandler) createAndSignForfeits(
 	}
 
 	return signedForfeitTxs, nil
-}
-
-func buildForfeitAssetAnchor(
-	vtxo client.TapscriptsVtxo,
-	vtxoVin uint32,
-	forfeitPkScript []byte,
-) (*wire.TxOut, error) {
-	if len(vtxo.Assets) == 0 {
-		return nil, nil
-	}
-
-	assetSums := make(map[string]uint64)
-	for _, asset := range vtxo.Assets {
-		assetSums[asset.AssetId] += asset.Amount
-	}
-
-	assetIds := make([]string, 0, len(assetSums))
-	for assetId := range assetSums {
-		assetIds = append(assetIds, assetId)
-	}
-	sort.Strings(assetIds)
-
-	assetGroups := make([]extension.AssetGroup, 0, len(assetIds))
-	for _, assetId := range assetIds {
-		decodedAssetId, err := extension.AssetIdFromString(assetId)
-		if err != nil {
-			return nil, err
-		}
-		if decodedAssetId == nil {
-			return nil, fmt.Errorf("invalid asset id: %s", assetId)
-		}
-
-		assetGroups = append(assetGroups, extension.AssetGroup{
-			AssetId: decodedAssetId,
-			Inputs: []extension.AssetInput{{
-				Type:   extension.AssetTypeLocal,
-				Vin:    vtxoVin,
-				Amount: assetSums[assetId],
-			}},
-			Outputs: []extension.AssetOutput{{
-				Type:   extension.AssetTypeTeleport,
-				Amount: assetSums[assetId],
-				Script: forfeitPkScript,
-			}},
-		})
-	}
-
-	assetPacket := extension.AssetPacket{
-		Assets: assetGroups,
-	}
-	extensionPacket := extension.ExtensionPacket{
-		Asset: &assetPacket,
-	}
-
-	txOut, err := extensionPacket.EncodeExtensionPacket()
-	if err != nil {
-		return nil, err
-	}
-
-	return &txOut, nil
 }

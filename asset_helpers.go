@@ -10,23 +10,12 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-func appendDustReceivers(dst []types.Receiver, src []types.Receiver, dust uint64) []types.Receiver {
-	for _, r := range src {
-		dst = append(dst, types.Receiver{
-			To:     r.To,
-			Amount: dust,
-		})
-	}
-	return dst
-}
-
 func buildAssetDustOutputs(
-	assetOutputMap map[string][]types.Receiver,
-	dust uint64,
+	assetOutputMap map[string]types.Receiver,
 ) []types.Receiver {
 	outputs := make([]types.Receiver, 0)
-	for _, outputList := range assetOutputMap {
-		outputs = appendDustReceivers(outputs, outputList, dust)
+	for _, output := range assetOutputMap {
+		outputs = append(outputs, output)
 	}
 	return outputs
 }
@@ -41,12 +30,13 @@ type assetFeeTotals struct {
 func deriveAssetFeeTotals(
 	inputs []client.TapscriptsVtxo,
 	feeReceivers []types.Receiver,
-	dust uint64,
 	feeEstimator *arkfee.Estimator,
 ) (assetFeeTotals, error) {
 	var totals assetFeeTotals
 
 	fees, err := utils.CalculateFees(inputs, feeReceivers, feeEstimator)
+	totals.Fees = fees
+
 	if err != nil {
 		return totals, err
 	}
@@ -55,8 +45,10 @@ func deriveAssetFeeTotals(
 		totals.InputSats += input.Amount
 	}
 
-	totals.Fees = fees
-	totals.OutputSats = uint64(len(feeReceivers)) * dust
+	for _, output := range feeReceivers {
+		totals.OutputSats += output.Amount
+	}
+
 	totals.TotalDelta = int64(totals.OutputSats) + int64(totals.Fees) - int64(totals.InputSats)
 	return totals, nil
 }
@@ -101,9 +93,7 @@ func deriveAssetFeeTotals(
 
 func (a *arkClient) selectAssetFunds(
 	ctx context.Context,
-	outputs map[string][]types.Receiver,
-	opts CoinSelectOptions,
-) ([]client.TapscriptsVtxo, map[string][]types.Receiver, error) {
+) ([]client.TapscriptsVtxo, map[string]types.Receiver, error) {
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -113,7 +103,7 @@ func (a *arkClient) selectAssetFunds(
 	}
 
 	vtxos := make([]client.TapscriptsVtxo, 0)
-	spendableVtxos, err := a.getVtxos(ctx, &opts)
+	spendableVtxos, err := a.getVtxos(ctx, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -141,75 +131,37 @@ func (a *arkClient) selectAssetFunds(
 		}
 	}
 
-	if outputs == nil {
-		outputs = make(map[string][]types.Receiver)
+	outputs := make(map[string]types.Receiver)
 
-		for _, vtxo := range filteredVtxos {
-			for _, asst := range vtxo.Assets {
-				assetID := asst.AssetId
-				assetAmount := asst.Amount
-				if receivers, ok := outputs[assetID]; ok {
-					receivers[0].Amount += assetAmount
-					outputs[assetID] = receivers
-				} else {
-					outputs[assetID] = []types.Receiver{{
-						To:     offchainAddrs[0].Address,
-						Amount: assetAmount,
-					}}
+	uniqueVtxos := make(map[types.Outpoint]client.TapscriptsVtxo)
+
+	for _, vtxo := range filteredVtxos {
+		for _, asst := range vtxo.Assets {
+			assetID := asst.AssetId
+			assetAmount := asst.Amount
+			if _, ok := outputs[assetID]; ok {
+				outputs[assetID].Asset.Amount += assetAmount
+
+			} else {
+				outputs[assetID] = types.Receiver{
+					To: offchainAddrs[0].Address,
+					Asset: &types.Asset{
+						AssetId: assetID,
+						Amount:  assetAmount,
+					},
 				}
 			}
-		}
 
-		return filteredVtxos, outputs, nil
-	}
-
-	selectedCoins := make(map[types.Outpoint]client.TapscriptsVtxo, 0)
-
-	for assetID, receivers := range outputs {
-		assetVtxos := make(map[types.Outpoint]client.TapscriptsVtxo, 0)
-		for _, v := range filteredVtxos {
-			for _, asset := range v.Assets {
-				if asset.AssetId == assetID {
-					assetVtxos[v.Outpoint] = v
-					break
-				}
+			if _, ok := uniqueVtxos[vtxo.Outpoint]; !ok {
+				uniqueVtxos[vtxo.Outpoint] = vtxo
+				r := outputs[assetID]
+				r.Amount += vtxo.Amount
+				outputs[assetID] = r
 			}
 		}
 
-		assetAmount := uint64(0)
-		for _, r := range receivers {
-			assetAmount += r.Amount
-		}
-
-		assetVtxosList := make([]client.TapscriptsVtxo, 0, len(assetVtxos))
-		for _, v := range assetVtxos {
-			assetVtxosList = append(assetVtxosList, v)
-		}
-
-		selectedAssetVtxos, changeAmount, err := utils.CoinSelectAsset(
-			assetVtxosList, assetAmount, assetID, a.Dust, opts.WithoutExpirySorting,
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		for _, v := range selectedAssetVtxos {
-			selectedCoins[v.Outpoint] = v
-		}
-
-		if changeAmount > 0 {
-			changeReceiver := types.Receiver{
-				To:     offchainAddrs[0].Address,
-				Amount: changeAmount,
-			}
-			outputs[assetID] = append(outputs[assetID], changeReceiver)
-		}
 	}
 
-	selectedCoinsList := make([]client.TapscriptsVtxo, 0, len(selectedCoins))
-	for _, v := range selectedCoins {
-		selectedCoinsList = append(selectedCoinsList, v)
-	}
+	return filteredVtxos, outputs, nil
 
-	return selectedCoinsList, outputs, nil
 }
