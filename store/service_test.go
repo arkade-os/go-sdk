@@ -194,14 +194,14 @@ func newTestAsset(seed byte, name string) *extension.AssetGroup {
 
 	return &extension.AssetGroup{
 		AssetId: &extension.AssetId{
-			TxHash: assetTxId,
-			Index:  0,
+			Txid:  assetTxId,
+			Index: 0,
 		},
 		ControlAsset: &extension.AssetRef{
 			Type: extension.AssetRefByID,
 			AssetId: extension.AssetId{
-				TxHash: controlAssetTxId,
-				Index:  0,
+				Txid:  controlAssetTxId,
+				Index: 0,
 			}},
 		Outputs: []extension.AssetOutput{
 			{
