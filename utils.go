@@ -502,6 +502,15 @@ func (b *AssetTxBuilder) Build(signerUnrollScript []byte) (string, []string, err
 
 }
 
+func (b *AssetTxBuilder) GetExtensionPacket() *extension.ExtensionPacket {
+	return &extension.ExtensionPacket{
+		Asset: &extension.AssetPacket{
+			Assets: b.assetGroupList,
+		},
+		SubDust: b.subdustPacket,
+	}
+}
+
 func (b *AssetTxBuilder) GetSpentInputs() []client.TapscriptsVtxo {
 	spentInputs := make([]client.TapscriptsVtxo, 0, len(b.uniqueAssetInput))
 	for outpoint := range b.uniqueAssetInput {
