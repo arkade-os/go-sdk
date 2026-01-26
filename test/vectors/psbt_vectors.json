@@ -1,0 +1,413 @@
+[
+  {
+    "type": "issuance",
+    "psbt": "cHNidP8BAP1/AQMAAAABEhpN2W3sC6Y8gpB7d+zPM934q/tjxrN8fI6aVVi0pfEAAAAAAP////8GIgIAAAAAAAAiUSDtWjTkPCRE4e3qi0PHTYTpOhNw/6bpVPUOCWDJ3VPL5SICAAAAAAAAIlEg7Vo05DwkROHt6otDx02E6ToTcP+m6VT1Dglgyd1Ty+UiAgAAAAAAACJRIO1aNOQ8JETh7eqLQ8dNhOk6E3D/pulU9Q4JYMndU8vlqiAAAAAAAAAiUSDtWjTkPCRE4e3qi0PHTYTpOhNw/6bpVPUOCWDJ3VPL5QAAAAAAAAAAimpMh0FSSwCCAwYCAAEDBG5hbWUMQXJrYWRlIFRva2VuBnN5bWJvbARBUktECGRlY2ltYWxzAjE4AAEBAAAAAAAAAAAAAAPoAAABAQAAAAEAAAAAAAAD6AIBL1V4oWAt+PUNaGajFsqIdRreMMUrkvFWdOX6B04+PbcAAQABAQAAAAIAAAAAAAAD6AAAAAAAAAAABFECTnMAAAAAAAEBKxAnAAAAAAAAIlEgxUDM4/GWP+KoCr09tG03G+y9B3F4DrDBTZ+RFL1yPv9CFcBQkpt0waBJVLeLS2A16XpeB4paDyjsltVHv+6azoA6wDkv+R+00392H3yyagx+oxxgb1a7m2op/8Xj9oJn/msURSDLyCLHztzaafAbgAmuz2aH2LOO/OB6l9VwS/O4d1H+9q0g8iHXxcln+dQWyh40Wsk9QfLmCQXiE8Dn7jx4Zn6GT3aswAjedGFwdHJlZXEBwCcCkACydSCqwufAx3Wb126h4Ja+JYIZDlGumzNxhz4mR6U4FICY2qwBwEQgy8gix87c2mnwG4AJrs9mh9izjvzgepfVcEvzuHdR/vatIPIh18XJZ/nUFsoeNFrJPUHy5gkF4hPA5+48eGZ+hk92rAAAAAAAAAA=",
+    "asset_packet": {
+      "Asset": {
+        "Assets": [
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 0,
+                "Amount": 1000
+              }
+            ],
+            "Inputs": null,
+            "ControlAsset": {
+              "Type": 2,
+              "GroupIndex": 1
+            },
+            "Metadata": [
+              {
+                "Key": "name",
+                "Value": "Arkade Token"
+              },
+              {
+                "Key": "symbol",
+                "Value": "ARKD"
+              },
+              {
+                "Key": "decimals",
+                "Value": "18"
+              }
+            ]
+          },
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 1,
+                "Amount": 1000
+              }
+            ],
+            "Inputs": null
+          },
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 2,
+                "Amount": 1000
+              }
+            ],
+            "Inputs": null,
+            "ControlAsset": {
+              "Type": 1,
+              "AssetId": {
+                "Txid": "2f5578a1602df8f50d6866a316ca88751ade30c52b92f15674e5fa074e3e3db7",
+                "Index": 1
+              }
+            }
+          }
+        ],
+        "Version": 0
+      }
+    }
+  },
+  {
+    "type": "transfers",
+    "psbt": "cHNidP8BAP1aAgMAAAAC2QlLhe9lcOIIl84xXYh7CKTR/aN2ZiTgKWxzLb2SoSEAAAAAAP////9aLszO7mxArW65eBjRhfS5O4nVvYpHoB991Hp1SnDA9QAAAAAA/////wkiAgAAAAAAACJRIByt0dhsXFstp3dHonil2yTtQq1Yqx0I7l/kvo4lhEcRIgIAAAAAAAAiUSAaHHVjhlFIIYdNHSAnkYIdCI/b4MfjynqCicnLU9yTUCICAAAAAAAAIlEg8hXrqqD3nOHqMRSiBTQUmteGFRmZ46f2jVjgIVQkhiwiAgAAAAAAACJRIByt0dhsXFstp3dHonil2yTtQq1Yqx0I7l/kvo4lhEcRIgIAAAAAAAAiUSAaHHVjhlFIIYdNHSAnkYIdCI/b4MfjynqCicnLU9yTUCICAAAAAAAAIlEg8hXrqqD3nOHqMRSiBTQUmteGFRmZ46f2jVjgIVQkhixUQQAAAAAAACJRIPIV66qg95zh6jEUogU0FJrXhhUZmeOn9o1Y4CFUJIYsAAAAAAAAAAC7aky4QVJLALMCARDGasUiFegbFtE/wYlhAz+3PQKkgn0ry4WkLcszJOLQAAEBAQAAAAAAAAAAAAAD6AMBAAAAAAAAAAAAAADIAQAAAAEAAAAAAAAAyAEAAAACAAAAAAAAAlgBOR9Ug3XD/Thy77FerlrOfoXg6cLzWi+Ya2pqVfaR/p4AAQEBAAAAAQAAAAAAAAPoAwEAAAADAAAAAAAAAMgBAAAABAAAAAAAAADIAQAAAAUAAAAAAAACWAAAAAAAAAAABFECTnMAAAAAAAEBKxAnAAAAAAAAIlEgg5d2Y8Wooq66og8SXSuE0CXKa3t9O2gIaP1glc+pou5CFcBQkpt0waBJVLeLS2A16XpeB4paDyjsltVHv+6azoA6wLSphjdQSs2CiDf/C4V5I2jUjbFRUmi3FgP+u078Z93eRSDdKzJF6Ct67iZwvvlLlQjbHkjbAejU1K/VZOmd9Z4aAK0g3I9/wj9vfRZdYc8StFNAIQlHsCG4iEkjbK7u7QeRPg2swAjedGFwdHJlZXEBwCcCkACydSBPykOW5jYoCi5Kva0gUzrIPeJCdWkahjYzVT8N7gqhzawBwEQg3SsyRegreu4mcL75S5UI2x5I2wHo1NSv1WTpnfWeGgCtINyPf8I/b30WXWHPErRTQCEJR7AhuIhJI2yu7u0HkT4NrAABASsQJwAAAAAAACJRIDKvYu12Yj0rILiH9wGRbbAW7bqBVgsiWMiWGn+02Hd+QhXBUJKbdMGgSVS3i0tgNel6XgeKWg8o7JbVR7/ums6AOsC0qYY3UErNgog3/wuFeSNo1I2xUVJotxYD/rtO/Gfd3kUgiJnJ28/OMp8isZDbL0zqcOEzLxfmWMdVQvHQcDbORhutIG5MRmp2LIH+p7JNRri/eT0jziZcw1WKo57JUYCmCAqTrMAI3nRhcHRyZWVxAcAnApAAsnUgT8pDluY2KAouSr2tIFM6yD3iQnVpGoY2M1U/De4Koc2sAcBEIIiZydvPzjKfIrGQ2y9M6nDhMy8X5ljHVULx0HA2zkYbrSBuTEZqdiyB/qeyTUa4v3k9I84mXMNViqOeyVGApggKk6wAAAAAAAAAAAAA",
+    "asset_packet": {
+      "Asset": {
+        "Assets": [
+          {
+            "AssetId": {
+              "Txid": "10c66ac52215e81b16d13fc18961033fb73d02a4827d2bcb85a42dcb3324e2d0",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 0,
+                "Amount": 200
+              },
+              {
+                "Type": 1,
+                "Vout": 1,
+                "Amount": 200
+              },
+              {
+                "Type": 1,
+                "Vout": 2,
+                "Amount": 600
+              }
+            ],
+            "Inputs": [
+              {
+                "Type": 1,
+                "Vin": 0,
+                "Amount": 1000
+              }
+            ]
+          },
+          {
+            "AssetId": {
+              "Txid": "391f548375c3fd3872efb15eae5ace7e85e0e9c2f35a2f986b6a6a55f691fe9e",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 3,
+                "Amount": 200
+              },
+              {
+                "Type": 1,
+                "Vout": 4,
+                "Amount": 200
+              },
+              {
+                "Type": 1,
+                "Vout": 5,
+                "Amount": 600
+              }
+            ],
+            "Inputs": [
+              {
+                "Type": 1,
+                "Vin": 1,
+                "Amount": 1000
+              }
+            ]
+          }
+        ],
+        "Version": 0
+      }
+    }
+  },
+  {
+    "type": "reissue_assets",
+    "psbt": "cHNidP8BAP2nAQMAAAABnD+kRx7AfPYAT7lLOFiOw61zr/U6u5fsqxlAf3E/lR4AAAAAAP////8HIgIAAAAAAAAiUSAK2prcC04yZlUXxuemU4JQlSLa6oN97+BsfMblZfy0IyICAAAAAAAAIlEgnYnyzJ8WJ/kKbbKKz8WVn9zT1yPHTsHczuOqJ6g7QwciAgAAAAAAACJRIAramtwLTjJmVRfG56ZTglCVItrqg33v4Gx8xuVl/LQjIgIAAAAAAAAiUSCdifLMnxYn+QptsorPxZWf3NPXI8dOwdzO46onqDtDB4geAAAAAAAAIlEgCtqa3AtOMmZVF8bnplOCUJUi2uqDfe/gbHzG5WX8tCMAAAAAAAAAAIdqTIRBUksAfwIBw6jcYsX6XXquxMdDn0tuGFjU9Yk49NnnheDSXNCjRHYAAQACAQAAAAAAAAAAAAAAyAEAAAABAAAAAAAAAMgBPm8/lyPNb42zQC9eFmP5/Fsqb8ptiyyQLgPpu6f7RdMAAQACAQAAAAIAAAAAAAAAyAEAAAADAAAAAAAAAMgAAAAAAAAAAARRAk5zAAAAAAABASsQJwAAAAAAACJRIN4zvZo20dW2cpJ9JHdMKAXSKLxjGB5KzaxgKSs5S7i3QhXBUJKbdMGgSVS3i0tgNel6XgeKWg8o7JbVR7/ums6AOsBxQvBFjRcheQElfrTkjyDoxI6+y2P/tNvPYk8v8/Qhi0UgEREHh8HbA2fiGkQL0mnzrU9kH0aXy0mCOrUggHqqAVWtIJLi+I9ySMZVFSMOXUBVG9g0XBao860gzXoM4g+iKmlyrMAI3nRhcHRyZWVxAcAnApAAsnUgi6b5YeFGBk4x8B438k/3rcY7w8jqL7cJvr+ZiNpC6xysAcBEIBERB4fB2wNn4hpEC9Jp861PZB9Gl8tJgjq1IIB6qgFVrSCS4viPckjGVRUjDl1AVRvYNFwWqPOtIM16DOIPoippcqwAAAAAAAAAAA==",
+    "asset_packet": {
+      "Asset": {
+        "Assets": [
+          {
+            "AssetId": {
+              "Txid": "c3a8dc62c5fa5d7aaec4c7439f4b6e1858d4f58938f4d9e785e0d25cd0a34476",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 0,
+                "Amount": 200
+              },
+              {
+                "Type": 1,
+                "Vout": 1,
+                "Amount": 200
+              }
+            ],
+            "Inputs": null
+          },
+          {
+            "AssetId": {
+              "Txid": "3e6f3f9723cd6f8db3402f5e1663f9fc5b2a6fca6d8b2c902e03e9bba7fb45d3",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 2,
+                "Amount": 200
+              },
+              {
+                "Type": 1,
+                "Vout": 3,
+                "Amount": 200
+              }
+            ],
+            "Inputs": null
+          }
+        ],
+        "Version": 0
+      }
+    }
+  },
+  {
+    "type": "burn_asset",
+    "psbt": "cHNidP8BAP1EAQMAAAABjLG+9B6t2andqbBQIheSdaxn9uQ9CJi0L29gs1yr3hUAAAAAAP////8FIgIAAAAAAAAiUSAi0LMiUEMWPrep61SotjTq6dat1RX4aPShXERk+3+2SyICAAAAAAAAIlEgItCzIlBDFj63qetUqLY06unWrdUV+Gj0oVxEZPt/tkvMIgAAAAAAACJRICLQsyJQQxY+t6nrVKi2NOrp1q3VFfho9KFcRGT7f7ZLAAAAAAAAAAB6akx3QVJLAHICAVW7hv+3gIdrEs9ONgV1T9XLQ546MYvIvY5L52Onqw1VAAEAAQEAAAAAAAAAAAAAAMgBVbuG/7eAh2sSz042BXVP1ctDnjoxi8i9jkvnY6erDVUAAQEBAAAAAAAAAAAAAAPoAQEAAAABAAAAAAAAAyAAAAAAAAAAAARRAk5zAAAAAAABASsQJwAAAAAAACJRIB8yEEeqvVprPzc0UAHaguLkYAv1kiLGa6aAvDU+O4knQhXAUJKbdMGgSVS3i0tgNel6XgeKWg8o7JbVR7/ums6AOsC08yTPRUnO7G7DqhxAwRBVq8OuvY+NHUdZXx+1Qm6yfkUgvJnLkL10b0t4vFy9Q0L5gSQOTjwvPzNyxbt09MV7s6+tIKfXYf0oyyXqBvyU+QLYp2XFrV87TH8pNX3S5zYi80DtrMAI3nRhcHRyZWVxAcAnApAAsnUgdHvPVJHVXc8XG/2lVcz3aED5iDYnzWSguGDvgZ1aX1esAcBEILyZy5C9dG9LeLxcvUNC+YEkDk48Lz8zcsW7dPTFe7OvrSCn12H9KMsl6gb8lPkC2Kdlxa1fO0x/KTV90uc2IvNA7awAAAAAAAA=",
+    "asset_packet": {
+      "Asset": {
+        "Assets": [
+          {
+            "AssetId": {
+              "Txid": "55bb86ffb780876b12cf4e3605754fd5cb439e3a318bc8bd8e4be763a7ab0d55",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 0,
+                "Amount": 200
+              }
+            ],
+            "Inputs": null
+          },
+          {
+            "AssetId": {
+              "Txid": "55bb86ffb780876b12cf4e3605754fd5cb439e3a318bc8bd8e4be763a7ab0d55",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 1,
+                "Amount": 800
+              }
+            ],
+            "Inputs": [
+              {
+                "Type": 1,
+                "Vin": 0,
+                "Amount": 1000
+              }
+            ]
+          }
+        ],
+        "Version": 0
+      }
+    }
+  },
+  {
+    "type": "mix_issuance_transfer",
+    "psbt": "cHNidP8BAP2qAQMAAAABO5XqXicHUaPjj9Ehmv3IUsxKzn34xvSrI4+oe4ssndUAAAAAAP////8HIgIAAAAAAAAiUSCCJqiu5E1vA1VfAcD9yFq81E/RDll3743EpZaQY9Q84CICAAAAAAAAIlEggiaoruRNbwNVXwHA/chavNRP0Q5Zd++NxKWWkGPUPOAiAgAAAAAAACJRIMMkN8lZ6Ne1gFN8qHu1pM67+8uRJthdwemvkPX86I4aIgIAAAAAAAAiUSCCJqiu5E1vA1VfAcD9yFq81E/RDll3743EpZaQY9Q84IgeAAAAAAAAIlEggiaoruRNbwNVXwHA/chavNRP0Q5Zd++NxKWWkGPUPOAAAAAAAAAAAIpqTIdBUksAggMGAgABAQRuYW1lC01peGVkIEFzc2V0AAEBAAAAAAAAAAAAAAPoAAABAQAAAAEAAAAAAAAD6AGL9sw943xnpjBaqNzfam/ERrWFXVbm2bIKUXteHmmNwwABAQEAAAAAAAAAAAAAJxACAQAAAAIAAAAAAAAB9AEAAAADAAAAAAAAJRwAAAAAAAAAAARRAk5zAAAAAAABASsQJwAAAAAAACJRINXJvuWBDNYxUuQ2pAmX8iHnCo4tsxB7ZSNwyIK4JyYJQhXAUJKbdMGgSVS3i0tgNel6XgeKWg8o7JbVR7/ums6AOsDVGkb/1OxVfktzFVrdQSrar/1K2D0k5k+B8+No7tJ8GkUgun2uJ78hy3FBnSvMZExB7blflPG4rH8dYB7KCX+KqSqtIOOJARi/rzEHp/96Rf6ocidfC1wHgyB22nmTXfhyKK1PrMAI3nRhcHRyZWVxAcAnApAAsnUga3cl59lSUXqhwEg35D1yrjihu/eKM7MqDEp11mGxZc2sAcBEILp9rie/IctxQZ0rzGRMQe25X5TxuKx/HWAeygl/iqkqrSDjiQEYv68xB6f/ekX+qHInXwtcB4Mgdtp5k134ciitT6wAAAAAAAAAAA==",
+    "asset_packet": {
+      "Asset": {
+        "Assets": [
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 0,
+                "Amount": 1000
+              }
+            ],
+            "Inputs": null,
+            "ControlAsset": {
+              "Type": 2,
+              "GroupIndex": 1
+            },
+            "Metadata": [
+              {
+                "Key": "name",
+                "Value": "Mixed Asset"
+              }
+            ]
+          },
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 1,
+                "Amount": 1000
+              }
+            ],
+            "Inputs": null
+          },
+          {
+            "AssetId": {
+              "Txid": "8bf6cc3de37c67a6305aa8dcdf6a6fc446b5855d56e6d9b20a517b5e1e698dc3",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 2,
+                "Amount": 500
+              },
+              {
+                "Type": 1,
+                "Vout": 3,
+                "Amount": 9500
+              }
+            ],
+            "Inputs": [
+              {
+                "Type": 1,
+                "Vin": 0,
+                "Amount": 10000
+              }
+            ]
+          }
+        ],
+        "Version": 0
+      }
+    }
+  },
+  {
+    "type": "mix_all_ops",
+    "psbt": "cHNidP8BAP3jAgMAAAACEuS3GpArXL4oOZirZtYoG871rHdtvEHwZxpy6mE2lsQAAAAAAP/////JOdXM6PKICEugBiITzTOW7OOHd+r3oYSRI2HtUCGeGAAAAAAA/////wkiAgAAAAAAACJRILhCWkJz61AUMXV+btJPDKWDn9WHcRp82JZ2P8vYWI4QIgIAAAAAAAAiUSCDpsgU9sroZCudUloW7HL+XR20nTTrlobo4uFBmgRkAiICAAAAAAAAIlEguEJaQnPrUBQxdX5u0k8MpYOf1YdxGnzYlnY/y9hYjhAiAgAAAAAAACJRIIOmyBT2yuhkK51SWhbscv5dHbSdNOuWhuji4UGaBGQCIgIAAAAAAAAiUSC4QlpCc+tQFDF1fm7STwylg5/Vh3EafNiWdj/L2FiOECICAAAAAAAAIlEgg6bIFPbK6GQrnVJaFuxy/l0dtJ0065aG6OLhQZoEZAJUQQAAAAAAACJRIIOmyBT2yuhkK51SWhbscv5dHbSdNOuWhuji4UGaBGQCAAAAAAAAAAD9QgFqTT4BQVJLAP0BNwYGAgABAQRuYW1lEk5ldyBJc3N1YW5jZSBBc3NldAABAQAAAAAAAAAAAAAAZAQBBG5hbWURTmV3IENvbnRyb2wgQXNzZXQAAQEAAAABAAAAAAAAAAEBY+o8P6BCNiesMAtabSFacDMNJD69kclnbfbzk28blFcAAQEBAAAAAAAAAAAAAAPoAgEAAAACAAAAAAAAAfQBAAAAAwAAAAAAAAH0AZhYBW6fnMZfrt3a5XjgNfBDv3lRfE5BY/Zx8hUXdSsgAAIAAQEAAAAEAAAAAAAAAMgBlRs+cT4kwurYppAZExV2ajgaBCjjn1spXFUTJWqNI0kAAQEBAAAAAQAAAAAAAAABAQEAAAAFAAAAAAAAAAEBo6g5t4uyXrF/lFxIpUS0188bznx3IHB1bDKFEDWBYwUAAQAAAAAAAAAAAAAEUQJOcwAAAAAAAQErECcAAAAAAAAiUSDcDC87C2TUZDUCz5n9mE7T0ER5mcQrPjN0KN39zJNXYEIVwFCSm3TBoElUt4tLYDXpel4HiloPKOyW1Ue/7prOgDrAM0RW3w/yGfcoCPGLz0xhfOHBidaMBO/2TtSJo1FSl9RFIMo4/69Q1Ja299PNCtMtd26vt1uLGdufW4ZMKkiPit3frSD1ACOvJ+jfh3k4LlI+okJiQEMJVGKYHaB29CTpd0WpkqzACN50YXB0cmVlcQHAJwKQALJ1IGyOPdzrowOBXFD1X6Kl0dS6bD9r5oxh7ItrODN2umJ1rAHARCDKOP+vUNSWtvfTzQrTLXdur7dbixnbn1uGTCpIj4rd360g9QAjryfo34d5OC5SPqJCYkBDCVRimB2gdvQk6XdFqZKsAAEBKxAnAAAAAAAAIlEgqxQfs0+Yrp3A+oEnQOVW6OGmsLpV0aeODWN1EAyWCyJCFcBQkpt0waBJVLeLS2A16XpeB4paDyjsltVHv+6azoA6wDNEVt8P8hn3KAjxi89MYXzhwYnWjATv9k7UiaNRUpfURSBKHX+3Zik2yM0WM2hdzThJLyCxzzY81eR1CujGnTSRR60gjmFjitgbFnRHBG9t5BQXuG74xgCF9X5fsl104fo9d8yswAjedGFwdHJlZXEBwCcCkACydSBsjj3c66MDgVxQ9V+ipdHUumw/a+aMYeyLazgzdrpidawBwEQgSh1/t2YpNsjNFjNoXc04SS8gsc82PNXkdQroxp00kUetII5hY4rYGxZ0RwRvbeQUF7hu+MYAhfV+X7JddOH6PXfMrAAAAAAAAAAAAAA=",
+    "asset_packet": {
+      "Asset": {
+        "Assets": [
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 0,
+                "Amount": 100
+              }
+            ],
+            "Inputs": null,
+            "ControlAsset": {
+              "Type": 2,
+              "GroupIndex": 1
+            },
+            "Metadata": [
+              {
+                "Key": "name",
+                "Value": "New Issuance Asset"
+              }
+            ]
+          },
+          {
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 1,
+                "Amount": 1
+              }
+            ],
+            "Inputs": null,
+            "Metadata": [
+              {
+                "Key": "name",
+                "Value": "New Control Asset"
+              }
+            ]
+          },
+          {
+            "AssetId": {
+              "Txid": "63ea3c3fa0423627ac300b5a6d215a70330d243ebd91c9676df6f3936f1b9457",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 2,
+                "Amount": 500
+              },
+              {
+                "Type": 1,
+                "Vout": 3,
+                "Amount": 500
+              }
+            ],
+            "Inputs": [
+              {
+                "Type": 1,
+                "Vin": 0,
+                "Amount": 1000
+              }
+            ]
+          },
+          {
+            "AssetId": {
+              "Txid": "9858056e9f9cc65faedddae578e035f043bf79517c4e4163f671f21517752b20",
+              "Index": 2
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 4,
+                "Amount": 200
+              }
+            ],
+            "Inputs": null
+          },
+          {
+            "AssetId": {
+              "Txid": "951b3e713e24c2ead8a690191315766a381a0428e39f5b295c5513256a8d2349",
+              "Index": 1
+            },
+            "Outputs": [
+              {
+                "Type": 1,
+                "Vout": 5,
+                "Amount": 1
+              }
+            ],
+            "Inputs": [
+              {
+                "Type": 1,
+                "Vin": 1,
+                "Amount": 1
+              }
+            ]
+          },
+          {
+            "AssetId": {
+              "Txid": "a3a839b78bb25eb17f945c48a544b4d7cf1bce7c772070756c32851035816305",
+              "Index": 1
+            },
+            "Outputs": [],
+            "Inputs": null
+          }
+        ],
+        "Version": 0
+      }
+    }
+  }
+]

@@ -301,7 +301,7 @@ type DBReceiver struct {
 
 type DBAsset struct {
 	AssetId         string
-	GroupIndex      uint32
+	GroupIndex      uint16
 	Amount          uint64
 	ExtensionScript []byte
 }
