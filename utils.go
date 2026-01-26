@@ -1057,6 +1057,10 @@ func createIntentAssetAnchor(
 		assetgroupList = append(assetgroupList, assetGroup)
 	}
 
+	if len(assetgroupList) == 0 {
+		return nil, nil
+	}
+
 	assetPacket := extension.AssetPacket{
 		Assets: assetgroupList,
 	}
