@@ -3087,7 +3087,13 @@ func (a *arkClient) handleBatchEvents(
 	}
 
 	// skip only if there is no offchain output
-	skipVtxoTreeSigning := len(receivers) <= 0
+	skipVtxoTreeSigning := true
+	for _, receiver := range receivers {
+		if _, err := arklib.DecodeAddressV0(receiver.To); err == nil {
+			skipVtxoTreeSigning = false
+			break
+		}
+	}
 
 	options := []BatchSessionOption{WithCancel(cancelCh)}
 
@@ -3525,15 +3531,19 @@ func (a *arkClient) handleCommitmentTx(
 	// Add all our pending boarding txs to the list of those to settle.
 	txsToSettle = append(txsToSettle, pendingBoardingTxids...)
 
-	// Add also our preconfirmed txs the list of those to settle, and also add the related
+	// Add also our preconfirmed txs to the list of those to settle, and also add the related
 	// vtxos to the list of those to mark as spent.
 	for _, vtxo := range myVtxos {
 		vtxosToSpend[vtxo.Outpoint] = indexedSpentVtxos[vtxo.Outpoint].SpentBy
-		if !vtxo.Preconfirmed {
+		if spent := indexedSpentVtxos[vtxo.Outpoint]; spent.ArkTxid != "" {
+			txsToSettle = append(txsToSettle, spent.ArkTxid)
 			continue
 		}
-		txsToSettle = append(txsToSettle, vtxo.Txid)
+		if vtxo.Preconfirmed {
+			txsToSettle = append(txsToSettle, vtxo.Txid)
+		}
 	}
+	txsToSettle = Unique(txsToSettle)
 
 	// If no vtxos have been spent, add a new tx record.
 	if len(vtxosToSpend) <= 0 {

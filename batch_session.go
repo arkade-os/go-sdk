@@ -600,8 +600,6 @@ func (h *defaultBatchEventsHandler) OnBatchFinalization(
 
 	vtxos := h.vtxosToForfeit()
 
-	println("forfeit trabsaction reached here")
-
 	// if we spend vtxos, we must create and sign forfeits.
 	if len(vtxos) > 0 && connectorTree != nil {
 		signedForfeits, err := h.createAndSignForfeits(
