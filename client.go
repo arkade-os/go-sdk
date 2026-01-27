@@ -3535,15 +3535,11 @@ func (a *arkClient) handleCommitmentTx(
 	// vtxos to the list of those to mark as spent.
 	for _, vtxo := range myVtxos {
 		vtxosToSpend[vtxo.Outpoint] = indexedSpentVtxos[vtxo.Outpoint].SpentBy
-		if spent := indexedSpentVtxos[vtxo.Outpoint]; spent.ArkTxid != "" {
-			txsToSettle = append(txsToSettle, spent.ArkTxid)
+		if !vtxo.Preconfirmed {
 			continue
 		}
-		if vtxo.Preconfirmed {
-			txsToSettle = append(txsToSettle, vtxo.Txid)
-		}
+		txsToSettle = append(txsToSettle, vtxo.Txid)
 	}
-	txsToSettle = Unique(txsToSettle)
 
 	// If no vtxos have been spent, add a new tx record.
 	if len(vtxosToSpend) <= 0 {
@@ -4461,17 +4457,3 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 
 // 	return finalCheckpoints, nil
 // }
-
-func Unique[T comparable](in []T) []T {
-	seen := make(map[T]struct{})
-	out := make([]T, 0, len(in))
-
-	for _, v := range in {
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	return out
-}
