@@ -841,6 +841,36 @@ func (a *arkClient) DeleteIntent(
 	return a.client.DeleteIntent(ctx, proofTx, message)
 }
 
+func (a *arkClient) GetPendingIntents(
+	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
+) ([]types.Intent, error) {
+	if err := a.safeCheck(); err != nil {
+		return nil, err
+	}
+
+	vtxosWithTapscripts, err := a.populateVtxosWithTapscripts(ctx, vtxos)
+	if err != nil {
+		return nil, err
+	}
+
+	inputs, exitLeaves, arkFields, err := toIntentInputs(
+		boardingUtxos, vtxosWithTapscripts, notes,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	proofTx, message, err := a.makeGetIntentProof(inputs, exitLeaves, arkFields)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.client.GetIntentByProof(ctx, types.Intent{
+		Proof:   proofTx,
+		Message: message,
+	})
+}
+
 func (a *arkClient) FinalizePendingTxs(
 	ctx context.Context, createdAfter *time.Time,
 ) ([]string, error) {
@@ -2160,6 +2190,22 @@ func (a *arkClient) makeDeleteIntent(
 	message, err := intent.DeleteMessage{
 		BaseMessage: intent.BaseMessage{
 			Type: intent.IntentMessageTypeDelete,
+		},
+		ExpireAt: time.Now().Add(2 * time.Minute).Unix(),
+	}.Encode()
+	if err != nil {
+		return "", "", err
+	}
+
+	return a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+}
+
+func (a *arkClient) makeGetIntentProof(
+	inputs []intent.Input, leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
+) (string, string, error) {
+	message, err := intent.GetIntentMessage{
+		BaseMessage: intent.BaseMessage{
+			Type: intent.IntentMessageTypeGetIntent,
 		},
 		ExpireAt: time.Now().Add(2 * time.Minute).Unix(),
 	}.Encode()

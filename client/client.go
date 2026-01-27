@@ -59,6 +59,7 @@ type TransportClient interface {
 	OverwriteStreamTopics(
 		ctx context.Context, topics []string,
 	) (addedTopics, removedTopics, allTopics []string, err error)
+	GetIntentByProof(context.Context, types.Intent) ([]types.Intent, error)
 	Close()
 }
 

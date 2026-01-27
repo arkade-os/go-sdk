@@ -737,10 +737,22 @@ type ApiArkServiceGetIntentRequest struct {
 	ctx context.Context
 	ApiService *ArkServiceAPIService
 	txid *string
+	intentProof *string
+	intentMessage *string
 }
 
 func (r ApiArkServiceGetIntentRequest) Txid(txid string) ApiArkServiceGetIntentRequest {
 	r.txid = &txid
+	return r
+}
+
+func (r ApiArkServiceGetIntentRequest) IntentProof(intentProof string) ApiArkServiceGetIntentRequest {
+	r.intentProof = &intentProof
+	return r
+}
+
+func (r ApiArkServiceGetIntentRequest) IntentMessage(intentMessage string) ApiArkServiceGetIntentRequest {
+	r.intentMessage = &intentMessage
 	return r
 }
 
@@ -750,6 +762,8 @@ func (r ApiArkServiceGetIntentRequest) Execute() (*GetIntentResponse, *http.Resp
 
 /*
 ArkServiceGetIntent Method for ArkServiceGetIntent
+
+GetIntent returns a list of intents matching the given txid or spending one of the given proof inputs.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @return ApiArkServiceGetIntentRequest
@@ -784,6 +798,12 @@ func (a *ArkServiceAPIService) ArkServiceGetIntentExecute(r ApiArkServiceGetInte
 
 	if r.txid != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "txid", r.txid, "form", "")
+	}
+	if r.intentProof != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "intent.proof", r.intentProof, "form", "")
+	}
+	if r.intentMessage != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "intent.message", r.intentMessage, "form", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}

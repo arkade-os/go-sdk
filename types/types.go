@@ -322,3 +322,8 @@ type SyncEvent struct {
 	Synced bool
 	Err    error
 }
+
+type Intent struct {
+	Proof   string
+	Message string
+}

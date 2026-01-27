@@ -529,6 +529,27 @@ func (a *restClient) OverwriteStreamTopics(
 	return resp.GetTopicsAdded(), resp.GetTopicsRemoved(), resp.GetAllTopics(), nil
 }
 
+func (c *restClient) GetIntentByProof(
+	ctx context.Context,
+	intent types.Intent,
+) ([]types.Intent, error) {
+	resp, _, err := c.svc.ArkServiceAPI.ArkServiceGetIntent(ctx).
+		IntentProof(intent.Proof).
+		IntentMessage(intent.Message).
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+	intents := make([]types.Intent, 0, len(resp.Intents))
+	for _, intent := range resp.Intents {
+		intents = append(intents, types.Intent{
+			Proof:   intent.GetProof(),
+			Message: intent.GetMessage(),
+		})
+	}
+	return intents, nil
+}
+
 func (c *restClient) Close() {}
 
 func newRestArkClient(serviceURL string) (*ark_service.APIClient, error) {

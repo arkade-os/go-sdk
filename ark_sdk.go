@@ -33,6 +33,9 @@ type ArkClient interface {
 	DeleteIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
 	) error
+	GetPendingIntents(
+		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
+	) ([]types.Intent, error)
 	Settle(ctx context.Context, opts ...Option) (string, error)
 	CollaborativeExit(
 		ctx context.Context, addr string, amount uint64, opts ...Option,

@@ -19,6 +19,7 @@ var _ MappedNullable = &GetIntentRequest{}
 
 // GetIntentRequest struct for GetIntentRequest
 type GetIntentRequest struct {
+		Intent *Intent `json:"intent,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
 
@@ -37,6 +38,38 @@ func NewGetIntentRequest() *GetIntentRequest {
 func NewGetIntentRequestWithDefaults() *GetIntentRequest {
 	this := GetIntentRequest{}
 	return &this
+}
+
+// GetIntent returns the Intent field value if set, zero value otherwise.
+func (o *GetIntentRequest) GetIntent() Intent {
+	if o == nil || IsNil(o.Intent) {
+		var ret Intent
+		return ret
+	}
+	return *o.Intent
+}
+
+// GetIntentOk returns a tuple with the Intent field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GetIntentRequest) GetIntentOk() (*Intent, bool) {
+	if o == nil || IsNil(o.Intent) {
+		return nil, false
+	}
+	return o.Intent, true
+}
+
+// HasIntent returns a boolean if a field has been set.
+func (o *GetIntentRequest) HasIntent() bool {
+	if o != nil && !IsNil(o.Intent) {
+		return true
+	}
+
+	return false
+}
+
+// SetIntent gets a reference to the given Intent and assigns it to the Intent field.
+func (o *GetIntentRequest) SetIntent(v Intent) {
+	o.Intent = &v
 }
 
 // GetTxid returns the Txid field value if set, zero value otherwise.
@@ -81,6 +114,9 @@ func (o GetIntentRequest) MarshalJSON() ([]byte, error) {
 
 func (o GetIntentRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
+	if !IsNil(o.Intent) {
+		toSerialize["intent"] = o.Intent
+	}
 	if !IsNil(o.Txid) {
 		toSerialize["txid"] = o.Txid
 	}

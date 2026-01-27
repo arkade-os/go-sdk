@@ -19,7 +19,7 @@ var _ MappedNullable = &GetIntentResponse{}
 
 // GetIntentResponse struct for GetIntentResponse
 type GetIntentResponse struct {
-		Intent *Intent `json:"intent,omitempty"`
+		Intents []Intent `json:"intents,omitempty"`
 }
 
 // NewGetIntentResponse instantiates a new GetIntentResponse object
@@ -39,36 +39,36 @@ func NewGetIntentResponseWithDefaults() *GetIntentResponse {
 	return &this
 }
 
-// GetIntent returns the Intent field value if set, zero value otherwise.
-func (o *GetIntentResponse) GetIntent() Intent {
-	if o == nil || IsNil(o.Intent) {
-		var ret Intent
+// GetIntents returns the Intents field value if set, zero value otherwise.
+func (o *GetIntentResponse) GetIntents() []Intent {
+	if o == nil || IsNil(o.Intents) {
+		var ret []Intent
 		return ret
 	}
-	return *o.Intent
+	return o.Intents
 }
 
-// GetIntentOk returns a tuple with the Intent field value if set, nil otherwise
+// GetIntentsOk returns a tuple with the Intents field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetIntentResponse) GetIntentOk() (*Intent, bool) {
-	if o == nil || IsNil(o.Intent) {
+func (o *GetIntentResponse) GetIntentsOk() ([]Intent, bool) {
+	if o == nil || IsNil(o.Intents) {
 		return nil, false
 	}
-	return o.Intent, true
+	return o.Intents, true
 }
 
-// HasIntent returns a boolean if a field has been set.
-func (o *GetIntentResponse) HasIntent() bool {
-	if o != nil && !IsNil(o.Intent) {
+// HasIntents returns a boolean if a field has been set.
+func (o *GetIntentResponse) HasIntents() bool {
+	if o != nil && !IsNil(o.Intents) {
 		return true
 	}
 
 	return false
 }
 
-// SetIntent gets a reference to the given Intent and assigns it to the Intent field.
-func (o *GetIntentResponse) SetIntent(v Intent) {
-	o.Intent = &v
+// SetIntents gets a reference to the given []Intent and assigns it to the Intents field.
+func (o *GetIntentResponse) SetIntents(v []Intent) {
+	o.Intents = v
 }
 
 func (o GetIntentResponse) MarshalJSON() ([]byte, error) {
@@ -81,8 +81,8 @@ func (o GetIntentResponse) MarshalJSON() ([]byte, error) {
 
 func (o GetIntentResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Intent) {
-		toSerialize["intent"] = o.Intent
+	if !IsNil(o.Intents) {
+		toSerialize["intents"] = o.Intents
 	}
 	return toSerialize, nil
 }

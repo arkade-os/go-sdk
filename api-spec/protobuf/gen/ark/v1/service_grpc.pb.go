@@ -107,6 +107,7 @@ type ArkServiceClient interface {
 	// NOTE: the stream doesn't have history support, therefore returns only txs from the moment it's
 	// opened until it's closed.
 	GetTransactionsStream(ctx context.Context, in *GetTransactionsStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetTransactionsStreamResponse], error)
+	// GetIntent returns a list of intents matching the given txid or spending one of the given proof inputs.
 	GetIntent(ctx context.Context, in *GetIntentRequest, opts ...grpc.CallOption) (*GetIntentResponse, error)
 }
 
@@ -357,6 +358,7 @@ type ArkServiceServer interface {
 	// NOTE: the stream doesn't have history support, therefore returns only txs from the moment it's
 	// opened until it's closed.
 	GetTransactionsStream(*GetTransactionsStreamRequest, grpc.ServerStreamingServer[GetTransactionsStreamResponse]) error
+	// GetIntent returns a list of intents matching the given txid or spending one of the given proof inputs.
 	GetIntent(context.Context, *GetIntentRequest) (*GetIntentResponse, error)
 }
 

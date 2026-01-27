@@ -579,6 +579,31 @@ func (c *grpcClient) OverwriteStreamTopics(
 	return updateRes.GetTopicsAdded(), updateRes.GetTopicsRemoved(), updateRes.GetAllTopics(), nil
 }
 
+func (c *grpcClient) GetIntentByProof(
+	ctx context.Context,
+	intent types.Intent,
+) ([]types.Intent, error) {
+	resp, err := c.svc().GetIntent(ctx, &arkv1.GetIntentRequest{
+		Filter: &arkv1.GetIntentRequest_Intent{
+			Intent: &arkv1.Intent{
+				Proof:   intent.Proof,
+				Message: intent.Message,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	intents := make([]types.Intent, 0, len(resp.Intents))
+	for _, intent := range resp.Intents {
+		intents = append(intents, types.Intent{
+			Proof:   intent.GetProof(),
+			Message: intent.GetMessage(),
+		})
+	}
+	return intents, nil
+}
+
 func (c *grpcClient) Close() {
 	c.monitoringCancel()
 	c.connMu.Lock()
