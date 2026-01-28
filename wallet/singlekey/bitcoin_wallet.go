@@ -546,3 +546,11 @@ func (w *bitcoinWallet) getArkAddresses(
 		},
 		nil
 }
+
+func (w *bitcoinWallet) GetPublicKey(ctx context.Context) (*btcec.PublicKey, error) {
+	if w.walletData == nil {
+		return nil, fmt.Errorf("wallet not initialized")
+	}
+
+	return w.walletData.PubKey, nil
+}

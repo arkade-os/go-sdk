@@ -25,33 +25,64 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func CoinSelect(
-	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo,
-	outputs []types.Receiver, dust uint64, withoutExpirySorting bool,
+const UNIT_AMOUNT = uint64(1)
+
+func CalculateFees(
+	inputs []client.TapscriptsVtxo,
+	receivers []types.Receiver,
 	feeEstimator *arkfee.Estimator,
+) (uint64, error) {
+	totalFees := uint64(0)
+
+	if feeEstimator == nil {
+		return totalFees, nil
+	}
+
+	for _, rv := range receivers {
+		var fees arkfee.FeeAmount
+		var err error
+		arkFeeOutput := rv.ToArkFeeOutput()
+		if rv.IsOnchain() {
+			fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
+		} else {
+			fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
+		}
+		if err != nil {
+			return 0, err
+		}
+		totalFees += uint64(fees.ToSatoshis())
+
+	}
+
+	for _, input := range inputs {
+		feesForInput, err := feeEstimator.EvalOffchainInput(input.ToArkFeeInput())
+		if err != nil {
+			return 0, err
+		}
+		totalFees += uint64(feesForInput.ToSatoshis())
+	}
+
+	return totalFees, nil
+}
+
+func CoinSelectNormal(
+	boardingUtxos []types.Utxo,
+	vtxos []client.TapscriptsVtxo,
+	amount uint64, dust uint64, withoutExpirySorting bool, feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
 
-	amount := uint64(0)
-	for _, output := range outputs {
-		amount += output.Amount
-		if feeEstimator != nil {
-			var fees arkfee.FeeAmount
-			var err error
-			arkFeeOutput := output.ToArkFeeOutput()
-			if output.IsOnchain() {
-				fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
-			} else {
-				fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
-			}
-			if err != nil {
-				return nil, nil, 0, err
-			}
-			amount += uint64(fees.ToSatoshis())
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+
+	// Filter out asset vtxos
+	for _, vtxo := range vtxos {
+		if vtxo.Assets == nil {
+			filteredVtxos = append(filteredVtxos, vtxo)
 		}
 	}
+	vtxos = filteredVtxos
 
 	if !withoutExpirySorting {
 		// sort vtxos by expiration (oldest last)
@@ -143,6 +174,63 @@ func CoinSelect(
 	}
 
 	return selectedBoarding, selected, change, nil
+}
+
+func CoinSelectAsset(
+	vtxos []client.TapscriptsVtxo,
+	amount uint64,
+	assetID string,
+	dust uint64,
+	withoutExpirySorting bool,
+) ([]client.TapscriptsVtxo, uint64, error) {
+	selected := make([]client.TapscriptsVtxo, 0)
+	selectedAmount := uint64(0)
+
+	filteredVtxos := make([]client.TapscriptsVtxo, 0)
+
+	for _, vtxo := range vtxos {
+		if vtxo.Assets != nil {
+			for _, asset := range vtxo.Assets {
+				if asset.AssetId == assetID {
+					filteredVtxos = append(filteredVtxos, vtxo)
+					break
+				}
+			}
+		}
+	}
+
+	vtxos = filteredVtxos
+
+	if !withoutExpirySorting {
+		// sort vtxos by expiration (older first)
+		sort.SliceStable(vtxos, func(i, j int) bool {
+			return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+		})
+
+	}
+
+	for _, vtxo := range vtxos {
+		if selectedAmount >= amount {
+			break
+		}
+
+		selected = append(selected, vtxo)
+
+		for _, asset := range vtxo.Assets {
+			if asset.AssetId == assetID {
+				selectedAmount += asset.Amount
+				break
+			}
+		}
+	}
+
+	if selectedAmount < amount {
+		return nil, 0, fmt.Errorf("not enough funds to cover amount %d", amount)
+	}
+
+	change := selectedAmount - amount
+
+	return selected, change, nil
 }
 
 func ParseBitcoinAddress(addr string, net chaincfg.Params) (
@@ -356,6 +444,17 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 		msg = bytes.Trim(msg, "\n")
 		chunkCh <- ChunkJSONStream{Msg: msg}
 	}
+}
+
+func GroupBy[T any](items []T, keyFn func(T) string) map[string][]T {
+	result := make(map[string][]T)
+
+	for _, item := range items {
+		key := keyFn(item)
+		result[key] = append(result[key], item)
+	}
+
+	return result
 }
 
 func FilterVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) []types.Vtxo {

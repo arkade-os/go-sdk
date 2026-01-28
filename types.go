@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	restclient "github.com/arkade-os/go-sdk/client/rest"
 	"github.com/arkade-os/go-sdk/internal/utils"
@@ -98,8 +99,8 @@ func (a InitWithWalletArgs) validate() error {
 }
 
 type Balance struct {
-	OnchainBalance  OnchainBalance  `json:"onchain_balance"`
-	OffchainBalance OffchainBalance `json:"offchain_balance"`
+	OnchainBalance  OnchainBalance       `json:"onchain_balance"`
+	OffchainBalance TotalOffchainBalance `json:"offchain_balance"`
 }
 
 type OnchainBalance struct {
@@ -112,8 +113,13 @@ type LockedOnchainBalance struct {
 	Amount      uint64 `json:"amount"`
 }
 
+type TotalOffchainBalance struct {
+	SatsBalance   OffchainBalance            `json:"sats_balance"`
+	AssetBalances map[string]OffchainBalance `json:"asset_balances,omitempty"`
+}
+
 type OffchainBalance struct {
-	Total          uint64        `json:"total"`
+	TotalAmount    uint64        `json:"total_amount"`
 	NextExpiration string        `json:"next_expiration,omitempty"`
 	Details        []VtxoDetails `json:"details"`
 }
@@ -121,14 +127,6 @@ type OffchainBalance struct {
 type VtxoDetails struct {
 	ExpiryTime string `json:"expiry_time"`
 	Amount     uint64 `json:"amount"`
-}
-
-type balanceRes struct {
-	offchainBalance             uint64
-	onchainSpendableBalance     uint64
-	onchainLockedBalance        map[int64]uint64
-	offchainBalanceByExpiration map[int64]uint64
-	err                         error
 }
 
 type CoinSelectOptions struct {
@@ -143,3 +141,28 @@ type CoinSelectOptions struct {
 	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
 	RecomputeExpiry bool
 }
+
+type IntentInput struct {
+	intent.Input
+	AssetExtension *AssetExtension
+}
+
+type TapscriptsVtxo struct {
+	types.Vtxo
+	Tapscripts []string
+}
+
+type AssetExtension struct {
+	Id     string
+	Amount uint64
+	Index  uint32
+}
+
+type AssetGroupOperation int
+
+const (
+	AssetGroupIssuance AssetGroupOperation = iota
+	AssetGroupTransfer
+	AssetGroupBurn
+	AssetGroupClaimTeleport
+)

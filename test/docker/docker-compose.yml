@@ -88,7 +88,7 @@ services:
             - ARKD_LIVE_STORE_TYPE=inmemory
             - ARKD_EVENT_DB_TYPE=badger
             - ARKD_DB_TYPE=sqlite
-            - ARKD_ROUND_INTERVAL=10
+            - ARKD_ROUND_INTERVAL=120
             - ARKD_ALLOW_CSV_BLOCK_TYPE=true
         volumes:
             - type: tmpfs

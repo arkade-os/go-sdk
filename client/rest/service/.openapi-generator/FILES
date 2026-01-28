@@ -2,6 +2,7 @@ api_ark_service.go
 client.go
 configuration.go
 model_any.go
+model_asset.go
 model_batch_failed_event.go
 model_batch_finalization_event.go
 model_batch_finalized_event.go

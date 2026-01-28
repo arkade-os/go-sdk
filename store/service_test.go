@@ -6,6 +6,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -77,6 +78,26 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
+	testVtxoAssets = []*extension.AssetGroup{
+		newTestAsset(0x01, "asset-one"),
+		newTestAsset(0x02, "asset-two"),
+	}
+
+	// testAsset1 := types.Asset {
+	// 	AssetId: testVtxoAssets[0].AssetId,
+	// 	Amount:  testVtxoAssets[0].Outputs[0].Amount,
+	// }
+
+	testAsset1 = types.Asset{
+		AssetId: testVtxoAssets[0].AssetId.ToString(),
+		Amount:  testVtxoAssets[0].Outputs[0].Amount,
+	}
+
+	testAsset2 = types.Asset{
+		AssetId: testVtxoAssets[1].AssetId.ToString(),
+		Amount:  testVtxoAssets[1].Outputs[0].Amount,
+	}
+
 	testVtxos = []types.Vtxo{
 		{
 			Outpoint: types.Outpoint{
@@ -91,6 +112,7 @@ var (
 			ExpiresAt:    time.Unix(1748143068, 0),
 			CreatedAt:    time.Unix(1746143068, 0),
 			Preconfirmed: true,
+			Assets:       []types.Asset{testAsset1},
 		},
 		{
 			Outpoint: types.Outpoint{
@@ -104,6 +126,7 @@ var (
 			},
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
+			Assets:    []types.Asset{testAsset2},
 		},
 	}
 	testVtxoKeys = []types.Outpoint{
@@ -160,6 +183,46 @@ var (
 	settledBy = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
+
+func newTestAsset(seed byte, name string) *extension.AssetGroup {
+	var assetTxId [32]byte
+	var controlAssetTxId [32]byte
+	for i := range assetTxId {
+		assetTxId[i] = seed
+		controlAssetTxId[i] = seed + 1
+	}
+
+	return &extension.AssetGroup{
+		AssetId: &extension.AssetId{
+			Txid:  assetTxId,
+			Index: 0,
+		},
+		ControlAsset: &extension.AssetRef{
+			Type: extension.AssetRefByID,
+			AssetId: extension.AssetId{
+				Txid:  controlAssetTxId,
+				Index: 0,
+			}},
+		Outputs: []extension.AssetOutput{
+			{
+				Vout:   0,
+				Amount: uint64(seed) * 1000,
+			},
+		},
+		Inputs: []extension.AssetInput{
+			{
+				Vin:    0,
+				Amount: uint64(seed) * 500,
+			},
+		},
+		Metadata: []extension.Metadata{
+			{
+				Key:   "name",
+				Value: name,
+			},
+		},
+	}
+}
 
 func TestService(t *testing.T) {
 	t.Run("config store", func(t *testing.T) {
@@ -366,6 +429,19 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	ctx := context.Background()
 
+	expectedAssets := map[types.Outpoint]*extension.AssetGroup{
+		testVtxoKeys[0]: testVtxoAssets[0],
+		testVtxoKeys[1]: testVtxoAssets[1],
+	}
+
+	assertAssets := func(t *testing.T, vtxos []types.Vtxo) {
+		t.Helper()
+		for _, v := range vtxos {
+			require.NotNil(t, v.Assets)
+			require.Equal(t, expectedAssets[v.Outpoint], v.Assets[0])
+		}
+	}
+
 	go func() {
 		eventCh := storeSvc.GetEventChannel()
 		for event := range eventCh {
@@ -401,6 +477,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
+		assertAssets(t, spendable)
 
 		spendable, err = storeSvc.GetSpendableVtxos(ctx)
 		require.NoError(t, err)
@@ -409,10 +486,12 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 			require.False(t, v.Spent)
 			require.False(t, v.Unrolled)
 		}
+		assertAssets(t, spendable)
 
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
 		require.Equal(t, testVtxos, vtxos)
+		assertAssets(t, vtxos)
 	})
 
 	t.Run("spend vtxos", func(t *testing.T) {
@@ -428,6 +507,8 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Equal(t, 1, len(spent))
 		require.Equal(t, 1, len(spendable))
+		assertAssets(t, spendable)
+		assertAssets(t, spent)
 		for _, v := range spent {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
@@ -448,6 +529,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Equal(t, 2, len(spent))
 		require.Empty(t, spendable)
+		assertAssets(t, spent)
 		for _, v := range spent[1:] {
 			require.True(t, v.Spent)
 			require.Equal(t, testSettleVtxoKeys[v.Outpoint], v.SpentBy)

@@ -8,6 +8,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -85,6 +86,33 @@ type Vtxo struct {
 	SpentBy         string
 	SettledBy       string
 	ArkTxid         string
+	Assets          []Asset
+}
+
+type Asset struct {
+	AssetId string `json:"asset_id"`
+	Amount  uint64 `json:"amount"`
+}
+
+func ToJSON(arr []Asset) ([]byte, error) {
+	b, err := json.Marshal(arr)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func FromJSON(data []byte) ([]Asset, error) {
+	var a []Asset
+	err := json.Unmarshal(data, &a)
+	return a, err
+}
+
+type AssetDetails struct {
+	ID        string
+	Quantity  uint64
+	Immutable bool
+	Metadata  map[string]string
 }
 
 func (v Vtxo) String() string {
@@ -246,9 +274,57 @@ func (u *Utxo) Sequence() (uint32, error) {
 }
 
 type Receiver struct {
-	To     string
-	Amount uint64
+	To       string
+	Amount   uint64
+	IsChange bool
+	Asset    *Asset
 }
+
+type AssetCreationRequest struct {
+	AssetId   string
+	Receivers []Receiver
+	Params    AssetCreationParams
+}
+
+type VtxoType int
+
+const (
+	VtxoTypeNormal VtxoType = iota
+	VtxoTypeAsset
+)
+
+type DBReceiver struct {
+	Receiver
+	Index  uint32
+	Assets []DBAsset
+}
+
+type DBAsset struct {
+	AssetId         string
+	GroupIndex      uint32
+	Amount          uint64
+	ExtensionScript []byte
+}
+
+type AssetAnchor struct {
+	TxOut  wire.TxOut
+	Packet extension.ExtensionPacket
+}
+
+type TeleportReceiver struct {
+	Script        []byte
+	To            string
+	AssetAmount   uint64
+	AssetId       string
+	VtxoIndexList []uint32
+}
+
+type AssetManagementType uint
+
+const (
+	AssetManagementTypeMint AssetManagementType = iota
+	AssetManagementTypeBurn
+)
 
 func (r Receiver) ToArkFeeOutput() arkfee.Output {
 	txout, _, err := r.ToTxOut()
@@ -321,4 +397,20 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
+}
+
+type AssetCreationParams struct {
+	Quantity       uint64
+	ControlAssetId string
+	MetadataMap    map[string]string
+}
+
+type Metadata struct {
+	Key   string
+	Value string
+}
+
+type AssetModificationParams struct {
+	Name   string
+	Symbol string
 }
