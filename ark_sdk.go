@@ -37,13 +37,10 @@ type ArkClient interface {
 	BurnAsset(
 		ctx context.Context, controlAssetId string, assetID string, amount uint64, opt ...Option,
 	) (string, error)
-	ModifyAssetMetadata(
-		ctx context.Context, controlAssetId string, assetID string, metadata map[string]string, opt ...Option,
-	) (string, error)
 	SendOffChain(ctx context.Context, receivers []types.Receiver, opt ...Option) (string, error)
 	RegisterIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
-		outputs []types.Receiver, teleportOutput []types.TeleportReceiver, cosignersPublicKeys []string,
+		outputs []types.Receiver, cosignersPublicKeys []string,
 	) (intentID string, err error)
 	DeleteIntent(
 		ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,

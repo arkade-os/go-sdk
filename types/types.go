@@ -277,19 +277,8 @@ type Receiver struct {
 	To       string
 	Amount   uint64
 	IsChange bool
+	Asset    *Asset
 }
-
-type AssetReceiver struct {
-	Receiver
-	AssetOutputType AssetType
-}
-
-type AssetType int
-
-const (
-	AssetTypeLocal AssetType = iota
-	AssetTypeTeleport
-)
 
 type AssetCreationRequest struct {
 	AssetId   string
@@ -413,7 +402,6 @@ type SyncEvent struct {
 type AssetCreationParams struct {
 	Quantity       uint64
 	ControlAssetId string
-	Immutable      bool
 	MetadataMap    map[string]string
 }
 

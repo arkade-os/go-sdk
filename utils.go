@@ -316,26 +316,22 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 
 func (b *AssetTxBuilder) AddWitness(
 	assetGroupIndex uint32,
-	intentID [32]byte, script []byte,
+	intentID [32]byte,
 	amount uint64,
-	index uint32,
+	vout uint32,
 ) error {
 
 	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
-	witness := extension.TeleportWitness{
-		Script: script,
-		Txid:   intentID,
-		Index:  index,
-	}
 
 	b.assetGroupList[assetGroupIndex].Inputs = append(
 		b.assetGroupList[assetGroupIndex].Inputs,
 		extension.AssetInput{
-			Type:    extension.AssetTypeTeleport,
-			Amount:  amount,
-			Witness: witness,
+			Type:   extension.AssetTypeIntent,
+			Amount: amount,
+			Txid:   intentID,
+			Vin:    vout,
 		},
 	)
 	return nil
@@ -345,7 +341,6 @@ func (b *AssetTxBuilder) AddWitness(
 func (b *AssetTxBuilder) InsertIssuance(
 	assetGroupIndex uint32,
 	controlAsset string,
-	immutable bool,
 ) error {
 	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
@@ -364,7 +359,6 @@ func (b *AssetTxBuilder) InsertIssuance(
 			AssetId: *controlAssetId,
 		}
 	}
-	b.assetGroupList[assetGroupIndex].Immutable = immutable
 
 	return nil
 }
@@ -962,7 +956,6 @@ func checkSendOffChainOptionsType(o interface{}) (*sendOffChainOptions, error) {
 func createRegisterIntentMessage(
 	inputs []IntentInput,
 	outputs []types.Receiver,
-	teleportOutputs []types.TeleportReceiver,
 	cosignersPublicKeys []string,
 ) (
 	string, []*wire.TxOut, error,
@@ -989,7 +982,7 @@ func createRegisterIntentMessage(
 		outputCounter++
 	}
 
-	assetAssetAnchor, err := createTeleportAssetAnchor(inputs, teleportOutputs)
+	assetAssetAnchor, err := createIntentAssetAnchor(inputs, outputs)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1013,11 +1006,11 @@ func createRegisterIntentMessage(
 	return message, outputsTxOut, nil
 }
 
-func createTeleportAssetAnchor(
+func createIntentAssetAnchor(
 	intentInputs []IntentInput,
-	teleportOutputs []types.TeleportReceiver,
+	outputs []types.Receiver,
 ) (*wire.TxOut, error) {
-	if len(teleportOutputs) == 0 {
+	if len(outputs) == 0 {
 		return nil, nil
 	}
 
@@ -1031,54 +1024,45 @@ func createTeleportAssetAnchor(
 		}
 	}
 
-	groupedTeleportOutputs := make(map[string][]types.TeleportReceiver)
-	for _, output := range teleportOutputs {
-		groupedTeleportOutputs[output.AssetId] = append(
-			groupedTeleportOutputs[output.AssetId],
-			output,
-		)
-	}
+	assetgroupList := make([]extension.AssetGroup, 0)
+	for i, output := range outputs {
+		if output.Asset == nil {
+			continue
+		}
 
-	assetGroups := make([]extension.AssetGroup, 0)
-	for assetId, inputs := range groupedIntentInputs {
-		assetOutputs := make([]extension.AssetOutput, 0)
+		assetId, err := extension.AssetIdFromString(output.Asset.AssetId)
+		if err != nil {
+			return nil, err
+		}
 
-		for i, output := range groupedTeleportOutputs[assetId] {
-
-			assetOutputs = append(assetOutputs, extension.AssetOutput{
-				Type:   extension.AssetTypeTeleport,
-				Amount: output.AssetAmount,
+		assetGroup := extension.AssetGroup{
+			AssetId: assetId,
+			Outputs: []extension.AssetOutput{{
+				Type:   extension.AssetTypeIntent,
+				Amount: output.Asset.Amount,
 				Vout:   uint32(i),
-				Script: output.Script,
-			})
+			}},
 		}
 
 		assetInputs := make([]extension.AssetInput, 0)
-		for _, input := range inputs {
+		for _, input := range groupedIntentInputs[output.Asset.AssetId] {
 			assetInputs = append(assetInputs, extension.AssetInput{
 				Type:   extension.AssetTypeLocal,
 				Vin:    input.AssetExtension.Index + 1, // +1 for the intent proof input
 				Amount: input.AssetExtension.Amount,
 			})
 		}
+		assetGroup.Inputs = assetInputs
 
-		decodedAssetId, ferr := extension.AssetIdFromString(assetId)
-		if ferr != nil {
-			return nil, ferr
-		}
-		if decodedAssetId == nil {
-			return nil, fmt.Errorf("invalid asset id: %s", assetId)
-		}
+		assetgroupList = append(assetgroupList, assetGroup)
+	}
 
-		assetGroups = append(assetGroups, extension.AssetGroup{
-			AssetId: decodedAssetId,
-			Inputs:  assetInputs,
-			Outputs: assetOutputs,
-		})
+	if len(assetgroupList) == 0 {
+		return nil, nil
 	}
 
 	assetPacket := extension.AssetPacket{
-		Assets: assetGroups,
+		Assets: assetgroupList,
 	}
 	extensionPacket := extension.ExtensionPacket{
 		Asset: &assetPacket,

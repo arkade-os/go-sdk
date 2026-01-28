@@ -464,59 +464,6 @@ func repl(ctx *cli.Context) error {
 				continue
 			}
 			_ = printJSON(map[string]string{"txid": txid})
-		case "modifyasset":
-			if len(fields) < 4 {
-				fmt.Println(
-					"usage: modifyasset <assetid> <control-asset-id> <key=value> [key=value...]",
-				)
-				continue
-			}
-			if err := ensureUnlocked(ctx); err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			assetID, err := parseAssetID(fields[1])
-			if err != nil {
-				fmt.Printf("invalid asset id: %v\n", err)
-				continue
-			}
-			controlID, err := parseAssetID(fields[2])
-			if err != nil {
-				fmt.Printf("invalid control asset id: %v\n", err)
-				continue
-			}
-			metadata := make(map[string]string, len(fields)-3)
-			invalidMeta := false
-			for _, meta := range fields[3:] {
-				key, value, ok := strings.Cut(meta, "=")
-				if !ok {
-					fmt.Printf("invalid meta %q, expected key=value\n", meta)
-					invalidMeta = true
-					break
-				}
-				key = strings.TrimSpace(key)
-				value = strings.TrimSpace(value)
-				if key == "" {
-					fmt.Printf("invalid meta %q, empty key\n", meta)
-					invalidMeta = true
-					break
-				}
-				metadata[key] = value
-			}
-			if invalidMeta {
-				continue
-			}
-			txid, err := arkSdkClient.ModifyAssetMetadata(
-				ctx.Context,
-				hex.EncodeToString(controlID[:]),
-				hex.EncodeToString(assetID[:]),
-				metadata,
-			)
-			if err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			_ = printJSON(map[string]string{"txid": txid})
 		case "settle":
 			if err := ensureUnlocked(ctx); err != nil {
 				fmt.Printf("error: %v\n", err)

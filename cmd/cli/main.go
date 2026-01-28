@@ -45,7 +45,6 @@ func main() {
 		&sendAssetCommand,
 		&reissueAssetCommand,
 		&burnAssetCommand,
-		&modifyAssetCommand,
 		&redeemCommand,
 		&notesCommand,
 		&recoverCommand,
@@ -160,13 +159,6 @@ var (
 		DefaultText: "false",
 	}
 
-	immutableFlag = &cli.BoolFlag{
-		Name:        "immutable",
-		Usage:       "set the asset as immutable",
-		Value:       false,
-		DefaultText: "false",
-	}
-
 	metadataFlag = &cli.StringSliceFlag{
 		Name:  "meta",
 		Usage: "Attach metadata as key=value (repeatable)",
@@ -258,7 +250,6 @@ var (
 			passwordFlag,
 			assetQuantityFlag,
 			controlAssetFlag,
-			immutableFlag,
 			metadataFlag,
 		},
 	}
@@ -288,15 +279,6 @@ var (
 			return burnAsset(ctx)
 		},
 		Flags: []cli.Flag{passwordFlag, assetIdFlag, amountFlag, controlAssetFlag},
-	}
-
-	modifyAssetCommand = cli.Command{
-		Name:  "modify-asset",
-		Usage: "Modify metadata of an existing asset",
-		Action: func(ctx *cli.Context) error {
-			return modifyAssetMetadata(ctx)
-		},
-		Flags: []cli.Flag{passwordFlag, assetIdFlag, controlAssetFlag, metadataFlag},
 	}
 
 	redeemCommand = cli.Command{
@@ -467,7 +449,6 @@ func send(ctx *cli.Context) error {
 func createAsset(ctx *cli.Context) error {
 	quantity := ctx.Uint64(assetQuantityFlag.Name)
 	controlAssetId := ctx.String(controlAssetFlag.Name)
-	immutable := ctx.Bool(immutableFlag.Name)
 
 	if quantity == 0 {
 		return errors.New("quantity must be greater than zero")
@@ -492,7 +473,6 @@ func createAsset(ctx *cli.Context) error {
 		Quantity:       quantity,
 		ControlAssetId: controlAssetId,
 		MetadataMap:    metadataList,
-		Immutable:      immutable,
 	}
 
 	password, err := readPassword(ctx)
@@ -624,62 +604,6 @@ func burnAsset(ctx *cli.Context) error {
 		return err
 	}
 	return printJSON(map[string]string{"txid": arkTxid})
-}
-
-func modifyAssetMetadata(ctx *cli.Context) error {
-	assetIDHex := ctx.String(assetIdFlag.Name)
-	controlAsset := ctx.String(controlAssetFlag.Name)
-
-	if assetIDHex == "" && controlAsset == "" {
-		return fmt.Errorf("missing asset id or control asset id")
-	}
-
-	metadataList := make(map[string]string)
-
-	for _, meta := range ctx.StringSlice("meta") {
-		k, v, ok := strings.Cut(meta, "=") // Go 1.20+
-		if !ok {
-			return fmt.Errorf("invalid meta %q, expected key=value", meta)
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		if k == "" {
-			return fmt.Errorf("empty key in %q", meta)
-		}
-		metadataList[k] = v
-	}
-
-	var controlAssetID string
-
-	if _, err := hex.DecodeString(controlAsset); err != nil {
-		return fmt.Errorf("invalid control asset id: %v", err)
-	}
-	controlAssetID = controlAsset
-
-	// Validate asset ID hex
-	if _, err := hex.DecodeString(assetIDHex); err != nil {
-		return fmt.Errorf("invalid asset id: %v", err)
-	}
-
-	password, err := readPassword(ctx)
-	if err != nil {
-		return err
-	}
-	if err := arkSdkClient.Unlock(ctx.Context, string(password)); err != nil {
-		return err
-	}
-
-	arkTxid, err := arkSdkClient.ModifyAssetMetadata(
-		ctx.Context,
-		controlAssetID,
-		assetIDHex,
-		metadataList,
-	)
-	if err != nil {
-		return err
-	}
-	return printJSON(map[string]string{"txid": arkTxid})
-
 }
 
 func balance(ctx *cli.Context) error {
