@@ -188,7 +188,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.Empty(t, collabExitTx.ArkTxid)
 
 	// Give time to update also the other records
-	time.Sleep(10 * time.Second)
+	time.Sleep(20 * time.Second)
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
