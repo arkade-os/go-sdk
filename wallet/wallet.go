@@ -5,7 +5,6 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/explorer"
-	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 const (
@@ -20,7 +19,6 @@ type TapscriptsAddress struct {
 type WalletService interface {
 	GetType() string
 	Create(ctx context.Context, password, seed string) (walletSeed string, err error)
-	GetPublicKey(ctx context.Context) (pubkey *btcec.PublicKey, err error)
 	Lock(ctx context.Context) (err error)
 	Unlock(ctx context.Context, password string) (alreadyUnlocked bool, err error)
 	IsLocked() bool

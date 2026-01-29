@@ -311,14 +311,6 @@ type AssetAnchor struct {
 	Packet asset.ExtensionPacket
 }
 
-type TeleportReceiver struct {
-	Script        []byte
-	To            string
-	AssetAmount   uint64
-	AssetId       string
-	VtxoIndexList []uint32
-}
-
 type AssetManagementType uint
 
 const (
