@@ -6,7 +6,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -78,31 +78,31 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
-	testAssetGroups = []extension.AssetGroup{
+	testAssetGroups = []asset.AssetGroup{
 		{
 			// normal asset
-			AssetId: &extension.AssetId{
+			AssetId: &asset.AssetId{
 				Txid: [32]byte{
 					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
 					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				},
 				Index: 0,
 			},
-			Outputs: []extension.AssetOutput{
+			Outputs: []asset.AssetOutput{
 				{
-					Type:   extension.AssetTypeLocal,
+					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 500,
 				},
 				{
-					Type:   extension.AssetTypeLocal,
+					Type:   asset.AssetTypeLocal,
 					Vout:   1,
 					Amount: 500,
 				},
 			},
-			Inputs: []extension.AssetInput{
+			Inputs: []asset.AssetInput{
 				{
-					Type:   extension.AssetTypeLocal,
+					Type:   asset.AssetTypeLocal,
 					Vin:    0,
 					Amount: 1000,
 				},
@@ -111,16 +111,16 @@ var (
 		{
 			// issuance with control asset by id
 			AssetId: nil,
-			Outputs: []extension.AssetOutput{
+			Outputs: []asset.AssetOutput{
 				{
-					Type:   extension.AssetTypeLocal,
+					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 10000,
 				},
 			},
-			ControlAsset: &extension.AssetRef{
-				Type: extension.AssetRefByID,
-				AssetId: extension.AssetId{
+			ControlAsset: &asset.AssetRef{
+				Type: asset.AssetRefByID,
+				AssetId: asset.AssetId{
 					Txid: [32]byte{
 						0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
 						0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -128,7 +128,7 @@ var (
 					Index: 0,
 				},
 			},
-			Metadata: []extension.Metadata{
+			Metadata: []asset.Metadata{
 				{
 					Key:   "ticker",
 					Value: "FRA",
@@ -142,18 +142,18 @@ var (
 		{
 			// issuance with control asset by group index
 			AssetId: nil,
-			Outputs: []extension.AssetOutput{
+			Outputs: []asset.AssetOutput{
 				{
-					Type:   extension.AssetTypeIntent,
+					Type:   asset.AssetTypeIntent,
 					Vout:   0,
 					Amount: 10000,
 				},
 			},
-			ControlAsset: &extension.AssetRef{
-				Type:       extension.AssetRefByGroup,
+			ControlAsset: &asset.AssetRef{
+				Type:       asset.AssetRefByGroup,
 				GroupIndex: 3,
 			},
-			Metadata: []extension.Metadata{
+			Metadata: []asset.Metadata{
 				{
 					Key:   "ticker",
 					Value: "IT",
@@ -167,9 +167,9 @@ var (
 		{
 			// control asset of IT asset
 			AssetId: nil, // created in the issuance
-			Outputs: []extension.AssetOutput{
+			Outputs: []asset.AssetOutput{
 				{
-					Type:   extension.AssetTypeLocal,
+					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 100,
 				},
@@ -178,7 +178,7 @@ var (
 	}
 
 	testVtxoAsset1 = types.Asset{
-		AssetId: extension.AssetId{
+		AssetId: asset.AssetId{
 			Txid: [32]byte{
 				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -189,7 +189,7 @@ var (
 	}
 
 	testVtxoAsset2 = types.Asset{
-		AssetId: extension.AssetId{
+		AssetId: asset.AssetId{
 			Txid: [32]byte{
 				0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -297,9 +297,9 @@ var (
 			},
 			Amount: 12000,
 			Type:   types.TxReceived,
-			AssetPacket: &extension.AssetPacket{
+			AssetPacket: &asset.AssetPacket{
 				Assets:  testAssetGroups,
-				Version: extension.AssetVersion,
+				Version: asset.AssetVersion,
 			},
 		},
 	}

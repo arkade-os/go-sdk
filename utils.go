@@ -13,7 +13,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
@@ -153,11 +153,11 @@ type AssetTxBuilder struct {
 	withoutExpirySorting bool
 	changeAddr           string
 	changeReceivers      []types.DBReceiver
-	assetGroupList       []extension.AssetGroup
+	assetGroupList       []asset.AssetGroup
 	assetGroupIndex      uint32
 	eVtxoAmount          uint64
 
-	subdustPacket *extension.SubDustPacket
+	subdustPacket *asset.SubDustPacket
 
 	extensionScript []byte
 }
@@ -221,17 +221,17 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 		})
 	}
 
-	var assetId *extension.AssetId
+	var assetId *asset.AssetId
 
 	if assetIdStr != "" {
-		assetId, err = extension.AssetIdFromString(assetIdStr)
+		assetId, err = asset.NewAssetIdFromString(assetIdStr)
 		if err != nil {
 			return 0, err
 		}
 	}
 
-	assetOutputs := make([]extension.AssetOutput, 0)
-	assetInputs := make([]extension.AssetInput, 0)
+	assetOutputs := make([]asset.AssetOutput, 0)
+	assetInputs := make([]asset.AssetInput, 0)
 
 	for _, rv := range receivers {
 		addr, err := arklib.DecodeAddressV0(rv.To)
@@ -244,8 +244,8 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 			return 0, err
 		}
 
-		assetOutputs = append(assetOutputs, extension.AssetOutput{
-			Type:   extension.AssetTypeLocal,
+		assetOutputs = append(assetOutputs, asset.AssetOutput{
+			Type:   asset.AssetTypeLocal,
 			Amount: rv.Amount,
 			Vout:   b.outputIndex,
 		})
@@ -279,15 +279,15 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 		//check if it exists already
 		if i, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
 
-			assetInputs = append(assetInputs, extension.AssetInput{
-				Type:   extension.AssetTypeLocal,
+			assetInputs = append(assetInputs, asset.AssetInput{
+				Type:   asset.AssetTypeLocal,
 				Vin:    i,
 				Amount: vtxo.Assets[0].Amount,
 			})
 		} else {
 			b.ins = append(b.ins, *in)
-			assetInputs = append(assetInputs, extension.AssetInput{
-				Type:   extension.AssetTypeLocal,
+			assetInputs = append(assetInputs, asset.AssetInput{
+				Type:   asset.AssetTypeLocal,
 				Vin:    b.inputIndex,
 				Amount: vtxo.Assets[0].Amount,
 			})
@@ -299,7 +299,7 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 
 	}
 
-	newAssetGroup := extension.AssetGroup{
+	newAssetGroup := asset.AssetGroup{
 		AssetId: assetId,
 		Outputs: assetOutputs,
 		Inputs:  assetInputs,
@@ -327,8 +327,8 @@ func (b *AssetTxBuilder) AddWitness(
 
 	b.assetGroupList[assetGroupIndex].Inputs = append(
 		b.assetGroupList[assetGroupIndex].Inputs,
-		extension.AssetInput{
-			Type:   extension.AssetTypeIntent,
+		asset.AssetInput{
+			Type:   asset.AssetTypeIntent,
 			Amount: amount,
 			Txid:   intentID,
 			Vin:    vout,
@@ -345,17 +345,17 @@ func (b *AssetTxBuilder) InsertIssuance(
 	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
-	var controlAssetId *extension.AssetId
+	var controlAssetId *asset.AssetId
 	if controlAsset != "" {
-		cAssetId, err := extension.AssetIdFromString(controlAsset)
+		cAssetId, err := asset.NewAssetIdFromString(controlAsset)
 		if err != nil {
 			return err
 		}
 		controlAssetId = cAssetId
 	}
 	if controlAssetId != nil {
-		b.assetGroupList[assetGroupIndex].ControlAsset = &extension.AssetRef{
-			Type:    extension.AssetRefByID,
+		b.assetGroupList[assetGroupIndex].ControlAsset = &asset.AssetRef{
+			Type:    asset.AssetRefByID,
 			AssetId: *controlAssetId,
 		}
 	}
@@ -387,7 +387,7 @@ func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
 	var receiver *types.Receiver
 	if isChange {
 		if satsNeeded < dust {
-			b.subdustPacket = &extension.SubDustPacket{
+			b.subdustPacket = &asset.SubDustPacket{
 				Amount: satsNeeded,
 				Key:    addr.VtxoTapKey,
 			}
@@ -406,7 +406,7 @@ func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
 		}
 
 		if changeAmount > 0 && changeAmount < dust {
-			b.subdustPacket = &extension.SubDustPacket{
+			b.subdustPacket = &asset.SubDustPacket{
 				Amount: changeAmount,
 				Key:    addr.VtxoTapKey,
 			}
@@ -460,14 +460,14 @@ func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
 }
 
 func (b *AssetTxBuilder) Build(signerUnrollScript []byte) (string, []string, error) {
-	extensionPacket := extension.ExtensionPacket{
-		Asset: &extension.AssetPacket{
+	extensionPacket := asset.ExtensionPacket{
+		Asset: &asset.AssetPacket{
 			Assets: b.assetGroupList,
 		},
 		SubDust: b.subdustPacket,
 	}
 
-	extensionOut, err := extensionPacket.EncodeExtensionPacket()
+	extensionOut, err := extensionPacket.Encode()
 	if err != nil {
 		return "", nil, err
 	}
@@ -1024,30 +1024,30 @@ func createIntentAssetAnchor(
 		}
 	}
 
-	assetgroupList := make([]extension.AssetGroup, 0)
+	assetgroupList := make([]asset.AssetGroup, 0)
 	for i, output := range outputs {
 		if output.Asset == nil {
 			continue
 		}
 
-		assetId, err := extension.AssetIdFromString(output.Asset.AssetId)
+		assetId, err := asset.NewAssetIdFromString(output.Asset.AssetId)
 		if err != nil {
 			return nil, err
 		}
 
-		assetGroup := extension.AssetGroup{
+		assetGroup := asset.AssetGroup{
 			AssetId: assetId,
-			Outputs: []extension.AssetOutput{{
-				Type:   extension.AssetTypeIntent,
+			Outputs: []asset.AssetOutput{{
+				Type:   asset.AssetTypeIntent,
 				Amount: output.Asset.Amount,
 				Vout:   uint32(i),
 			}},
 		}
 
-		assetInputs := make([]extension.AssetInput, 0)
+		assetInputs := make([]asset.AssetInput, 0)
 		for _, input := range groupedIntentInputs[output.Asset.AssetId] {
-			assetInputs = append(assetInputs, extension.AssetInput{
-				Type:   extension.AssetTypeLocal,
+			assetInputs = append(assetInputs, asset.AssetInput{
+				Type:   asset.AssetTypeLocal,
 				Vin:    input.AssetExtension.Index + 1, // +1 for the intent proof input
 				Amount: input.AssetExtension.Amount,
 			})
@@ -1061,14 +1061,14 @@ func createIntentAssetAnchor(
 		return nil, nil
 	}
 
-	assetPacket := extension.AssetPacket{
+	assetPacket := asset.AssetPacket{
 		Assets: assetgroupList,
 	}
-	extensionPacket := extension.ExtensionPacket{
+	extensionPacket := asset.ExtensionPacket{
 		Asset: &assetPacket,
 	}
 
-	txout, err := extensionPacket.EncodeExtensionPacket()
+	txout, err := extensionPacket.Encode()
 	if err != nil {
 		return nil, err
 	}
@@ -1172,7 +1172,7 @@ func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
 	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
 }
 
-func GetAssetOutput(output []extension.AssetOutput, vout uint32) (*extension.AssetOutput, error) {
+func GetAssetOutput(output []asset.AssetOutput, vout uint32) (*asset.AssetOutput, error) {
 	for _, out := range output {
 		if out.Vout == vout {
 			return &out, nil
@@ -1265,7 +1265,7 @@ func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
 
 func FindAssetFromOutput(
 	vtxo types.Vtxo,
-	assetPacket *extension.AssetPacket,
+	assetPacket *asset.AssetPacket,
 ) (*types.Asset, error) {
 	if assetPacket == nil {
 		return nil, fmt.Errorf("asset group is nil")
@@ -1275,7 +1275,7 @@ func FindAssetFromOutput(
 		for _, assetOut := range asset.Outputs {
 			if vtxo.VOut == assetOut.Vout {
 				return &types.Asset{
-					AssetId: asset.AssetId.ToString(),
+					AssetId: asset.AssetId.String(),
 					Amount:  assetOut.Amount,
 				}, nil
 			}
@@ -1288,10 +1288,10 @@ func FindAssetFromOutput(
 
 }
 
-func toAssetMetadataList(metadataMap map[string]string) []extension.Metadata {
-	metadataList := make([]extension.Metadata, 0, len(metadataMap))
+func toAssetMetadataList(metadataMap map[string]string) []asset.Metadata {
+	metadataList := make([]asset.Metadata, 0, len(metadataMap))
 	for k, v := range metadataMap {
-		metadataList = append(metadataList, extension.Metadata{
+		metadataList = append(metadataList, asset.Metadata{
 			Key:   k,
 			Value: v,
 		})

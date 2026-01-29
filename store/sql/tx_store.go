@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -58,10 +58,10 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					return err
 				}
 
-				getAssetId := func(groupIndex uint16) *extension.AssetId {
+				getAssetId := func(groupIndex uint16) *asset.AssetId {
 					assetId := tx.AssetPacket.Assets[groupIndex].AssetId
 					if assetId == nil {
-						return &extension.AssetId{
+						return &asset.AssetId{
 							Txid:  *txhash,
 							Index: groupIndex,
 						}
@@ -86,16 +86,16 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					}
 
 					if assetGroup.ControlAsset != nil {
-						var controlAssetId *extension.AssetId
+						var controlAssetId *asset.AssetId
 
 						switch assetGroup.ControlAsset.Type {
-						case extension.AssetRefByID:
+						case asset.AssetRefByID:
 							if len(assetGroup.ControlAsset.AssetId.Txid) == 0 {
 								return fmt.Errorf("control asset id is required")
 							}
 
 							controlAssetId = &assetGroup.ControlAsset.AssetId
-						case extension.AssetRefByGroup:
+						case asset.AssetRefByGroup:
 							if assetGroup.ControlAsset.GroupIndex >= uint16(
 								len(tx.AssetPacket.Assets),
 							) {
@@ -126,7 +126,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 						}
 					}
 
-					txout, err := tx.AssetPacket.EncodeAssetPacket()
+					txout, err := tx.AssetPacket.Encode()
 					if err != nil {
 						return err
 					}
@@ -393,13 +393,13 @@ func rowToTx(row queries.Tx) types.Transaction {
 	if row.CreatedAt != 0 {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
-	var assetPacket *extension.AssetPacket
+	var assetPacket *asset.AssetPacket
 	if row.AssetPacket.Valid {
 		txoutScript, err := hex.DecodeString(row.AssetPacket.String)
 		if err != nil {
 			return types.Transaction{}
 		}
-		assetPacket, err = extension.DecodeAssetPacket(wire.TxOut{PkScript: txoutScript})
+		assetPacket, err = asset.DecodeOutputToAssetPacket(wire.TxOut{PkScript: txoutScript})
 		if err != nil {
 			return types.Transaction{}
 		}
