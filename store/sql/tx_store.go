@@ -125,14 +125,14 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 							}
 						}
 					}
-
-					txout, err := tx.AssetPacket.Encode()
-					if err != nil {
-						return err
-					}
-					serializedAssetPacket = txout.PkScript
-					assetPacketVersion = tx.AssetPacket.Version
 				}
+
+				txout, err := tx.AssetPacket.Encode()
+				if err != nil {
+					return err
+				}
+				serializedAssetPacket = txout.PkScript
+				assetPacketVersion = tx.AssetPacket.Version
 			}
 
 			if err := querierWithTx.InsertTx(
