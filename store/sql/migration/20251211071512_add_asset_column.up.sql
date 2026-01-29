@@ -1,2 +1,0 @@
-ALTER TABLE vtxo
-ADD COLUMN asset BLOB;

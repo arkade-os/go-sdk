@@ -90,22 +90,9 @@ type Vtxo struct {
 }
 
 type Asset struct {
-	AssetId string `json:"asset_id"`
-	Amount  uint64 `json:"amount"`
-}
-
-func ToJSON(arr []Asset) ([]byte, error) {
-	b, err := json.Marshal(arr)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func FromJSON(data []byte) ([]Asset, error) {
-	var a []Asset
-	err := json.Unmarshal(data, &a)
-	return a, err
+	AssetId    string
+	Amount     uint64
+	GroupIndex uint32
 }
 
 type AssetDetails struct {

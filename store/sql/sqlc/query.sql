@@ -1,7 +1,7 @@
 -- name: InsertVtxo :exec
 INSERT INTO vtxo (
-    txid, vout, script, amount, commitment_txids, spent_by, spent, preconfirmed, expires_at, created_at, swept, unrolled, settled_by, ark_txid, asset
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    txid, vout, script, amount, commitment_txids, spent_by, spent, preconfirmed, expires_at, created_at, swept, unrolled, settled_by, ark_txid
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateVtxo :exec
 UPDATE vtxo
@@ -13,30 +13,39 @@ SET
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SelectAllVtxos :many
-SELECT * from vtxo;
+SELECT * FROM asset_vtxo_vw;
 
--- name: SelectVtxo :one
+-- name: SelectVtxo :many
 SELECT *
-FROM vtxo
+FROM asset_vtxo_vw
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SelectSpendableVtxos :many
-SELECT *
-FROM vtxo
+SELECT * FROM asset_vtxo_vw
 WHERE spent = false AND unrolled = false;
 
 -- name: CleanVtxos :exec
 DELETE FROM vtxo;
 
+-- name: InsertAsset :exec
+INSERT OR IGNORE INTO asset (asset_id, metadata, immutable) VALUES (?, ?, ?);
+
+-- name: InsertAssetVtxo :exec
+INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, group_index, amount) VALUES (?, ?, ?, ?, ?);
+
+-- name: CleanAssetVtxos :exec
+DELETE FROM asset_vtxo;
+
 -- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateTx :exec
 UPDATE tx
 SET
     created_at     = COALESCE(sqlc.narg(created_at), created_at),
+    settled        = CASE WHEN :settled_by IS NOT NULL THEN TRUE ELSE FALSE END,
     settled_by    = COALESCE(sqlc.narg(settled_by), settled_by)
 WHERE txid = :txid; 
 
@@ -47,6 +56,7 @@ SET    txid       = :new_txid,
        amount     = :amount,
        type       = :type,
        settled_by    = :settled_by,
+       settled        = CASE WHEN :settled_by IS NOT NULL THEN TRUE ELSE FALSE END,
        created_at = :created_at,
        hex        = :hex
 WHERE  txid = :old_txid;

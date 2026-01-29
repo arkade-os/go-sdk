@@ -52,6 +52,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					CreatedAt: createdAt,
 					Hex:       sql.NullString{String: tx.Hex, Valid: true},
 					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
+					Settled:   len(tx.SettledBy) > 0,
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -94,7 +95,6 @@ func (v *txStore) SettleTransactions(
 			tx.SettledBy = settledBy
 			if err := querierWithTx.UpdateTx(ctx, queries.UpdateTxParams{
 				Txid:      tx.TransactionKey.String(),
-				Settled:   sql.NullBool{Bool: true, Valid: true},
 				SettledBy: sql.NullString{String: settledBy, Valid: true},
 			}); err != nil {
 				return err

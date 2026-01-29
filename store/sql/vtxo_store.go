@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -41,14 +42,6 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 				createdAt = vtxo.CreatedAt.Unix()
 			}
 
-			var assetData []byte
-			var err error
-			if vtxo.Assets != nil {
-				assetData, err = types.ToJSON(vtxo.Assets)
-				if err != nil {
-					return err
-				}
-			}
 			if err := querierWithTx.InsertVtxo(
 				ctx, queries.InsertVtxoParams{
 					Txid:            vtxo.Txid,
@@ -65,13 +58,31 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 					SpentBy:         sql.NullString{String: vtxo.SpentBy, Valid: true},
 					SettledBy:       sql.NullString{String: vtxo.SettledBy, Valid: true},
 					ArkTxid:         sql.NullString{String: vtxo.ArkTxid, Valid: true},
-					Asset:           assetData,
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 					return nil
 				}
 				return err
+			}
+			// Insert assets into asset and asset_vtxo tables
+			for _, asset := range vtxo.Assets {
+				if err := querierWithTx.InsertAsset(ctx, queries.InsertAssetParams{
+					AssetID:   asset.AssetId,
+					Metadata:  nil,
+					Immutable: nil,
+				}); err != nil {
+					return err
+				}
+				if err := querierWithTx.InsertAssetVtxo(ctx, queries.InsertAssetVtxoParams{
+					VtxoTxid:   vtxo.Txid,
+					VtxoVout:   int64(vtxo.VOut),
+					AssetID:    asset.AssetId,
+					GroupIndex: int64(asset.GroupIndex),
+					Amount:     int64(asset.Amount),
+				}); err != nil {
+					return err
+				}
 			}
 			addedVtxos = append(addedVtxos, vtxo)
 		}
@@ -213,9 +224,13 @@ func (v *vtxoRepository) GetAllVtxos(
 	if err != nil {
 		return
 	}
-
+	byOutpoint := make(map[string][]queries.AssetVtxoVw)
 	for _, row := range rows {
-		vtxo := rowToVtxo(row)
+		key := fmt.Sprintf("%s:%d", row.Txid, row.Vout)
+		byOutpoint[key] = append(byOutpoint[key], row)
+	}
+	for _, group := range byOutpoint {
+		vtxo := assetVtxoVwGroupToVtxo(group)
 		if vtxo.Spent {
 			spent = append(spent, vtxo)
 		} else {
@@ -230,7 +245,7 @@ func (v *vtxoRepository) GetVtxos(
 ) ([]types.Vtxo, error) {
 	vtxos := make([]types.Vtxo, 0, len(keys))
 	for _, key := range keys {
-		row, err := v.querier.SelectVtxo(ctx, queries.SelectVtxoParams{
+		rows, err := v.querier.SelectVtxo(ctx, queries.SelectVtxoParams{
 			Txid: key.Txid,
 			Vout: int64(key.VOut),
 		})
@@ -240,7 +255,7 @@ func (v *vtxoRepository) GetVtxos(
 			}
 			return nil, err
 		}
-		vtxos = append(vtxos, rowToVtxo(row))
+		vtxos = append(vtxos, assetVtxoVwGroupToVtxo(rows))
 	}
 
 	return vtxos, nil
@@ -253,11 +268,8 @@ func (v *vtxoRepository) GetSpendableVtxos(
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		vtxo := rowToVtxo(row)
-		spendable = append(spendable, vtxo)
-	}
-	return spendable, nil
+
+	return assetVtxoVwRowsToVtxos(rows), nil
 }
 
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
@@ -265,6 +277,9 @@ func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
 }
 
 func (v *vtxoRepository) Clean(ctx context.Context) error {
+	if err := v.querier.CleanAssetVtxos(ctx); err != nil {
+		return err
+	}
 	if err := v.querier.CleanVtxos(ctx); err != nil {
 		return err
 	}
@@ -290,7 +305,62 @@ func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	}
 }
 
-func rowToVtxo(row queries.Vtxo) types.Vtxo {
+func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []types.Vtxo {
+	// group rows by (txid, vout)
+	byOutpoint := make(map[string][]queries.AssetVtxoVw)
+	for _, row := range rows {
+		key := fmt.Sprintf("%s:%d", row.Txid, row.Vout)
+		byOutpoint[key] = append(byOutpoint[key], row)
+	}
+
+	vtxos := make([]types.Vtxo, 0, len(byOutpoint))
+	for _, group := range byOutpoint {
+		vtxo := assetVtxoVwGroupToVtxo(group)
+		vtxos = append(vtxos, vtxo)
+	}
+
+	return vtxos
+}
+
+// assetVtxoVwGroupToVtxo converts a group of AssetVtxoVw rows (same vtxo, one row per asset from the view) into one types.Vtxo.
+func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) types.Vtxo {
+	if len(group) == 0 {
+		return types.Vtxo{}
+	}
+	row := group[0]
+	vtxoRow := queries.Vtxo{
+		Txid:            row.Txid,
+		Vout:            row.Vout,
+		Script:          row.Script,
+		Amount:          row.Amount,
+		CommitmentTxids: row.CommitmentTxids,
+		SpentBy:         row.SpentBy,
+		Spent:           row.Spent,
+		ExpiresAt:       row.ExpiresAt,
+		CreatedAt:       row.CreatedAt,
+		Preconfirmed:    row.Preconfirmed,
+		Swept:           row.Swept,
+		SettledBy:       row.SettledBy,
+		Unrolled:        row.Unrolled,
+		ArkTxid:         row.ArkTxid,
+	}
+
+	assets := make([]queries.AssetVtxo, 0)
+	for _, r := range group {
+		if r.AssetID.Valid {
+			assets = append(assets, queries.AssetVtxo{
+				VtxoTxid:   r.Txid,
+				VtxoVout:   r.Vout,
+				AssetID:    r.AssetID.String,
+				GroupIndex: r.GroupIndex.Int64,
+				Amount:     r.AssetAmount.Int64,
+			})
+		}
+	}
+	return rowToVtxo(vtxoRow, assets)
+}
+
+func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) types.Vtxo {
 	var expiresAt, createdAt time.Time
 	if row.ExpiresAt != 0 {
 		expiresAt = time.Unix(row.ExpiresAt, 0)
@@ -299,12 +369,13 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	var parsedAssets []types.Asset
-	if len(row.Asset) > 0 {
-		decoded, err := types.FromJSON(row.Asset)
-		if err == nil {
-			parsedAssets = decoded
-		}
+	assets := make([]types.Asset, 0, len(assetVtxos))
+	for _, av := range assetVtxos {
+		assets = append(assets, types.Asset{
+			AssetId:    av.AssetID,
+			Amount:     uint64(av.Amount),
+			GroupIndex: uint32(av.GroupIndex),
+		})
 	}
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
@@ -323,6 +394,6 @@ func rowToVtxo(row queries.Vtxo) types.Vtxo {
 		SpentBy:         row.SpentBy.String,
 		SettledBy:       row.SettledBy.String,
 		ArkTxid:         row.ArkTxid.String,
-		Assets:          parsedAssets,
+		Assets:          assets,
 	}
 }

@@ -83,19 +83,16 @@ var (
 		newTestAsset(0x02, "asset-two"),
 	}
 
-	// testAsset1 := types.Asset {
-	// 	AssetId: testVtxoAssets[0].AssetId,
-	// 	Amount:  testVtxoAssets[0].Outputs[0].Amount,
-	// }
-
 	testAsset1 = types.Asset{
-		AssetId: testVtxoAssets[0].AssetId.ToString(),
-		Amount:  testVtxoAssets[0].Outputs[0].Amount,
+		AssetId:    testVtxoAssets[0].AssetId.ToString(),
+		Amount:     testVtxoAssets[0].Outputs[0].Amount,
+		GroupIndex: 10,
 	}
 
 	testAsset2 = types.Asset{
-		AssetId: testVtxoAssets[1].AssetId.ToString(),
-		Amount:  testVtxoAssets[1].Outputs[0].Amount,
+		AssetId:    testVtxoAssets[1].AssetId.ToString(),
+		Amount:     testVtxoAssets[1].Outputs[0].Amount,
+		GroupIndex: 0,
 	}
 
 	testVtxos = []types.Vtxo{
@@ -112,7 +109,6 @@ var (
 			ExpiresAt:    time.Unix(1748143068, 0),
 			CreatedAt:    time.Unix(1746143068, 0),
 			Preconfirmed: true,
-			Assets:       []types.Asset{testAsset1},
 		},
 		{
 			Outpoint: types.Outpoint{
@@ -126,7 +122,36 @@ var (
 			},
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
-			Assets:    []types.Asset{testAsset2},
+		},
+		{
+			Outpoint: types.Outpoint{
+				Txid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				VOut: 0,
+			},
+			Script: "0000000000000000000000000000000000000000000000000000000000000001",
+			Amount: 3000,
+			CommitmentTxids: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			ExpiresAt: time.Unix(1748143068, 0),
+			CreatedAt: time.Unix(1746143068, 0),
+			// vtxo with multiple assets
+			Assets: []types.Asset{testAsset1, testAsset2},
+		},
+		{
+			Outpoint: types.Outpoint{
+				Txid: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+				VOut: 0,
+			},
+			Script: "0000000000000000000000000000000000000000000000000000000000000001",
+			Amount: 3000,
+			CommitmentTxids: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			ExpiresAt: time.Unix(1748143068, 0),
+			CreatedAt: time.Unix(1746143068, 0),
+			// vtxo with single asset
+			Assets: []types.Asset{testAsset1},
 		},
 	}
 	testVtxoKeys = []types.Outpoint{
@@ -136,6 +161,14 @@ var (
 		},
 		{
 			Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			VOut: 0,
+		},
+		{
+			Txid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			VOut: 0,
+		},
+		{
+			Txid: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			VOut: 0,
 		},
 	}
@@ -429,19 +462,6 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	ctx := context.Background()
 
-	expectedAssets := map[types.Outpoint]*extension.AssetGroup{
-		testVtxoKeys[0]: testVtxoAssets[0],
-		testVtxoKeys[1]: testVtxoAssets[1],
-	}
-
-	assertAssets := func(t *testing.T, vtxos []types.Vtxo) {
-		t.Helper()
-		for _, v := range vtxos {
-			require.NotNil(t, v.Assets)
-			require.Equal(t, expectedAssets[v.Outpoint], v.Assets[0])
-		}
-	}
-
 	go func() {
 		eventCh := storeSvc.GetEventChannel()
 		for event := range eventCh {
@@ -477,7 +497,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
-		assertAssets(t, spendable)
+		requireVtxosListEqual(t, testVtxos, spendable)
 
 		spendable, err = storeSvc.GetSpendableVtxos(ctx)
 		require.NoError(t, err)
@@ -486,12 +506,11 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 			require.False(t, v.Spent)
 			require.False(t, v.Unrolled)
 		}
-		assertAssets(t, spendable)
+		requireVtxosListEqual(t, testVtxos, spendable)
 
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
-		require.Equal(t, testVtxos, vtxos)
-		assertAssets(t, vtxos)
+		requireVtxosListEqual(t, testVtxos, vtxos)
 	})
 
 	t.Run("spend vtxos", func(t *testing.T) {
@@ -506,9 +525,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(spent))
-		require.Equal(t, 1, len(spendable))
-		assertAssets(t, spendable)
-		assertAssets(t, spent)
+		require.Equal(t, 3, len(spendable))
 		for _, v := range spent {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
@@ -527,9 +544,8 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 
 		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
 		require.NoError(t, err)
-		require.Equal(t, 2, len(spent))
-		require.Empty(t, spendable)
-		assertAssets(t, spent)
+		require.Len(t, spent, 2)
+		require.Len(t, spendable, 2)
 		for _, v := range spent[1:] {
 			require.True(t, v.Spent)
 			require.Equal(t, testSettleVtxoKeys[v.Outpoint], v.SpentBy)
@@ -633,4 +649,39 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		require.Len(t, txs, 1)
 		require.NotEmpty(t, txs[0].SettledBy)
 	})
+}
+
+func requireVtxoEqual(t *testing.T, expected, actual types.Vtxo) {
+	require.Equal(t, expected.Outpoint, actual.Outpoint)
+	require.Equal(t, expected.Script, actual.Script)
+	require.Equal(t, expected.Amount, actual.Amount)
+	require.Equal(t, expected.CommitmentTxids, actual.CommitmentTxids)
+	require.Equal(t, expected.ExpiresAt, actual.ExpiresAt)
+	require.Equal(t, expected.CreatedAt, actual.CreatedAt)
+	require.Equal(t, expected.Preconfirmed, actual.Preconfirmed)
+	require.Equal(t, expected.Swept, actual.Swept)
+	require.Equal(t, expected.Unrolled, actual.Unrolled)
+	require.Equal(t, expected.Spent, actual.Spent)
+	require.Equal(t, expected.SpentBy, actual.SpentBy)
+	require.Equal(t, expected.SettledBy, actual.SettledBy)
+	require.Equal(t, expected.ArkTxid, actual.ArkTxid)
+	if len(expected.Assets) > 0 {
+		require.Equal(t, expected.Assets, actual.Assets)
+	}
+}
+
+func requireVtxosListEqual(t *testing.T, expected, actual []types.Vtxo) {
+	require.Len(t, expected, len(actual))
+
+	for _, v := range expected {
+		found := false
+		for _, a := range actual {
+			if v.Outpoint == a.Outpoint {
+				requireVtxoEqual(t, v, a)
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
+	}
 }
