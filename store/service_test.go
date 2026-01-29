@@ -6,7 +6,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -78,7 +78,7 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
-	testVtxoAssets = []*extension.AssetGroup{
+	testVtxoAssets = []*asset.AssetGroup{
 		newTestAsset(0x01, "asset-one"),
 		newTestAsset(0x02, "asset-two"),
 	}
@@ -89,12 +89,12 @@ var (
 	// }
 
 	testAsset1 = types.Asset{
-		AssetId: testVtxoAssets[0].AssetId.ToString(),
+		AssetId: testVtxoAssets[0].AssetId.String(),
 		Amount:  testVtxoAssets[0].Outputs[0].Amount,
 	}
 
 	testAsset2 = types.Asset{
-		AssetId: testVtxoAssets[1].AssetId.ToString(),
+		AssetId: testVtxoAssets[1].AssetId.String(),
 		Amount:  testVtxoAssets[1].Outputs[0].Amount,
 	}
 
@@ -184,7 +184,7 @@ var (
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
 
-func newTestAsset(seed byte, name string) *extension.AssetGroup {
+func newTestAsset(seed byte, name string) *asset.AssetGroup {
 	var assetTxId [32]byte
 	var controlAssetTxId [32]byte
 	for i := range assetTxId {
@@ -192,30 +192,30 @@ func newTestAsset(seed byte, name string) *extension.AssetGroup {
 		controlAssetTxId[i] = seed + 1
 	}
 
-	return &extension.AssetGroup{
-		AssetId: &extension.AssetId{
+	return &asset.AssetGroup{
+		AssetId: &asset.AssetId{
 			Txid:  assetTxId,
 			Index: 0,
 		},
-		ControlAsset: &extension.AssetRef{
-			Type: extension.AssetRefByID,
-			AssetId: extension.AssetId{
+		ControlAsset: &asset.AssetRef{
+			Type: asset.AssetRefByID,
+			AssetId: asset.AssetId{
 				Txid:  controlAssetTxId,
 				Index: 0,
 			}},
-		Outputs: []extension.AssetOutput{
+		Outputs: []asset.AssetOutput{
 			{
 				Vout:   0,
 				Amount: uint64(seed) * 1000,
 			},
 		},
-		Inputs: []extension.AssetInput{
+		Inputs: []asset.AssetInput{
 			{
 				Vin:    0,
 				Amount: uint64(seed) * 500,
 			},
 		},
-		Metadata: []extension.Metadata{
+		Metadata: []asset.Metadata{
 			{
 				Key:   "name",
 				Value: name,
@@ -429,7 +429,7 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	ctx := context.Background()
 
-	expectedAssets := map[types.Outpoint]*extension.AssetGroup{
+	expectedAssets := map[types.Outpoint]*asset.AssetGroup{
 		testVtxoKeys[0]: testVtxoAssets[0],
 		testVtxoKeys[1]: testVtxoAssets[1],
 	}
