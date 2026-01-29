@@ -722,25 +722,6 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 	})
 }
 
-func requireVtxoEqual(t *testing.T, expected, actual types.Vtxo) {
-	require.Equal(t, expected.Outpoint, actual.Outpoint)
-	require.Equal(t, expected.Script, actual.Script)
-	require.Equal(t, expected.Amount, actual.Amount)
-	require.Equal(t, expected.CommitmentTxids, actual.CommitmentTxids)
-	require.Equal(t, expected.ExpiresAt, actual.ExpiresAt)
-	require.Equal(t, expected.CreatedAt, actual.CreatedAt)
-	require.Equal(t, expected.Preconfirmed, actual.Preconfirmed)
-	require.Equal(t, expected.Swept, actual.Swept)
-	require.Equal(t, expected.Unrolled, actual.Unrolled)
-	require.Equal(t, expected.Spent, actual.Spent)
-	require.Equal(t, expected.SpentBy, actual.SpentBy)
-	require.Equal(t, expected.SettledBy, actual.SettledBy)
-	require.Equal(t, expected.ArkTxid, actual.ArkTxid)
-	if len(expected.Assets) > 0 {
-		require.Equal(t, expected.Assets, actual.Assets)
-	}
-}
-
 func requireVtxosListEqual(t *testing.T, expected, actual []types.Vtxo) {
 	require.Len(t, expected, len(actual))
 
@@ -748,7 +729,7 @@ func requireVtxosListEqual(t *testing.T, expected, actual []types.Vtxo) {
 		found := false
 		for _, a := range actual {
 			if v.Outpoint == a.Outpoint {
-				requireVtxoEqual(t, v, a)
+				require.Equal(t, v, a)
 				found = true
 				break
 			}

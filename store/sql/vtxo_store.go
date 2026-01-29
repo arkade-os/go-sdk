@@ -365,12 +365,15 @@ func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) types.Vtxo {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	assets := make([]types.Asset, 0, len(assetVtxos))
-	for _, av := range assetVtxos {
-		assets = append(assets, types.Asset{
-			AssetId: av.AssetID,
-			Amount:  uint64(av.Amount),
-		})
+	var assets []types.Asset
+	if len(assetVtxos) > 0 {
+		assets = make([]types.Asset, 0, len(assetVtxos))
+		for _, av := range assetVtxos {
+			assets = append(assets, types.Asset{
+				AssetId: av.AssetID,
+				Amount:  uint64(av.Amount),
+			})
+		}
 	}
 	return types.Vtxo{
 		Outpoint: types.Outpoint{
