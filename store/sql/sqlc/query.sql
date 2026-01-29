@@ -52,7 +52,7 @@ INSERT INTO tx (
 UPDATE tx
 SET
     created_at     = COALESCE(sqlc.narg(created_at), created_at),
-    settled        = CASE WHEN :settled_by IS NOT NULL THEN TRUE ELSE FALSE END,
+    settled        = CASE WHEN :settled_by IS NOT NULL THEN TRUE ELSE settled END,
     settled_by    = COALESCE(sqlc.narg(settled_by), settled_by)
 WHERE txid = :txid; 
 

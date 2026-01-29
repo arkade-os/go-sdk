@@ -35,6 +35,7 @@ func TestAssetLifecycle(t *testing.T) {
 	)
 
 	require.NoError(t, err)
+	require.NotEmpty(t, assetIds)
 
 	time.Sleep(5 * time.Second) // Wait for server indexer
 
@@ -219,9 +220,11 @@ func getAssetVtxo(
 	}
 
 	for _, vtxo := range vtxos {
-		if len(vtxo.Assets) > 0 && vtxo.Assets[0].AssetId == assetID {
-			if amount == 0 || vtxo.Assets[0].Amount >= amount {
-				return vtxo, nil
+		for _, asset := range vtxo.Assets {
+			if asset.AssetId == assetID {
+				if amount == 0 || asset.Amount >= amount {
+					return vtxo, nil
+				}
 			}
 		}
 	}

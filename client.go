@@ -272,6 +272,10 @@ func (a *arkClient) CreateAsset(
 		return "", nil, err
 	}
 
+	if request.Params.Quantity == 0 {
+		return "", nil, fmt.Errorf("quantity must be > 0")
+	}
+
 	// Auto-fill receivers if not provided
 	if len(request.Receivers) == 0 && request.Params.Quantity > 0 {
 		request.Receivers = []types.Receiver{{
@@ -3738,14 +3742,12 @@ func (a *arkClient) saveToDatabase(
 	smallestExpiration := time.Time{}
 	for i, vtxo := range selectedCoins {
 		if len(signedCheckpointTxs) <= i {
-			log.Warnf("missing signed checkpoint tx, skipping marking vtxo as spent")
-			return nil
+			return fmt.Errorf("missing signed checkpoint tx for vtxo %s", vtxo.Outpoint.String())
 		}
 
 		checkpointTx, err := psbt.NewFromRawBytes(strings.NewReader(signedCheckpointTxs[i]), true)
 		if err != nil {
-			log.Warnf("failed to parse checkpoint tx: %s, skipping marking vtxo as spent", err)
-			return nil
+			return err
 		}
 
 		vtxo.Spent = true

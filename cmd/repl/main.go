@@ -464,18 +464,7 @@ func repl(ctx *cli.Context) error {
 				continue
 			}
 			_ = printJSON(map[string]string{"txid": txid})
-		case "settle":
-			if err := ensureUnlocked(ctx); err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			txid, err := arkSdkClient.Settle(ctx.Context)
-			if err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			_ = printJSON(map[string]string{"txid": txid})
-		case "recover":
+		case "settle", "recover":
 			if err := ensureUnlocked(ctx); err != nil {
 				fmt.Printf("error: %v\n", err)
 				continue

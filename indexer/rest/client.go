@@ -247,17 +247,34 @@ func (a *restClient) GetAssetDetails(
 		return nil, err
 	}
 
+	assetGroup := resp.GetAssetGroup()
+
 	metadata := make(map[string]string)
-	for _, mt := range resp.GetAssetGroup().Metadata {
+	for _, mt := range assetGroup.Metadata {
 		metadata[mt.GetKey()] = mt.GetValue()
+	}
+
+	id := ""
+	if assetGroup.Id != nil {
+		id = *assetGroup.Id
+	}
+
+	quantity := uint64(0)
+	if assetGroup.Quantity != nil {
+		quantity = uint64(*assetGroup.Quantity)
+	}
+
+	immutable := false
+	if assetGroup.Immutable != nil {
+		immutable = *assetGroup.Immutable
 	}
 
 	return &indexer.AssetResponse{
 		AssetId: resp.GetAssetId(),
 		Asset: indexer.AssetInfo{
-			Id:        *resp.GetAssetGroup().Id,
-			Quantity:  uint64(*resp.GetAssetGroup().Quantity),
-			Immutable: *resp.GetAssetGroup().Immutable,
+			Id:        id,
+			Quantity:  quantity,
+			Immutable: immutable,
 			Metadata:  metadata,
 		},
 	}, nil

@@ -276,20 +276,33 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 			return 0, err
 		}
 
+		var assetAmount uint64
+		var found bool
+		for _, a := range vtxo.Assets {
+			if a.AssetId == assetIdStr {
+				assetAmount = a.Amount
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, fmt.Errorf("vtxo %s has no asset %s", vtxo.Outpoint.String(), assetIdStr)
+		}
+
 		//check if it exists already
 		if i, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
 
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
 				Vin:    i,
-				Amount: vtxo.Assets[0].Amount,
+				Amount: assetAmount,
 			})
 		} else {
 			b.ins = append(b.ins, *in)
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
 				Vin:    b.inputIndex,
-				Amount: vtxo.Assets[0].Amount,
+				Amount: assetAmount,
 			})
 
 			inputIndex := b.inputIndex
@@ -779,13 +792,12 @@ func toIntentInputs(
 
 		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 
-		if coin.Assets != nil {
+		if len(coin.Assets) > 0 {
 			input.AssetExtension = &AssetExtension{
 				Id:     coin.Assets[0].AssetId,
 				Amount: coin.Assets[0].Amount,
 				Index:  uint32(i),
 			}
-
 		}
 
 		inputs = append(inputs, input)

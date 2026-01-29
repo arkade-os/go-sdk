@@ -53,6 +53,14 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			var serializedAssetPacket []byte
 			var assetPacketVersion uint8
 			if tx.AssetPacket != nil {
+				txout, err := tx.AssetPacket.Encode()
+				if err != nil {
+					return err
+				}
+				serializedAssetPacket = txout.PkScript
+				assetPacketVersion = tx.AssetPacket.Version
+
+				// txhash is needed to compute asset id
 				txhash, err := chainhash.NewHashFromStr(tx.TransactionKey.String())
 				if err != nil {
 					return err
@@ -72,14 +80,18 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 				for groupIndex, assetGroup := range tx.AssetPacket.Assets {
 					assetId := getAssetId(uint16(groupIndex))
 
-					metadataBytes, err := json.Marshal(assetGroup.Metadata)
-					if err != nil {
-						return err
+					var metadataParam any = nil
+					if len(assetGroup.Metadata) > 0 {
+						metadataBytes, err := json.Marshal(assetGroup.Metadata)
+						if err != nil {
+							return err
+						}
+						metadataParam = string(metadataBytes)
 					}
 
 					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
 						AssetID:   assetId.String(),
-						Metadata:  string(metadataBytes),
+						Metadata:  metadataParam,
 						Immutable: assetGroup.Immutable,
 					}); err != nil {
 						return err
@@ -126,13 +138,6 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 						}
 					}
 				}
-
-				txout, err := tx.AssetPacket.Encode()
-				if err != nil {
-					return err
-				}
-				serializedAssetPacket = txout.PkScript
-				assetPacketVersion = tx.AssetPacket.Version
 			}
 
 			if err := querierWithTx.InsertTx(
