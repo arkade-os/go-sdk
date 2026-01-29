@@ -42,6 +42,7 @@ func TestAssetLifecycle(t *testing.T) {
 	issuerAssetVtxo, err := getAssetVtxo(ctx, issuer, assetIds[0], supply)
 	require.NoError(t, err)
 
+	require.NotEmpty(t, issuerAssetVtxo.Assets)
 	require.EqualValues(t, supply, issuerAssetVtxo.Assets[0].Amount)
 
 	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
@@ -98,6 +99,7 @@ func TestAssetReissuance(t *testing.T) {
 		types.AssetCreationRequest{Params: controlAssetParams},
 	)
 	require.NoError(t, err)
+	require.NotEmpty(t, assetIds)
 
 	time.Sleep(2 * time.Second)
 
@@ -118,6 +120,7 @@ func TestAssetReissuance(t *testing.T) {
 		types.AssetCreationRequest{Params: targetAssetParams},
 	)
 	require.NoError(t, err)
+	require.NotEmpty(t, assetIds)
 
 	targetAssetId := assetIds[0]
 
@@ -165,6 +168,7 @@ func TestAssetBurn(t *testing.T) {
 		types.AssetCreationRequest{Params: controlAssetParams},
 	)
 	require.NoError(t, err)
+	require.NotEmpty(t, assetIds)
 
 	time.Sleep(2 * time.Second)
 
@@ -185,6 +189,7 @@ func TestAssetBurn(t *testing.T) {
 		types.AssetCreationRequest{Params: targetAssetParams},
 	)
 	require.NoError(t, err)
+	require.NotEmpty(t, assetIds)
 
 	targetAssetId := assetIds[0]
 
