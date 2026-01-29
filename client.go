@@ -2605,12 +2605,38 @@ func (a *arkClient) selectNormalFunds(
 		return nil, nil, nil, err
 	}
 
+	if len(outputs) == 0 && (len(vtxos) > 0 || len(boardingUtxos) > 0) {
+		outputs = []types.Receiver{{
+			To:     offchainAddrs[0].Address,
+			Amount: 0,
+		}}
+	}
+	if len(outputs) == 1 && outputs[0].Amount <= 0 {
+		for _, utxo := range boardingUtxos {
+			outputs[0].Amount += utxo.Amount
+			fees, err := feeEstimator.EvalOnchainInput(utxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
+		}
+
+		for _, vtxo := range vtxos {
+			outputs[0].Amount += vtxo.Amount
+			fees, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
+		}
+	}
+
 	receiversAmount := uint64(0)
 	for _, output := range outputs {
 		receiversAmount += output.Amount
 	}
 
-	outputFees, err := utils.CalculateFees(nil, outputs, feeEstimator)
+	satsFees, err := utils.CalculateFees(nil, outputs, feeEstimator)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to calculate sats fees: %s", err)
 	}
@@ -2618,7 +2644,7 @@ func (a *arkClient) selectNormalFunds(
 	selectedBoardingUtxos, selectedVtxos, changeAmount, err := utils.CoinSelectNormal(
 		boardingUtxos,
 		vtxos,
-		receiversAmount+outputFees+otherFee,
+		receiversAmount+satsFees+otherFee,
 		a.Dust,
 		opts.WithoutExpirySorting,
 		feeEstimator,
