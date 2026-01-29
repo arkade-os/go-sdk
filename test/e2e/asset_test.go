@@ -36,7 +36,7 @@ func TestAssetLifecycle(t *testing.T) {
 
 	require.NoError(t, err)
 
-	time.Sleep(10 * time.Second) // Wait for server indexer
+	time.Sleep(5 * time.Second) // Wait for server indexer
 
 	issuerAssetVtxo, err := getAssetVtxo(ctx, issuer, assetIds[0], supply)
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestAssetLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Allow some time for the indexer to process the transfer
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	receiverAssetVtxo, err := getAssetVtxo(ctx, receiver, assetIds[0], transferAmount)
 	require.NoError(t, err)
