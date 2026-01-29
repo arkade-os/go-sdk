@@ -27,19 +27,26 @@ WHERE spent = false AND unrolled = false;
 -- name: CleanVtxos :exec
 DELETE FROM vtxo;
 
--- name: InsertAsset :exec
-INSERT OR IGNORE INTO asset (asset_id, metadata, immutable) VALUES (?, ?, ?);
+-- name: UpsertAsset :exec
+INSERT INTO asset (asset_id, metadata, immutable) VALUES (:asset_id, sqlc.narg(metadata), sqlc.narg(immutable))
+ON CONFLICT (asset_id) DO UPDATE SET
+    metadata = COALESCE(EXCLUDED.metadata, metadata),
+    immutable = COALESCE(EXCLUDED.immutable, immutable);
+
+-- name: InsertAssetControl :exec
+INSERT INTO asset_control (asset_id, control_asset_id) VALUES (:asset_id, :control_asset_id)
+ON CONFLICT (asset_id, control_asset_id) DO NOTHING;
 
 -- name: InsertAssetVtxo :exec
-INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, group_index, amount) VALUES (?, ?, ?, ?, ?);
+INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, amount) VALUES (?, ?, ?, ?);
 
 -- name: CleanAssetVtxos :exec
 DELETE FROM asset_vtxo;
 
 -- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by, settled
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet, asset_packet_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateTx :exec
 UPDATE tx

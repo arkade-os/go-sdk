@@ -78,21 +78,125 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
-	testVtxoAssets = []*extension.AssetGroup{
-		newTestAsset(0x01, "asset-one"),
-		newTestAsset(0x02, "asset-two"),
+	testAssetGroups = []extension.AssetGroup{
+		{
+			// normal asset
+			AssetId: &extension.AssetId{
+				Txid: [32]byte{
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				},
+				Index: 0,
+			},
+			Outputs: []extension.AssetOutput{
+				{
+					Type:   extension.AssetTypeLocal,
+					Vout:   0,
+					Amount: 500,
+				},
+				{
+					Type:   extension.AssetTypeLocal,
+					Vout:   1,
+					Amount: 500,
+				},
+			},
+			Inputs: []extension.AssetInput{
+				{
+					Type:   extension.AssetTypeLocal,
+					Vin:    0,
+					Amount: 1000,
+				},
+			},
+		},
+		{
+			// issuance with control asset by id
+			AssetId: nil,
+			Outputs: []extension.AssetOutput{
+				{
+					Type:   extension.AssetTypeLocal,
+					Vout:   0,
+					Amount: 10000,
+				},
+			},
+			ControlAsset: &extension.AssetRef{
+				Type: extension.AssetRefByID,
+				AssetId: extension.AssetId{
+					Txid: [32]byte{
+						0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+						0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+					},
+					Index: 0,
+				},
+			},
+			Metadata: []extension.Metadata{
+				{
+					Key:   "ticker",
+					Value: "FRA",
+				},
+				{
+					Key:   "name",
+					Value: "French token",
+				},
+			},
+		},
+		{
+			// issuance with control asset by group index
+			AssetId: nil,
+			Outputs: []extension.AssetOutput{
+				{
+					Type:   extension.AssetTypeIntent,
+					Vout:   0,
+					Amount: 10000,
+				},
+			},
+			ControlAsset: &extension.AssetRef{
+				Type:       extension.AssetRefByGroup,
+				GroupIndex: 3,
+			},
+			Metadata: []extension.Metadata{
+				{
+					Key:   "ticker",
+					Value: "IT",
+				},
+				{
+					Key:   "name",
+					Value: "Italian token",
+				},
+			},
+		},
+		{
+			// control asset of IT asset
+			AssetId: nil, // created in the issuance
+			Outputs: []extension.AssetOutput{
+				{
+					Type:   extension.AssetTypeLocal,
+					Vout:   0,
+					Amount: 100,
+				},
+			},
+		},
 	}
 
-	testAsset1 = types.Asset{
-		AssetId:    testVtxoAssets[0].AssetId.ToString(),
-		Amount:     testVtxoAssets[0].Outputs[0].Amount,
-		GroupIndex: 10,
+	testVtxoAsset1 = types.Asset{
+		AssetId: extension.AssetId{
+			Txid: [32]byte{
+				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			},
+			Index: 12,
+		}.String(),
+		Amount: 123456789,
 	}
 
-	testAsset2 = types.Asset{
-		AssetId:    testVtxoAssets[1].AssetId.ToString(),
-		Amount:     testVtxoAssets[1].Outputs[0].Amount,
-		GroupIndex: 0,
+	testVtxoAsset2 = types.Asset{
+		AssetId: extension.AssetId{
+			Txid: [32]byte{
+				0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			},
+			Index: 0,
+		}.String(),
+		Amount: 987654321,
 	}
 
 	testVtxos = []types.Vtxo{
@@ -136,7 +240,7 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 			// vtxo with multiple assets
-			Assets: []types.Asset{testAsset1, testAsset2},
+			Assets: []types.Asset{testVtxoAsset1, testVtxoAsset2},
 		},
 		{
 			Outpoint: types.Outpoint{
@@ -151,7 +255,7 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 			// vtxo with single asset
-			Assets: []types.Asset{testAsset1},
+			Assets: []types.Asset{testVtxoAsset1},
 		},
 	}
 	testVtxoKeys = []types.Outpoint{
@@ -193,6 +297,10 @@ var (
 			},
 			Amount: 12000,
 			Type:   types.TxReceived,
+			AssetPacket: &extension.AssetPacket{
+				Assets:  testAssetGroups,
+				Version: extension.AssetVersion,
+			},
 		},
 	}
 
@@ -216,46 +324,6 @@ var (
 	settledBy = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
-
-func newTestAsset(seed byte, name string) *extension.AssetGroup {
-	var assetTxId [32]byte
-	var controlAssetTxId [32]byte
-	for i := range assetTxId {
-		assetTxId[i] = seed
-		controlAssetTxId[i] = seed + 1
-	}
-
-	return &extension.AssetGroup{
-		AssetId: &extension.AssetId{
-			Txid:  assetTxId,
-			Index: 0,
-		},
-		ControlAsset: &extension.AssetRef{
-			Type: extension.AssetRefByID,
-			AssetId: extension.AssetId{
-				Txid:  controlAssetTxId,
-				Index: 0,
-			}},
-		Outputs: []extension.AssetOutput{
-			{
-				Vout:   0,
-				Amount: uint64(seed) * 1000,
-			},
-		},
-		Inputs: []extension.AssetInput{
-			{
-				Vin:    0,
-				Amount: uint64(seed) * 500,
-			},
-		},
-		Metadata: []extension.Metadata{
-			{
-				Key:   "name",
-				Value: name,
-			},
-		},
-	}
-}
 
 func TestService(t *testing.T) {
 	t.Run("config store", func(t *testing.T) {
@@ -546,10 +614,13 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spent, 2)
 		require.Len(t, spendable, 2)
-		for _, v := range spent[1:] {
+		for _, v := range spent {
 			require.True(t, v.Spent)
-			require.Equal(t, testSettleVtxoKeys[v.Outpoint], v.SpentBy)
-			require.Equal(t, settledBy, v.SettledBy)
+			testSettleBy, ok := testSettleVtxoKeys[v.Outpoint]
+			if ok {
+				require.Equal(t, testSettleBy, v.SpentBy)
+				require.Equal(t, settledBy, v.SettledBy)
+			}
 		}
 	})
 }
@@ -586,7 +657,7 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 
 		count, err := storeSvc.AddTransactions(ctx, testTxs)
 		require.NoError(t, err)
-		require.Equal(t, len(testTxs), count)
+		require.Len(t, testTxs, count)
 
 		count, err = storeSvc.AddTransactions(ctx, testTxs)
 		require.NoError(t, err)

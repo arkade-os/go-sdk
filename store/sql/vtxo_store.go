@@ -67,19 +67,16 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 			}
 			// Insert assets into asset and asset_vtxo tables
 			for _, asset := range vtxo.Assets {
-				if err := querierWithTx.InsertAsset(ctx, queries.InsertAssetParams{
-					AssetID:   asset.AssetId,
-					Metadata:  nil,
-					Immutable: nil,
+				if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
+					AssetID: asset.AssetId,
 				}); err != nil {
 					return err
 				}
 				if err := querierWithTx.InsertAssetVtxo(ctx, queries.InsertAssetVtxoParams{
-					VtxoTxid:   vtxo.Txid,
-					VtxoVout:   int64(vtxo.VOut),
-					AssetID:    asset.AssetId,
-					GroupIndex: int64(asset.GroupIndex),
-					Amount:     int64(asset.Amount),
+					VtxoTxid: vtxo.Txid,
+					VtxoVout: int64(vtxo.VOut),
+					AssetID:  asset.AssetId,
+					Amount:   int64(asset.Amount),
 				}); err != nil {
 					return err
 				}
@@ -349,11 +346,10 @@ func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) types.Vtxo {
 	for _, r := range group {
 		if r.AssetID.Valid {
 			assets = append(assets, queries.AssetVtxo{
-				VtxoTxid:   r.Txid,
-				VtxoVout:   r.Vout,
-				AssetID:    r.AssetID.String,
-				GroupIndex: r.GroupIndex.Int64,
-				Amount:     r.AssetAmount.Int64,
+				VtxoTxid: r.Txid,
+				VtxoVout: r.Vout,
+				AssetID:  r.AssetID.String,
+				Amount:   r.AssetAmount.Int64,
 			})
 		}
 	}
@@ -372,9 +368,8 @@ func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) types.Vtxo {
 	assets := make([]types.Asset, 0, len(assetVtxos))
 	for _, av := range assetVtxos {
 		assets = append(assets, types.Asset{
-			AssetId:    av.AssetID,
-			Amount:     uint64(av.Amount),
-			GroupIndex: uint32(av.GroupIndex),
+			AssetId: av.AssetID,
+			Amount:  uint64(av.Amount),
 		})
 	}
 	return types.Vtxo{

@@ -3,12 +3,18 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
 
 type txStore struct {
@@ -43,16 +49,104 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			if !tx.CreatedAt.IsZero() {
 				createdAt = tx.CreatedAt.Unix()
 			}
+
+			var serializedAssetPacket []byte
+			var assetPacketVersion uint8
+			if tx.AssetPacket != nil {
+				txhash, err := chainhash.NewHashFromStr(tx.TransactionKey.String())
+				if err != nil {
+					return err
+				}
+
+				getAssetId := func(groupIndex uint16) *extension.AssetId {
+					assetId := tx.AssetPacket.Assets[groupIndex].AssetId
+					if assetId == nil {
+						return &extension.AssetId{
+							Txid:  *txhash,
+							Index: groupIndex,
+						}
+					}
+					return assetId
+				}
+
+				for groupIndex, assetGroup := range tx.AssetPacket.Assets {
+					assetId := getAssetId(uint16(groupIndex))
+
+					metadataBytes, err := json.Marshal(assetGroup.Metadata)
+					if err != nil {
+						return err
+					}
+
+					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
+						AssetID:   assetId.String(),
+						Metadata:  string(metadataBytes),
+						Immutable: assetGroup.Immutable,
+					}); err != nil {
+						return err
+					}
+
+					if assetGroup.ControlAsset != nil {
+						var controlAssetId *extension.AssetId
+
+						switch assetGroup.ControlAsset.Type {
+						case extension.AssetRefByID:
+							if len(assetGroup.ControlAsset.AssetId.Txid) == 0 {
+								return fmt.Errorf("control asset id is required")
+							}
+
+							controlAssetId = &assetGroup.ControlAsset.AssetId
+						case extension.AssetRefByGroup:
+							if assetGroup.ControlAsset.GroupIndex >= uint16(
+								len(tx.AssetPacket.Assets),
+							) {
+								return fmt.Errorf("control asset ref by group index out of range")
+							}
+
+							controlAssetId = getAssetId(uint16(assetGroup.ControlAsset.GroupIndex))
+						default:
+							return fmt.Errorf(
+								"invalid asset ref type %d",
+								assetGroup.ControlAsset.Type,
+							)
+						}
+
+						if controlAssetId != nil {
+							if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
+								AssetID: controlAssetId.String(),
+							}); err != nil {
+								return err
+							}
+
+							if err := querierWithTx.InsertAssetControl(ctx, queries.InsertAssetControlParams{
+								AssetID:        assetId.String(),
+								ControlAssetID: controlAssetId.String(),
+							}); err != nil {
+								return err
+							}
+						}
+					}
+
+					txout, err := tx.AssetPacket.EncodeAssetPacket()
+					if err != nil {
+						return err
+					}
+					serializedAssetPacket = txout.PkScript
+					assetPacketVersion = tx.AssetPacket.Version
+				}
+			}
+
 			if err := querierWithTx.InsertTx(
 				ctx, queries.InsertTxParams{
-					Txid:      tx.TransactionKey.String(),
-					TxidType:  txidType,
-					Amount:    int64(tx.Amount),
-					Type:      string(tx.Type),
-					CreatedAt: createdAt,
-					Hex:       sql.NullString{String: tx.Hex, Valid: true},
-					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
-					Settled:   len(tx.SettledBy) > 0,
+					Txid:               tx.TransactionKey.String(),
+					TxidType:           txidType,
+					Amount:             int64(tx.Amount),
+					Type:               string(tx.Type),
+					CreatedAt:          createdAt,
+					Hex:                sql.NullString{String: tx.Hex, Valid: true},
+					SettledBy:          sql.NullString{String: tx.SettledBy, Valid: true},
+					Settled:            len(tx.SettledBy) > 0,
+					AssetPacket:        sql.NullString{String: hex.EncodeToString(serializedAssetPacket), Valid: len(serializedAssetPacket) > 0},
+					AssetPacketVersion: sql.NullInt64{Int64: int64(assetPacketVersion), Valid: assetPacketVersion > 0},
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -62,7 +156,6 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			}
 			addedTxs = append(addedTxs, tx)
 		}
-
 		return nil
 	}
 	if err := execTx(ctx, v.db, txBody); err != nil {
@@ -300,17 +393,32 @@ func rowToTx(row queries.Tx) types.Transaction {
 	if row.CreatedAt != 0 {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
+	var assetPacket *extension.AssetPacket
+	if row.AssetPacket.Valid {
+		txoutScript, err := hex.DecodeString(row.AssetPacket.String)
+		if err != nil {
+			return types.Transaction{}
+		}
+		assetPacket, err = extension.DecodeAssetPacket(wire.TxOut{PkScript: txoutScript})
+		if err != nil {
+			return types.Transaction{}
+		}
+		if row.AssetPacketVersion.Valid {
+			assetPacket.Version = uint8(row.AssetPacketVersion.Int64)
+		}
+	}
 	return types.Transaction{
 		TransactionKey: types.TransactionKey{
 			CommitmentTxid: commitmentTxid,
 			ArkTxid:        arkTxid,
 			BoardingTxid:   boardingTxid,
 		},
-		Amount:    uint64(row.Amount),
-		Type:      types.TxType(row.Type),
-		SettledBy: row.SettledBy.String,
-		CreatedAt: createdAt,
-		Hex:       row.Hex.String,
+		Amount:      uint64(row.Amount),
+		Type:        types.TxType(row.Type),
+		SettledBy:   row.SettledBy.String,
+		CreatedAt:   createdAt,
+		Hex:         row.Hex.String,
+		AssetPacket: assetPacket,
 	}
 }
 

@@ -62,31 +62,30 @@ func (q *Queries) DeleteUtxo(ctx context.Context, arg DeleteUtxoParams) error {
 	return err
 }
 
-const insertAsset = `-- name: InsertAsset :exec
-INSERT OR IGNORE INTO asset (asset_id, metadata, immutable) VALUES (?, ?, ?)
+const insertAssetControl = `-- name: InsertAssetControl :exec
+INSERT INTO asset_control (asset_id, control_asset_id) VALUES (?1, ?2)
+ON CONFLICT (asset_id, control_asset_id) DO NOTHING
 `
 
-type InsertAssetParams struct {
-	AssetID   string
-	Metadata  interface{}
-	Immutable interface{}
+type InsertAssetControlParams struct {
+	AssetID        string
+	ControlAssetID string
 }
 
-func (q *Queries) InsertAsset(ctx context.Context, arg InsertAssetParams) error {
-	_, err := q.db.ExecContext(ctx, insertAsset, arg.AssetID, arg.Metadata, arg.Immutable)
+func (q *Queries) InsertAssetControl(ctx context.Context, arg InsertAssetControlParams) error {
+	_, err := q.db.ExecContext(ctx, insertAssetControl, arg.AssetID, arg.ControlAssetID)
 	return err
 }
 
 const insertAssetVtxo = `-- name: InsertAssetVtxo :exec
-INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, group_index, amount) VALUES (?, ?, ?, ?, ?)
+INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, amount) VALUES (?, ?, ?, ?)
 `
 
 type InsertAssetVtxoParams struct {
-	VtxoTxid   string
-	VtxoVout   int64
-	AssetID    string
-	GroupIndex int64
-	Amount     int64
+	VtxoTxid string
+	VtxoVout int64
+	AssetID  string
+	Amount   int64
 }
 
 func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams) error {
@@ -94,7 +93,6 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 		arg.VtxoTxid,
 		arg.VtxoVout,
 		arg.AssetID,
-		arg.GroupIndex,
 		arg.Amount,
 	)
 	return err
@@ -102,19 +100,21 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 
 const insertTx = `-- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by, settled
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet, asset_packet_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertTxParams struct {
-	Txid      string
-	TxidType  string
-	Amount    int64
-	Type      string
-	CreatedAt int64
-	Hex       sql.NullString
-	SettledBy sql.NullString
-	Settled   bool
+	Txid               string
+	TxidType           string
+	Amount             int64
+	Type               string
+	CreatedAt          int64
+	Hex                sql.NullString
+	SettledBy          sql.NullString
+	Settled            bool
+	AssetPacket        sql.NullString
+	AssetPacketVersion sql.NullInt64
 }
 
 func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
@@ -127,6 +127,8 @@ func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
 		arg.Hex,
 		arg.SettledBy,
 		arg.Settled,
+		arg.AssetPacket,
+		arg.AssetPacketVersion,
 	)
 	return err
 }
@@ -252,7 +254,7 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 }
 
 const selectAllTxs = `-- name: SelectAllTxs :many
-SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by FROM tx
+SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet, asset_packet_version FROM tx
 `
 
 func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
@@ -273,6 +275,8 @@ func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
 			&i.CreatedAt,
 			&i.Hex,
 			&i.SettledBy,
+			&i.AssetPacket,
+			&i.AssetPacketVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -328,7 +332,7 @@ func (q *Queries) SelectAllUtxos(ctx context.Context) ([]Utxo, error) {
 }
 
 const selectAllVtxos = `-- name: SelectAllVtxos :many
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, group_index, asset_amount FROM asset_vtxo_vw
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount FROM asset_vtxo_vw
 `
 
 func (q *Queries) SelectAllVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
@@ -356,7 +360,6 @@ func (q *Queries) SelectAllVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
 			&i.Unrolled,
 			&i.ArkTxid,
 			&i.AssetID,
-			&i.GroupIndex,
 			&i.AssetAmount,
 		); err != nil {
 			return nil, err
@@ -373,7 +376,7 @@ func (q *Queries) SelectAllVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
 }
 
 const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, group_index, asset_amount FROM asset_vtxo_vw
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount FROM asset_vtxo_vw
 WHERE spent = false AND unrolled = false
 `
 
@@ -402,7 +405,6 @@ func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]AssetVtxoVw, erro
 			&i.Unrolled,
 			&i.ArkTxid,
 			&i.AssetID,
-			&i.GroupIndex,
 			&i.AssetAmount,
 		); err != nil {
 			return nil, err
@@ -419,7 +421,7 @@ func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]AssetVtxoVw, erro
 }
 
 const selectTxs = `-- name: SelectTxs :many
-SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by FROM tx
+SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet, asset_packet_version FROM tx
 WHERE txid IN (/*SLICE:txids*/?)
 `
 
@@ -451,6 +453,8 @@ func (q *Queries) SelectTxs(ctx context.Context, txids []string) ([]Tx, error) {
 			&i.CreatedAt,
 			&i.Hex,
 			&i.SettledBy,
+			&i.AssetPacket,
+			&i.AssetPacketVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -497,7 +501,7 @@ func (q *Queries) SelectUtxo(ctx context.Context, arg SelectUtxoParams) (Utxo, e
 }
 
 const selectVtxo = `-- name: SelectVtxo :many
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, group_index, asset_amount
+SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount
 FROM asset_vtxo_vw
 WHERE txid = ?1 AND vout = ?2
 `
@@ -532,7 +536,6 @@ func (q *Queries) SelectVtxo(ctx context.Context, arg SelectVtxoParams) ([]Asset
 			&i.Unrolled,
 			&i.ArkTxid,
 			&i.AssetID,
-			&i.GroupIndex,
 			&i.AssetAmount,
 		); err != nil {
 			return nil, err
@@ -625,5 +628,23 @@ func (q *Queries) UpdateVtxo(ctx context.Context, arg UpdateVtxoParams) error {
 		arg.Txid,
 		arg.Vout,
 	)
+	return err
+}
+
+const upsertAsset = `-- name: UpsertAsset :exec
+INSERT INTO asset (asset_id, metadata, immutable) VALUES (?1, ?2, ?3)
+ON CONFLICT (asset_id) DO UPDATE SET
+    metadata = COALESCE(EXCLUDED.metadata, metadata),
+    immutable = COALESCE(EXCLUDED.immutable, immutable)
+`
+
+type UpsertAssetParams struct {
+	AssetID   string
+	Metadata  interface{}
+	Immutable interface{}
+}
+
+func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAsset, arg.AssetID, arg.Metadata, arg.Immutable)
 	return err
 }

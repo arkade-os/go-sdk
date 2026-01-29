@@ -90,9 +90,8 @@ type Vtxo struct {
 }
 
 type Asset struct {
-	AssetId    string
-	Amount     uint64
-	GroupIndex uint32
+	AssetId string
+	Amount  uint64
 }
 
 type AssetDetails struct {
@@ -196,11 +195,12 @@ func (t TransactionKey) String() string {
 
 type Transaction struct {
 	TransactionKey
-	Amount    uint64
-	Type      TxType
-	CreatedAt time.Time
-	Hex       string
-	SettledBy string
+	Amount      uint64
+	Type        TxType
+	CreatedAt   time.Time
+	Hex         string
+	SettledBy   string
+	AssetPacket *extension.AssetPacket
 }
 
 func (t Transaction) String() string {

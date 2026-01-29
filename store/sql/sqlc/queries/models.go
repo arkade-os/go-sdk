@@ -20,11 +20,10 @@ type AssetControl struct {
 }
 
 type AssetVtxo struct {
-	VtxoTxid   string
-	VtxoVout   int64
-	AssetID    string
-	GroupIndex int64
-	Amount     int64
+	VtxoTxid string
+	VtxoVout int64
+	AssetID  string
+	Amount   int64
 }
 
 type AssetVtxoVw struct {
@@ -43,19 +42,20 @@ type AssetVtxoVw struct {
 	Unrolled        bool
 	ArkTxid         sql.NullString
 	AssetID         sql.NullString
-	GroupIndex      sql.NullInt64
 	AssetAmount     sql.NullInt64
 }
 
 type Tx struct {
-	Txid      string
-	TxidType  string
-	Amount    int64
-	Type      string
-	Settled   bool
-	CreatedAt int64
-	Hex       sql.NullString
-	SettledBy sql.NullString
+	Txid               string
+	TxidType           string
+	Amount             int64
+	Type               string
+	Settled            bool
+	CreatedAt          int64
+	Hex                sql.NullString
+	SettledBy          sql.NullString
+	AssetPacket        sql.NullString
+	AssetPacketVersion sql.NullInt64
 }
 
 type Utxo struct {
