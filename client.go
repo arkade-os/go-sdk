@@ -15,7 +15,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -371,10 +371,10 @@ func (a *arkClient) CreateAsset(
 			return assetId
 		}
 
-		assetId := extension.AssetId{
+		assetId := asset.AssetId{
 			Txid:  arkTxhashArr,
 			Index: uint16(groupIndex),
-		}.ToString()
+		}.String()
 		assetIdsByGroup[groupIndex] = assetId
 		assetIds = append(assetIds, assetId)
 		return assetId

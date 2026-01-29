@@ -8,7 +8,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -308,7 +308,7 @@ type DBAsset struct {
 
 type AssetAnchor struct {
 	TxOut  wire.TxOut
-	Packet extension.ExtensionPacket
+	Packet asset.ExtensionPacket
 }
 
 type TeleportReceiver struct {
