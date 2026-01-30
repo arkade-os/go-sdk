@@ -248,11 +248,12 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 			return 0, err
 		}
 
-		assetOutputs = append(assetOutputs, asset.AssetOutput{
-			Type:   asset.AssetTypeLocal,
-			Amount: rv.Amount,
-			Vout:   uint16(b.outputIndex),
-		})
+		assetOut, err := asset.NewAssetOutput(uint16(b.outputIndex), rv.Amount)
+		if err != nil {
+			return 0, err
+		}
+
+		assetOutputs = append(assetOutputs, *assetOut)
 
 		b.outs = append(b.outs, &wire.TxOut{
 			Value:    int64(b.eVtxoAmount),
@@ -301,12 +302,12 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 				Amount: assetAmount,
 			})
 		} else {
+			assetIn, err := asset.NewAssetInput(uint16(b.inputIndex), assetAmount)
+			if err != nil {
+				return 0, err
+			}
 			b.ins = append(b.ins, *in)
-			assetInputs = append(assetInputs, asset.AssetInput{
-				Type:   asset.AssetTypeLocal,
-				Vin:    uint16(b.inputIndex),
-				Amount: assetAmount,
-			})
+			assetInputs = append(assetInputs, *assetIn)
 
 			inputIndex := b.inputIndex
 			b.uniqueAssetInput[*in.Outpoint] = inputIndex
@@ -314,13 +315,12 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 		}
 	}
 
-	newAssetGroup := asset.AssetGroup{
-		AssetId: assetId,
-		Outputs: assetOutputs,
-		Inputs:  assetInputs,
+	newAssetGroup, err := asset.NewAssetGroup(assetId, nil, assetInputs, assetOutputs, nil)
+	if err != nil {
+		return 0, err
 	}
 
-	b.assetGroupList = append(b.assetGroupList, newAssetGroup)
+	b.assetGroupList = append(b.assetGroupList, *newAssetGroup)
 
 	assetGroupIndex := b.assetGroupIndex
 
@@ -335,19 +335,17 @@ func (b *AssetTxBuilder) AddWitness(
 	amount uint64,
 	vout uint32,
 ) error {
-
 	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
 
+	txid := hex.EncodeToString(intentID[:])
+	in, err := asset.NewIntentAssetInput(txid, uint16(vout), amount)
+	if err != nil {
+		return err
+	}
 	b.assetGroupList[assetGroupIndex].Inputs = append(
-		b.assetGroupList[assetGroupIndex].Inputs,
-		asset.AssetInput{
-			Type:   asset.AssetTypeIntent,
-			Amount: amount,
-			Txid:   intentID,
-			Vin:    uint16(vout),
-		},
+		b.assetGroupList[assetGroupIndex].Inputs, *in,
 	)
 	return nil
 
@@ -362,12 +360,8 @@ func (b *AssetTxBuilder) InsertControlAsset(
 	}
 
 	if controlAsset != nil {
-		b.assetGroupList[assetGroupIndex].ControlAsset = &asset.AssetRef{
-			Type:    asset.AssetRefByID,
-			AssetId: controlAsset.AssetId,
-		}
+		b.assetGroupList[assetGroupIndex].ControlAsset = controlAsset
 	}
-
 	return nil
 }
 
