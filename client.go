@@ -955,14 +955,27 @@ func (a *arkClient) SendOffChain(
 	inputs := make([]arkTxInput, 0, len(selectedCoins))
 
 	for _, coin := range selectedCoins {
-		forfeitLeafHash, err := DeriveForfeitLeafHash(coin.Tapscripts)
+		vtxoScript, err := script.ParseVtxoScript(coin.Tapscripts)
 		if err != nil {
 			return "", err
 		}
 
+		forfeitClosures := vtxoScript.ForfeitClosures()
+		if len(forfeitClosures) == 0 {
+			return "", fmt.Errorf("no forfeit closures found")
+		}
+		forfeitClosure := forfeitClosures[0]
+
+		forfeitScript, err := forfeitClosure.Script()
+		if err != nil {
+			return "", err
+		}
+
+		forfeitLeafHash := txscript.NewBaseTapLeaf(forfeitScript).TapHash()
+
 		inputs = append(inputs, arkTxInput{
 			coin,
-			*forfeitLeafHash,
+			forfeitLeafHash,
 		})
 	}
 
@@ -1058,7 +1071,7 @@ func (a *arkClient) RedeemNotes(
 		Amount: amount,
 	}}
 
-	commitmentId, _, err := a.joinBatchWithRetry(
+	commitmentId, err := a.joinBatchWithRetry(
 		ctx,
 		notes,
 		receiversOutput,
@@ -1261,7 +1274,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	commitmentId, _, err := a.joinBatchWithRetry(
+	commitmentId, err := a.joinBatchWithRetry(
 		ctx,
 		nil,
 		outputs,
@@ -1324,7 +1337,7 @@ func (a *arkClient) RegisterIntent(
 		return "", err
 	}
 
-	proofTx, message, _, err := a.makeRegisterIntent(
+	proofTx, message, err := a.makeRegisterIntent(
 		inputs, tapLeaves, outputs, cosignersPublicKeys, arkFields,
 	)
 
@@ -2596,12 +2609,38 @@ func (a *arkClient) selectNormalFunds(
 		return nil, nil, nil, err
 	}
 
+	if len(outputs) == 0 && (len(vtxos) > 0 || len(boardingUtxos) > 0) {
+		outputs = []types.Receiver{{
+			To:     offchainAddrs[0].Address,
+			Amount: 0,
+		}}
+	}
+	if len(outputs) == 1 && outputs[0].Amount <= 0 {
+		for _, utxo := range boardingUtxos {
+			outputs[0].Amount += utxo.Amount
+			fees, err := feeEstimator.EvalOnchainInput(utxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
+		}
+
+		for _, vtxo := range vtxos {
+			outputs[0].Amount += vtxo.Amount
+			fees, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			outputs[0].Amount -= uint64(fees.ToSatoshis())
+		}
+	}
+
 	receiversAmount := uint64(0)
 	for _, output := range outputs {
 		receiversAmount += output.Amount
 	}
 
-	outputFees, err := utils.CalculateFees(nil, outputs, feeEstimator)
+	satsFees, err := utils.CalculateFees(nil, outputs, feeEstimator)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to calculate sats fees: %s", err)
 	}
@@ -2609,7 +2648,7 @@ func (a *arkClient) selectNormalFunds(
 	selectedBoardingUtxos, selectedVtxos, changeAmount, err := utils.CoinSelectNormal(
 		boardingUtxos,
 		vtxos,
-		receiversAmount+outputFees+otherFee,
+		receiversAmount+satsFees+otherFee,
 		a.Dust,
 		opts.WithoutExpirySorting,
 		feeEstimator,
@@ -2714,7 +2753,7 @@ func (a *arkClient) settle(
 	totalVtxos = append(totalVtxos, satsVtxos...)
 	totalVtxos = append(totalVtxos, assetVtxos...)
 
-	commitmentId, _, err := a.joinBatchWithRetry(
+	commitmentId, err := a.joinBatchWithRetry(
 		ctx,
 		nil,
 		outputs,
@@ -2735,14 +2774,14 @@ func (a *arkClient) makeRegisterIntent(
 	outputs []types.Receiver,
 	cosignersPublicKeys []string,
 	arkFields [][]*psbt.Unknown,
-) (string, string, []byte, error) {
+) (string, string, error) {
 	message, outputsTxOut, err := createRegisterIntentMessage(
 		inputs,
 		outputs,
 		cosignersPublicKeys,
 	)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 
 	rawIntentInputs := make([]intent.Input, len(inputs))
@@ -2750,15 +2789,14 @@ func (a *arkClient) makeRegisterIntent(
 		rawIntentInputs[i] = in.Input
 	}
 
-	proofTx, proof, err := a.makeIntent(
+	proofTx, err := a.makeIntent(
 		message, rawIntentInputs, outputsTxOut, leafProofs, arkFields,
 	)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 
-	proofTxhash := proof.UnsignedTx.TxHash()
-	return proofTx, message, proofTxhash[:], nil
+	return proofTx, message, nil
 }
 
 func (a *arkClient) makeGetPendingTxIntent(
@@ -2774,7 +2812,7 @@ func (a *arkClient) makeGetPendingTxIntent(
 		return "", "", err
 	}
 
-	intentTx, _, err := a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+	intentTx, err := a.makeIntent(message, inputs, nil, leafProofs, arkFields)
 	if err != nil {
 		return "", "", err
 	}
@@ -2795,7 +2833,7 @@ func (a *arkClient) makeDeleteIntent(
 		return "", "", err
 	}
 
-	intentTx, _, err := a.makeIntent(message, inputs, nil, leafProofs, arkFields)
+	intentTx, err := a.makeIntent(message, inputs, nil, leafProofs, arkFields)
 	if err != nil {
 		return "", "", err
 	}
@@ -2806,10 +2844,10 @@ func (a *arkClient) makeDeleteIntent(
 func (a *arkClient) makeIntent(
 	message string, inputs []intent.Input, outputsTxOut []*wire.TxOut,
 	leafProofs []*arklib.TaprootMerkleProof, arkFields [][]*psbt.Unknown,
-) (string, *intent.Proof, error) {
+) (string, error) {
 	proof, err := intent.New(message, inputs, outputsTxOut)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
 	for i, input := range proof.Inputs {
@@ -2835,15 +2873,15 @@ func (a *arkClient) makeIntent(
 
 	unsignedProofTx, err := proof.B64Encode()
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
 	signedTx, err := a.wallet.SignTransaction(context.Background(), a.explorer, unsignedProofTx)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
-	return signedTx, proof, nil
+	return signedTx, nil
 }
 
 func (a *arkClient) addInputs(
@@ -2961,12 +2999,12 @@ func (a *arkClient) joinBatchWithRetry(
 	options settleOptions,
 	selectedCoins []client.TapscriptsVtxo,
 	selectedBoardingCoins []types.Utxo,
-) (string, []byte, error) {
+) (string, error) {
 	inputs, exitLeaves, arkFields, err := toIntentInputs(
 		selectedBoardingCoins, selectedCoins, notes,
 	)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
 	rawIntents := make([]intent.Input, len(inputs))
@@ -2976,7 +3014,7 @@ func (a *arkClient) joinBatchWithRetry(
 
 	signerSessions, signerPubKeys, err := a.handleOptions(options, rawIntents, notes)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
 	deleteIntent := func() {
@@ -2997,16 +3035,16 @@ func (a *arkClient) joinBatchWithRetry(
 	retryCount := 0
 	var batchErr error
 	for retryCount < maxRetry {
-		proofTx, message, intentTxHash, err := a.makeRegisterIntent(
+		proofTx, message, err := a.makeRegisterIntent(
 			inputs, exitLeaves, outputs, signerPubKeys, arkFields,
 		)
 		if err != nil {
-			return "", nil, err
+			return "", err
 		}
 
 		intentID, err := a.client.RegisterIntent(ctx, proofTx, message)
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to register intent: %w", err)
+			return "", fmt.Errorf("failed to register intent: %w", err)
 		}
 
 		log.Debugf("registered inputs and outputs with request id: %s", intentID)
@@ -3024,10 +3062,10 @@ func (a *arkClient) joinBatchWithRetry(
 			continue
 		}
 
-		return commitmentTxid, intentTxHash, nil
+		return commitmentTxid, nil
 	}
 
-	return "", nil, fmt.Errorf("reached max atttempt of retries, last batch error: %s", batchErr)
+	return "", fmt.Errorf("reached max atttempt of retries, last batch error: %s", batchErr)
 }
 
 func (a *arkClient) handleBatchEvents(

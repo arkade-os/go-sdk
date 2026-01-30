@@ -129,14 +129,27 @@ func buildArkInputs(vtxos []client.TapscriptsVtxo) ([]arkTxInput, error) {
 
 	inputs := make([]arkTxInput, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		forfeitLeafHash, err := DeriveForfeitLeafHash(vtxo.Tapscripts)
+		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
 		if err != nil {
 			return nil, err
 		}
 
+		forfeitClosures := vtxoScript.ForfeitClosures()
+		if len(forfeitClosures) == 0 {
+			return nil, fmt.Errorf("no forfeit closures found")
+		}
+		forfeitClosure := forfeitClosures[0]
+
+		forfeitScript, err := forfeitClosure.Script()
+		if err != nil {
+			return nil, err
+		}
+
+		forfeitLeafHash := txscript.NewBaseTapLeaf(forfeitScript).TapHash()
+
 		inputs = append(inputs, arkTxInput{
 			TapscriptsVtxo:  vtxo,
-			ForfeitLeafHash: *forfeitLeafHash,
+			ForfeitLeafHash: forfeitLeafHash,
 		})
 	}
 
@@ -380,7 +393,14 @@ func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint32, metadata map[str
 	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
-	assetMetadata := toAssetMetadataList(metadata)
+
+	assetMetadata := make([]asset.Metadata, 0, len(metadata))
+	for k, v := range metadata {
+		assetMetadata = append(assetMetadata, asset.Metadata{
+			Key:   k,
+			Value: v,
+		})
+	}
 	b.assetGroupList[assetGroupIndex].Metadata = assetMetadata
 
 	return nil
@@ -1184,15 +1204,6 @@ func getBatchExpiryLocktime(expiry uint32) arklib.RelativeLocktime {
 	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: expiry}
 }
 
-func GetAssetOutput(output []asset.AssetOutput, vout uint32) (*asset.AssetOutput, error) {
-	for _, out := range output {
-		if out.Vout == vout {
-			return &out, nil
-		}
-	}
-	return nil, fmt.Errorf("output not found for vout %d", vout)
-}
-
 func createVtxoTxInput(vtxo arkTxInput) (*offchain.VtxoInput, error) {
 	if len(vtxo.Tapscripts) <= 0 {
 		return nil, fmt.Errorf("missing tapscripts for vtxo %s", vtxo.Txid)
@@ -1241,72 +1252,4 @@ func createVtxoTxInput(vtxo arkTxInput) (*offchain.VtxoInput, error) {
 	}
 
 	return &ofchainVtxoInput, nil
-}
-
-func DerivePubKeyFromScript(scriptHex string) (*btcec.PublicKey, error) {
-	buf, err := hex.DecodeString(scriptHex)
-	if err != nil {
-		return nil, err
-	}
-	pubkeyBytes := buf[2:]
-
-	return schnorr.ParsePubKey(pubkeyBytes)
-}
-
-func DeriveForfeitLeafHash(tapScripts []string) (*chainhash.Hash, error) {
-	vtxoScript, err := script.ParseVtxoScript(tapScripts)
-	if err != nil {
-		return nil, err
-	}
-
-	forfeitClosures := vtxoScript.ForfeitClosures()
-	if len(forfeitClosures) == 0 {
-		return nil, fmt.Errorf("no forfeit closures found")
-	}
-	forfeitClosure := forfeitClosures[0]
-
-	forfeitScript, err := forfeitClosure.Script()
-	if err != nil {
-		return nil, err
-	}
-
-	forfeitLeafHash := txscript.NewBaseTapLeaf(forfeitScript).TapHash()
-
-	return &forfeitLeafHash, nil
-}
-
-func FindAssetFromOutput(
-	vtxo types.Vtxo,
-	assetPacket *asset.AssetPacket,
-) (*types.Asset, error) {
-	if assetPacket == nil {
-		return nil, fmt.Errorf("asset group is nil")
-	}
-
-	for _, asset := range assetPacket.Assets {
-		for _, assetOut := range asset.Outputs {
-			if vtxo.VOut == assetOut.Vout {
-				return &types.Asset{
-					AssetId: asset.AssetId.String(),
-					Amount:  assetOut.Amount,
-				}, nil
-			}
-
-		}
-
-	}
-
-	return nil, fmt.Errorf("asset not found in asset group")
-
-}
-
-func toAssetMetadataList(metadataMap map[string]string) []asset.Metadata {
-	metadataList := make([]asset.Metadata, 0, len(metadataMap))
-	for k, v := range metadataMap {
-		metadataList = append(metadataList, asset.Metadata{
-			Key:   k,
-			Value: v,
-		})
-	}
-	return metadataList
 }

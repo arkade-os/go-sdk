@@ -446,17 +446,6 @@ func ListenToJSONStream(url string, chunkCh chan ChunkJSONStream) {
 	}
 }
 
-func GroupBy[T any](items []T, keyFn func(T) string) map[string][]T {
-	result := make(map[string][]T)
-
-	for _, item := range items {
-		key := keyFn(item)
-		result[key] = append(result[key], item)
-	}
-
-	return result
-}
-
 func FilterVtxosByExpiry(vtxos []types.Vtxo, expiryThreshold int64) []types.Vtxo {
 	now := time.Now()
 	threshold := time.Duration(expiryThreshold) * time.Second
