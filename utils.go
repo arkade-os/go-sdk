@@ -1056,37 +1056,41 @@ func createIntentAssetAnchor(
 		}
 	}
 
-	assetgroupList := make([]asset.AssetGroup, 0)
+	// Group outputs by asset ID so we create one AssetGroup per asset ID.
+	outputsByAssetId := make(map[string][]asset.AssetOutput)
 	for i, output := range outputs {
 		if output.Asset == nil {
 			continue
 		}
+		assetIdStr := output.Asset.AssetId
+		outputsByAssetId[assetIdStr] = append(outputsByAssetId[assetIdStr], asset.AssetOutput{
+			Type:   asset.AssetTypeIntent,
+			Amount: output.Asset.Amount,
+			Vout:   uint32(i),
+		})
+	}
 
-		assetId, err := asset.NewAssetIdFromString(output.Asset.AssetId)
+	assetgroupList := make([]asset.AssetGroup, 0)
+	for assetIdStr, assetOutputs := range outputsByAssetId {
+		assetId, err := asset.NewAssetIdFromString(assetIdStr)
 		if err != nil {
 			return nil, err
 		}
 
-		assetGroup := asset.AssetGroup{
-			AssetId: assetId,
-			Outputs: []asset.AssetOutput{{
-				Type:   asset.AssetTypeIntent,
-				Amount: output.Asset.Amount,
-				Vout:   uint32(i),
-			}},
-		}
-
 		assetInputs := make([]asset.AssetInput, 0)
-		for _, input := range groupedIntentInputs[output.Asset.AssetId] {
+		for _, input := range groupedIntentInputs[assetIdStr] {
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
 				Vin:    input.AssetExtension.Index + 1, // +1 for the intent proof input
 				Amount: input.AssetExtension.Amount,
 			})
 		}
-		assetGroup.Inputs = assetInputs
 
-		assetgroupList = append(assetgroupList, assetGroup)
+		assetgroupList = append(assetgroupList, asset.AssetGroup{
+			AssetId: assetId,
+			Inputs:  assetInputs,
+			Outputs: assetOutputs,
+		})
 	}
 
 	if len(assetgroupList) == 0 {

@@ -292,18 +292,6 @@ type DBAsset struct {
 	ExtensionScript []byte
 }
 
-type AssetAnchor struct {
-	TxOut  wire.TxOut
-	Packet asset.ExtensionPacket
-}
-
-type AssetManagementType uint
-
-const (
-	AssetManagementTypeMint AssetManagementType = iota
-	AssetManagementTypeBurn
-)
-
 func (r Receiver) ToArkFeeOutput() arkfee.Output {
 	txout, _, err := r.ToTxOut()
 	if err != nil {
