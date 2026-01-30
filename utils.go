@@ -169,10 +169,7 @@ type AssetTxBuilder struct {
 	assetGroupList       []asset.AssetGroup
 	assetGroupIndex      uint32
 	eVtxoAmount          uint64
-
-	subdustPacket *asset.SubDustPacket
-
-	extensionScript []byte
+	extensionScript      []byte
 }
 
 func NewAssetTxBuilder(
@@ -260,7 +257,7 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 		assetOutputs = append(assetOutputs, asset.AssetOutput{
 			Type:   asset.AssetTypeLocal,
 			Amount: rv.Amount,
-			Vout:   b.outputIndex,
+			Vout:   uint16(b.outputIndex),
 		})
 
 		b.outs = append(b.outs, &wire.TxOut{
@@ -307,14 +304,14 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
-				Vin:    i,
+				Vin:    uint16(i),
 				Amount: assetAmount,
 			})
 		} else {
 			b.ins = append(b.ins, *in)
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
-				Vin:    b.inputIndex,
+				Vin:    uint16(b.inputIndex),
 				Amount: assetAmount,
 			})
 
@@ -357,7 +354,7 @@ func (b *AssetTxBuilder) AddWitness(
 			Type:   asset.AssetTypeIntent,
 			Amount: amount,
 			Txid:   intentID,
-			Vin:    vout,
+			Vin:    uint16(vout),
 		},
 	)
 	return nil
@@ -397,8 +394,8 @@ func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint32, metadata map[str
 	assetMetadata := make([]asset.Metadata, 0, len(metadata))
 	for k, v := range metadata {
 		assetMetadata = append(assetMetadata, asset.Metadata{
-			Key:   k,
-			Value: v,
+			Key:   []byte(k),
+			Value: []byte(v),
 		})
 	}
 	b.assetGroupList[assetGroupIndex].Metadata = assetMetadata
@@ -419,31 +416,17 @@ func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
 
 	var receiver *types.Receiver
 	if isChange {
-		if satsNeeded < dust {
-			b.subdustPacket = &asset.SubDustPacket{
-				Amount: satsNeeded,
-				Key:    addr.VtxoTapKey,
-			}
-
-		} else {
-			receiver = &types.Receiver{
-				To:     b.changeAddr,
-				Amount: satsNeeded,
-			}
+		receiver = &types.Receiver{
+			To:     b.changeAddr,
+			Amount: satsNeeded,
 		}
-
 	} else {
 		_, vtxos, changeAmount, err := utils.CoinSelectNormal(nil, b.vtxos, satsNeeded, dust, b.withoutExpirySorting, nil)
 		if err != nil {
 			return err
 		}
 
-		if changeAmount > 0 && changeAmount < dust {
-			b.subdustPacket = &asset.SubDustPacket{
-				Amount: changeAmount,
-				Key:    addr.VtxoTapKey,
-			}
-		} else if changeAmount >= dust {
+		if changeAmount >= dust {
 			receiver = &types.Receiver{
 				To:     b.changeAddr,
 				Amount: changeAmount,
@@ -493,19 +476,20 @@ func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
 }
 
 func (b *AssetTxBuilder) Build(signerUnrollScript []byte) (string, []string, error) {
-	extensionPacket := asset.ExtensionPacket{
-		Asset: &asset.AssetPacket{
-			Assets: b.assetGroupList,
-		},
-		SubDust: b.subdustPacket,
-	}
-
-	extensionOut, err := extensionPacket.Encode()
+	extensionPacket, err := asset.NewPacket(b.assetGroupList)
 	if err != nil {
 		return "", nil, err
 	}
 
-	b.outs = append(b.outs, &extensionOut)
+	pkScript, err := extensionPacket.Serialize()
+	if err != nil {
+		return "", nil, err
+	}
+
+	b.outs = append(b.outs, &wire.TxOut{
+		Value:    0,
+		PkScript: pkScript,
+	})
 
 	arkPtx, checkpointPtxs, err := offchain.BuildTxs(
 		b.ins,
@@ -530,7 +514,7 @@ func (b *AssetTxBuilder) Build(signerUnrollScript []byte) (string, []string, err
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	b.extensionScript = extensionOut.PkScript
+	b.extensionScript = pkScript
 
 	return arkTx, checkpointTxs, nil
 
@@ -1066,7 +1050,7 @@ func createIntentAssetAnchor(
 		outputsByAssetId[assetIdStr] = append(outputsByAssetId[assetIdStr], asset.AssetOutput{
 			Type:   asset.AssetTypeIntent,
 			Amount: output.Asset.Amount,
-			Vout:   uint32(i),
+			Vout:   uint16(i),
 		})
 	}
 
@@ -1081,7 +1065,7 @@ func createIntentAssetAnchor(
 		for _, input := range groupedIntentInputs[assetIdStr] {
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
-				Vin:    input.AssetExtension.Index + 1, // +1 for the intent proof input
+				Vin:    uint16(input.AssetExtension.Index + 1), // +1 for the intent proof input
 				Amount: input.AssetExtension.Amount,
 			})
 		}
@@ -1097,20 +1081,19 @@ func createIntentAssetAnchor(
 		return nil, nil
 	}
 
-	assetPacket := asset.AssetPacket{
-		Assets: assetgroupList,
+	assetPacket, err := asset.NewPacket(assetgroupList)
+	if err != nil {
+		return nil, err
 	}
-	extensionPacket := asset.ExtensionPacket{
-		Asset: &assetPacket,
-	}
-
-	txout, err := extensionPacket.Encode()
+	pkScript, err := assetPacket.Serialize()
 	if err != nil {
 		return nil, err
 	}
 
-	return &txout, nil
-
+	return &wire.TxOut{
+		Value:    0,
+		PkScript: pkScript,
+	}, nil
 }
 func findVtxosSpentInSettlement(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {
 	if vtxo.Preconfirmed {

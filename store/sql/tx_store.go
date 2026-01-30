@@ -14,7 +14,6 @@ import (
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 )
 
 type txStore struct {
@@ -51,14 +50,12 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			}
 
 			var serializedAssetPacket []byte
-			var assetPacketVersion uint8
-			if tx.AssetPacket != nil {
-				txout, err := tx.AssetPacket.Encode()
+			if len(tx.AssetPacket) > 0 {
+				var err error
+				serializedAssetPacket, err = tx.AssetPacket.Serialize()
 				if err != nil {
 					return err
 				}
-				serializedAssetPacket = txout.PkScript
-				assetPacketVersion = tx.AssetPacket.Version
 
 				// txhash is needed to compute asset id
 				txhash, err := chainhash.NewHashFromStr(tx.TransactionKey.String())
@@ -67,7 +64,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 				}
 
 				getAssetId := func(groupIndex uint16) *asset.AssetId {
-					assetId := tx.AssetPacket.Assets[groupIndex].AssetId
+					assetId := tx.AssetPacket[groupIndex].AssetId
 					if assetId == nil {
 						return &asset.AssetId{
 							Txid:  *txhash,
@@ -77,7 +74,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					return assetId
 				}
 
-				for groupIndex, assetGroup := range tx.AssetPacket.Assets {
+				for groupIndex, assetGroup := range tx.AssetPacket {
 					assetId := getAssetId(uint16(groupIndex))
 
 					var metadataParam any = nil
@@ -109,7 +106,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 							controlAssetId = &assetGroup.ControlAsset.AssetId
 						case asset.AssetRefByGroup:
 							if assetGroup.ControlAsset.GroupIndex >= uint16(
-								len(tx.AssetPacket.Assets),
+								len(tx.AssetPacket),
 							) {
 								return fmt.Errorf("control asset ref by group index out of range")
 							}
@@ -142,16 +139,15 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 
 			if err := querierWithTx.InsertTx(
 				ctx, queries.InsertTxParams{
-					Txid:               tx.TransactionKey.String(),
-					TxidType:           txidType,
-					Amount:             int64(tx.Amount),
-					Type:               string(tx.Type),
-					CreatedAt:          createdAt,
-					Hex:                sql.NullString{String: tx.Hex, Valid: true},
-					SettledBy:          sql.NullString{String: tx.SettledBy, Valid: true},
-					Settled:            len(tx.SettledBy) > 0,
-					AssetPacket:        sql.NullString{String: hex.EncodeToString(serializedAssetPacket), Valid: len(serializedAssetPacket) > 0},
-					AssetPacketVersion: sql.NullInt64{Int64: int64(assetPacketVersion), Valid: assetPacketVersion > 0},
+					Txid:        tx.TransactionKey.String(),
+					TxidType:    txidType,
+					Amount:      int64(tx.Amount),
+					Type:        string(tx.Type),
+					CreatedAt:   createdAt,
+					Hex:         sql.NullString{String: tx.Hex, Valid: true},
+					SettledBy:   sql.NullString{String: tx.SettledBy, Valid: true},
+					Settled:     len(tx.SettledBy) > 0,
+					AssetPacket: sql.NullString{String: hex.EncodeToString(serializedAssetPacket), Valid: len(serializedAssetPacket) > 0},
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -398,19 +394,10 @@ func rowToTx(row queries.Tx) types.Transaction {
 	if row.CreatedAt != 0 {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
-	var assetPacket *asset.AssetPacket
+	var assetPacket asset.Packet
 	if row.AssetPacket.Valid {
-		txoutScript, err := hex.DecodeString(row.AssetPacket.String)
-		if err != nil {
-			return types.Transaction{}
-		}
-		assetPacket, err = asset.DecodeOutputToAssetPacket(wire.TxOut{PkScript: txoutScript})
-		if err != nil {
-			return types.Transaction{}
-		}
-		if row.AssetPacketVersion.Valid {
-			assetPacket.Version = uint8(row.AssetPacketVersion.Int64)
-		}
+		// nolint:all
+		assetPacket, _ = asset.NewPacketFromString(row.AssetPacket.String)
 	}
 	return types.Transaction{
 		TransactionKey: types.TransactionKey{

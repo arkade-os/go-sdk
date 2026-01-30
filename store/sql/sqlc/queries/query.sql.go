@@ -100,21 +100,20 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 
 const insertTx = `-- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet, asset_packet_version
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertTxParams struct {
-	Txid               string
-	TxidType           string
-	Amount             int64
-	Type               string
-	CreatedAt          int64
-	Hex                sql.NullString
-	SettledBy          sql.NullString
-	Settled            bool
-	AssetPacket        sql.NullString
-	AssetPacketVersion sql.NullInt64
+	Txid        string
+	TxidType    string
+	Amount      int64
+	Type        string
+	CreatedAt   int64
+	Hex         sql.NullString
+	SettledBy   sql.NullString
+	Settled     bool
+	AssetPacket sql.NullString
 }
 
 func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
@@ -128,7 +127,6 @@ func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
 		arg.SettledBy,
 		arg.Settled,
 		arg.AssetPacket,
-		arg.AssetPacketVersion,
 	)
 	return err
 }
@@ -254,7 +252,7 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 }
 
 const selectAllTxs = `-- name: SelectAllTxs :many
-SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet, asset_packet_version FROM tx
+SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet FROM tx
 `
 
 func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
@@ -276,7 +274,6 @@ func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
 			&i.Hex,
 			&i.SettledBy,
 			&i.AssetPacket,
-			&i.AssetPacketVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -421,7 +418,7 @@ func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]AssetVtxoVw, erro
 }
 
 const selectTxs = `-- name: SelectTxs :many
-SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet, asset_packet_version FROM tx
+SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet FROM tx
 WHERE txid IN (/*SLICE:txids*/?)
 `
 
@@ -454,7 +451,6 @@ func (q *Queries) SelectTxs(ctx context.Context, txids []string) ([]Tx, error) {
 			&i.Hex,
 			&i.SettledBy,
 			&i.AssetPacket,
-			&i.AssetPacketVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -555,7 +551,7 @@ const updateTx = `-- name: UpdateTx :exec
 UPDATE tx
 SET
     created_at     = COALESCE(?1, created_at),
-    settled        = CASE WHEN ?2 IS NOT NULL THEN TRUE ELSE FALSE END,
+    settled        = CASE WHEN ?2 IS NOT NULL THEN TRUE ELSE settled END,
     settled_by    = COALESCE(?2, settled_by)
 WHERE txid = ?3
 `

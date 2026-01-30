@@ -45,8 +45,8 @@ DELETE FROM asset_vtxo;
 
 -- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet, asset_packet_version
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateTx :exec
 UPDATE tx

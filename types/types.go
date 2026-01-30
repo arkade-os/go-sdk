@@ -199,7 +199,7 @@ type Transaction struct {
 	CreatedAt   time.Time
 	Hex         string
 	SettledBy   string
-	AssetPacket *asset.AssetPacket
+	AssetPacket asset.Packet
 }
 
 func (t Transaction) String() string {

@@ -107,6 +107,7 @@ var (
 					Amount: 1000,
 				},
 			},
+			Immutable: true,
 		},
 		{
 			// issuance with control asset by id
@@ -130,21 +131,22 @@ var (
 			},
 			Metadata: []asset.Metadata{
 				{
-					Key:   "ticker",
-					Value: "FRA",
+					Key:   []byte("ticker"),
+					Value: []byte("FRA"),
 				},
 				{
-					Key:   "name",
-					Value: "French token",
+					Key:   []byte("name"),
+					Value: []byte("French token"),
 				},
 			},
+			Immutable: true,
 		},
 		{
 			// issuance with control asset by group index
 			AssetId: nil,
 			Outputs: []asset.AssetOutput{
 				{
-					Type:   asset.AssetTypeIntent,
+					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 10000,
 				},
@@ -155,14 +157,15 @@ var (
 			},
 			Metadata: []asset.Metadata{
 				{
-					Key:   "ticker",
-					Value: "IT",
+					Key:   []byte("ticker"),
+					Value: []byte("IT"),
 				},
 				{
-					Key:   "name",
-					Value: "Italian token",
+					Key:   []byte("name"),
+					Value: []byte("Italian token"),
 				},
 			},
+			Immutable: true,
 		},
 		{
 			// control asset of IT asset
@@ -174,6 +177,7 @@ var (
 					Amount: 100,
 				},
 			},
+			Immutable: true,
 		},
 	}
 
@@ -295,12 +299,9 @@ var (
 			TransactionKey: types.TransactionKey{
 				ArkTxid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
-			Amount: 12000,
-			Type:   types.TxReceived,
-			AssetPacket: &asset.AssetPacket{
-				Assets:  testAssetGroups,
-				Version: asset.AssetVersion,
-			},
+			Amount:      12000,
+			Type:        types.TxReceived,
+			AssetPacket: asset.Packet(testAssetGroups),
 		},
 	}
 

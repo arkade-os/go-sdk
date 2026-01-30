@@ -27,4 +27,3 @@ SELECT vtxo.*, asset_vtxo.asset_id, asset_vtxo.amount as asset_amount
 FROM vtxo LEFT JOIN asset_vtxo ON vtxo.txid = asset_vtxo.vtxo_txid AND vtxo.vout = asset_vtxo.vtxo_vout;
 
 ALTER TABLE tx ADD COLUMN asset_packet TEXT;
-ALTER TABLE tx ADD COLUMN asset_packet_version INTEGER;

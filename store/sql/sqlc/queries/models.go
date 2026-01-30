@@ -46,16 +46,15 @@ type AssetVtxoVw struct {
 }
 
 type Tx struct {
-	Txid               string
-	TxidType           string
-	Amount             int64
-	Type               string
-	Settled            bool
-	CreatedAt          int64
-	Hex                sql.NullString
-	SettledBy          sql.NullString
-	AssetPacket        sql.NullString
-	AssetPacketVersion sql.NullInt64
+	Txid        string
+	TxidType    string
+	Amount      int64
+	Type        string
+	Settled     bool
+	CreatedAt   int64
+	Hex         sql.NullString
+	SettledBy   sql.NullString
+	AssetPacket sql.NullString
 }
 
 type Utxo struct {
