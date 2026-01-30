@@ -4296,19 +4296,21 @@ func createAssetPacket(
 		}
 	}
 
-	for _, ass := range changeReceiver.Assets {
-		if _, exists := assetTransfers[ass.AssetId]; !exists {
-			return nil, fmt.Errorf("asset %s not found in inputs", ass.AssetId)
-		}
+	if changeReceiver != nil {
+		for _, ass := range changeReceiver.Assets {
+			if _, exists := assetTransfers[ass.AssetId]; !exists {
+				return nil, fmt.Errorf("asset %s not found in inputs", ass.AssetId)
+			}
 
-		output, err := asset.NewAssetOutput(uint16(changeOutputIndex), ass.Amount)
-		if err != nil {
-			return nil, err
+			output, err := asset.NewAssetOutput(uint16(changeOutputIndex), ass.Amount)
+			if err != nil {
+				return nil, err
+			}
+			assetTransfers[ass.AssetId].outputs = append(
+				assetTransfers[ass.AssetId].outputs,
+				*output,
+			)
 		}
-		assetTransfers[ass.AssetId].outputs = append(
-			assetTransfers[ass.AssetId].outputs,
-			*output,
-		)
 	}
 
 	for receiverIndex, receiver := range receivers {
