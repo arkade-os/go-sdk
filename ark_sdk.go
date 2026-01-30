@@ -30,7 +30,7 @@ type ArkClient interface {
 		ctx context.Context, amount, controlAssetAmount uint64, metadata []asset.Metadata, opt ...Option,
 	) (string, []asset.AssetId, error)
 	SendAsset(
-		ctx context.Context, receivers []types.Receiver, assetId string, opt ...Option,
+		ctx context.Context, to string, amount uint64, assetID string, opt ...Option,
 	) (string, error)
 	ReissueAsset(
 		ctx context.Context, controlAssetId string, assetId string, amount uint64, opt ...Option,

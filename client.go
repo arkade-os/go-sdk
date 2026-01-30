@@ -282,9 +282,12 @@ func (a *arkClient) IssueAsset(
 
 	// create an ark tx sending small amount of btc to wallet's address
 	// we'll attach new asset outputs to this vout
-	baseArkTx, checkpointTxs, selectedCoins, changeReceivers, err := a.createOffchainTx(ctx, []types.Receiver{{
-		To: offchainAddrs[0].Address, Amount: a.Dust + 1,
-	}}, opts...)
+	baseArkTx, checkpointTxs, selectedCoins, changeReceiver, err := a.createOffchainTx(
+		ctx,
+		[]types.Receiver{{
+			To: offchainAddrs[0].Address, Amount: a.Dust + 1,
+		}},
+		opts...)
 	if err != nil {
 		return "", nil, err
 	}
@@ -302,14 +305,20 @@ func (a *arkClient) IssueAsset(
 		if err != nil {
 			return "", nil, err
 		}
-		controlAssetGroup, err := asset.NewAssetGroup(nil, nil, make([]asset.AssetInput, 0), []asset.AssetOutput{*controlAssetOutput}, metadata)
+		controlAssetGroup, err := asset.NewAssetGroup(
+			nil,
+			nil,
+			make([]asset.AssetInput, 0),
+			[]asset.AssetOutput{*controlAssetOutput},
+			metadata,
+		)
 		if err != nil {
 			return "", nil, err
 		}
 
 		assetGroups = append(assetGroups, *controlAssetGroup)
 		assetRef = &asset.AssetRef{
-			Type:    asset.AssetRefByGroup,
+			Type:       asset.AssetRefByGroup,
 			GroupIndex: 0,
 		}
 	}
@@ -319,7 +328,13 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	issuedAssetGroup, err := asset.NewAssetGroup(nil, assetRef, make([]asset.AssetInput, 0), []asset.AssetOutput{*issuedAssetOutput}, metadata)
+	issuedAssetGroup, err := asset.NewAssetGroup(
+		nil,
+		assetRef,
+		make([]asset.AssetInput, 0),
+		[]asset.AssetOutput{*issuedAssetOutput},
+		metadata,
+	)
 	if err != nil {
 		return "", nil, err
 	}
@@ -383,19 +398,18 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-
 	assetIds := make([]asset.AssetId, 0)
 	goupIdx := uint16(0)
 	if controlAssetAmount > 0 {
 		assetIds = append(assetIds, asset.AssetId{
-			Txid: arkPtx.UnsignedTx.TxHash(),
+			Txid:  arkPtx.UnsignedTx.TxHash(),
 			Index: goupIdx,
 		})
 		goupIdx++
 	}
 
 	assetIds = append(assetIds, asset.AssetId{
-		Txid: arkPtx.UnsignedTx.TxHash(),
+		Txid:  arkPtx.UnsignedTx.TxHash(),
 		Index: goupIdx,
 	})
 
@@ -412,7 +426,7 @@ func (a *arkClient) IssueAsset(
 		arkTxid,
 		signedCheckpointTxs,
 		selectedCoins,
-		changeReceivers,
+		[]types.DBReceiver{*changeReceiver},
 	)
 	if err != nil {
 		return "", nil, err
@@ -423,143 +437,34 @@ func (a *arkClient) IssueAsset(
 
 func (a *arkClient) SendAsset(
 	ctx context.Context,
-	receivers []types.Receiver,
-	assetId string,
+	to string,
+	amount uint64,
+	assetID string,
 	opts ...Option,
 ) (string, error) {
-
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
 
-	if len(receivers) <= 0 {
-		return "", fmt.Errorf("missing receivers")
+	if amount == 0 {
+		return "", fmt.Errorf("amount must be > 0")
 	}
 
-	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
-	if err != nil {
-		return "", err
+	receiver := types.Receiver{
+		To:     to,
+		Amount: a.Dust + 1,
+		Assets: []types.Asset{
+			{
+				AssetId: assetID,
+				Amount:  amount,
+			},
+		},
 	}
 
-	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
-
-	// Validate addresses
-	for _, receiver := range receivers {
-		addr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return "", fmt.Errorf("invalid receiver address: %s", err)
-		}
-
-		rcvSignerPubkey := schnorr.SerializePubKey(addr.Signer)
-		if !bytes.Equal(expectedSignerPubkey, rcvSignerPubkey) {
-			return "", fmt.Errorf(
-				"invalid receiver address '%s': expected signer pubkey %x, got %x",
-				receiver.To, expectedSignerPubkey, rcvSignerPubkey,
-			)
-		}
-	}
-
-	options := newDefaultSendOffChainOptions()
-	for _, opt := range opts {
-		if err := opt(options); err != nil {
-			return "", err
-		}
-	}
-
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
-
-	vtxos, err := a.getTapscripVtxos(ctx, offchainAddrs, CoinSelectOptions{
-		WithoutExpirySorting: options.withoutExpirySorting,
-	})
-
-	if err != nil {
-		return "", err
-	}
-	assetTxBuilder := NewAssetTxBuilder(
-		vtxos,
-		options.withoutExpirySorting,
-		offchainAddrs[0].Address,
-		a.Dust,
-	)
-
-	_, err = assetTxBuilder.InsertAssetGroup(assetId, receivers, false)
-	if err != nil {
-		return "", err
-	}
-
-	err = assetTxBuilder.AddSatsInputs(a.Dust)
-	if err != nil {
-		return "", err
-	}
-
-	arkTx, checkpointTxs, err := assetTxBuilder.Build(a.CheckpointExitPath())
-
-	if err != nil {
-		return "", err
-	}
-
-	signedArkTx, err := a.wallet.SignTransaction(ctx, a.explorer, arkTx)
-	if err != nil {
-		return "", err
-	}
-
-	arkTxid, signedArkTx, signedCheckpointTxs, err := a.client.SubmitTx(
-		ctx, signedArkTx, checkpointTxs,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	// validate and verify transactions returned by the server
-	if err := verifySignedArk(arkTx, signedArkTx, a.SignerPubKey); err != nil {
-		return "", err
-	}
-
-	if err := verifySignedCheckpoints(checkpointTxs, signedCheckpointTxs, a.SignerPubKey); err != nil {
-		return "", err
-	}
-
-	finalCheckpoints := make([]string, 0, len(signedCheckpointTxs))
-
-	for _, checkpoint := range signedCheckpointTxs {
-		signedTx, err := a.wallet.SignTransaction(ctx, a.explorer, checkpoint)
-		if err != nil {
-			return "", err
-		}
-		finalCheckpoints = append(finalCheckpoints, signedTx)
-	}
-
-	if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
-		return "", err
-	}
-
-	if !a.WithTransactionFeed {
-		return arkTxid, nil
-	}
-
-	spentCoins := assetTxBuilder.GetSpentInputs()
-	dbReceivers := assetTxBuilder.GetChangeReceivers()
-
-	// mark vtxos as spent and add transaction to DB before unlocking the mutex
-	err = a.saveToDatabase(
-		ctx,
-		arkTx,
-		arkTxid,
-		signedCheckpointTxs,
-		spentCoins,
-		dbReceivers,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	return arkTxid, nil
-
+	return a.SendOffChain(ctx, []types.Receiver{receiver}, opts...)
 }
 
 func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetDetails, error) {
-
 	assetDetails, err := a.indexer.GetAssetDetails(ctx, assetID)
 	if err != nil {
 		return nil, err
@@ -743,7 +648,7 @@ func (a *arkClient) BurnAsset(
 		a.Dust,
 	)
 
- if _, err = assetTxBuilder.InsertAssetGroup(assetId, []types.Receiver{{
+	if _, err = assetTxBuilder.InsertAssetGroup(assetId, []types.Receiver{{
 		To: offchainAddrs[0].Address, Amount: amount,
 	}}, false); err != nil {
 		return "", err
@@ -824,7 +729,128 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	arkTx, checkpointTxs, selectedCoins, changeReceivers, err := a.createOffchainTx(ctx, receivers, opts...)
+	baseArkTx, checkpointTxs, selectedCoins, changeReceiver, err := a.createOffchainTx(
+		ctx,
+		receivers,
+		opts...)
+	if err != nil {
+		return "", err
+	}
+
+	arkPtx, err := psbt.NewFromRawBytes(strings.NewReader(baseArkTx), true)
+	if err != nil {
+		return "", err
+	}
+
+	type assetInputsOutputs struct {
+		inputs  []asset.AssetInput
+		outputs []asset.AssetOutput
+	}
+
+	assetsInputsOutputs := make(map[string]*assetInputsOutputs)
+	for inputIndex, coin := range selectedCoins {
+		if len(coin.Assets) == 0 {
+			continue
+		}
+
+		for _, ass := range coin.Assets {
+			if _, exists := assetsInputsOutputs[ass.AssetId]; !exists {
+				assetsInputsOutputs[ass.AssetId] = &assetInputsOutputs{
+					inputs:  make([]asset.AssetInput, 0),
+					outputs: make([]asset.AssetOutput, 0),
+				}
+			}
+
+			input, err := asset.NewAssetInput(uint16(inputIndex), ass.Amount)
+			if err != nil {
+				return "", err
+			}
+			assetsInputsOutputs[ass.AssetId].inputs = append(
+				assetsInputsOutputs[ass.AssetId].inputs,
+				*input,
+			)
+		}
+	}
+
+	// change is the second to last output of the ark tx
+	// last output is the P2A output
+	changeReceiverOutputIndex := len(arkPtx.UnsignedTx.TxOut) - 2
+	for _, ass := range changeReceiver.Assets {
+		if _, exists := assetsInputsOutputs[ass.AssetId]; !exists {
+			return "", fmt.Errorf("asset %s not found in inputs", ass.AssetId)
+		}
+
+		output, err := asset.NewAssetOutput(uint16(changeReceiverOutputIndex), ass.Amount)
+		if err != nil {
+			return "", err
+		}
+		assetsInputsOutputs[ass.AssetId].outputs = append(
+			assetsInputsOutputs[ass.AssetId].outputs,
+			*output,
+		)
+	}
+
+	for receiverIndex, receiver := range receivers {
+		if len(receiver.Assets) == 0 {
+			continue
+		}
+
+		for _, ass := range receiver.Assets {
+			// add the receiver asset output
+			if _, exists := assetsInputsOutputs[ass.AssetId]; !exists {
+				return "", fmt.Errorf("asset %s not found", ass.AssetId)
+			}
+
+			output, err := asset.NewAssetOutput(uint16(receiverIndex), ass.Amount)
+			if err != nil {
+				return "", err
+			}
+			assetsInputsOutputs[ass.AssetId].outputs = append(
+				assetsInputsOutputs[ass.AssetId].outputs,
+				*output,
+			)
+		}
+	}
+
+	assetGroups := make([]asset.AssetGroup, 0)
+	for assetId, inputsOutputs := range assetsInputsOutputs {
+		assetId, err := asset.NewAssetIdFromString(assetId)
+		if err != nil {
+			return "", err
+		}
+
+		assetGroup, err := asset.NewAssetGroup(
+			assetId,
+			nil,
+			inputsOutputs.inputs,
+			inputsOutputs.outputs,
+			nil,
+		)
+		if err != nil {
+			return "", err
+		}
+		assetGroups = append(assetGroups, *assetGroup)
+	}
+
+	assetPacket, err := asset.NewPacket(assetGroups)
+	if err != nil {
+		return "", err
+	}
+
+	pkScriptPacket, err := assetPacket.Serialize()
+	if err != nil {
+		return "", err
+	}
+	// add the asset packet output, P2A should stay as last output
+	arkPtx.Outputs = append(arkPtx.Outputs, psbt.POutput{})
+	p2aOutput := arkPtx.UnsignedTx.TxOut[len(arkPtx.UnsignedTx.TxOut)-1]
+	arkPtx.UnsignedTx.TxOut[len(arkPtx.UnsignedTx.TxOut)-1] = &wire.TxOut{
+		Value:    0,
+		PkScript: pkScriptPacket,
+	}
+	arkPtx.UnsignedTx.TxOut = append(arkPtx.UnsignedTx.TxOut, p2aOutput)
+
+	arkTx, err := arkPtx.B64Encode()
 	if err != nil {
 		return "", err
 	}
@@ -870,7 +896,7 @@ func (a *arkClient) SendOffChain(
 		arkTxid,
 		signedCheckpointTxs,
 		selectedCoins,
-		changeReceivers,
+		[]types.DBReceiver{*changeReceiver},
 	)
 	if err != nil {
 		return "", err
@@ -3065,6 +3091,17 @@ func (a *arkClient) getOffchainBalance(
 		}
 	}
 
+	// remove zero balance from asset map
+	for assetId, balanceMap := range assetBalanceMap {
+		for timestamp, amount := range balanceMap {
+			if amount == 0 {
+				delete(balanceMap, timestamp)
+			}
+		}
+		if len(balanceMap) == 0 {
+			delete(assetBalanceMap, assetId)
+		}
+	}
 	return satsBalanceMap, assetBalanceMap, nil
 }
 
@@ -4194,7 +4231,7 @@ func (a *arkClient) createOffchainTx(
 	ctx context.Context,
 	receivers []types.Receiver,
 	opts ...Option,
-) (string, []string, []client.TapscriptsVtxo, []types.DBReceiver, error) {
+) (string, []string, []client.TapscriptsVtxo, *types.DBReceiver, error) {
 	if len(receivers) <= 0 {
 		return "", nil, nil, nil, fmt.Errorf("missing receivers")
 	}
@@ -4209,7 +4246,9 @@ func (a *arkClient) createOffchainTx(
 
 	for _, receiver := range receivers {
 		if receiver.IsOnchain() {
-			return "", nil, nil, nil, fmt.Errorf("all receiver addresses must be offchain addresses")
+			return "", nil, nil, nil, fmt.Errorf(
+				"all receiver addresses must be offchain addresses",
+			)
 		}
 
 		addr, err := arklib.DecodeAddressV0(receiver.To)
@@ -4263,40 +4302,74 @@ func (a *arkClient) createOffchainTx(
 		}
 	}
 
-	receiversAmount := uint64(0)
-	for _, r := range receivers {
-		receiversAmount += r.Amount
+	btcAmountToSelect := int64(0)
+	selectedCoins := make([]client.TapscriptsVtxo, 0)
+	assetChanges := make(map[string]uint64)
+
+	for _, receiver := range receivers {
+		btcAmountToSelect += int64(receiver.Amount)
+
+		if len(receiver.Assets) > 0 {
+			for _, asset := range receiver.Assets {
+				assetCoins, assetChangeAmount, err := utils.CoinSelectAsset(
+					vtxos, asset.Amount, asset.AssetId, a.Dust, options.withoutExpirySorting,
+				)
+				if err != nil {
+					return "", nil, nil, nil, err
+				}
+				selectedCoins = append(selectedCoins, assetCoins...)
+				assetChanges[asset.AssetId] += assetChangeAmount
+				for _, coin := range assetCoins {
+					btcAmountToSelect -= int64(coin.Amount)
+				}
+			}
+		}
 	}
 
-	// no fees
-	var feeEstimator *arkfee.Estimator
+	changeAmount := uint64(0)
 
-	satsFees, err := utils.CalculateFees(nil, receivers, feeEstimator)
-	if err != nil {
-		return "", nil, nil, nil, err
-	}
-
-	// do not include boarding utxos
-	_, selectedCoins, changeAmount, err := utils.CoinSelectNormal(
-		nil, vtxos, receiversAmount+satsFees, a.Dust, options.withoutExpirySorting, feeEstimator,
-	)
-	if err != nil {
-		return "", nil, nil, nil, err
-	}
-
-	var changeReceivers []types.DBReceiver
-
-	if changeAmount > 0 {
-		changeReceiver := types.Receiver{
-			To: offchainAddrs[0].Address, Amount: changeAmount,
+	if btcAmountToSelect >= 0 {
+		isZero := btcAmountToSelect == 0
+		if isZero {
+			btcAmountToSelect = int64(a.Dust)
+		}
+		// do not include boarding utxos
+		_, selectedBtcCoins, changeBtcAmount, err := utils.CoinSelectNormal(
+			nil, vtxos, uint64(btcAmountToSelect), a.Dust, options.withoutExpirySorting, nil,
+		)
+		if err != nil {
+			return "", nil, nil, nil, err
 		}
 
-		receivers = append(receivers, changeReceiver)
+		selectedCoins = append(selectedCoins, selectedBtcCoins...)
+		changeAmount = changeBtcAmount
+		if isZero {
+			changeAmount = changeBtcAmount + a.Dust
+		}
+	} else {
+		changeAmount = uint64(math.Abs(float64(btcAmountToSelect)))
+	}
 
-		changeReceivers = append(changeReceivers, types.DBReceiver{
-			Receiver: changeReceiver,
-			Index:    uint32(len(receivers) - 1),
-		})
+	var changeReceiver *types.DBReceiver
+
+	if changeAmount > 0 {
+		changeReceiver = &types.DBReceiver{
+			Receiver: types.Receiver{
+				To: offchainAddrs[0].Address, Amount: changeAmount,
+			},
+			Index:  uint32(len(receivers) - 1),
+			Assets: make([]types.DBAsset, 0),
+		}
+		if len(assetChanges) > 0 {
+			for assetID, amount := range assetChanges {
+				changeReceiver.Assets = append(changeReceiver.Assets, types.DBAsset{
+					AssetId: assetID,
+					Amount:  amount,
+				})
+			}
+		}
+
+		receivers = append(receivers, changeReceiver.Receiver)
 	}
 
 	inputs := make([]arkTxInput, 0, len(selectedCoins))
@@ -4331,5 +4404,5 @@ func (a *arkClient) createOffchainTx(
 		return "", nil, nil, nil, err
 	}
 
-	return arkTx, checkpointTxs, selectedCoins, changeReceivers, nil
+	return arkTx, checkpointTxs, selectedCoins, changeReceiver, nil
 }

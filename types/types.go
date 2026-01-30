@@ -263,7 +263,7 @@ type Receiver struct {
 	To       string
 	Amount   uint64
 	IsChange bool
-	Asset    *Asset
+	Assets   []Asset
 }
 
 type VtxoType int

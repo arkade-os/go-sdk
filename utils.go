@@ -192,7 +192,11 @@ func NewAssetTxBuilder(
 	}
 }
 
-func (b *AssetTxBuilder) InsertAssetGroup(assetIdStr string, receivers []types.Receiver, isIssuance bool) (uint16, error) {
+func (b *AssetTxBuilder) InsertAssetGroup(
+	assetIdStr string,
+	receivers []types.Receiver,
+	isIssuance bool,
+) (uint16, error) {
 	assetAmountTotal := uint64(0)
 	for _, r := range receivers {
 		assetAmountTotal += uint64(r.Amount)
@@ -356,7 +360,7 @@ func (b *AssetTxBuilder) InsertControlAsset(
 	if assetGroupIndex >= uint16(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
-	
+
 	if controlAsset != nil {
 		b.assetGroupList[assetGroupIndex].ControlAsset = &asset.AssetRef{
 			Type:    asset.AssetRefByID,
@@ -1024,12 +1028,12 @@ func createIntentAssetPacketOutput(
 	// Group outputs by asset ID so we create one AssetGroup per asset ID.
 	outputsByAssetId := make(map[string][]asset.AssetOutput)
 	for i, output := range outputs {
-		if output.Asset == nil {
+		if len(output.Assets) == 0 {
 			continue
 		}
-		assetIdStr := output.Asset.AssetId
+		assetIdStr := output.Assets[0].AssetId
 
-		assetOutput, err := asset.NewAssetOutput(uint16(i), output.Asset.Amount)
+		assetOutput, err := asset.NewAssetOutput(uint16(i), output.Assets[0].Amount)
 		if err != nil {
 			return nil, err
 		}
@@ -1046,7 +1050,10 @@ func createIntentAssetPacketOutput(
 
 		assetInputs := make([]asset.AssetInput, 0)
 		for _, input := range groupedIntentInputs[assetIdStr] {
-			assetInput, err := asset.NewAssetInput(uint16(input.AssetExtension.Index + 1), input.AssetExtension.Amount)
+			assetInput, err := asset.NewAssetInput(
+				uint16(input.AssetExtension.Index+1),
+				input.AssetExtension.Amount,
+			)
 			if err != nil {
 				return nil, err
 			}

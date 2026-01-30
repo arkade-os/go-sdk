@@ -92,14 +92,15 @@ func (a *arkClient) selectAssetFunds(
 			assetID := asst.AssetId
 			assetAmount := asst.Amount
 			if _, ok := outputs[assetID]; ok {
-				outputs[assetID].Asset.Amount += assetAmount
-
+				outputs[assetID].Assets[0].Amount += assetAmount
 			} else {
 				outputs[assetID] = types.Receiver{
 					To: offchainAddrs[0].Address,
-					Asset: &types.Asset{
-						AssetId: assetID,
-						Amount:  assetAmount,
+					Assets: []types.Asset{
+						{
+							AssetId: assetID,
+							Amount:  assetAmount,
+						},
 					},
 				}
 			}

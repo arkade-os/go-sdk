@@ -49,10 +49,8 @@ func TestAssetLifecycle(t *testing.T) {
 	const transferAmount uint64 = 1_200
 	_, err = issuer.SendAsset(
 		ctx,
-		[]types.Receiver{{
-			To:     receiverOffchainAddr,
-			Amount: transferAmount,
-		}},
+		receiverOffchainAddr,
+		transferAmount,
 		assetIds[0].String(),
 	)
 	require.NoError(t, err)
