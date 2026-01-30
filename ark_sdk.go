@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/types"
 )
 
@@ -25,9 +26,9 @@ type ArkClient interface {
 		err error,
 	)
 	NewOffchainAddress(ctx context.Context) (string, error)
-	CreateAsset(
-		ctx context.Context, request types.AssetCreationRequest, opt ...Option,
-	) (string, []string, error)
+	IssueAsset(
+		ctx context.Context, amount, controlAssetAmount uint64, metadata []asset.Metadata, opt ...Option,
+	) (string, []asset.AssetId, error)
 	SendAsset(
 		ctx context.Context, receivers []types.Receiver, assetId string, opt ...Option,
 	) (string, error)

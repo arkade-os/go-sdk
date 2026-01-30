@@ -157,12 +157,3 @@ type AssetExtension struct {
 	Amount uint64
 	Index  uint32
 }
-
-type AssetGroupOperation int
-
-const (
-	AssetGroupIssuance AssetGroupOperation = iota
-	AssetGroupTransfer
-	AssetGroupBurn
-	AssetGroupClaimTeleport
-)

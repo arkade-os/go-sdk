@@ -192,34 +192,24 @@ func NewAssetTxBuilder(
 	}
 }
 
-func (b *AssetTxBuilder) InsertAssetGroup(
-	assetIdStr string,
-	receivers []types.Receiver,
-	opType AssetGroupOperation,
-) (uint32, error) {
+func (b *AssetTxBuilder) InsertAssetGroup(assetIdStr string, receivers []types.Receiver, isIssuance bool) (uint16, error) {
 	assetAmountTotal := uint64(0)
 	for _, r := range receivers {
 		assetAmountTotal += uint64(r.Amount)
 	}
 
-	if opType == AssetGroupIssuance || opType == AssetGroupClaimTeleport {
+	if isIssuance {
 		assetAmountTotal = 0
-	}
-
-	if opType == AssetGroupBurn {
-		receivers = []types.Receiver{}
 	}
 
 	assetCoins, assetChangeAmount, err := utils.CoinSelectAsset(
 		b.vtxos, assetAmountTotal, assetIdStr, b.eVtxoAmount, b.withoutExpirySorting,
 	)
-
 	if err != nil {
 		return 0, err
 	}
 
 	inputs, err := buildArkInputs(assetCoins)
-
 	if err != nil {
 		return 0, err
 	}
@@ -301,7 +291,6 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 
 		//check if it exists already
 		if i, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
-
 			assetInputs = append(assetInputs, asset.AssetInput{
 				Type:   asset.AssetTypeLocal,
 				Vin:    uint16(i),
@@ -319,7 +308,6 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 			b.uniqueAssetInput[*in.Outpoint] = inputIndex
 			b.inputIndex++
 		}
-
 	}
 
 	newAssetGroup := asset.AssetGroup{
@@ -334,7 +322,7 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 
 	b.assetGroupIndex++
 
-	return assetGroupIndex, nil
+	return uint16(assetGroupIndex), nil
 }
 
 func (b *AssetTxBuilder) AddWitness(
@@ -361,33 +349,26 @@ func (b *AssetTxBuilder) AddWitness(
 
 }
 
-func (b *AssetTxBuilder) InsertIssuance(
-	assetGroupIndex uint32,
-	controlAsset string,
+func (b *AssetTxBuilder) InsertControlAsset(
+	assetGroupIndex uint16,
+	controlAsset *asset.AssetRef,
 ) error {
-	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+	if assetGroupIndex >= uint16(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
-	var controlAssetId *asset.AssetId
-	if controlAsset != "" {
-		cAssetId, err := asset.NewAssetIdFromString(controlAsset)
-		if err != nil {
-			return err
-		}
-		controlAssetId = cAssetId
-	}
-	if controlAssetId != nil {
+	
+	if controlAsset != nil {
 		b.assetGroupList[assetGroupIndex].ControlAsset = &asset.AssetRef{
 			Type:    asset.AssetRefByID,
-			AssetId: *controlAssetId,
+			AssetId: controlAsset.AssetId,
 		}
 	}
 
 	return nil
 }
 
-func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint32, metadata map[string]string) error {
-	if assetGroupIndex >= uint32(len(b.assetGroupList)) {
+func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint16, metadata map[string]string) error {
+	if assetGroupIndex >= uint16(len(b.assetGroupList)) {
 		return fmt.Errorf("invalid asset group index")
 	}
 
@@ -998,7 +979,7 @@ func createRegisterIntentMessage(
 		outputCounter++
 	}
 
-	assetAssetAnchor, err := createIntentAssetAnchor(inputs, outputs)
+	assetAssetAnchor, err := createIntentAssetPacketOutput(inputs, outputs)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1022,7 +1003,7 @@ func createRegisterIntentMessage(
 	return message, outputsTxOut, nil
 }
 
-func createIntentAssetAnchor(
+func createIntentAssetPacketOutput(
 	intentInputs []IntentInput,
 	outputs []types.Receiver,
 ) (*wire.TxOut, error) {
@@ -1047,11 +1028,13 @@ func createIntentAssetAnchor(
 			continue
 		}
 		assetIdStr := output.Asset.AssetId
-		outputsByAssetId[assetIdStr] = append(outputsByAssetId[assetIdStr], asset.AssetOutput{
-			Type:   asset.AssetTypeIntent,
-			Amount: output.Asset.Amount,
-			Vout:   uint16(i),
-		})
+
+		assetOutput, err := asset.NewAssetOutput(uint16(i), output.Asset.Amount)
+		if err != nil {
+			return nil, err
+		}
+
+		outputsByAssetId[assetIdStr] = append(outputsByAssetId[assetIdStr], *assetOutput)
 	}
 
 	assetgroupList := make([]asset.AssetGroup, 0)
@@ -1063,18 +1046,18 @@ func createIntentAssetAnchor(
 
 		assetInputs := make([]asset.AssetInput, 0)
 		for _, input := range groupedIntentInputs[assetIdStr] {
-			assetInputs = append(assetInputs, asset.AssetInput{
-				Type:   asset.AssetTypeLocal,
-				Vin:    uint16(input.AssetExtension.Index + 1), // +1 for the intent proof input
-				Amount: input.AssetExtension.Amount,
-			})
+			assetInput, err := asset.NewAssetInput(uint16(input.AssetExtension.Index + 1), input.AssetExtension.Amount)
+			if err != nil {
+				return nil, err
+			}
+			assetInputs = append(assetInputs, *assetInput)
 		}
 
-		assetgroupList = append(assetgroupList, asset.AssetGroup{
-			AssetId: assetId,
-			Inputs:  assetInputs,
-			Outputs: assetOutputs,
-		})
+		assetGroup, err := asset.NewAssetGroup(assetId, nil, assetInputs, assetOutputs, nil)
+		if err != nil {
+			return nil, err
+		}
+		assetgroupList = append(assetgroupList, *assetGroup)
 	}
 
 	if len(assetgroupList) == 0 {

@@ -468,7 +468,6 @@ func createAsset(ctx *cli.Context) error {
 		}
 		metadataList[k] = v
 	}
-
 	assetParams := types.AssetCreationParams{
 		Quantity:       quantity,
 		ControlAssetId: controlAssetId,

@@ -266,12 +266,6 @@ type Receiver struct {
 	Asset    *Asset
 }
 
-type AssetCreationRequest struct {
-	AssetId   string
-	Receivers []Receiver
-	Params    AssetCreationParams
-}
-
 type VtxoType int
 
 const (
@@ -363,12 +357,6 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
-}
-
-type AssetCreationParams struct {
-	Quantity       uint64
-	ControlAssetId string
-	MetadataMap    map[string]string
 }
 
 type Metadata struct {

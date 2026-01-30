@@ -10,16 +10,6 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-func buildAssetDustOutputs(
-	assetOutputMap map[string]types.Receiver,
-) []types.Receiver {
-	outputs := make([]types.Receiver, 0)
-	for _, output := range assetOutputMap {
-		outputs = append(outputs, output)
-	}
-	return outputs
-}
-
 type assetFeeTotals struct {
 	Fees       uint64
 	InputSats  uint64

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -24,22 +25,18 @@ func TestAssetLifecycle(t *testing.T) {
 	faucetOffchain(t, receiver, 0.001)
 
 	const supply uint64 = 5_000
-	createParams := types.AssetCreationParams{
-		Quantity:    supply,
-		MetadataMap: map[string]string{"name": "Test Asset", "symbol": "TST"},
-	}
-
-	_, assetIds, err := issuer.CreateAsset(
+	_, assetIds, err := issuer.IssueAsset(
 		ctx,
-		types.AssetCreationRequest{Params: createParams},
+		supply,
+		0,
+		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Test Asset")}},
 	)
-
 	require.NoError(t, err)
 	require.NotEmpty(t, assetIds)
 
 	time.Sleep(5 * time.Second) // Wait for server indexer
 
-	issuerAssetVtxo, err := getAssetVtxo(ctx, issuer, assetIds[0], supply)
+	issuerAssetVtxo, err := getAssetVtxo(ctx, issuer, assetIds[0].String(), supply)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, issuerAssetVtxo.Assets)
@@ -56,21 +53,21 @@ func TestAssetLifecycle(t *testing.T) {
 			To:     receiverOffchainAddr,
 			Amount: transferAmount,
 		}},
-		assetIds[0],
+		assetIds[0].String(),
 	)
 	require.NoError(t, err)
 
 	// Allow some time for the indexer to process the transfer
 	time.Sleep(5 * time.Second)
 
-	receiverAssetVtxo, err := getAssetVtxo(ctx, receiver, assetIds[0], transferAmount)
+	receiverAssetVtxo, err := getAssetVtxo(ctx, receiver, assetIds[0].String(), transferAmount)
 	require.NoError(t, err)
 	require.EqualValues(t, transferAmount, receiverAssetVtxo.Assets[0].Amount)
 
 	receiverBalance, err := receiver.Balance(ctx)
 	require.NoError(t, err)
 	// Verify receiver balance
-	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIds[0]]
+	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIds[0].String()]
 	require.True(t, ok)
 	require.GreaterOrEqual(t, int(assetBalance.TotalAmount), int(transferAmount))
 
@@ -90,13 +87,11 @@ func TestAssetReissuance(t *testing.T) {
 	faucetOffchain(t, issuer, 0.01)
 
 	// 1. Create Control Asset (regular asset used for control)
-	controlAssetParams := types.AssetCreationParams{
-		Quantity:    1,
-		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
-	}
-	_, assetIds, err := issuer.CreateAsset(
+	_, assetIds, err := issuer.IssueAsset(
 		ctx,
-		types.AssetCreationRequest{Params: controlAssetParams},
+		1,
+		0,
+		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Control Token")}},
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, assetIds)
@@ -105,19 +100,16 @@ func TestAssetReissuance(t *testing.T) {
 
 	controlAssetId := assetIds[0]
 
-	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId, 0)
+	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId.String(), 0)
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(1), controlVtxo.Assets[0].Amount)
 
-	targetAssetParams := types.AssetCreationParams{
-		Quantity:       5000,
-		ControlAssetId: controlVtxo.Assets[0].AssetId,
-		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
-	}
-	_, assetIds, err = issuer.CreateAsset(
+	_, assetIds, err = issuer.IssueAsset(
 		ctx,
-		types.AssetCreationRequest{Params: targetAssetParams},
+		5000,
+		1,
+		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Target Asset")}},
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, assetIds)
@@ -126,27 +118,27 @@ func TestAssetReissuance(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
+	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId.String(), 0)
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(5000), targetAssetVtxo.Assets[0].Amount)
 
 	const mintAmount uint64 = 1000
 
-	_, err = issuer.ReissueAsset(ctx, controlAssetId, targetAssetId, mintAmount)
+	_, err = issuer.ReissueAsset(ctx, controlAssetId.String(), targetAssetId.String(), mintAmount)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
 
-	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
+	_, err = getAssetVtxo(ctx, issuer, targetAssetId.String(), mintAmount)
 	require.NoError(t, err)
 
-	assetResponse, err := issuer.GetAsset(ctx, targetAssetId)
+	assetResponse, err := issuer.GetAsset(ctx, targetAssetId.String())
 	require.NoError(t, err)
 
 	require.Equal(t, assetResponse.Quantity, uint64(6000)) // Original 5000 + 1000 minted
 
-	_, err = getAssetVtxo(ctx, issuer, targetAssetId, mintAmount)
+	_, err = getAssetVtxo(ctx, issuer, targetAssetId.String(), mintAmount)
 	require.NoError(t, err)
 }
 
@@ -159,13 +151,11 @@ func TestAssetBurn(t *testing.T) {
 	faucetOffchain(t, issuer, 0.01)
 
 	// 1. Create Control Asset (regular asset used for control)
-	controlAssetParams := types.AssetCreationParams{
-		Quantity:    1,
-		MetadataMap: map[string]string{"name": "Control Token", "desc": "Controls other assets"},
-	}
-	_, assetIds, err := issuer.CreateAsset(
+	_, assetIds, err := issuer.IssueAsset(
 		ctx,
-		types.AssetCreationRequest{Params: controlAssetParams},
+		1,
+		0,
+		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Control Token")}},
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, assetIds)
@@ -174,24 +164,21 @@ func TestAssetBurn(t *testing.T) {
 
 	controlAssetId := assetIds[0]
 
-	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId, 0)
+	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId.String(), 0)
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(1), controlVtxo.Assets[0].Amount)
 
-	targetAssetParams := types.AssetCreationParams{
-		Quantity:       5000,
-		ControlAssetId: controlVtxo.Assets[0].AssetId,
-		MetadataMap:    map[string]string{"name": "Target Asset", "symbol": "TGT"},
-	}
-	_, assetIds, err = issuer.CreateAsset(
+	_, issueAssetIds, err := issuer.IssueAsset(
 		ctx,
-		types.AssetCreationRequest{Params: targetAssetParams},
+		5000,
+		1,
+		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Target Asset")}},
 	)
 	require.NoError(t, err)
-	require.NotEmpty(t, assetIds)
+	require.Len(t, issueAssetIds, 2) // [control asset, issued asset]
 
-	targetAssetId := assetIds[0]
+	targetAssetId := issueAssetIds[1].String() // index 1 = issued asset (5000 quantity)
 
 	time.Sleep(2 * time.Second)
 
@@ -202,7 +189,7 @@ func TestAssetBurn(t *testing.T) {
 
 	const burnAmount uint64 = 1500
 
-	_, err = issuer.BurnAsset(ctx, controlAssetId, targetAssetId, burnAmount)
+	_, err = issuer.BurnAsset(ctx, controlAssetId.String(), targetAssetId, burnAmount)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)
