@@ -264,18 +264,12 @@ func (a *restClient) GetAssetDetails(
 		quantity = uint64(*assetGroup.Quantity)
 	}
 
-	immutable := false
-	if assetGroup.Immutable != nil {
-		immutable = *assetGroup.Immutable
-	}
-
 	return &indexer.AssetResponse{
 		AssetId: resp.GetAssetId(),
 		Asset: indexer.AssetInfo{
-			Id:        id,
-			Quantity:  quantity,
-			Immutable: immutable,
-			Metadata:  metadata,
+			Id:       id,
+			Quantity: quantity,
+			Metadata: metadata,
 		},
 	}, nil
 }

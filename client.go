@@ -584,10 +584,9 @@ func (a *arkClient) GetAsset(ctx context.Context, assetID string) (*types.AssetD
 	}
 
 	return &types.AssetDetails{
-		ID:        assetDetails.Asset.Id,
-		Quantity:  assetDetails.Asset.Quantity,
-		Immutable: assetDetails.Asset.Immutable,
-		Metadata:  assetDetails.Asset.Metadata,
+		ID:       assetDetails.Asset.Id,
+		Quantity: assetDetails.Asset.Quantity,
+		Metadata: assetDetails.Asset.Metadata,
 	}, nil
 }
 

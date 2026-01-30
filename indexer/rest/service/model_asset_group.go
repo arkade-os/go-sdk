@@ -20,7 +20,6 @@ var _ MappedNullable = &AssetGroup{}
 // AssetGroup struct for AssetGroup
 type AssetGroup struct {
 		Id *string `json:"id,omitempty"`
-		Immutable *bool `json:"immutable,omitempty"`
 		Metadata []AssetMetadata `json:"metadata,omitempty"`
 		Quantity *int32 `json:"quantity,omitempty"`
 }
@@ -72,38 +71,6 @@ func (o *AssetGroup) HasId() bool {
 // SetId gets a reference to the given string and assigns it to the Id field.
 func (o *AssetGroup) SetId(v string) {
 	o.Id = &v
-}
-
-// GetImmutable returns the Immutable field value if set, zero value otherwise.
-func (o *AssetGroup) GetImmutable() bool {
-	if o == nil || IsNil(o.Immutable) {
-		var ret bool
-		return ret
-	}
-	return *o.Immutable
-}
-
-// GetImmutableOk returns a tuple with the Immutable field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *AssetGroup) GetImmutableOk() (*bool, bool) {
-	if o == nil || IsNil(o.Immutable) {
-		return nil, false
-	}
-	return o.Immutable, true
-}
-
-// HasImmutable returns a boolean if a field has been set.
-func (o *AssetGroup) HasImmutable() bool {
-	if o != nil && !IsNil(o.Immutable) {
-		return true
-	}
-
-	return false
-}
-
-// SetImmutable gets a reference to the given bool and assigns it to the Immutable field.
-func (o *AssetGroup) SetImmutable(v bool) {
-	o.Immutable = &v
 }
 
 // GetMetadata returns the Metadata field value if set, zero value otherwise.
@@ -182,9 +149,6 @@ func (o AssetGroup) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Id) {
 		toSerialize["id"] = o.Id
-	}
-	if !IsNil(o.Immutable) {
-		toSerialize["immutable"] = o.Immutable
 	}
 	if !IsNil(o.Metadata) {
 		toSerialize["metadata"] = o.Metadata

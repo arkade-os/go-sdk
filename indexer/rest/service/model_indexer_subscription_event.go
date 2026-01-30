@@ -24,9 +24,6 @@ type IndexerSubscriptionEvent struct {
 		Scripts []string `json:"scripts,omitempty"`
 		SpentVtxos []IndexerVtxo `json:"spentVtxos,omitempty"`
 		SweptVtxos []IndexerVtxo `json:"sweptVtxos,omitempty"`
-	// List of teleport events involved in the transaction
-		TeleportEvents []TeleportEvent `json:"teleportEvents,omitempty"`
-		TeleportHashes []string `json:"teleportHashes,omitempty"`
 		Tx *string `json:"tx,omitempty"`
 		Txid *string `json:"txid,omitempty"`
 }
@@ -208,70 +205,6 @@ func (o *IndexerSubscriptionEvent) SetSweptVtxos(v []IndexerVtxo) {
 	o.SweptVtxos = v
 }
 
-// GetTeleportEvents returns the TeleportEvents field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetTeleportEvents() []TeleportEvent {
-	if o == nil || IsNil(o.TeleportEvents) {
-		var ret []TeleportEvent
-		return ret
-	}
-	return o.TeleportEvents
-}
-
-// GetTeleportEventsOk returns a tuple with the TeleportEvents field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetTeleportEventsOk() ([]TeleportEvent, bool) {
-	if o == nil || IsNil(o.TeleportEvents) {
-		return nil, false
-	}
-	return o.TeleportEvents, true
-}
-
-// HasTeleportEvents returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasTeleportEvents() bool {
-	if o != nil && !IsNil(o.TeleportEvents) {
-		return true
-	}
-
-	return false
-}
-
-// SetTeleportEvents gets a reference to the given []TeleportEvent and assigns it to the TeleportEvents field.
-func (o *IndexerSubscriptionEvent) SetTeleportEvents(v []TeleportEvent) {
-	o.TeleportEvents = v
-}
-
-// GetTeleportHashes returns the TeleportHashes field value if set, zero value otherwise.
-func (o *IndexerSubscriptionEvent) GetTeleportHashes() []string {
-	if o == nil || IsNil(o.TeleportHashes) {
-		var ret []string
-		return ret
-	}
-	return o.TeleportHashes
-}
-
-// GetTeleportHashesOk returns a tuple with the TeleportHashes field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *IndexerSubscriptionEvent) GetTeleportHashesOk() ([]string, bool) {
-	if o == nil || IsNil(o.TeleportHashes) {
-		return nil, false
-	}
-	return o.TeleportHashes, true
-}
-
-// HasTeleportHashes returns a boolean if a field has been set.
-func (o *IndexerSubscriptionEvent) HasTeleportHashes() bool {
-	if o != nil && !IsNil(o.TeleportHashes) {
-		return true
-	}
-
-	return false
-}
-
-// SetTeleportHashes gets a reference to the given []string and assigns it to the TeleportHashes field.
-func (o *IndexerSubscriptionEvent) SetTeleportHashes(v []string) {
-	o.TeleportHashes = v
-}
-
 // GetTx returns the Tx field value if set, zero value otherwise.
 func (o *IndexerSubscriptionEvent) GetTx() string {
 	if o == nil || IsNil(o.Tx) {
@@ -360,12 +293,6 @@ func (o IndexerSubscriptionEvent) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.SweptVtxos) {
 		toSerialize["sweptVtxos"] = o.SweptVtxos
-	}
-	if !IsNil(o.TeleportEvents) {
-		toSerialize["teleportEvents"] = o.TeleportEvents
-	}
-	if !IsNil(o.TeleportHashes) {
-		toSerialize["teleportHashes"] = o.TeleportHashes
 	}
 	if !IsNil(o.Tx) {
 		toSerialize["tx"] = o.Tx

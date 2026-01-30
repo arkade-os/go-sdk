@@ -95,10 +95,9 @@ type Asset struct {
 }
 
 type AssetDetails struct {
-	ID        string
-	Quantity  uint64
-	Immutable bool
-	Metadata  map[string]string
+	ID       string
+	Quantity uint64
+	Metadata map[string]string
 }
 
 func (v Vtxo) String() string {

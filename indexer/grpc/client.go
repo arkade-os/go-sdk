@@ -498,12 +498,11 @@ func (a *grpcClient) GetAssetDetails(
 	}
 
 	assetResp := &indexer.AssetResponse{
-		AssetId: resp.GetAssetGroup().GetId(),
+		AssetId: resp.GetAssetId(),
 		Asset: indexer.AssetInfo{
-			Id:        resp.GetAssetGroup().GetId(),
-			Quantity:  resp.GetAssetGroup().GetQuantity(),
-			Immutable: resp.GetAssetGroup().GetImmutable(),
-			Metadata:  metadata,
+			Id:       resp.GetAssetGroup().GetId(),
+			Quantity: resp.GetAssetGroup().GetQuantity(),
+			Metadata: metadata,
 		},
 	}
 

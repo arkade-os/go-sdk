@@ -59,15 +59,14 @@ type Indexer interface {
 }
 
 type AssetResponse struct {
-	AssetId string    `json:"assetId"`
-	Asset   AssetInfo `json:"asset"`
+	AssetId string
+	Asset   AssetInfo
 }
 
 type AssetInfo struct {
-	Id        string            `json:"id"`
-	Quantity  uint64            `json:"quantity"`
-	Immutable bool              `json:"immutable"`
-	Metadata  map[string]string `json:"metadata"`
+	Id       string
+	Quantity uint64
+	Metadata map[string]string
 }
 
 type VtxoTreeResponse struct {
