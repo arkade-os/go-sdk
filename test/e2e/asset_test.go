@@ -130,14 +130,6 @@ func TestAssetReissuance(t *testing.T) {
 
 	_, err = getAssetVtxo(ctx, issuer, targetAssetId.String(), mintAmount)
 	require.NoError(t, err)
-
-	assetResponse, err := issuer.GetAsset(ctx, targetAssetId.String())
-	require.NoError(t, err)
-
-	require.Equal(t, assetResponse.Quantity, uint64(6000)) // Original 5000 + 1000 minted
-
-	_, err = getAssetVtxo(ctx, issuer, targetAssetId.String(), mintAmount)
-	require.NoError(t, err)
 }
 
 func TestAssetBurn(t *testing.T) {
@@ -148,54 +140,19 @@ func TestAssetBurn(t *testing.T) {
 	// Fund issuer
 	faucetOffchain(t, issuer, 0.01)
 
-	// 1. Create Control Asset (regular asset used for control)
-	_, assetIds, err := issuer.IssueAsset(
-		ctx,
-		1,
-		0,
-		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Control Token")}},
-	)
+	_, issueAssetIds, err := issuer.IssueAsset(ctx, 5000, 0, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, assetIds)
-
-	time.Sleep(2 * time.Second)
-
-	controlAssetId := assetIds[0]
-
-	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId.String(), 0)
-	require.NoError(t, err)
-
-	require.Equal(t, uint64(1), controlVtxo.Assets[0].Amount)
-
-	_, issueAssetIds, err := issuer.IssueAsset(
-		ctx,
-		5000,
-		1,
-		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Target Asset")}},
-	)
-	require.NoError(t, err)
-	require.Len(t, issueAssetIds, 2) // [control asset, issued asset]
-
-	targetAssetId := issueAssetIds[1].String() // index 1 = issued asset (5000 quantity)
+	require.Len(t, issueAssetIds, 1)
+	targetAssetId := issueAssetIds[0].String()
 
 	time.Sleep(2 * time.Second)
 
 	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
 	require.NoError(t, err)
-
 	require.Equal(t, uint64(5000), targetAssetVtxo.Assets[0].Amount)
 
-	const burnAmount uint64 = 1500
-
-	_, err = issuer.BurnAsset(ctx, controlAssetId.String(), targetAssetId, burnAmount)
+	_, err = issuer.BurnAsset(ctx, targetAssetId, 1500)
 	require.NoError(t, err)
-
-	time.Sleep(2 * time.Second)
-
-	assetResponse, err := issuer.GetAsset(ctx, targetAssetId)
-	require.NoError(t, err)
-
-	require.Equal(t, assetResponse.Quantity, uint64(3500)) // Original 5000 - 1500 burned
 }
 
 func getAssetVtxo(

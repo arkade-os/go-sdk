@@ -94,12 +94,6 @@ type Asset struct {
 	Amount  uint64
 }
 
-type AssetDetails struct {
-	ID       string
-	Quantity uint64
-	Metadata map[string]string
-}
-
 func (v Vtxo) String() string {
 	// nolint
 	b, _ := json.MarshalIndent(v, "", "  ")

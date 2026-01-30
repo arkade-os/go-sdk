@@ -36,7 +36,7 @@ type ArkClient interface {
 		ctx context.Context, controlAssetId string, assetId string, amount uint64, opt ...Option,
 	) (string, error)
 	BurnAsset(
-		ctx context.Context, controlAssetId string, assetID string, amount uint64, opt ...Option,
+		ctx context.Context, assetID string, amount uint64, opt ...Option,
 	) (string, error)
 	SendOffChain(ctx context.Context, receivers []types.Receiver, opt ...Option) (string, error)
 	RegisterIntent(
@@ -64,7 +64,6 @@ type ArkClient interface {
 	RedeemNotes(ctx context.Context, notes []string, opts ...Option) (string, error)
 	SignTransaction(ctx context.Context, tx string) (string, error)
 	NotifyIncomingFunds(ctx context.Context, address string) ([]types.Vtxo, error)
-	GetAsset(ctx context.Context, assetID string) (*types.AssetDetails, error)
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
