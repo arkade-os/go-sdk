@@ -10,6 +10,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
@@ -90,8 +91,24 @@ type Vtxo struct {
 }
 
 type Asset struct {
-	AssetId string
-	Amount  uint64
+	AssetId         string `json:"asset_id"`
+	Amount          uint64 `json:"amount"`
+	GroupIndex      uint32 `json:"group_index"`
+	ExtensionScript []byte `json:"extension_script"`
+}
+
+func ToJSON(arr []Asset) ([]byte, error) {
+	b, err := json.Marshal(arr)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func FromJSON(data []byte) ([]Asset, error) {
+	var a []Asset
+	err := json.Unmarshal(data, &a)
+	return a, err
 }
 
 type AssetDetails struct {
@@ -263,6 +280,7 @@ type Receiver struct {
 	To       string
 	Amount   uint64
 	IsChange bool
+	Index    uint32
 	Asset    *Asset
 }
 

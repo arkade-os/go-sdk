@@ -65,10 +65,9 @@ func CalculateFees(
 	return totalFees, nil
 }
 
-func CoinSelectNormal(
-	boardingUtxos []types.Utxo,
-	vtxos []client.TapscriptsVtxo,
-	amount uint64, dust uint64, withoutExpirySorting bool, feeEstimator *arkfee.Estimator,
+func CoinSelectSats(
+	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo,
+	outputs []types.Receiver, dust uint64, withoutExpirySorting bool, feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
@@ -76,12 +75,31 @@ func CoinSelectNormal(
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 
-	// Filter out asset vtxos
+	amount := uint64(0)
 	for _, vtxo := range vtxos {
-		if vtxo.Assets == nil {
-			filteredVtxos = append(filteredVtxos, vtxo)
+		// in case of pre-selected vtxos, include amount and fees right away
+		if vtxo.IsSelected {
+			if feeEstimator != nil {
+				feesForInput, err := feeEstimator.EvalOffchainInput(vtxo.ToArkFeeInput())
+				if err != nil {
+					return nil, nil, 0, err
+				}
+				amount += uint64(feesForInput.ToSatoshis())
+			}
+
+			selectedAmount += vtxo.Amount
+
+			continue
 		}
+
+		// exclude asset vtxos
+		if vtxo.Assets != nil {
+			continue
+		}
+
+		filteredVtxos = append(filteredVtxos, vtxo)
 	}
+
 	vtxos = filteredVtxos
 
 	if !withoutExpirySorting {
@@ -93,6 +111,24 @@ func CoinSelectNormal(
 		sort.SliceStable(boardingUtxos, func(i, j int) bool {
 			return boardingUtxos[i].SpendableAt.Before(boardingUtxos[j].SpendableAt)
 		})
+	}
+
+	for _, output := range outputs {
+		amount += output.Amount
+		if feeEstimator != nil {
+			var fees arkfee.FeeAmount
+			var err error
+			arkFeeOutput := output.ToArkFeeOutput()
+			if output.IsOnchain() {
+				fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
+			} else {
+				fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
+			}
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(fees.ToSatoshis())
+		}
 	}
 
 	for _, boardingUtxo := range boardingUtxos {

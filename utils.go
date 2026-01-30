@@ -158,6 +158,7 @@ func buildArkInputs(vtxos []client.TapscriptsVtxo) ([]arkTxInput, error) {
 
 type AssetTxBuilder struct {
 	vtxos                []client.TapscriptsVtxo
+	selectedVtxos        []client.TapscriptsVtxo
 	ins                  []offchain.VtxoInput
 	outs                 []*wire.TxOut
 	inputIndex           uint32
@@ -165,7 +166,7 @@ type AssetTxBuilder struct {
 	uniqueAssetInput     map[wire.OutPoint]uint32
 	withoutExpirySorting bool
 	changeAddr           string
-	changeReceivers      []types.DBReceiver
+	receivers            []types.Receiver
 	assetGroupList       []asset.AssetGroup
 	assetGroupIndex      uint32
 	eVtxoAmount          uint64
@@ -213,6 +214,11 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 	assetCoins, assetChangeAmount, err := utils.CoinSelectAsset(
 		b.vtxos, assetAmountTotal, assetIdStr, b.eVtxoAmount, b.withoutExpirySorting,
 	)
+
+	// mark selected vtxos
+	b.markSelectedInputs(assetCoins)
+
+	b.selectedVtxos = append(b.selectedVtxos, assetCoins...)
 
 	if err != nil {
 		return 0, err
@@ -266,14 +272,27 @@ func (b *AssetTxBuilder) InsertAssetGroup(
 		})
 
 		if rv.To == b.changeAddr {
-			b.changeReceivers = append(b.changeReceivers, types.DBReceiver{
-				Receiver: rv,
+			b.receivers = append(b.receivers, types.Receiver{
+				To:       rv.To,
+				Amount:   b.eVtxoAmount,
+				IsChange: true,
 				Index:    b.outputIndex,
-				Assets: []types.DBAsset{{
+				Asset: &types.Asset{
 					GroupIndex: b.assetGroupIndex,
 					AssetId:    assetIdStr,
 					Amount:     rv.Amount,
-				}},
+				},
+			})
+		} else {
+			b.receivers = append(b.receivers, types.Receiver{
+				To:     rv.To,
+				Amount: b.eVtxoAmount,
+				Index:  b.outputIndex,
+				Asset: &types.Asset{
+					GroupIndex: b.assetGroupIndex,
+					AssetId:    assetIdStr,
+					Amount:     rv.Amount,
+				},
 			})
 		}
 
@@ -404,72 +423,51 @@ func (b *AssetTxBuilder) InsertMetadata(assetGroupIndex uint32, metadata map[str
 }
 
 func (b *AssetTxBuilder) AddSatsInputs(dust uint64) error {
-	satsNeeded, isChange := b.calculateSatsNeeded()
-	if satsNeeded == 0 {
-		return nil
-	}
-
-	addr, err := arklib.DecodeAddressV0(b.changeAddr)
+	_, vtxos, changeAmount, err := utils.CoinSelectSats(nil, b.vtxos, b.receivers, dust, b.withoutExpirySorting, nil)
 	if err != nil {
 		return err
 	}
 
-	var receiver *types.Receiver
-	if isChange {
-		receiver = &types.Receiver{
-			To:     b.changeAddr,
-			Amount: satsNeeded,
-		}
-	} else {
-		_, vtxos, changeAmount, err := utils.CoinSelectNormal(nil, b.vtxos, satsNeeded, dust, b.withoutExpirySorting, nil)
+	if changeAmount >= dust {
+
+		addr, err := arklib.DecodeAddressV0(b.changeAddr)
 		if err != nil {
 			return err
 		}
 
-		if changeAmount >= dust {
-			receiver = &types.Receiver{
-				To:     b.changeAddr,
-				Amount: changeAmount,
-			}
-		}
-
-		inputs, err := buildArkInputs(vtxos)
-		if err != nil {
-			return err
-		}
-		for _, vtxo := range inputs {
-			in, err := createVtxoTxInput(vtxo)
-			if err != nil {
-				return err
-			}
-			if _, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
-				continue
-			}
-			b.ins = append(b.ins, *in)
-
-			b.uniqueAssetInput[*in.Outpoint] = b.inputIndex
-			b.inputIndex++
-		}
-
-	}
-
-	if receiver != nil {
 		changeAddrScript, err := script.P2TRScript(addr.VtxoTapKey)
 		if err != nil {
 			return err
 		}
 
 		b.outs = append(b.outs, &wire.TxOut{
-			Value:    int64(receiver.Amount),
+			Value:    int64(changeAmount),
 			PkScript: changeAddrScript,
 		})
 
-		b.changeReceivers = append(b.changeReceivers, types.DBReceiver{
-			Receiver: *receiver,
+		b.receivers = append(b.receivers, types.Receiver{
+			To:       b.changeAddr,
+			Amount:   changeAmount,
+			IsChange: true,
 			Index:    b.outputIndex,
 		})
+	}
+	inputs, err := buildArkInputs(vtxos)
+	if err != nil {
+		return err
+	}
+	for _, vtxo := range inputs {
+		in, err := createVtxoTxInput(vtxo)
+		if err != nil {
+			return err
+		}
+		if _, exists := b.uniqueAssetInput[*in.Outpoint]; exists {
+			continue
+		}
+		b.ins = append(b.ins, *in)
 
-		b.outputIndex++
+		b.uniqueAssetInput[*in.Outpoint] = b.inputIndex
+		b.inputIndex++
 	}
 
 	return nil
@@ -534,15 +532,33 @@ func (b *AssetTxBuilder) GetSpentInputs() []client.TapscriptsVtxo {
 	return spentInputs
 }
 
-func (b *AssetTxBuilder) GetChangeReceivers() []types.DBReceiver {
-	for i, rcv := range b.changeReceivers {
-		for j, asset := range rcv.Assets {
-			asset.ExtensionScript = b.extensionScript
-			rcv.Assets[j] = asset
+func (b *AssetTxBuilder) markSelectedInputs(selcectedCoins []client.TapscriptsVtxo) {
+	for i, vtxo := range b.vtxos {
+		for _, selected := range selcectedCoins {
+			if vtxo.Txid == selected.Txid && vtxo.VOut == selected.VOut {
+				b.vtxos[i].IsSelected = true
+				break
+			}
 		}
-		b.changeReceivers[i] = rcv
 	}
-	return b.changeReceivers
+}
+
+func (b *AssetTxBuilder) GetChangeReceivers() []types.Receiver {
+	changeRecievers := make([]types.Receiver, 0)
+
+	for _, rcv := range b.receivers {
+		if !rcv.IsChange {
+			continue
+		}
+
+		if rcv.Asset != nil {
+			rcv.Asset.ExtensionScript = b.extensionScript
+		}
+		changeRecievers = append(changeRecievers, rcv)
+
+	}
+
+	return changeRecievers
 }
 
 func (b *AssetTxBuilder) calculateSatsNeeded() (uint64, bool) {

@@ -106,6 +106,7 @@ type Input struct {
 type TapscriptsVtxo struct {
 	types.Vtxo
 	Tapscripts []string
+	IsSelected bool
 }
 
 func (v TapscriptsVtxo) ToArkFeeInput() arkfee.OffchainInput {
