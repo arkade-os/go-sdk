@@ -518,6 +518,10 @@ func (a *arkClient) ReissueAsset(
 		return "", err
 	}
 
+	if len(assetPacket) == 0 {
+		return "", fmt.Errorf("failed to create asset packet")
+	}
+
 	// add the reissued asset output to the asset packet
 	issuedAssetOutput, err := asset.NewAssetOutput(0, amount)
 	if err != nil {
@@ -4378,12 +4382,20 @@ func createAssetPacket(
 		assetGroups = append(assetGroups, *assetGroup)
 	}
 
+	if len(assetGroups) == 0 {
+		return nil, nil
+	}
+
 	return asset.NewPacket(assetGroups)
 }
 
 // addAssetPacket adds the asset packet output to the given ptx,
 // in case the tx must keep P2A output as last output
 func addAssetPacket(ptx *psbt.Packet, assetPacket asset.Packet) error {
+	if len(assetPacket) == 0 {
+		return nil
+	}
+
 	pkScriptPacket, err := assetPacket.Serialize()
 	if err != nil {
 		return err
