@@ -254,10 +254,9 @@ func (u *Utxo) Sequence() (uint32, error) {
 }
 
 type Receiver struct {
-	To       string
-	Amount   uint64
-	IsChange bool
-	Assets   []Asset
+	To     string
+	Amount uint64
+	Assets []Asset
 }
 
 type VtxoType int
@@ -266,19 +265,6 @@ const (
 	VtxoTypeNormal VtxoType = iota
 	VtxoTypeAsset
 )
-
-type DBReceiver struct {
-	Receiver
-	Index  uint32
-	Assets []DBAsset
-}
-
-type DBAsset struct {
-	AssetId         string
-	GroupIndex      uint32
-	Amount          uint64
-	ExtensionScript []byte
-}
 
 func (r Receiver) ToArkFeeOutput() arkfee.Output {
 	txout, _, err := r.ToTxOut()

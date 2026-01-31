@@ -2,179 +2,160 @@ package e2e
 
 import (
 	"context"
-	"fmt"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAssetLifecycle(t *testing.T) {
+// TestAssetTransfer tests the transfer of an asset between alice and bob.
+// then they both settle their funds.
+func TestAssetTransferAndRenew(t *testing.T) {
 	ctx := context.Background()
+	const supply = 5_000
+	const transferAmount = 1_200
 
-	issuer := setupClient(t)
-	receiver := setupClient(t)
+	alice := setupClient(t)
+	bob := setupClient(t)
 
-	// Fund issuer so they can pay for asset creation and transfer.
-	faucetOffchain(t, issuer, 0.002)
+	wg := &sync.WaitGroup{}
+	wg.Go(func() {
+		faucetOffchain(t, alice, 0.002)
+	})
+	wg.Go(func() {
+		faucetOffchain(t, bob, 0.001)
+	})
+	wg.Wait()
 
-	// Fund receiver so they can pay for settlement.
-	faucetOffchain(t, receiver, 0.001)
-
-	const supply uint64 = 5_000
-	_, assetIds, err := issuer.IssueAsset(
-		ctx,
-		supply,
-		0,
-		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Test Asset")}},
-	)
+	txid, assetIds, err := alice.IssueAsset(ctx, supply, 0, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, assetIds)
+	require.Len(t, assetIds, 1)
 
-	time.Sleep(5 * time.Second) // Wait for server indexer
+	assetId := assetIds[0].String()
 
-	issuerAssetVtxo, err := getAssetVtxo(ctx, issuer, assetIds[0].String(), supply)
+	assetVtxos := listVtxosWithAsset(t, alice, assetId)
+	require.Len(t, assetVtxos, 1)
+	require.Len(t, assetVtxos[0].Assets, 1)
+	require.Equal(t, supply, int(assetVtxos[0].Assets[0].Amount))
+	require.Equal(t, assetId, assetVtxos[0].Assets[0].AssetId)
+	require.Equal(t, txid, assetVtxos[0].Txid)
+
+	_, bobAddr, _, err := bob.Receive(ctx)
 	require.NoError(t, err)
+	require.NotEmpty(t, bobAddr)
 
-	require.NotEmpty(t, issuerAssetVtxo.Assets)
-	require.EqualValues(t, supply, issuerAssetVtxo.Assets[0].Amount)
-
-	_, receiverOffchainAddr, _, err := receiver.Receive(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, receiverOffchainAddr)
-
-	const transferAmount uint64 = 1_200
-	_, err = issuer.SendAsset(
-		ctx,
-		receiverOffchainAddr,
-		transferAmount,
-		assetIds[0].String(),
-	)
+	_, err = alice.SendAsset(ctx, bobAddr, transferAmount, assetId)
 	require.NoError(t, err)
 
-	// Allow some time for the indexer to process the transfer
-	time.Sleep(5 * time.Second)
+	// Allow some time for bob to receive the vtxo from indexer
+	time.Sleep(2 * time.Second)
 
-	receiverAssetVtxo, err := getAssetVtxo(ctx, receiver, assetIds[0].String(), transferAmount)
-	require.NoError(t, err)
-	require.EqualValues(t, transferAmount, receiverAssetVtxo.Assets[0].Amount)
+	receiverAssetVtxos := listVtxosWithAsset(t, bob, assetId)
+	require.Len(t, receiverAssetVtxos, 1)
+	require.Len(t, receiverAssetVtxos[0].Assets, 1)
+	require.Equal(t, transferAmount, int(receiverAssetVtxos[0].Assets[0].Amount))
+	require.Equal(t, assetId, receiverAssetVtxos[0].Assets[0].AssetId)
 
-	receiverBalance, err := receiver.Balance(ctx)
+	receiverBalance, err := bob.Balance(ctx)
 	require.NoError(t, err)
-	// Verify receiver balance
-	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetIds[0].String()]
+	require.NotNil(t, receiverBalance)
+	require.NotNil(t, receiverBalance.OffchainBalance.AssetBalances)
+
+	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetId]
 	require.True(t, ok)
-	require.GreaterOrEqual(t, int(assetBalance.TotalAmount), int(transferAmount))
+	require.Equal(t, int(assetBalance.TotalAmount), int(transferAmount))
 
-	// Final Settlement
-	_, err = issuer.Settle(ctx)
-	require.NoError(t, err)
-	_, err = receiver.Settle(ctx)
-	require.NoError(t, err)
+	var aliceErr, bobErr error
+	wg = &sync.WaitGroup{}
+	wg.Go(func() {
+		_, aliceErr = alice.Settle(ctx)
+	})
+	wg.Go(func() {
+		_, bobErr = bob.Settle(ctx)
+	})
+
+	wg.Wait()
+	require.NoError(t, aliceErr)
+	require.NoError(t, bobErr)
 }
 
+// TestAssetReissuance makes issue an asset with a control asset and then reissue it.
 func TestAssetReissuance(t *testing.T) {
 	ctx := context.Background()
 
-	issuer := setupClient(t)
+	alice := setupClient(t)
+	faucetOffchain(t, alice, 0.01)
 
-	// Fund issuer
-	faucetOffchain(t, issuer, 0.01)
-
-	// 1. Create Control Asset (regular asset used for control)
-	_, assetIds, err := issuer.IssueAsset(
-		ctx,
-		1,
-		0,
-		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Control Token")}},
-	)
+	// issue an asset with a control asset
+	_, assetIds, err := alice.IssueAsset(ctx, 1, 1, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, assetIds)
+	require.Len(t, assetIds, 2)
 
-	time.Sleep(2 * time.Second)
+	controlAssetId := assetIds[0].String()
+	assetId := assetIds[1].String()
+	require.NotEqual(t, controlAssetId, assetId)
 
-	controlAssetId := assetIds[0]
+	controlVtxos := listVtxosWithAsset(t, alice, controlAssetId)
+	require.Len(t, controlVtxos, 1)
+	require.Len(
+		t,
+		controlVtxos[0].Assets,
+		2,
+	) // should hold both the control asset and the issued asset
+	require.Equal(t, controlAssetId, controlVtxos[0].Assets[0].AssetId)
+	require.Equal(t, uint64(1), controlVtxos[0].Assets[0].Amount)
+	require.Equal(t, assetId, controlVtxos[0].Assets[1].AssetId)
+	require.Equal(t, uint64(1), controlVtxos[0].Assets[1].Amount)
 
-	controlVtxo, err := getAssetVtxo(ctx, issuer, controlAssetId.String(), 0)
-	require.NoError(t, err)
-
-	require.Equal(t, uint64(1), controlVtxo.Assets[0].Amount)
-
-	_, assetIds, err = issuer.IssueAsset(
-		ctx,
-		5000,
-		1,
-		[]asset.Metadata{{Key: []byte("name"), Value: []byte("Target Asset")}},
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, assetIds)
-
-	targetAssetId := assetIds[0]
-
-	time.Sleep(2 * time.Second)
-
-	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId.String(), 0)
+	_, err = alice.ReissueAsset(ctx, controlAssetId, assetId, 1000)
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(5000), targetAssetVtxo.Assets[0].Amount)
-
-	const mintAmount uint64 = 1000
-
-	_, err = issuer.ReissueAsset(ctx, controlAssetId.String(), targetAssetId.String(), mintAmount)
-	require.NoError(t, err)
-
-	time.Sleep(2 * time.Second)
-
-	_, err = getAssetVtxo(ctx, issuer, targetAssetId.String(), mintAmount)
-	require.NoError(t, err)
+	assetVtxos := listVtxosWithAsset(t, alice, assetId)
+	require.Len(t, assetVtxos, 2)
 }
 
 func TestAssetBurn(t *testing.T) {
 	ctx := context.Background()
 
-	issuer := setupClient(t)
+	alice := setupClient(t)
+	faucetOffchain(t, alice, 0.01)
 
-	// Fund issuer
-	faucetOffchain(t, issuer, 0.01)
-
-	_, issueAssetIds, err := issuer.IssueAsset(ctx, 5000, 0, nil)
+	_, assetIds, err := alice.IssueAsset(ctx, 5000, 0, nil)
 	require.NoError(t, err)
-	require.Len(t, issueAssetIds, 1)
-	targetAssetId := issueAssetIds[0].String()
+	require.Len(t, assetIds, 1)
+	assetId := assetIds[0].String()
 
-	time.Sleep(2 * time.Second)
+	assetVtxos := listVtxosWithAsset(t, alice, assetId)
+	require.Len(t, assetVtxos, 1)
+	require.Len(t, assetVtxos[0].Assets, 1)
+	require.Equal(t, uint64(5000), assetVtxos[0].Assets[0].Amount)
 
-	targetAssetVtxo, err := getAssetVtxo(ctx, issuer, targetAssetId, 0)
+	_, err = alice.BurnAsset(ctx, assetId, 1500)
 	require.NoError(t, err)
-	require.Equal(t, uint64(5000), targetAssetVtxo.Assets[0].Amount)
 
-	_, err = issuer.BurnAsset(ctx, targetAssetId, 1500)
-	require.NoError(t, err)
+	assetVtxos = listVtxosWithAsset(t, alice, assetId)
+	require.Len(t, assetVtxos, 1)
+	require.Len(t, assetVtxos[0].Assets, 1)
+	require.Equal(t, uint64(3500), assetVtxos[0].Assets[0].Amount)
 }
 
-func getAssetVtxo(
-	ctx context.Context,
-	client arksdk.ArkClient,
-	assetID string,
-	amount uint64,
-) (types.Vtxo, error) {
-	vtxos, err := client.ListSpendableVtxos(ctx)
-	if err != nil {
-		return types.Vtxo{}, err
-	}
+func listVtxosWithAsset(t *testing.T, client arksdk.ArkClient, assetID string) []types.Vtxo {
+	vtxos, err := client.ListSpendableVtxos(t.Context())
+	require.NoError(t, err)
+
+	assetVtxos := make([]types.Vtxo, 0, len(vtxos))
 
 	for _, vtxo := range vtxos {
 		for _, asset := range vtxo.Assets {
 			if asset.AssetId == assetID {
-				if amount == 0 || asset.Amount >= amount {
-					return vtxo, nil
-				}
+				assetVtxos = append(assetVtxos, vtxo)
+				break
 			}
 		}
 	}
 
-	return types.Vtxo{}, fmt.Errorf("no suitable vtxo found for asset %s", assetID)
+	return assetVtxos
 }
