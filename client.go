@@ -3965,7 +3965,6 @@ func (a *arkClient) createOffchainTx(
 	}
 
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
-	sumOfReceivers := uint64(0)
 
 	for _, receiver := range receivers {
 		if receiver.IsOnchain() {
@@ -3986,8 +3985,6 @@ func (a *arkClient) createOffchainTx(
 				receiver.To, expectedSignerPubkey, rcvSignerPubkey,
 			)
 		}
-
-		sumOfReceivers += receiver.Amount
 	}
 
 	options := newDefaultSendOffChainOptions()
