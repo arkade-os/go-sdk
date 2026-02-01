@@ -480,9 +480,9 @@ func (a *grpcClient) GetBatchSweepTxs(
 	return resp.GetSweptBy(), nil
 }
 
-func (a *grpcClient) GetAssetDetails(
-	ctx context.Context, assetID string,
-) (*indexer.AssetResponse, error) {
+func (a *grpcClient) GetAssetDetails(ctx context.Context, assetID string) (
+	*indexer.AssetInfo, error,
+) {
 	req := &arkv1.GetAssetGroupRequest{
 		AssetId: assetID,
 	}
@@ -492,21 +492,18 @@ func (a *grpcClient) GetAssetDetails(
 		return nil, err
 	}
 
+	group := resp.GetAssetGroup()
+
 	metadata := make(map[string]string)
-	for _, mt := range resp.GetAssetGroup().GetMetadata() {
-		metadata[mt.Key] = mt.Value
+	for _, mt := range group.GetMetadata() {
+		metadata[mt.GetKey()] = mt.GetValue()
 	}
 
-	assetResp := &indexer.AssetResponse{
-		AssetId: resp.GetAssetId(),
-		Asset: indexer.AssetInfo{
-			Id:       resp.GetAssetGroup().GetId(),
-			Quantity: resp.GetAssetGroup().GetQuantity(),
-			Metadata: metadata,
-		},
-	}
-
-	return assetResp, nil
+	return &indexer.AssetInfo{
+		AssetId:  resp.GetAssetId(),
+		Quantity: group.GetQuantity(),
+		Metadata: metadata,
+	}, nil
 }
 
 func (a *grpcClient) GetSubscription(

@@ -237,9 +237,9 @@ func (a *restClient) GetConnectors(
 	}, nil
 }
 
-func (a *restClient) GetAssetDetails(
-	ctx context.Context, assetID string,
-) (*indexer.AssetResponse, error) {
+func (a *restClient) GetAssetDetails(ctx context.Context, assetID string) (
+	*indexer.AssetInfo, error,
+) {
 	req := a.svc.IndexerServiceAPI.IndexerServiceGetAssetGroup(ctx, assetID)
 
 	resp, _, err := req.Execute()
@@ -254,23 +254,15 @@ func (a *restClient) GetAssetDetails(
 		metadata[mt.GetKey()] = mt.GetValue()
 	}
 
-	id := ""
-	if assetGroup.Id != nil {
-		id = *assetGroup.Id
-	}
-
 	quantity := uint64(0)
 	if assetGroup.Quantity != nil {
 		quantity = uint64(*assetGroup.Quantity)
 	}
 
-	return &indexer.AssetResponse{
-		AssetId: resp.GetAssetId(),
-		Asset: indexer.AssetInfo{
-			Id:       id,
-			Quantity: quantity,
-			Metadata: metadata,
-		},
+	return &indexer.AssetInfo{
+		AssetId:  resp.GetAssetId(),
+		Quantity: quantity,
+		Metadata: metadata,
 	}, nil
 }
 
