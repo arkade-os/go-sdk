@@ -47,7 +47,13 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddr)
 
-	_, err = alice.SendAsset(ctx, bobAddr, transferAmount, assetId)
+	_, err = alice.SendOffChain(
+		ctx, []types.Receiver{
+			{To: bobAddr, Amount: 400, Assets: []types.Asset{
+				{AssetId: assetId, Amount: transferAmount},
+			}},
+		},
+	)
 	require.NoError(t, err)
 
 	// Allow some time for bob to receive the vtxo from indexer

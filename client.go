@@ -429,35 +429,6 @@ func (a *arkClient) IssueAsset(
 	return arkTxid, assetIds, nil
 }
 
-func (a *arkClient) SendAsset(
-	ctx context.Context,
-	to string,
-	amount uint64,
-	assetID string,
-	opts ...Option,
-) (string, error) {
-	if err := a.safeCheck(); err != nil {
-		return "", err
-	}
-
-	if amount == 0 {
-		return "", fmt.Errorf("amount must be > 0")
-	}
-
-	receiver := types.Receiver{
-		To:     to,
-		Amount: a.Dust + 1,
-		Assets: []types.Asset{
-			{
-				AssetId: assetID,
-				Amount:  amount,
-			},
-		},
-	}
-
-	return a.SendOffChain(ctx, []types.Receiver{receiver}, opts...)
-}
-
 func (a *arkClient) ReissueAsset(
 	ctx context.Context, controlAssetId, assetId string, amount uint64, opts ...Option,
 ) (string, error) {
