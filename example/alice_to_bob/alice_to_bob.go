@@ -76,7 +76,7 @@ func main() {
 	}
 
 	log.Infof("alice onchain balance: %d", aliceBalance.OnchainBalance.SpendableAmount)
-	log.Infof("alice offchain balance: %d", aliceBalance.OffchainBalance.SatsBalance.TotalAmount)
+	log.Infof("alice offchain balance: %d", aliceBalance.OffchainBalance.Total)
 
 	log.Infof("alice is settling the onboard funds...")
 	txid, err := aliceArkClient.Settle(ctx)
@@ -112,7 +112,7 @@ func main() {
 	}
 
 	log.Infof("bob onchain balance: %d", bobBalance.OnchainBalance.SpendableAmount)
-	log.Infof("bob offchain balance: %d", bobBalance.OffchainBalance.SatsBalance.TotalAmount)
+	log.Infof("bob offchain balance: %d", bobBalance.OffchainBalance.Total)
 
 	amount := uint64(1000)
 	receivers := []types.Receiver{{To: bobOffchainAddr, Amount: amount}}
@@ -139,7 +139,7 @@ func main() {
 
 	fmt.Println("")
 	log.Infof("alice onchain balance: %d", aliceBalance.OnchainBalance.SpendableAmount)
-	log.Infof("alice offchain balance: %d", aliceBalance.OffchainBalance.SatsBalance.TotalAmount)
+	log.Infof("alice offchain balance: %d", aliceBalance.OffchainBalance.Total)
 
 	bobBalance, err = bobArkClient.Balance(ctx)
 	if err != nil {
@@ -147,7 +147,7 @@ func main() {
 	}
 
 	log.Infof("bob onchain balance: %d", bobBalance.OnchainBalance.SpendableAmount)
-	log.Infof("bob offchain balance: %d", bobBalance.OffchainBalance.SatsBalance.TotalAmount)
+	log.Infof("bob offchain balance: %d", bobBalance.OffchainBalance.Total)
 
 	fmt.Println("")
 	log.Info("bob is settling the received funds...")

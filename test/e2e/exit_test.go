@@ -24,12 +24,12 @@ func TestCollaborativeExit(t *testing.T) {
 			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
-			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)
+			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 
 			bobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
+			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
 			bobOnchainAddr, _, _, err := bob.Receive(ctx)
@@ -64,21 +64,21 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
 			require.True(t, bobConfirmedUtxo.IsConfirmed())
 
-			prevTotalBalance := int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount)
+			prevTotalBalance := int(aliceBalance.OffchainBalance.Total)
 			aliceBalance, err = alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
-			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)
+			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 			require.Less(
 				t,
-				int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount),
+				int(aliceBalance.OffchainBalance.Total),
 				prevTotalBalance,
 			)
 
 			bobBalance, err = bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
+			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 			require.Equal(t, 21000, int(bobBalance.OnchainBalance.SpendableAmount))
 		})
@@ -95,13 +95,13 @@ func TestCollaborativeExit(t *testing.T) {
 			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
-			require.Greater(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount), 0)
+			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
 			bobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
+			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
 			bobOnchainAddr, _, _, err := bob.Receive(ctx)
@@ -139,13 +139,13 @@ func TestCollaborativeExit(t *testing.T) {
 			aliceBalance, err = alice.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, aliceBalance)
-			require.Zero(t, int(aliceBalance.OffchainBalance.SatsBalance.TotalAmount))
+			require.Zero(t, int(aliceBalance.OffchainBalance.Total))
 			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
 			bobBalance, err = bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.SatsBalance.TotalAmount))
+			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Equal(t, 21000, int(bobBalance.OnchainBalance.SpendableAmount))
 		})
 	})
@@ -245,7 +245,7 @@ func TestUnilateralExit(t *testing.T) {
 		bobBalance, err := bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
-		require.Zero(t, bobBalance.OffchainBalance.SatsBalance.TotalAmount)
+		require.Zero(t, bobBalance.OffchainBalance.Total)
 		require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)

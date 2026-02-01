@@ -82,11 +82,6 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, ErrNotInitialized
 	}
 
-	// Ensure a sane default polling interval when tracking is enabled to avoid zero-duration tickers.
-	if cfgData.ExplorerTrackingPollInterval == 0 {
-		cfgData.ExplorerTrackingPollInterval = 10 * time.Second
-	}
-
 	clientSvc, err := getClient(
 		supportedClients, cfgData.ClientType, cfgData.ServerUrl,
 	)
@@ -157,10 +152,6 @@ func LoadArkClientWithWallet(
 	}
 	if cfgData == nil {
 		return nil, ErrNotInitialized
-	}
-
-	if cfgData.ExplorerTrackingPollInterval == 0 {
-		cfgData.ExplorerTrackingPollInterval = 10 * time.Second
 	}
 
 	clientSvc, err := getClient(
@@ -865,16 +856,7 @@ func (a *arkClient) RedeemNotes(
 		Amount: amount,
 	}}
 
-	commitmentId, err := a.joinBatchWithRetry(
-		ctx,
-		notes,
-		receiversOutput,
-		*options,
-		nil,
-		nil,
-	)
-
-	return commitmentId, err
+	return a.joinBatchWithRetry(ctx, notes, receiversOutput, *options, nil, nil)
 }
 
 func (a *arkClient) Unroll(ctx context.Context) error {
@@ -1068,16 +1050,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	commitmentId, err := a.joinBatchWithRetry(
-		ctx,
-		nil,
-		outputs,
-		*options,
-		vtxos,
-		boardingUtxos,
-	)
-
-	return commitmentId, err
+	return a.joinBatchWithRetry(ctx, nil, outputs, *options, vtxos, boardingUtxos)
 }
 
 func (a *arkClient) Settle(ctx context.Context, opts ...Option) (string, error) {
@@ -1108,12 +1081,8 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]types.Transact
 }
 
 func (a *arkClient) RegisterIntent(
-	ctx context.Context,
-	vtxos []types.Vtxo,
-	boardingUtxos []types.Utxo,
-	notes []string,
-	outputs []types.Receiver,
-	cosignersPublicKeys []string,
+	ctx context.Context, vtxos []types.Vtxo, boardingUtxos []types.Utxo, notes []string,
+	outputs []types.Receiver, cosignersPublicKeys []string,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -1134,7 +1103,6 @@ func (a *arkClient) RegisterIntent(
 	proofTx, message, err := a.makeRegisterIntent(
 		inputs, tapLeaves, outputs, cosignersPublicKeys, arkFields,
 	)
-
 	if err != nil {
 		return "", err
 	}
@@ -1527,6 +1495,9 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	default:
 	}
 
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
 	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.listVtxosFromIndexer(ctx)
 	if err != nil {
@@ -1543,9 +1514,6 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
 
 	spendableUtxos := make([]types.Utxo, 0, len(allUtxos))
 	spentUtxos := make([]types.Utxo, 0, len(allUtxos))
@@ -1815,60 +1783,36 @@ func (a *arkClient) refreshVtxoDb(
 	return nil
 }
 
-func (a *arkClient) getBalanceFromStore(
-	ctx context.Context,
-) (*Balance, error) {
+func (a *arkClient) getBalanceFromStore(ctx context.Context) (*Balance, error) {
+	balance := &Balance{
+		OnchainBalance: OnchainBalance{
+			SpendableAmount: 0,
+			LockedAmount:    make([]LockedOnchainBalance, 0),
+		},
+		OffchainBalance: OffchainBalance{
+			Total:          0,
+			NextExpiration: "",
+			Details:        make([]VtxoDetails, 0),
+		},
+		AssetBalances: make(map[string]uint64, 0),
+	}
 
-	satsBalanceMap, assetBalanceMap, err := a.getOffchainBalance(ctx)
+	// offchain balance
+	offchainBalance, amountByExpiration, assetBalances, err := a.getOffchainBalance(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Sats offchain details
-	nextExpiration, satsVtxos := getOffchainBalanceDetails(satsBalanceMap)
-	var satsBalance uint64
-	for _, amt := range satsBalanceMap {
-		satsBalance += amt
-	}
-
-	// Asset offchain details
-	asstVtxoMap := make(map[string]OffchainBalance)
-	for assetID, assetExpMap := range assetBalanceMap {
-		assetNextExpiration, assetVtxos := getOffchainBalanceDetails(assetExpMap)
-
-		var assetTotal uint64
-		for _, amt := range assetExpMap {
-			assetTotal += amt
-		}
-
-		asstVtxoMap[assetID] = OffchainBalance{
-			TotalAmount:    assetTotal,
-			NextExpiration: getFancyTimeExpiration(assetNextExpiration),
-			Details:        assetVtxos,
-		}
-	}
-
-	offchainTotal := TotalOffchainBalance{
-		SatsBalance: OffchainBalance{
-			TotalAmount:    satsBalance,
-			NextExpiration: getFancyTimeExpiration(nextExpiration),
-			Details:        satsVtxos,
-		},
-		AssetBalances: asstVtxoMap,
-	}
-
-	// --- Branch 1: no UTXO max => only offchain balance ----------------------
+	nextExpiration, details := getOffchainBalanceDetails(amountByExpiration)
+	balance.OffchainBalance.Total = offchainBalance
+	balance.OffchainBalance.NextExpiration = getFancyTimeExpiration(nextExpiration)
+	balance.OffchainBalance.Details = details
+	balance.AssetBalances = assetBalances
 
 	if a.UtxoMaxAmount == 0 {
-		return &Balance{
-			OffchainBalance: offchainTotal,
-		}, nil
+		return balance, nil
 	}
 
-	onchainBalance := OnchainBalance{
-		SpendableAmount: 0,
-		LockedAmount:    []LockedOnchainBalance{},
-	}
 	// onchain balance
 	utxoStore := a.store.UtxoStore()
 	utxos, _, err := utxoStore.GetAllUtxos(ctx)
@@ -1883,12 +1827,12 @@ func (a *arkClient) getBalanceFromStore(
 		}
 
 		if now.After(utxo.SpendableAt) {
-			onchainBalance.SpendableAmount += utxo.Amount
+			balance.OnchainBalance.SpendableAmount += utxo.Amount
 			continue
 		}
 
-		onchainBalance.LockedAmount = append(
-			onchainBalance.LockedAmount,
+		balance.OnchainBalance.LockedAmount = append(
+			balance.OnchainBalance.LockedAmount,
 			LockedOnchainBalance{
 				SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
 				Amount:      utxo.Amount,
@@ -1896,10 +1840,7 @@ func (a *arkClient) getBalanceFromStore(
 		)
 	}
 
-	return &Balance{
-		OnchainBalance:  onchainBalance,
-		OffchainBalance: offchainTotal,
-	}, nil
+	return balance, nil
 }
 
 func (a *arkClient) getBalanceFromExplorer(ctx context.Context) (*Balance, error) {
@@ -1912,129 +1853,108 @@ func (a *arkClient) getBalanceFromExplorer(ctx context.Context) (*Balance, error
 		return nil, err
 	}
 
-	// --- Common: compute offchain sats + assets once -------------------------
-
-	satsBalanceMap, assetBalanceMap, err := a.getOffchainBalance(
-		ctx,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Sats offchain details
-	nextExpiration, satsVtxos := getOffchainBalanceDetails(satsBalanceMap)
-	var satsBalance uint64
-	for _, amt := range satsBalanceMap {
-		satsBalance += amt
-	}
-
-	// Asset offchain details
-	asstVtxoMap := make(map[string]OffchainBalance)
-	for assetID, assetExpMap := range assetBalanceMap {
-		assetNextExpiration, assetVtxos := getOffchainBalanceDetails(assetExpMap)
-
-		var assetTotal uint64
-		for _, amt := range assetExpMap {
-			assetTotal += amt
-		}
-
-		asstVtxoMap[assetID] = OffchainBalance{
-			TotalAmount:    assetTotal,
-			NextExpiration: getFancyTimeExpiration(assetNextExpiration),
-			Details:        assetVtxos,
-		}
-	}
-
-	offchainTotal := TotalOffchainBalance{
-		SatsBalance: OffchainBalance{
-			TotalAmount:    satsBalance,
-			NextExpiration: getFancyTimeExpiration(nextExpiration),
-			Details:        satsVtxos,
-		},
-		AssetBalances: asstVtxoMap,
-	}
-
-	// --- Branch 1: no UTXO max => only offchain balance ----------------------
-
 	if a.UtxoMaxAmount == 0 {
+		balance, amountByExpiration, assetBalances, err := a.getOffchainBalance(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		nextExpiration, details := getOffchainBalanceDetails(amountByExpiration)
+
 		return &Balance{
-			OffchainBalance: offchainTotal,
+			OffchainBalance: OffchainBalance{
+				Total:          balance,
+				NextExpiration: getFancyTimeExpiration(nextExpiration),
+				Details:        details,
+			},
+			AssetBalances: assetBalances,
 		}, nil
 	}
 
-	// --- Branch 2: UtxoMaxAmount > 0 => add onchain explorer balances --------
+	const nbWorkers = 4
+	wg := &sync.WaitGroup{}
+	wg.Add(nbWorkers * len(offchainAddrs)) // TODO fix for HD wallet
 
-	type balanceRes struct {
-		onchainSpendableBalance uint64
-		onchainLockedBalance    map[int64]uint64
-		err                     error
-	}
+	chRes := make(chan balanceRes, nbWorkers*len(offchainAddrs))
 
-	chRes := make(chan balanceRes)
-	var wg sync.WaitGroup
-
-	// 1) Plain onchain UTXOs (spendable)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		var totalOnchainBalance uint64
-		for _, addr := range onchainAddrs {
-			utxos, err := a.explorer.GetUtxos(addr)
-			if err != nil {
-				chRes <- balanceRes{err: err}
-				return
-			}
-			for _, utxo := range utxos {
-				totalOnchainBalance += utxo.Amount
-			}
-		}
-		chRes <- balanceRes{onchainSpendableBalance: totalOnchainBalance}
-	}()
-
-	// helper for delayed (locked) balances
-	getDelayedBalance := func(addr string) {
-		defer wg.Done()
-
-		spendableBalance, lockedBalance, err := a.explorer.GetRedeemedVtxosBalance(
-			addr, a.UnilateralExitDelay,
-		)
-		if err != nil {
-			chRes <- balanceRes{err: err}
-			return
-		}
-
-		chRes <- balanceRes{
-			onchainSpendableBalance: spendableBalance,
-			onchainLockedBalance:    lockedBalance,
-		}
-	}
-
-	// 2) Locked balances for all boarding / redeem addresses
 	for i := range offchainAddrs {
 		boardingAddr := boardingAddrs[i]
 		redeemAddr := redeemAddrs[i]
 
-		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			balance, amountByExpiration, assetBalances, err := a.getOffchainBalance(ctx)
+			if err != nil {
+				chRes <- balanceRes{err: err}
+				return
+			}
+
+			chRes <- balanceRes{
+				offchainBalance:             balance,
+				offchainBalanceByExpiration: amountByExpiration,
+				assetBalances:               assetBalances,
+			}
+		}()
+
+		getDelayedBalance := func(addr string) {
+			defer wg.Done()
+
+			spendableBalance, lockedBalance, err := a.explorer.GetRedeemedVtxosBalance(
+				addr, a.UnilateralExitDelay,
+			)
+			if err != nil {
+				chRes <- balanceRes{err: err}
+				return
+			}
+
+			chRes <- balanceRes{
+				onchainSpendableBalance: spendableBalance,
+				onchainLockedBalance:    lockedBalance,
+				err:                     err,
+			}
+		}
+
+		go func() {
+			defer wg.Done()
+			totalOnchainBalance := uint64(0)
+			for _, addr := range onchainAddrs {
+				utxos, err := a.explorer.GetUtxos(addr)
+				balance := uint64(0)
+				for _, utxo := range utxos {
+					balance += utxo.Amount
+				}
+				if err != nil {
+					chRes <- balanceRes{err: err}
+					return
+				}
+				totalOnchainBalance += balance
+			}
+			chRes <- balanceRes{onchainSpendableBalance: totalOnchainBalance}
+		}()
+
 		go getDelayedBalance(boardingAddr.Address)
 		go getDelayedBalance(redeemAddr.Address)
 	}
 
-	// close channel when all workers done
-	go func() {
-		wg.Wait()
-		close(chRes)
-	}()
+	wg.Wait()
 
-	var onchainSpendable uint64
 	lockedOnchainBalance := []LockedOnchainBalance{}
-
+	details := make([]VtxoDetails, 0)
+	offchainBalance, onchainBalance := uint64(0), uint64(0)
+	nextExpiration := int64(0)
+	assetBalances := make(map[string]uint64, 0)
+	count := 0
 	for res := range chRes {
 		if res.err != nil {
 			return nil, res.err
 		}
-
-		onchainSpendable += res.onchainSpendableBalance
+		if res.offchainBalance > 0 {
+			offchainBalance = res.offchainBalance
+		}
+		if res.onchainSpendableBalance > 0 {
+			onchainBalance += res.onchainSpendableBalance
+		}
+		nextExpiration, details = getOffchainBalanceDetails(res.offchainBalanceByExpiration)
 
 		if res.onchainLockedBalance != nil {
 			for timestamp, amount := range res.onchainLockedBalance {
@@ -2048,14 +1968,35 @@ func (a *arkClient) getBalanceFromExplorer(ctx context.Context) (*Balance, error
 				)
 			}
 		}
+
+		if res.assetBalances != nil {
+			for assetId, amount := range res.assetBalances {
+				if _, ok := assetBalances[assetId]; !ok {
+					assetBalances[assetId] = amount
+					continue
+				}
+
+				assetBalances[assetId] += amount
+			}
+		}
+
+		count++
+		if count == nbWorkers {
+			break
+		}
 	}
 
 	return &Balance{
 		OnchainBalance: OnchainBalance{
-			SpendableAmount: onchainSpendable,
+			SpendableAmount: onchainBalance,
 			LockedAmount:    lockedOnchainBalance,
 		},
-		OffchainBalance: offchainTotal, // ✅ sats + assets populated here too
+		OffchainBalance: OffchainBalance{
+			Total:          offchainBalance,
+			NextExpiration: getFancyTimeExpiration(nextExpiration),
+			Details:        details,
+		},
+		AssetBalances: assetBalances,
 	}, nil
 }
 
@@ -2983,50 +2924,42 @@ func (a *arkClient) getRedeemBranches(
 	return redeemBranches, nil
 }
 
-func (a *arkClient) getOffchainBalance(
-	ctx context.Context,
-) (map[int64]uint64, map[string]map[int64]uint64, error) {
+func (a *arkClient) getOffchainBalance(ctx context.Context) (
+	balance uint64, amountByExpiration map[int64]uint64, assetBalances map[string]uint64, err error) {
 	opts := &CoinSelectOptions{WithRecoverableVtxos: true}
-	vtxos, err := a.getVtxos(ctx, opts)
+	assetBalances = make(map[string]uint64, 0)
+	amountByExpiration = make(map[int64]uint64, 0)
+
+	var vtxos []types.Vtxo
+	vtxos, err = a.getVtxos(ctx, opts)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
-	satsBalanceMap := make(map[int64]uint64, 0)
-	assetBalanceMap := make(map[string]map[int64]uint64, 0)
 
 	for _, vtxo := range vtxos {
-		vtxoExpires := vtxo.ExpiresAt.Unix()
-		if len(vtxo.Assets) > 0 {
-			for _, asst := range vtxo.Assets {
-				assetIdHex := asst.AssetId
-				if _, ok := assetBalanceMap[assetIdHex]; !ok {
-					assetBalanceMap[assetIdHex] = make(map[int64]uint64)
-					assetBalanceMap[assetIdHex][vtxoExpires] = 0
-				}
+		balance += vtxo.Amount
 
-				assetBalanceMap[assetIdHex][vtxoExpires] += asst.Amount
-			}
-		} else {
-			if _, ok := satsBalanceMap[vtxoExpires]; !ok {
-				satsBalanceMap[vtxoExpires] = 0
+		if !vtxo.ExpiresAt.IsZero() {
+			expiration := vtxo.ExpiresAt.Unix()
+
+			if _, ok := amountByExpiration[expiration]; !ok {
+				amountByExpiration[expiration] = 0
 			}
 
-			satsBalanceMap[vtxoExpires] += vtxo.Amount
+			amountByExpiration[expiration] += vtxo.Amount
+		}
+
+		for _, a := range vtxo.Assets {
+			if _, ok := assetBalances[a.AssetId]; !ok {
+				assetBalances[a.AssetId] = a.Amount
+				continue
+			}
+
+			assetBalances[a.AssetId] += a.Amount
 		}
 	}
 
-	// remove zero balance from asset map
-	for assetId, balanceMap := range assetBalanceMap {
-		for timestamp, amount := range balanceMap {
-			if amount == 0 {
-				delete(balanceMap, timestamp)
-			}
-		}
-		if len(balanceMap) == 0 {
-			delete(assetBalanceMap, assetId)
-		}
-	}
-	return satsBalanceMap, assetBalanceMap, nil
+	return
 }
 
 func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]types.Utxo, error) {

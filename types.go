@@ -99,8 +99,9 @@ func (a InitWithWalletArgs) validate() error {
 }
 
 type Balance struct {
-	OnchainBalance  OnchainBalance       `json:"onchain_balance"`
-	OffchainBalance TotalOffchainBalance `json:"offchain_balance"`
+	OnchainBalance  OnchainBalance    `json:"onchain_balance"`
+	OffchainBalance OffchainBalance   `json:"offchain_balance"`
+	AssetBalances   map[string]uint64 `json:"asset_balances,omitempty"`
 }
 
 type OnchainBalance struct {
@@ -113,13 +114,8 @@ type LockedOnchainBalance struct {
 	Amount      uint64 `json:"amount"`
 }
 
-type TotalOffchainBalance struct {
-	SatsBalance   OffchainBalance            `json:"sats_balance"`
-	AssetBalances map[string]OffchainBalance `json:"asset_balances,omitempty"`
-}
-
 type OffchainBalance struct {
-	TotalAmount    uint64        `json:"total_amount"`
+	Total          uint64        `json:"total"`
 	NextExpiration string        `json:"next_expiration,omitempty"`
 	Details        []VtxoDetails `json:"details"`
 }
@@ -127,6 +123,15 @@ type OffchainBalance struct {
 type VtxoDetails struct {
 	ExpiryTime string `json:"expiry_time"`
 	Amount     uint64 `json:"amount"`
+}
+
+type balanceRes struct {
+	offchainBalance             uint64
+	onchainSpendableBalance     uint64
+	onchainLockedBalance        map[int64]uint64
+	offchainBalanceByExpiration map[int64]uint64
+	assetBalances               map[string]uint64
+	err                         error
 }
 
 type CoinSelectOptions struct {
@@ -145,11 +150,6 @@ type CoinSelectOptions struct {
 type IntentInput struct {
 	intent.Input
 	AssetExtension *AssetExtension
-}
-
-type TapscriptsVtxo struct {
-	types.Vtxo
-	Tapscripts []string
 }
 
 type AssetExtension struct {

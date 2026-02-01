@@ -62,11 +62,11 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	receiverBalance, err := bob.Balance(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, receiverBalance)
-	require.NotNil(t, receiverBalance.OffchainBalance.AssetBalances)
+	require.NotNil(t, receiverBalance.AssetBalances)
 
-	assetBalance, ok := receiverBalance.OffchainBalance.AssetBalances[assetId]
+	assetBalance, ok := receiverBalance.AssetBalances[assetId]
 	require.True(t, ok)
-	require.Equal(t, int(assetBalance.TotalAmount), int(transferAmount))
+	require.Equal(t, int(assetBalance), int(transferAmount))
 
 	var aliceErr, bobErr error
 	wg = &sync.WaitGroup{}
