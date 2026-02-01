@@ -8,7 +8,6 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
@@ -886,14 +885,9 @@ func (a *arkClient) finalizePendingTxs(
 		return nil, err
 	}
 
-	inputs, exitLeaves, arkFields, err := toIntentInputs(nil, vtxosWithTapscripts, nil)
+	inputs, exitLeaves, arkFields, _, err := toIntentInputs(nil, vtxosWithTapscripts, nil)
 	if err != nil {
 		return nil, err
-	}
-
-	rawInputs := make([]intent.Input, 0, len(inputs))
-	for _, in := range inputs {
-		rawInputs = append(rawInputs, in.Input)
 	}
 
 	txids := make([]string, 0)
@@ -901,7 +895,7 @@ func (a *arkClient) finalizePendingTxs(
 
 	for i := 0; i < len(inputs); i += MAX_INPUTS_PER_INTENT {
 		end := min(i+MAX_INPUTS_PER_INTENT, len(inputs))
-		inputsSubset := rawInputs[i:end]
+		inputsSubset := inputs[i:end]
 		exitLeavesSubset := exitLeaves[i:end]
 		arkFieldsSubset := arkFields[i:end]
 		proofTx, message, err := a.makeGetPendingTxIntent(

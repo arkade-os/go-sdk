@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	restclient "github.com/arkade-os/go-sdk/client/rest"
 	"github.com/arkade-os/go-sdk/internal/utils"
@@ -145,15 +144,6 @@ type CoinSelectOptions struct {
 	ExpiryThreshold int64
 	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
 	RecomputeExpiry bool
-}
-
-type IntentInput struct {
-	intent.Input
-	AssetExtension *AssetExtension
-}
-
-type AssetExtension struct {
-	Id     string
-	Amount uint64
-	Index  uint32
+	// If true, coin selection will exclude vtxos holding assets
+	ExcludeAssetVtxos bool
 }

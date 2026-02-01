@@ -63,24 +63,36 @@ func CalculateFees(
 	return totalFees, nil
 }
 
-func CoinSelectNormal(
-	boardingUtxos []types.Utxo,
-	vtxos []client.TapscriptsVtxo,
-	amount uint64, dust uint64, withoutExpirySorting bool, feeEstimator *arkfee.Estimator,
+// CoinSelect selects among boarding utxos and vtxos to cover the total amount of the outputs
+// it includes fee computation of the input and output thanks to feeEstimator
+// the change is expressed in btc sats
+func CoinSelect(
+	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo,
+	outputs []types.Receiver, dust uint64, withoutExpirySorting bool,
+	feeEstimator *arkfee.Estimator,
 ) ([]types.Utxo, []client.TapscriptsVtxo, uint64, error) {
 	selected, notSelected := make([]client.TapscriptsVtxo, 0), make([]client.TapscriptsVtxo, 0)
 	selectedBoarding, notSelectedBoarding := make([]types.Utxo, 0), make([]types.Utxo, 0)
 	selectedAmount := uint64(0)
 
-	filteredVtxos := make([]client.TapscriptsVtxo, 0)
-
-	// Filter out asset vtxos
-	for _, vtxo := range vtxos {
-		if vtxo.Assets == nil {
-			filteredVtxos = append(filteredVtxos, vtxo)
+	amount := uint64(0)
+	for _, output := range outputs {
+		amount += output.Amount
+		if feeEstimator != nil {
+			var fees arkfee.FeeAmount
+			var err error
+			arkFeeOutput := output.ToArkFeeOutput()
+			if output.IsOnchain() {
+				fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
+			} else {
+				fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
+			}
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			amount += uint64(fees.ToSatoshis())
 		}
 	}
-	vtxos = filteredVtxos
 
 	if !withoutExpirySorting {
 		// sort vtxos by expiration (oldest last)
@@ -174,12 +186,11 @@ func CoinSelectNormal(
 	return selectedBoarding, selected, change, nil
 }
 
+// CoinSelectAsset selects a set of vtxos holding a specific asset amount
+// the change is expressed in asset sats
 func CoinSelectAsset(
-	vtxos []client.TapscriptsVtxo,
-	amount uint64,
-	assetID string,
-	dust uint64,
-	withoutExpirySorting bool,
+	vtxos []client.TapscriptsVtxo, amount uint64,
+	assetID string, dust uint64, withoutExpirySorting bool,
 ) ([]client.TapscriptsVtxo, uint64, error) {
 	selected := make([]client.TapscriptsVtxo, 0)
 	selectedAmount := uint64(0)
@@ -467,4 +478,14 @@ func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
 		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
 	})
 	return vtxos
+}
+
+func RemoveVtxosWithAssets(vtxos []types.Vtxo) []types.Vtxo {
+	filteredVtxos := make([]types.Vtxo, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		if len(vtxo.Assets) == 0 {
+			filteredVtxos = append(filteredVtxos, vtxo)
+		}
+	}
+	return filteredVtxos
 }
