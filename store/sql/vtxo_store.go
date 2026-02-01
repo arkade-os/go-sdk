@@ -41,7 +41,6 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 			if !vtxo.CreatedAt.IsZero() {
 				createdAt = vtxo.CreatedAt.Unix()
 			}
-
 			if err := querierWithTx.InsertVtxo(
 				ctx, queries.InsertVtxoParams{
 					Txid:            vtxo.Txid,

@@ -25,8 +25,6 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-const UNIT_AMOUNT = uint64(1)
-
 func CalculateFees(
 	inputs []client.TapscriptsVtxo,
 	receivers []types.Receiver,
