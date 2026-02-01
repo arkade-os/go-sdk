@@ -4052,7 +4052,7 @@ func (a *arkClient) createOffchainTx(
 				}
 
 				assetCoins, assetChangeAmount, err := utils.CoinSelectAsset(
-					vtxos, amountToSelect, asset.AssetId, a.Dust, options.withoutExpirySorting,
+					vtxos, amountToSelect, asset.AssetId, options.withoutExpirySorting,
 				)
 				if err != nil {
 					return "", nil, nil, nil, err

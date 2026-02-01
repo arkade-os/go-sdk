@@ -190,15 +190,16 @@ func CoinSelect(
 // the change is expressed in asset sats
 func CoinSelectAsset(
 	vtxos []client.TapscriptsVtxo, amount uint64,
-	assetID string, dust uint64, withoutExpirySorting bool,
+	assetID string, withoutExpirySorting bool,
 ) ([]client.TapscriptsVtxo, uint64, error) {
 	selected := make([]client.TapscriptsVtxo, 0)
 	selectedAmount := uint64(0)
 
 	filteredVtxos := make([]client.TapscriptsVtxo, 0)
 
+	// filter out vtxos holding other assets (or no assets)
 	for _, vtxo := range vtxos {
-		if vtxo.Assets != nil {
+		if len(vtxo.Assets) > 0 {
 			for _, asset := range vtxo.Assets {
 				if asset.AssetId == assetID {
 					filteredVtxos = append(filteredVtxos, vtxo)
