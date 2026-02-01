@@ -141,7 +141,6 @@ func JoinBatchSession(
 			case client.BatchStartedEvent:
 				e := event.(client.BatchStartedEvent)
 				skip, err := eventsHandler.OnBatchStarted(ctx, e)
-
 				if err != nil {
 					return "", err
 				}
@@ -205,7 +204,6 @@ func JoinBatchSession(
 				if err := addSignatureToTxTree(event, vtxoTree); err != nil {
 					return "", err
 				}
-
 				continue
 			// the musig2 session started, let's send our nonces.
 			case client.TreeSigningStartedEvent:
@@ -260,7 +258,6 @@ func JoinBatchSession(
 				if signed {
 					step++
 				}
-
 				continue
 			case client.BatchFinalizationEvent:
 				if step != treeNoncesAggregated {
