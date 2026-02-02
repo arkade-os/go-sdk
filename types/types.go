@@ -259,13 +259,6 @@ type Receiver struct {
 	Assets []Asset
 }
 
-type VtxoType int
-
-const (
-	VtxoTypeNormal VtxoType = iota
-	VtxoTypeAsset
-)
-
 func (r Receiver) ToArkFeeOutput() arkfee.Output {
 	txout, _, err := r.ToTxOut()
 	if err != nil {
@@ -337,14 +330,4 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
-}
-
-type Metadata struct {
-	Key   string
-	Value string
-}
-
-type AssetModificationParams struct {
-	Name   string
-	Symbol string
 }
