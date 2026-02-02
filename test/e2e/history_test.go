@@ -176,7 +176,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentTxid)
 
-	// should receive the offchain settled tx event
+	// should receive the collab exit tx added event
 	event = <-aliceTxChan
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
@@ -187,8 +187,10 @@ func TestTransactionHistory(t *testing.T) {
 	require.NotEmpty(t, collabExitTx.CommitmentTxid)
 	require.Empty(t, collabExitTx.ArkTxid)
 
-	// Give time to update also the other records
-	time.Sleep(5 * time.Second)
+	// should receive the txs settled event for the offchain txs
+	event = <-aliceTxChan
+	require.Equal(t, types.TxsSettled, event.Type)
+	require.Len(t, event.Txs, 2)
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
