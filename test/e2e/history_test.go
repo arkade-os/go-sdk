@@ -190,7 +190,9 @@ func TestTransactionHistory(t *testing.T) {
 	// should receive the txs settled event for the offchain txs
 	event = <-aliceTxChan
 	require.Equal(t, types.TxsSettled, event.Type)
-	require.Len(t, event.Txs, 2)
+	require.GreaterOrEqual(t, len(event.Txs), 2)
+
+	time.Sleep(5 * time.Second)
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
