@@ -3414,8 +3414,7 @@ func (a *arkClient) saveSendTransaction(
 ) error {
 	arkTx, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
 	if err != nil {
-		log.Warnf("failed to parse ark tx: %s, skipping adding change vtxo", err)
-		return nil
+		return fmt.Errorf("failed to parse ark tx: %w", err)
 	}
 
 	txId := arkTx.UnsignedTx.TxHash().String()
