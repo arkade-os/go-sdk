@@ -603,6 +603,10 @@ func (a *arkClient) BurnAsset(
 		return "", err
 	}
 
+	if amount == 0 {
+		return "", fmt.Errorf("amount must be > 0")
+	}
+
 	_, offchainAddrs, _, _, err := a.wallet.GetAddresses(ctx)
 	if err != nil {
 		return "", err
