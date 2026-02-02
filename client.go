@@ -3938,6 +3938,9 @@ func (a *arkClient) createOffchainTx(
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
+	if len(offchainAddrs) == 0 {
+		return "", nil, nil, nil, fmt.Errorf("no offchain addresses")
+	}
 
 	expectedSignerPubkey := schnorr.SerializePubKey(a.SignerPubKey)
 
