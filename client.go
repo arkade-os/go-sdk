@@ -3996,6 +3996,7 @@ func (a *arkClient) createOffchainTx(
 	btcAmountToSelect := int64(0)
 	selectedCoins := make([]client.TapscriptsVtxo, 0)
 	assetChanges := make(map[string]uint64)
+	selectedVtxos := make(map[string]bool)
 
 	for _, receiver := range receivers {
 		btcAmountToSelect += int64(receiver.Amount)
@@ -4019,15 +4020,25 @@ func (a *arkClient) createOffchainTx(
 					}
 				}
 
+				availableVtxos := make([]client.TapscriptsVtxo, 0, len(vtxos))
+				for _, v := range vtxos {
+					if !selectedVtxos[v.Outpoint.String()] {
+						availableVtxos = append(availableVtxos, v)
+					}
+				}
+
 				assetCoins, assetChangeAmount, err := utils.CoinSelectAsset(
-					vtxos, amountToSelect, asset.AssetId, options.withoutExpirySorting,
+					availableVtxos, amountToSelect, asset.AssetId, options.withoutExpirySorting,
 				)
 				if err != nil {
 					return "", nil, nil, nil, err
 				}
-				selectedCoins = append(selectedCoins, assetCoins...)
-				assetChanges[asset.AssetId] += assetChangeAmount
+
 				for _, coin := range assetCoins {
+					coinID := coin.Outpoint.String()
+					selectedVtxos[coinID] = true
+					selectedCoins = append(selectedCoins, coin)
+
 					// asset coins contain btc, subtract it from the total amount to select
 					btcAmountToSelect -= int64(coin.Amount)
 
@@ -4039,6 +4050,7 @@ func (a *arkClient) createOffchainTx(
 						assetChanges[a.AssetId] += a.Amount
 					}
 				}
+				assetChanges[asset.AssetId] += assetChangeAmount
 			}
 		}
 	}
