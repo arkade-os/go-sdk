@@ -4099,6 +4099,41 @@ func (a *arkClient) createOffchainTx(
 
 	var changeReceiver *types.Receiver
 
+	// enforce a minimum change amount when there are asset changes
+	if len(assetChanges) > 0 && changeAmount == 0 {
+		// build a set of already-selected coin outpoints to avoid double-selection
+		selectedOutpoints := make(map[string]struct{})
+		for _, coin := range selectedCoins {
+			selectedOutpoints[coin.Txid+fmt.Sprintf(":%d", coin.VOut)] = struct{}{}
+		}
+
+		availableVtxos := make([]client.TapscriptsVtxo, 0)
+		for _, vtxo := range vtxos {
+			outpoint := vtxo.Outpoint.String()
+			if _, selected := selectedOutpoints[outpoint]; selected {
+				continue
+			}
+			// only include vtxos without assets
+			if len(vtxo.Assets) == 0 {
+				availableVtxos = append(availableVtxos, vtxo)
+			}
+		}
+
+		_, selectedBtcCoins, changeBtcAmount, err := utils.CoinSelect(
+			nil, availableVtxos, []types.Receiver{{Amount: a.Dust + 1}},
+			a.Dust, options.withoutExpirySorting, nil,
+		)
+		if err != nil {
+			return "", nil, nil, nil, fmt.Errorf(
+				"failed to select coins for asset change output: %w",
+				err,
+			)
+		}
+
+		selectedCoins = append(selectedCoins, selectedBtcCoins...)
+		changeAmount = changeBtcAmount + a.Dust + 1
+	}
+
 	if changeAmount > 0 {
 		changeReceiver = &types.Receiver{
 			To: offchainAddrs[0].Address, Amount: changeAmount,
@@ -4136,10 +4171,7 @@ func (a *arkClient) createOffchainTx(
 
 		forfeitLeafHash := txscript.NewBaseTapLeaf(forfeitScript).TapHash()
 
-		inputs = append(inputs, arkTxInput{
-			coin,
-			forfeitLeafHash,
-		})
+		inputs = append(inputs, arkTxInput{coin, forfeitLeafHash})
 	}
 
 	arkTx, checkpointTxs, err := buildOffchainTx(inputs, receivers, a.CheckpointExitPath(), a.Dust)
