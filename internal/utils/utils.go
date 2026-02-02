@@ -25,44 +25,6 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func CalculateFees(
-	inputs []client.TapscriptsVtxo,
-	receivers []types.Receiver,
-	feeEstimator *arkfee.Estimator,
-) (uint64, error) {
-	totalFees := uint64(0)
-
-	if feeEstimator == nil {
-		return totalFees, nil
-	}
-
-	for _, rv := range receivers {
-		var fees arkfee.FeeAmount
-		var err error
-		arkFeeOutput := rv.ToArkFeeOutput()
-		if rv.IsOnchain() {
-			fees, err = feeEstimator.EvalOnchainOutput(arkFeeOutput)
-		} else {
-			fees, err = feeEstimator.EvalOffchainOutput(arkFeeOutput)
-		}
-		if err != nil {
-			return 0, err
-		}
-		totalFees += uint64(fees.ToSatoshis())
-
-	}
-
-	for _, input := range inputs {
-		feesForInput, err := feeEstimator.EvalOffchainInput(input.ToArkFeeInput())
-		if err != nil {
-			return 0, err
-		}
-		totalFees += uint64(feesForInput.ToSatoshis())
-	}
-
-	return totalFees, nil
-}
-
 // CoinSelect selects among boarding utxos and vtxos to cover the total amount of the outputs
 // it includes fee computation of the input and output thanks to feeEstimator
 // the change is expressed in btc sats
