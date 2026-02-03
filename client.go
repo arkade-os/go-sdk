@@ -252,6 +252,7 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 func (a *arkClient) IssueAsset(
 	ctx context.Context,
 	amount, controlAssetAmount uint64,
+	controlAsset string,
 	metadata []asset.Metadata,
 	opts ...Option,
 ) (string, []asset.AssetId, error) {
@@ -271,9 +272,19 @@ func (a *arkClient) IssueAsset(
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
+	assets := make([]types.Asset, 0)
+	if controlAsset != "" {
+		assets = append(assets, types.Asset{
+			AssetId: controlAsset,
+			Amount:  1,
+		})
+	}
+
 	receiver := types.Receiver{
 		To: offchainAddrs[0].Address, Amount: a.Dust + 1,
+		Assets: assets,
 	}
+
 	// create an ark tx sending small amount of btc to wallet's address
 	// we'll attach new asset outputs to this vout
 	baseArkTx, checkpointTxs, selectedCoins, changeReceiver, err := a.createOffchainTx(
@@ -290,6 +301,15 @@ func (a *arkClient) IssueAsset(
 
 	assetGroups := make([]asset.AssetGroup, 0)
 	var assetRef *asset.AssetRef
+
+	packet, err := createAssetPacket(
+		selectedCoinsToAssetInputs(selectedCoins),
+		[]types.Receiver{receiver},
+		changeReceiver,
+	)
+	if err != nil {
+		return "", nil, err
+	}
 
 	if controlAssetAmount > 0 {
 		controlAssetOutput, err := asset.NewAssetOutput(0, controlAssetAmount)
@@ -312,6 +332,15 @@ func (a *arkClient) IssueAsset(
 			Type:       asset.AssetRefByGroup,
 			GroupIndex: 0,
 		}
+	} else if len(controlAsset) > 0 {
+		controlAssetId, err := asset.NewAssetIdFromString(controlAsset)
+		if err != nil {
+			return "", nil, err
+		}
+		assetRef = &asset.AssetRef{
+			Type:    asset.AssetRefByID,
+			AssetId: *controlAssetId,
+		}
 	}
 
 	issuedAssetOutput, err := asset.NewAssetOutput(0, amount)
@@ -331,7 +360,7 @@ func (a *arkClient) IssueAsset(
 	}
 	assetGroups = append(assetGroups, *issuedAssetGroup)
 
-	assetPacket, err := asset.NewPacket(assetGroups)
+	assetPacket, err := asset.NewPacket(append(assetGroups, packet...))
 	if err != nil {
 		return "", nil, err
 	}
@@ -594,10 +623,7 @@ func (a *arkClient) ReissueAsset(
 }
 
 func (a *arkClient) BurnAsset(
-	ctx context.Context,
-	assetId string,
-	amount uint64,
-	opts ...Option,
+	ctx context.Context, assetId string, amount uint64, opts ...Option,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err

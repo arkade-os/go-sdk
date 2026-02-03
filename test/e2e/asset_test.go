@@ -29,7 +29,7 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	})
 	wg.Wait()
 
-	txid, assetIds, err := alice.IssueAsset(ctx, supply, 0, nil)
+	txid, assetIds, err := alice.IssueAsset(ctx, supply, 0, "", nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 1)
 
@@ -95,7 +95,7 @@ func TestAssetReissuance(t *testing.T) {
 	faucetOffchain(t, alice, 0.01)
 
 	// issue an asset with a control asset
-	_, assetIds, err := alice.IssueAsset(ctx, 1, 1, nil)
+	_, assetIds, err := alice.IssueAsset(ctx, 1, 1, "", nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 2)
 
@@ -128,7 +128,7 @@ func TestAssetBurn(t *testing.T) {
 	alice := setupClient(t)
 	faucetOffchain(t, alice, 0.01)
 
-	_, assetIds, err := alice.IssueAsset(ctx, 5000, 0, nil)
+	_, assetIds, err := alice.IssueAsset(ctx, 5000, 0, "", nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 1)
 	assetId := assetIds[0].String()

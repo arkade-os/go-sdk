@@ -27,7 +27,7 @@ type ArkClient interface {
 	)
 	NewOffchainAddress(ctx context.Context) (string, error)
 	IssueAsset(
-		ctx context.Context, amount, controlAssetAmount uint64, metadata []asset.Metadata, opt ...Option,
+		ctx context.Context, amount, controlAssetAmount uint64, controlAsset string, metadata []asset.Metadata, opt ...Option,
 	) (string, []asset.AssetId, error)
 	ReissueAsset(
 		// TODO : fetch control asset from DB / indexer ?
