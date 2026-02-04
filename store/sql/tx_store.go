@@ -13,7 +13,6 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 type txStore struct {
@@ -57,19 +56,17 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					return err
 				}
 
-				// txhash is needed to compute asset id
-				txhash, err := chainhash.NewHashFromStr(tx.TransactionKey.String())
-				if err != nil {
-					return err
-				}
+				// txid is needed to compute asset id
+				txid := tx.TransactionKey.String()
 
 				getAssetId := func(groupIndex uint16) *asset.AssetId {
 					assetId := tx.AssetPacket[groupIndex].AssetId
 					if assetId == nil {
-						return &asset.AssetId{
-							Txid:  *txhash,
-							Index: groupIndex,
+						assetId, err := asset.NewAssetId(txid, groupIndex)
+						if err != nil {
+							return nil
 						}
+						return assetId
 					}
 					return assetId
 				}

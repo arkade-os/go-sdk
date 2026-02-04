@@ -411,18 +411,21 @@ func (a *arkClient) IssueAsset(
 
 	assetIds := make([]asset.AssetId, 0)
 	goupIdx := uint16(0)
+	txid := arkPtx.UnsignedTx.TxID()
 	if controlAssetAmount > 0 {
-		assetIds = append(assetIds, asset.AssetId{
-			Txid:  arkPtx.UnsignedTx.TxHash(),
-			Index: goupIdx,
-		})
+		assetId, err := asset.NewAssetId(txid, goupIdx)
+		if err != nil {
+			return "", nil, err
+		}
+		assetIds = append(assetIds, *assetId)
 		goupIdx++
 	}
 
-	assetIds = append(assetIds, asset.AssetId{
-		Txid:  arkPtx.UnsignedTx.TxHash(),
-		Index: goupIdx,
-	})
+	assetId, err := asset.NewAssetId(txid, goupIdx)
+	if err != nil {
+		return "", nil, err
+	}
+	assetIds = append(assetIds, *assetId)
 
 	if !a.WithTransactionFeed {
 		return arkTxid, assetIds, nil
@@ -432,9 +435,9 @@ func (a *arkClient) IssueAsset(
 	for groupIndex, assetGroup := range assetGroups {
 		// we know there's only one output per asset
 		output := assetGroup.Outputs[0]
-		assetId := asset.AssetId{
-			Txid:  arkPtx.UnsignedTx.TxHash(),
-			Index: uint16(groupIndex),
+		assetId, err := asset.NewAssetId(txid, uint16(groupIndex))
+		if err != nil {
+			return "", nil, err
 		}
 		receiver.Assets = append(receiver.Assets, types.Asset{
 			AssetId: assetId.String(),
