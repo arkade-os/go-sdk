@@ -21,6 +21,7 @@ var _ MappedNullable = &IndexerVtxo{}
 type IndexerVtxo struct {
 		Amount *int32 `json:"amount,string,omitempty"`
 		ArkTxid *string `json:"arkTxid,omitempty"`
+		Assets []IndexerAsset `json:"assets,omitempty"`
 		CommitmentTxids []string `json:"commitmentTxids,omitempty"`
 		CreatedAt *int64 `json:"createdAt,string,omitempty"`
 		ExpiresAt *int64 `json:"expiresAt,string,omitempty"`
@@ -113,6 +114,38 @@ func (o *IndexerVtxo) HasArkTxid() bool {
 // SetArkTxid gets a reference to the given string and assigns it to the ArkTxid field.
 func (o *IndexerVtxo) SetArkTxid(v string) {
 	o.ArkTxid = &v
+}
+
+// GetAssets returns the Assets field value if set, zero value otherwise.
+func (o *IndexerVtxo) GetAssets() []IndexerAsset {
+	if o == nil || IsNil(o.Assets) {
+		var ret []IndexerAsset
+		return ret
+	}
+	return o.Assets
+}
+
+// GetAssetsOk returns a tuple with the Assets field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *IndexerVtxo) GetAssetsOk() ([]IndexerAsset, bool) {
+	if o == nil || IsNil(o.Assets) {
+		return nil, false
+	}
+	return o.Assets, true
+}
+
+// HasAssets returns a boolean if a field has been set.
+func (o *IndexerVtxo) HasAssets() bool {
+	if o != nil && !IsNil(o.Assets) {
+		return true
+	}
+
+	return false
+}
+
+// SetAssets gets a reference to the given []IndexerAsset and assigns it to the Assets field.
+func (o *IndexerVtxo) SetAssets(v []IndexerAsset) {
+	o.Assets = v
 }
 
 // GetCommitmentTxids returns the CommitmentTxids field value if set, zero value otherwise.
@@ -482,6 +515,9 @@ func (o IndexerVtxo) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ArkTxid) {
 		toSerialize["arkTxid"] = o.ArkTxid
+	}
+	if !IsNil(o.Assets) {
+		toSerialize["assets"] = o.Assets
 	}
 	if !IsNil(o.CommitmentTxids) {
 		toSerialize["commitmentTxids"] = o.CommitmentTxids

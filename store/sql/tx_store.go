@@ -3,10 +3,14 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -43,15 +47,104 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			if !tx.CreatedAt.IsZero() {
 				createdAt = tx.CreatedAt.Unix()
 			}
+
+			var serializedAssetPacket []byte
+			if len(tx.AssetPacket) > 0 {
+				var err error
+				serializedAssetPacket, err = tx.AssetPacket.Serialize()
+				if err != nil {
+					return err
+				}
+
+				// txid is needed to compute asset id
+				txid := tx.TransactionKey.String()
+
+				getAssetId := func(groupIndex uint16) *asset.AssetId {
+					assetId := tx.AssetPacket[groupIndex].AssetId
+					if assetId == nil {
+						assetId, err := asset.NewAssetId(txid, groupIndex)
+						if err != nil {
+							return nil
+						}
+						return assetId
+					}
+					return assetId
+				}
+
+				for groupIndex, assetGroup := range tx.AssetPacket {
+					assetId := getAssetId(uint16(groupIndex))
+
+					var metadataParam any = nil
+					if len(assetGroup.Metadata) > 0 {
+						metadataBytes, err := json.Marshal(assetGroup.Metadata)
+						if err != nil {
+							return err
+						}
+						metadataParam = string(metadataBytes)
+					}
+
+					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
+						AssetID:   assetId.String(),
+						Metadata:  metadataParam,
+						Immutable: assetGroup.Immutable,
+					}); err != nil {
+						return err
+					}
+
+					if assetGroup.ControlAsset != nil {
+						var controlAssetId *asset.AssetId
+
+						switch assetGroup.ControlAsset.Type {
+						case asset.AssetRefByID:
+							if len(assetGroup.ControlAsset.AssetId.Txid) == 0 {
+								return fmt.Errorf("control asset id is required")
+							}
+
+							controlAssetId = &assetGroup.ControlAsset.AssetId
+						case asset.AssetRefByGroup:
+							if assetGroup.ControlAsset.GroupIndex >= uint16(
+								len(tx.AssetPacket),
+							) {
+								return fmt.Errorf("control asset ref by group index out of range")
+							}
+
+							controlAssetId = getAssetId(uint16(assetGroup.ControlAsset.GroupIndex))
+						default:
+							return fmt.Errorf(
+								"invalid asset ref type %d",
+								assetGroup.ControlAsset.Type,
+							)
+						}
+
+						if controlAssetId != nil {
+							if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
+								AssetID: controlAssetId.String(),
+							}); err != nil {
+								return err
+							}
+
+							if err := querierWithTx.InsertAssetControl(ctx, queries.InsertAssetControlParams{
+								AssetID:        assetId.String(),
+								ControlAssetID: controlAssetId.String(),
+							}); err != nil {
+								return err
+							}
+						}
+					}
+				}
+			}
+
 			if err := querierWithTx.InsertTx(
 				ctx, queries.InsertTxParams{
-					Txid:      tx.TransactionKey.String(),
-					TxidType:  txidType,
-					Amount:    int64(tx.Amount),
-					Type:      string(tx.Type),
-					CreatedAt: createdAt,
-					Hex:       sql.NullString{String: tx.Hex, Valid: true},
-					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
+					Txid:        tx.TransactionKey.String(),
+					TxidType:    txidType,
+					Amount:      int64(tx.Amount),
+					Type:        string(tx.Type),
+					CreatedAt:   createdAt,
+					Hex:         sql.NullString{String: tx.Hex, Valid: true},
+					SettledBy:   sql.NullString{String: tx.SettledBy, Valid: true},
+					Settled:     len(tx.SettledBy) > 0,
+					AssetPacket: sql.NullString{String: hex.EncodeToString(serializedAssetPacket), Valid: len(serializedAssetPacket) > 0},
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -61,7 +154,6 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			}
 			addedTxs = append(addedTxs, tx)
 		}
-
 		return nil
 	}
 	if err := execTx(ctx, v.db, txBody); err != nil {
@@ -94,7 +186,6 @@ func (v *txStore) SettleTransactions(
 			tx.SettledBy = settledBy
 			if err := querierWithTx.UpdateTx(ctx, queries.UpdateTxParams{
 				Txid:      tx.TransactionKey.String(),
-				Settled:   sql.NullBool{Bool: true, Valid: true},
 				SettledBy: sql.NullString{String: settledBy, Valid: true},
 			}); err != nil {
 				return err
@@ -300,17 +391,23 @@ func rowToTx(row queries.Tx) types.Transaction {
 	if row.CreatedAt != 0 {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
+	var assetPacket asset.Packet
+	if row.AssetPacket.Valid {
+		// nolint:all
+		assetPacket, _ = asset.NewPacketFromString(row.AssetPacket.String)
+	}
 	return types.Transaction{
 		TransactionKey: types.TransactionKey{
 			CommitmentTxid: commitmentTxid,
 			ArkTxid:        arkTxid,
 			BoardingTxid:   boardingTxid,
 		},
-		Amount:    uint64(row.Amount),
-		Type:      types.TxType(row.Type),
-		SettledBy: row.SettledBy.String,
-		CreatedAt: createdAt,
-		Hex:       row.Hex.String,
+		Amount:      uint64(row.Amount),
+		Type:        types.TxType(row.Type),
+		SettledBy:   row.SettledBy.String,
+		CreatedAt:   createdAt,
+		Hex:         row.Hex.String,
+		AssetPacket: assetPacket,
 	}
 }
 

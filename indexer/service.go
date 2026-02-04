@@ -53,8 +53,15 @@ type Indexer interface {
 	) (string, error)
 	UnsubscribeForScripts(ctx context.Context, subscriptionId string, scripts []string) error
 	GetSubscription(ctx context.Context, subscriptionId string) (<-chan *ScriptEvent, func(), error)
+	GetAssetDetails(ctx context.Context, assetID string) (*AssetInfo, error)
 
 	Close()
+}
+
+type AssetInfo struct {
+	AssetId  string
+	Quantity uint64
+	Metadata map[string]string
 }
 
 type VtxoTreeResponse struct {

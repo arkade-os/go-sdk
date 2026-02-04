@@ -6,6 +6,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -77,6 +78,131 @@ var (
 	testSpendUtxoKeys = map[types.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
+	testAssetGroups = []asset.AssetGroup{
+		{
+			// normal asset
+			AssetId: &asset.AssetId{
+				Txid: [32]byte{
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				},
+				Index: 0,
+			},
+			Outputs: []asset.AssetOutput{
+				{
+					Type:   asset.AssetTypeLocal,
+					Vout:   0,
+					Amount: 500,
+				},
+				{
+					Type:   asset.AssetTypeLocal,
+					Vout:   1,
+					Amount: 500,
+				},
+			},
+			Inputs: []asset.AssetInput{
+				{
+					Type:   asset.AssetTypeLocal,
+					Vin:    0,
+					Amount: 1000,
+				},
+			},
+			Immutable: true,
+		},
+		{
+			// issuance with control asset by id
+			AssetId: nil,
+			Outputs: []asset.AssetOutput{
+				{
+					Type:   asset.AssetTypeLocal,
+					Vout:   0,
+					Amount: 10000,
+				},
+			},
+			ControlAsset: &asset.AssetRef{
+				Type: asset.AssetRefByID,
+				AssetId: asset.AssetId{
+					Txid: [32]byte{
+						0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+						0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+					},
+					Index: 0,
+				},
+			},
+			Metadata: []asset.Metadata{
+				{
+					Key:   []byte("ticker"),
+					Value: []byte("FRA"),
+				},
+				{
+					Key:   []byte("name"),
+					Value: []byte("French token"),
+				},
+			},
+			Immutable: true,
+		},
+		{
+			// issuance with control asset by group index
+			AssetId: nil,
+			Outputs: []asset.AssetOutput{
+				{
+					Type:   asset.AssetTypeLocal,
+					Vout:   0,
+					Amount: 10000,
+				},
+			},
+			ControlAsset: &asset.AssetRef{
+				Type:       asset.AssetRefByGroup,
+				GroupIndex: 3,
+			},
+			Metadata: []asset.Metadata{
+				{
+					Key:   []byte("ticker"),
+					Value: []byte("IT"),
+				},
+				{
+					Key:   []byte("name"),
+					Value: []byte("Italian token"),
+				},
+			},
+			Immutable: true,
+		},
+		{
+			// control asset of IT asset
+			AssetId: nil, // created in the issuance
+			Outputs: []asset.AssetOutput{
+				{
+					Type:   asset.AssetTypeLocal,
+					Vout:   0,
+					Amount: 100,
+				},
+			},
+			Immutable: true,
+		},
+	}
+
+	testVtxoAsset1 = types.Asset{
+		AssetId: asset.AssetId{
+			Txid: [32]byte{
+				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			},
+			Index: 12,
+		}.String(),
+		Amount: 123456789,
+	}
+
+	testVtxoAsset2 = types.Asset{
+		AssetId: asset.AssetId{
+			Txid: [32]byte{
+				0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			},
+			Index: 0,
+		}.String(),
+		Amount: 987654321,
+	}
+
 	testVtxos = []types.Vtxo{
 		{
 			Outpoint: types.Outpoint{
@@ -105,6 +231,36 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 		},
+		{
+			Outpoint: types.Outpoint{
+				Txid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				VOut: 0,
+			},
+			Script: "0000000000000000000000000000000000000000000000000000000000000001",
+			Amount: 3000,
+			CommitmentTxids: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			ExpiresAt: time.Unix(1748143068, 0),
+			CreatedAt: time.Unix(1746143068, 0),
+			// vtxo with multiple assets
+			Assets: []types.Asset{testVtxoAsset1, testVtxoAsset2},
+		},
+		{
+			Outpoint: types.Outpoint{
+				Txid: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+				VOut: 0,
+			},
+			Script: "0000000000000000000000000000000000000000000000000000000000000001",
+			Amount: 3000,
+			CommitmentTxids: []string{
+				"0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			ExpiresAt: time.Unix(1748143068, 0),
+			CreatedAt: time.Unix(1746143068, 0),
+			// vtxo with single asset
+			Assets: []types.Asset{testVtxoAsset1},
+		},
 	}
 	testVtxoKeys = []types.Outpoint{
 		{
@@ -113,6 +269,14 @@ var (
 		},
 		{
 			Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			VOut: 0,
+		},
+		{
+			Txid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			VOut: 0,
+		},
+		{
+			Txid: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			VOut: 0,
 		},
 	}
@@ -135,8 +299,9 @@ var (
 			TransactionKey: types.TransactionKey{
 				ArkTxid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
-			Amount: 12000,
-			Type:   types.TxReceived,
+			Amount:      12000,
+			Type:        types.TxReceived,
+			AssetPacket: asset.Packet(testAssetGroups),
 		},
 	}
 
@@ -401,6 +566,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		require.Empty(t, spent)
+		requireVtxosListEqual(t, testVtxos, spendable)
 
 		spendable, err = storeSvc.GetSpendableVtxos(ctx)
 		require.NoError(t, err)
@@ -409,10 +575,11 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 			require.False(t, v.Spent)
 			require.False(t, v.Unrolled)
 		}
+		requireVtxosListEqual(t, testVtxos, spendable)
 
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
-		require.Equal(t, testVtxos, vtxos)
+		requireVtxosListEqual(t, testVtxos, vtxos)
 	})
 
 	t.Run("spend vtxos", func(t *testing.T) {
@@ -427,7 +594,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(spent))
-		require.Equal(t, 1, len(spendable))
+		require.Equal(t, 3, len(spendable))
 		for _, v := range spent {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
@@ -446,12 +613,15 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 
 		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
 		require.NoError(t, err)
-		require.Equal(t, 2, len(spent))
-		require.Empty(t, spendable)
-		for _, v := range spent[1:] {
+		require.Len(t, spent, 2)
+		require.Len(t, spendable, 2)
+		for _, v := range spent {
 			require.True(t, v.Spent)
-			require.Equal(t, testSettleVtxoKeys[v.Outpoint], v.SpentBy)
-			require.Equal(t, settledBy, v.SettledBy)
+			testSettleBy, ok := testSettleVtxoKeys[v.Outpoint]
+			if ok {
+				require.Equal(t, testSettleBy, v.SpentBy)
+				require.Equal(t, settledBy, v.SettledBy)
+			}
 		}
 	})
 }
@@ -488,7 +658,7 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 
 		count, err := storeSvc.AddTransactions(ctx, testTxs)
 		require.NoError(t, err)
-		require.Equal(t, len(testTxs), count)
+		require.Len(t, testTxs, count)
 
 		count, err = storeSvc.AddTransactions(ctx, testTxs)
 		require.NoError(t, err)
@@ -551,4 +721,20 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		require.Len(t, txs, 1)
 		require.NotEmpty(t, txs[0].SettledBy)
 	})
+}
+
+func requireVtxosListEqual(t *testing.T, expected, actual []types.Vtxo) {
+	require.Len(t, expected, len(actual))
+
+	for _, v := range expected {
+		found := false
+		for _, a := range actual {
+			if v.Outpoint == a.Outpoint {
+				require.Equal(t, v, a)
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
+	}
 }
