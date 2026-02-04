@@ -672,6 +672,7 @@ func (a *arkClient) BurnAsset(
 	// before creating the packet, remove the asset from the receivers in order to burn it
 	// change is kept in changeReceiver
 	burnReceiver.Assets = nil
+	receivers[0].Assets = nil
 
 	assetPacket, err := createAssetPacket(
 		selectedCoinsToAssetInputs(selectedCoins), receivers, changeReceiver,
