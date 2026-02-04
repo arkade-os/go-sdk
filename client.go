@@ -410,18 +410,18 @@ func (a *arkClient) IssueAsset(
 	}
 
 	assetIds := make([]asset.AssetId, 0)
-	goupIdx := uint16(0)
+	groupIdx := uint16(0)
 	txid := arkPtx.UnsignedTx.TxID()
 	if controlAssetAmount > 0 {
-		assetId, err := asset.NewAssetId(txid, goupIdx)
+		assetId, err := asset.NewAssetId(txid, groupIdx)
 		if err != nil {
 			return "", nil, err
 		}
 		assetIds = append(assetIds, *assetId)
-		goupIdx++
+		groupIdx++
 	}
 
-	assetId, err := asset.NewAssetId(txid, goupIdx)
+	assetId, err := asset.NewAssetId(txid, groupIdx)
 	if err != nil {
 		return "", nil, err
 	}
