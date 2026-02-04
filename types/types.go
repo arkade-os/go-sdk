@@ -331,3 +331,23 @@ type SyncEvent struct {
 	Synced bool
 	Err    error
 }
+
+// ControlAsset represents the control asset configuration for issuing new assets.
+// Use either NewControlAsset to create a new control asset, or ExistingControlAsset
+type ControlAsset interface {
+	isControlAsset()
+}
+
+// NewControlAsset creates a new control asset with the specified amount.
+type NewControlAsset struct {
+	Amount uint64
+}
+
+func (NewControlAsset) isControlAsset() {}
+
+// ExistingControlAsset references an existing control asset by its ID.
+type ExistingControlAsset struct {
+	ID string
+}
+
+func (ExistingControlAsset) isControlAsset() {}

@@ -251,8 +251,8 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 
 func (a *arkClient) IssueAsset(
 	ctx context.Context,
-	amount, controlAssetAmount uint64,
-	controlAsset string,
+	amount uint64,
+	controlAsset types.ControlAsset,
 	metadata []asset.Metadata,
 	opts ...Option,
 ) (string, []asset.AssetId, error) {
@@ -272,17 +272,19 @@ func (a *arkClient) IssueAsset(
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	assets := make([]types.Asset, 0)
-	if controlAsset != "" {
-		assets = append(assets, types.Asset{
-			AssetId: controlAsset,
+	receiverAsset := make([]types.Asset, 0)
+	if existing, ok := controlAsset.(types.ExistingControlAsset); ok {
+		// if the control asset is an existing one, we need to coinselect it
+		// thus we add it to the receiver asset list
+		receiverAsset = append(receiverAsset, types.Asset{
+			AssetId: existing.ID,
 			Amount:  1,
 		})
 	}
 
 	receiver := types.Receiver{
 		To: offchainAddrs[0].Address, Amount: a.Dust + 1,
-		Assets: assets,
+		Assets: receiverAsset,
 	}
 
 	// create an ark tx sending small amount of btc to wallet's address
@@ -311,8 +313,9 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	if controlAssetAmount > 0 {
-		controlAssetOutput, err := asset.NewAssetOutput(0, controlAssetAmount)
+	switch ca := controlAsset.(type) {
+	case types.NewControlAsset:
+		controlAssetOutput, err := asset.NewAssetOutput(0, ca.Amount)
 		if err != nil {
 			return "", nil, err
 		}
@@ -332,8 +335,8 @@ func (a *arkClient) IssueAsset(
 			Type:       asset.AssetRefByGroup,
 			GroupIndex: 0,
 		}
-	} else if len(controlAsset) > 0 {
-		controlAssetId, err := asset.NewAssetIdFromString(controlAsset)
+	case types.ExistingControlAsset:
+		controlAssetId, err := asset.NewAssetIdFromString(ca.ID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -412,7 +415,7 @@ func (a *arkClient) IssueAsset(
 	assetIds := make([]asset.AssetId, 0)
 	groupIdx := uint16(0)
 	txid := arkPtx.UnsignedTx.TxID()
-	if controlAssetAmount > 0 {
+	if _, ok := controlAsset.(types.NewControlAsset); ok {
 		assetId, err := asset.NewAssetId(txid, groupIdx)
 		if err != nil {
 			return "", nil, err

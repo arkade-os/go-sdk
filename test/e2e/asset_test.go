@@ -29,7 +29,7 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	})
 	wg.Wait()
 
-	txid, assetIds, err := alice.IssueAsset(ctx, supply, 0, "", nil)
+	txid, assetIds, err := alice.IssueAsset(ctx, supply, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 1)
 
@@ -87,6 +87,56 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	require.NoError(t, bobErr)
 }
 
+func TestIssuance(t *testing.T) {
+	t.Run("without control asset", func(t *testing.T) {
+		ctx := t.Context()
+		alice := setupClient(t)
+		faucetOffchain(t, alice, 0.01)
+
+		_, assetIds, err := alice.IssueAsset(ctx, 1, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, assetIds, 1)
+	})
+
+	t.Run("with new control asset", func(t *testing.T) {
+		ctx := t.Context()
+		alice := setupClient(t)
+		faucetOffchain(t, alice, 0.01)
+
+		_, assetIds, err := alice.IssueAsset(ctx, 1, types.NewControlAsset{Amount: 1}, nil)
+		require.NoError(t, err)
+		require.Len(t, assetIds, 2)
+
+		controlAssetId := assetIds[0].String()
+		assetId := assetIds[1].String()
+		require.NotEqual(t, controlAssetId, assetId)
+	})
+
+	t.Run("with existing control asset", func(t *testing.T) {
+		ctx := t.Context()
+		alice := setupClient(t)
+		faucetOffchain(t, alice, 0.01)
+
+		// issue control asset
+		_, assetIds, err := alice.IssueAsset(ctx, 1, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, assetIds, 1)
+		controlAssetId := assetIds[0].String()
+
+		// issue another asset	 with existing control asset
+		_, assetIds2, err := alice.IssueAsset(
+			ctx,
+			1,
+			types.ExistingControlAsset{ID: controlAssetId},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, assetIds2, 1)
+
+		require.NotEqual(t, assetIds[0].String(), assetIds2[0].String())
+	})
+}
+
 // TestAssetReissuance makes issue an asset with a control asset and then reissue it.
 func TestAssetReissuance(t *testing.T) {
 	ctx := t.Context()
@@ -95,7 +145,7 @@ func TestAssetReissuance(t *testing.T) {
 	faucetOffchain(t, alice, 0.01)
 
 	// issue an asset with a control asset
-	_, assetIds, err := alice.IssueAsset(ctx, 1, 1, "", nil)
+	_, assetIds, err := alice.IssueAsset(ctx, 1, types.NewControlAsset{Amount: 1}, nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 2)
 
@@ -128,7 +178,7 @@ func TestAssetBurn(t *testing.T) {
 	alice := setupClient(t)
 	faucetOffchain(t, alice, 0.01)
 
-	_, assetIds, err := alice.IssueAsset(ctx, 5000, 0, "", nil)
+	_, assetIds, err := alice.IssueAsset(ctx, 5000, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 1)
 	assetId := assetIds[0].String()
