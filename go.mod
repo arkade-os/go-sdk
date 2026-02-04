@@ -1,11 +1,11 @@
 module github.com/arkade-os/go-sdk
 
-go 1.25.5
+go 1.25.6
 
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
 require (
-	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260129233810-742e3b1bdfa6
+	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260204110638-40186e382b6d
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5
