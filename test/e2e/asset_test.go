@@ -87,7 +87,7 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	require.NoError(t, bobErr)
 }
 
-func TestIssuance(t *testing.T) {
+func TestAssetIssuance(t *testing.T) {
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t)
