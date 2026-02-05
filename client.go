@@ -4162,7 +4162,9 @@ func (a *arkClient) createOffchainTx(
 			// some coins may contain assets, add them to the asset changes
 			for _, coin := range selectedBtcCoins {
 				for _, asset := range coin.Assets {
-					assetChanges[asset.AssetId] += asset.Amount
+					if asset.Amount > 0 {
+						assetChanges[asset.AssetId] += asset.Amount
+					}
 				}
 			}
 
