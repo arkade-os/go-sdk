@@ -208,6 +208,22 @@ func (a *arkClient) InitWithWallet(ctx context.Context, args InitWithWalletArgs)
 }
 
 func (a *arkClient) Balance(ctx context.Context) (*Balance, error) {
+	b, err := a.balance(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// remove empty asset balances
+	for assetId, amount := range b.AssetBalances {
+		if amount == 0 {
+			delete(b.AssetBalances, assetId)
+		}
+	}
+
+	return b, nil
+}
+
+func (a *arkClient) balance(ctx context.Context) (*Balance, error) {
 	if a.WithTransactionFeed {
 		if err := a.safeCheck(); err != nil {
 			return nil, err
