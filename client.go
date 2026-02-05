@@ -828,7 +828,7 @@ func (a *arkClient) SendOffChain(
 		return txid, nil
 	}
 
-	walletReceivers := make(map[int]*types.Receiver, len(arkPtx.UnsignedTx.TxOut))
+	walletReceivers := make(map[int]*types.Receiver)
 	if changeReceiver != nil {
 		walletReceivers[len(receivers)] = changeReceiver
 	}
@@ -4119,7 +4119,9 @@ func (a *arkClient) createOffchainTx(
 						assetChanges[a.AssetId] += a.Amount
 					}
 				}
-				assetChanges[asset.AssetId] += assetChangeAmount
+				if assetChangeAmount > 0 {
+					assetChanges[asset.AssetId] += assetChangeAmount
+				}
 			}
 		}
 	}
@@ -4128,9 +4130,6 @@ func (a *arkClient) createOffchainTx(
 
 	if btcAmountToSelect >= 0 {
 		isZero := btcAmountToSelect == 0
-		if isZero {
-			btcAmountToSelect = int64(a.Dust)
-		}
 
 		// filter out already-selected vtxos
 		availableVtxos := make([]client.TapscriptsVtxo, 0, len(vtxos))
@@ -4140,28 +4139,38 @@ func (a *arkClient) createOffchainTx(
 			}
 		}
 
-		_, selectedBtcCoins, changeBtcAmount, err := utils.CoinSelect(
-			nil, availableVtxos,
-			// use a "fake" receiver to select only the remaining btc amount
-			// it works for offchain tx because feeEstimator is nil (no offchain fee)
-			[]types.Receiver{{Amount: uint64(btcAmountToSelect)}},
-			a.Dust, options.withoutExpirySorting, nil,
-		)
-		if err != nil {
-			return "", nil, nil, nil, err
-		}
-
-		// some coins may contain assets, add them to the asset changes
-		for _, coin := range selectedBtcCoins {
-			for _, asset := range coin.Assets {
-				assetChanges[asset.AssetId] += asset.Amount
+		// skip BTC coin selection if all BTC was covered by asset coins
+		// and there are no more available vtxos (send-all scenario)
+		if isZero && len(availableVtxos) == 0 {
+			changeAmount = 0
+		} else {
+			if isZero {
+				btcAmountToSelect = int64(a.Dust)
 			}
-		}
 
-		selectedCoins = append(selectedCoins, selectedBtcCoins...)
-		changeAmount = changeBtcAmount
-		if isZero {
-			changeAmount = changeBtcAmount + a.Dust
+			_, selectedBtcCoins, changeBtcAmount, err := utils.CoinSelect(
+				nil, availableVtxos,
+				// use a "fake" receiver to select only the remaining btc amount
+				// it works for offchain tx because feeEstimator is nil (no offchain fee)
+				[]types.Receiver{{Amount: uint64(btcAmountToSelect)}},
+				a.Dust, options.withoutExpirySorting, nil,
+			)
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+
+			// some coins may contain assets, add them to the asset changes
+			for _, coin := range selectedBtcCoins {
+				for _, asset := range coin.Assets {
+					assetChanges[asset.AssetId] += asset.Amount
+				}
+			}
+
+			selectedCoins = append(selectedCoins, selectedBtcCoins...)
+			changeAmount = changeBtcAmount
+			if isZero {
+				changeAmount = changeBtcAmount + a.Dust
+			}
 		}
 	} else {
 		changeAmount = uint64(math.Abs(float64(btcAmountToSelect)))
@@ -4210,10 +4219,12 @@ func (a *arkClient) createOffchainTx(
 		}
 		if len(assetChanges) > 0 {
 			for assetID, amount := range assetChanges {
-				changeReceiver.Assets = append(changeReceiver.Assets, types.Asset{
-					AssetId: assetID,
-					Amount:  amount,
-				})
+				if amount > 0 {
+					changeReceiver.Assets = append(changeReceiver.Assets, types.Asset{
+						AssetId: assetID,
+						Amount:  amount,
+					})
+				}
 			}
 		}
 
