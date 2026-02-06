@@ -628,19 +628,17 @@ func (q *Queries) UpdateVtxo(ctx context.Context, arg UpdateVtxoParams) error {
 }
 
 const upsertAsset = `-- name: UpsertAsset :exec
-INSERT INTO asset (asset_id, metadata, immutable) VALUES (?1, ?2, ?3)
+INSERT INTO asset (asset_id, metadata) VALUES (?1, ?2)
 ON CONFLICT (asset_id) DO UPDATE SET
-    metadata = COALESCE(EXCLUDED.metadata, metadata),
-    immutable = COALESCE(EXCLUDED.immutable, immutable)
+    metadata = COALESCE(EXCLUDED.metadata, metadata)
 `
 
 type UpsertAssetParams struct {
-	AssetID   string
-	Metadata  interface{}
-	Immutable interface{}
+	AssetID  string
+	Metadata interface{}
 }
 
 func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAsset, arg.AssetID, arg.Metadata, arg.Immutable)
+	_, err := q.db.ExecContext(ctx, upsertAsset, arg.AssetID, arg.Metadata)
 	return err
 }

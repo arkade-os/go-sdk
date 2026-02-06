@@ -90,31 +90,26 @@ var (
 			},
 			Outputs: []asset.AssetOutput{
 				{
-					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 500,
 				},
 				{
-					Type:   asset.AssetTypeLocal,
 					Vout:   1,
 					Amount: 500,
 				},
 			},
 			Inputs: []asset.AssetInput{
 				{
-					Type:   asset.AssetTypeLocal,
 					Vin:    0,
 					Amount: 1000,
 				},
 			},
-			Immutable: true,
 		},
 		{
 			// issuance with control asset by id
 			AssetId: nil,
 			Outputs: []asset.AssetOutput{
 				{
-					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 10000,
 				},
@@ -139,14 +134,12 @@ var (
 					Value: []byte("French token"),
 				},
 			},
-			Immutable: true,
 		},
 		{
 			// issuance with control asset by group index
 			AssetId: nil,
 			Outputs: []asset.AssetOutput{
 				{
-					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 10000,
 				},
@@ -165,19 +158,16 @@ var (
 					Value: []byte("Italian token"),
 				},
 			},
-			Immutable: true,
 		},
 		{
 			// control asset of IT asset
 			AssetId: nil, // created in the issuance
 			Outputs: []asset.AssetOutput{
 				{
-					Type:   asset.AssetTypeLocal,
 					Vout:   0,
 					Amount: 100,
 				},
 			},
-			Immutable: true,
 		},
 	}
 

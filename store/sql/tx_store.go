@@ -86,7 +86,6 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
 						AssetID:   assetId.String(),
 						Metadata:  metadataParam,
-						Immutable: assetGroup.Immutable,
 					}); err != nil {
 						return err
 					}

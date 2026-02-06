@@ -9,9 +9,8 @@ import (
 )
 
 type Asset struct {
-	AssetID   string
-	Metadata  interface{}
-	Immutable interface{}
+	AssetID  string
+	Metadata interface{}
 }
 
 type AssetControl struct {

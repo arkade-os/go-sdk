@@ -1,7 +1,6 @@
 CREATE TABLE IF NOT EXISTS asset (
   asset_id TEXT PRIMARY KEY,
-  metadata TEXT NULL,
-  immutable TEXT NULL
+  metadata TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS asset_control (

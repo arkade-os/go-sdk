@@ -28,10 +28,9 @@ WHERE spent = false AND unrolled = false;
 DELETE FROM vtxo;
 
 -- name: UpsertAsset :exec
-INSERT INTO asset (asset_id, metadata, immutable) VALUES (:asset_id, sqlc.narg(metadata), sqlc.narg(immutable))
+INSERT INTO asset (asset_id, metadata) VALUES (:asset_id, sqlc.narg(metadata))
 ON CONFLICT (asset_id) DO UPDATE SET
-    metadata = COALESCE(EXCLUDED.metadata, metadata),
-    immutable = COALESCE(EXCLUDED.immutable, immutable);
+    metadata = COALESCE(EXCLUDED.metadata, metadata);
 
 -- name: InsertAssetControl :exec
 INSERT INTO asset_control (asset_id, control_asset_id) VALUES (:asset_id, :control_asset_id)
