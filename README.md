@@ -299,6 +299,23 @@ make integrationtest
 make regtestdown
 ```
 
+### 7. Lightning Network Integration
+
+The Arkade Go SDK supports Lightning Network payments through **Boltz submarine
+swaps**. This allows you to send and receive Lightning payments using your
+Arkade wallet, bridging the gap between the Ark protocol and the Lightning
+Network.
+
+Key capabilities:
+- **Receive from Lightning**: Generate invoices that deposit funds into your Arkade wallet via reverse submarine swaps
+- **Send to Lightning**: Pay Lightning invoices using your Arkade balance via submarine swaps
+- **Automatic refunds**: Recover stuck funds when swaps fail
+- **Manual claims**: Claim funded VHTLCs that weren't automatically processed
+
+For the complete Lightning integration guide — including detailed flow diagrams,
+VHTLC script structure, refund procedures, and Go code patterns — see the
+[Lightning documentation](docs/lightning.md).
+
 ## Full Example
 
 For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/arkade-os/go-sdk/blob/master/example/alice_to_bob/alice_to_bob.go).
