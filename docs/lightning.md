@@ -62,7 +62,7 @@ different spending conditions:
 | **Unilateral Refund** | Sender + timelock | Fallback refund without server |
 | **Unilateral Refund Without Receiver** | Sender + longer timelock | Last-resort refund without receiver or server |
 
-The server (Ark Service Provider, or ASP) is a co-signer on the cooperative
+The Arkade operator is a co-signer on the cooperative
 paths, providing instant finality. The unilateral paths serve as escape hatches
 if the server becomes unresponsive.
 
@@ -301,7 +301,7 @@ possible:
 ### Refund Flow
 
 ```
-Your Wallet                Boltz              Ark Server (ASP)
+Your Wallet                Boltz              Arkade Server
       │                      │                       │
       │  1. Detect failed    │                       │
       │     swap status      │                       │
@@ -321,10 +321,10 @@ Your Wallet                Boltz              Ark Server (ASP)
       │◄─────────────────────│                       │
       │                      │                       │
       │  5. Combine sigs     │                       │
-      │     + submit to ASP  │                       │
+      │     + submit to Arkade  │                       │
       │──────────────────────────────────────────────►│
       │                      │                       │
-      │  6. ASP co-signs     │                       │
+      │  6. Arkade co-signs     │                       │
       │     and finalizes    │                       │
       │◄─────────────────────────────────────────────│
       │                      │                       │
@@ -359,7 +359,7 @@ Your Wallet                Boltz              Ark Server (ASP)
 
 6. **Combine signatures**: Merge the Boltz signatures with yours.
 
-7. **Submit to the ASP**: Call `SubmitTx` with the combined refund
+7. **Submit to Arkade**: Call `SubmitTx` with the combined refund
    transaction, then `FinalizeTx` with the signed checkpoints.
 
 8. **Funds returned**: The refund transaction moves your funds from the VHTLC
@@ -395,7 +395,7 @@ yourSignedCheckpoint, _ := arkClient.SignTransaction(ctx, checkpointTxs[0])
 combinedRefundTx := combineTapscriptSigs(boltzSigned.RefundTx, yourSignedRefundTx)
 combinedCheckpoint := combineTapscriptSigs(boltzSigned.Checkpoint, yourSignedCheckpoint)
 
-// 8. Submit to ASP
+// 8. Submit
 arkTxid, _, signedCheckpoints, _ := transportClient.SubmitTx(ctx, combinedRefundTx, checkpointTxs)
 
 // 9. Finalize
@@ -412,7 +412,7 @@ If Boltz is unresponsive (refuses to co-sign the refund), you can use the
 3. Broadcast the transaction on-chain (this exits the Ark virtual tree).
 
 This is similar to the `Unroll` / `CompleteUnroll` mechanism in the Go SDK for
-recovering funds from an unresponsive ASP.
+recovering funds from an unresponsive Arkade operator.
 
 ---
 
@@ -433,7 +433,7 @@ unclaimed.
 ### Claim Flow
 
 ```
-Your Wallet                                  Ark Server (ASP)
+Your Wallet                                  Arkade Server
       │                                            │
       │  1. Query VHTLC VTXO from indexer          │
       │                                            │
@@ -443,10 +443,10 @@ Your Wallet                                  Ark Server (ASP)
       │  3. Sign with VHTLC identity                │
       │     (wallet key + preimage witness)         │
       │                                            │
-      │  4. SubmitTx to ASP                        │
+      │  4. SubmitTx to Arkade                        │
       │────────────────────────────────────────────►│
       │                                            │
-      │  5. ASP validates preimage, co-signs        │
+      │  5. Arkade validates preimage, co-signs        │
       │◄───────────────────────────────────────────│
       │                                            │
       │  6. Sign checkpoints, FinalizeTx           │
@@ -668,13 +668,13 @@ Always check the `isRefundable` flag on errors. If set, the error includes the
 ### Component Responsibilities
 
 - **Ark Client (go-sdk)**: Manages VTXOs, signs transactions, communicates with
-  the ASP. Used to build and submit off-chain transactions for claims/refunds.
+  the Arkade operator. Used to build and submit off-chain transactions for claims/refunds.
 - **Boltz Client**: HTTP/WebSocket client for the Boltz API. Creates swaps,
   monitors status, and retrieves co-signatures for refunds.
 - **Swap Manager** (optional): Background process that monitors all pending
   swaps and automatically claims/refunds when status changes. Handles app
   restarts by loading pending swaps from persistence.
-- **Ark Server (arkd)**: The ASP that co-signs virtual transactions, manages the
+- **Arkade Server (arkd)**: The instance that co-signs virtual transactions, manages the
   VTXO tree, and provides the indexer for querying VTXOs.
 - **Boltz Exchange**: The swap counterparty that bridges Arkade and Lightning.
 - **Persistence**: Local storage for swap state, enabling recovery after crashes
