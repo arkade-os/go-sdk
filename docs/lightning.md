@@ -346,7 +346,7 @@ Your Wallet                Boltz              Arkade Server
    - If the VTXO is **not recoverable** (still in the virtual tree): use the
      cooperative refund path (sender + Boltz + server). Request Boltz's
      co-signature via `POST /v2/swap/submarine/{id}/refund`, then submit to
-     the ASP.
+    Arkade.
    - If the VTXO is **recoverable** (has been swept on-chain): use the
      `refundWithoutReceiver` leaf and join a batch via `RegisterIntent`.
 
