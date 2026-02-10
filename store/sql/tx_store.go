@@ -84,8 +84,8 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 					}
 
 					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
-						AssetID:   assetId.String(),
-						Metadata:  metadataParam,
+						AssetID:  assetId.String(),
+						Metadata: metadataParam,
 					}); err != nil {
 						return err
 					}
