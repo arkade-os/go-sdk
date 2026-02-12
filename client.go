@@ -725,12 +725,16 @@ func (a *arkClient) BurnAsset(
 	}
 
 	// before creating the packet, remove the asset from the receivers in order to burn it
-	// change is kept in changeReceiver
-	burnReceiver.Assets = nil
-	receivers[0].Assets = nil
+	// replace it by the change receiver assets
+	if changeReceiver != nil {
+		receivers[0].Assets = changeReceiver.Assets
+		receivers[0].Amount += changeReceiver.Amount
+	} else {
+		receivers[0].Assets = nil
+	}
 
 	assetPacket, err := createAssetPacket(
-		selectedCoinsToAssetInputs(selectedCoins), receivers, changeReceiver,
+		selectedCoinsToAssetInputs(selectedCoins), receivers, nil,
 	)
 	if err != nil {
 		return "", err
@@ -779,14 +783,7 @@ func (a *arkClient) BurnAsset(
 		return txid, nil
 	}
 
-	// before saving the transaction, remove the asset from the receiver
-	burnReceiver.Assets = nil
-
-	walletReceivers := make(map[int]*types.Receiver, len(arkPtx.UnsignedTx.TxOut))
-	walletReceivers[0] = &burnReceiver
-	if changeReceiver != nil {
-		walletReceivers[1] = changeReceiver
-	}
+	walletReceivers := map[int]*types.Receiver{0: &receivers[0]}
 
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 	if err := a.saveSendTransaction(
