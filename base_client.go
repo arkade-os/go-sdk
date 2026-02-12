@@ -14,7 +14,6 @@ import (
 	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
 	"github.com/arkade-os/go-sdk/indexer"
 	grpcindexer "github.com/arkade-os/go-sdk/indexer/grpc"
-	restindexer "github.com/arkade-os/go-sdk/indexer/rest"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
@@ -28,7 +27,6 @@ import (
 const (
 	// transport
 	GrpcClient = client.GrpcClient
-	RestClient = client.RestClient
 	// wallet
 	SingleKeyWallet = wallet.SingleKeyWallet
 	// store
@@ -951,13 +949,10 @@ func getClient(
 }
 
 func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
-	if clientType != GrpcClient && clientType != RestClient {
+	if clientType != GrpcClient {
 		return nil, fmt.Errorf("invalid client type")
 	}
-	if clientType == GrpcClient {
-		return grpcindexer.NewClient(serverUrl)
-	}
-	return restindexer.NewClient(serverUrl)
+	return grpcindexer.NewClient(serverUrl)
 }
 
 func getWallet(
