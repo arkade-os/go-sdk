@@ -11,7 +11,6 @@ import (
 
 const (
 	GrpcClient = "grpc"
-	RestClient = "rest"
 )
 
 var (

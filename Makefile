@@ -1,36 +1,13 @@
-.PHONY: proto genrest test vet lint migrate sqlc
-
-ark_client_dir = $(or $(REST_DIR),client/rest/service)
-indexer_client_dir = $(or $(REST_DIR),indexer/rest/service)
+.PHONY: proto test vet lint migrate sqlc
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.5.0 golangci-lint"; \
-)
-
-SWAGGER = $(shell \
-	echo "docker run --rm \
-		-v $(shell pwd):/work -w /work \
-		openapitools/openapi-generator-cli:v7.16.0"; \
 )
 
 proto:
 	@echo "Compiling stubs..."
 	@docker build -q -t buf -f buf.Dockerfile . &> /dev/null
 	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate
-
-## genrest: compiles rest client from stub with https://github.com/go-swagger/go-swagger
-genrest:
-	@if [ "$(CI)" != "true" ]; then \
-		$(MAKE) proto; \
-	else \
-		echo "Skipping proto (CI=true passed)"; \
-	fi
-	@echo "Cleaning existing files..."
-	@rm -rf $(ark_client_dir) $(indexer_client_dir)
-	@echo "Generating rest client from stub..."
-	@mkdir -p $(ark_client_dir) $(indexer_client_dir)
-	@$(SWAGGER) generate -i api-spec/openapi/swagger/ark/v1/service.openapi.json --skip-validate-spec -g go -o $(ark_client_dir) --global-property apis,models,apiDocs=false,apiTests=false,modelDocs=false,modelTests=false,supportingFiles=utils.go:configuration.go:client.go -t .openapi/templates
-	@$(SWAGGER) generate -i api-spec/openapi/swagger/ark/v1/indexer.openapi.json --skip-validate-spec -g go -o $(indexer_client_dir) --global-property apis,models,apiDocs=false,apiTests=false,modelDocs=false,modelTests=false,supportingFiles=utils.go:configuration.go:client.go -t .openapi/templates
 
 ## test: runs unit tests
 test:
