@@ -299,7 +299,7 @@ func (a *arkClient) IssueAsset(
 	}
 
 	receiver := types.Receiver{
-		To: offchainAddrs[0].Address, Amount: a.Dust + 1,
+		To: offchainAddrs[0].Address, Amount: a.Dust,
 		Assets: receiverAsset,
 	}
 
@@ -539,7 +539,7 @@ func (a *arkClient) ReissueAsset(
 	defer a.dbMu.Unlock()
 
 	receiver := types.Receiver{
-		To: offchainAddrs[0].Address, Amount: a.Dust + 1,
+		To: offchainAddrs[0].Address, Amount: a.Dust,
 		Assets: []types.Asset{{
 			AssetId: controlAssetId,
 			Amount:  1, // TODO : should send all available amount
@@ -704,7 +704,7 @@ func (a *arkClient) BurnAsset(
 
 	burnReceiver := types.Receiver{
 		To:     offchainAddrs[0].Address,
-		Amount: a.Dust + 1,
+		Amount: a.Dust,
 		Assets: []types.Asset{{
 			AssetId: assetId,
 			Amount:  amount,
@@ -4237,7 +4237,7 @@ func (a *arkClient) createOffchainTx(
 		}
 
 		_, selectedBtcCoins, changeBtcAmount, err := utils.CoinSelect(
-			nil, availableVtxos, []types.Receiver{{Amount: a.Dust + 1}},
+			nil, availableVtxos, []types.Receiver{{Amount: a.Dust}},
 			a.Dust, options.withoutExpirySorting, nil,
 		)
 		if err != nil {
@@ -4248,7 +4248,7 @@ func (a *arkClient) createOffchainTx(
 		}
 
 		selectedCoins = append(selectedCoins, selectedBtcCoins...)
-		changeAmount = changeBtcAmount + a.Dust + 1
+		changeAmount = changeBtcAmount + a.Dust
 	}
 
 	if changeAmount > 0 {
