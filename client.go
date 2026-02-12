@@ -410,12 +410,6 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	var b bytes.Buffer
-	if err := arkPtx.UnsignedTx.Serialize(&b); err != nil {
-		return "", nil, err
-	}
-	fmt.Println(b.String())
-
 	if err := verifySignedCheckpoints(checkpointTxs, signedCheckpointTxs, a.SignerPubKey); err != nil {
 		return "", nil, err
 	}
