@@ -38,8 +38,12 @@ type arkTxInput struct {
 	ForfeitLeafHash chainhash.Hash
 }
 
+// validateReceivers verifies that all the intent's receivers are present in the commitment ptx (if onchain) or in the vtxo tree (if offchain)
 func validateReceivers(
-	network arklib.Network, ptx *psbt.Packet, receivers []types.Receiver, vtxoTree *tree.TxTree,
+	network arklib.Network,
+	commitmentPtx *psbt.Packet,
+	receivers []types.Receiver,
+	vtxoTree *tree.TxTree,
 ) error {
 	netParams := utils.ToBitcoinNetwork(network)
 	for _, receiver := range receivers {
@@ -49,7 +53,7 @@ func validateReceivers(
 		}
 
 		if isOnChain {
-			if err := validateOnchainReceiver(ptx, receiver, onchainScript); err != nil {
+			if err := validateOnchainReceiver(commitmentPtx, receiver, onchainScript); err != nil {
 				return err
 			}
 		} else {
@@ -95,7 +99,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 
 	leaves := vtxoTree.Leaves()
 	for _, leaf := range leaves {
-		for _, output := range leaf.UnsignedTx.TxOut {
+		for outputIndex, output := range leaf.UnsignedTx.TxOut {
 			if len(output.PkScript) == 0 {
 				continue
 			}
@@ -106,6 +110,12 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 				}
 
 				found = true
+				// if the leaf is found and the receiver has assets, validate asset packet
+				if len(receiver.Assets) > 0 {
+					if err := validateAssetOutputs(leaf.UnsignedTx, outputIndex, receiver); err != nil {
+						return err
+					}
+				}
 				break
 			}
 		}
@@ -119,6 +129,66 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 		return fmt.Errorf("offchain send output not found: %s", receiver.To)
 	}
 
+	return nil
+}
+
+func validateAssetOutputs(tx *wire.MsgTx, outputIndex int, receiver types.Receiver) error {
+	assetPacket, err := asset.NewPacketFromTx(tx)
+	if err != nil {
+		return err
+	}
+
+	// for each expected asset, verify the asset group exists and contains the correct output
+	for _, expectedAsset := range receiver.Assets {
+		// find asset group
+		found := false
+		for _, assetGroup := range assetPacket {
+			if assetGroup.AssetId == nil {
+				continue // skip issuance groups
+			}
+
+			if assetGroup.AssetId.String() == expectedAsset.AssetId {
+				if err := validateAssetGroupOutput(assetGroup.Outputs, outputIndex, expectedAsset); err != nil {
+					return err
+				}
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("asset group not found in batch leaf")
+		}
+	}
+
+	return nil
+}
+
+func validateAssetGroupOutput(
+	outputs []asset.AssetOutput,
+	outputIndex int,
+	expectedAsset types.Asset,
+) error {
+	found := false
+	for _, output := range outputs {
+		if int(output.Vout) != outputIndex {
+			continue
+		}
+
+		if output.Amount != expectedAsset.Amount {
+			return fmt.Errorf(
+				"invalid asset output amount: got %d, want %d",
+				output.Amount,
+				expectedAsset.Amount,
+			)
+		}
+		found = true
+		break
+	}
+
+	if !found {
+		return fmt.Errorf("asset output not found in asset group: %s", expectedAsset.AssetId)
+	}
 	return nil
 }
 
