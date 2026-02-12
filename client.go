@@ -480,8 +480,38 @@ func (a *arkClient) IssueAsset(
 	return arkTxid, assetIds, nil
 }
 
+func (a *arkClient) getControlAssetId(ctx context.Context, assetId string) (string, error) {
+	if a.WithTransactionFeed {
+		assetInfo, err := a.store.AssetStore().GetAsset(ctx, assetId)
+		if err == nil && assetInfo != nil {
+			return assetInfo.ControlAssetId, nil
+		}
+		// do not return error, fallback to indexer
+	}
+
+	// from indexer
+	indexerAssetInfo, err := a.indexer.GetAsset(ctx, assetId)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch asset from indexer: %w", err)
+	}
+
+	// if db, upsert the asset to prevent fetching it again
+	if a.WithTransactionFeed {
+		assetInfo := types.AssetInfo{
+			AssetId:        indexerAssetInfo.AssetId,
+			ControlAssetId: indexerAssetInfo.ControlAssetId,
+			Metadata:       indexerAssetInfo.Metadata,
+		}
+		if err := a.store.AssetStore().UpsertAsset(ctx, assetInfo); err != nil {
+			log.Debugf("failed to upsert asset to store: %s", err)
+		}
+	}
+
+	return indexerAssetInfo.ControlAssetId, nil
+}
+
 func (a *arkClient) ReissueAsset(
-	ctx context.Context, controlAssetId, assetId string, amount uint64, opts ...Option,
+	ctx context.Context, assetId string, amount uint64, opts ...Option,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -494,6 +524,15 @@ func (a *arkClient) ReissueAsset(
 
 	if amount == 0 {
 		return "", fmt.Errorf("amount must be > 0")
+	}
+
+	controlAssetId, err := a.getControlAssetId(ctx, assetId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get control asset: %w", err)
+	}
+
+	if len(controlAssetId) == 0 {
+		return "", fmt.Errorf("%s can't be reissued, no control asset", assetId)
 	}
 
 	a.dbMu.Lock()

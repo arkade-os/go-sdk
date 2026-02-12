@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -53,15 +54,16 @@ type Indexer interface {
 	) (string, error)
 	UnsubscribeForScripts(ctx context.Context, subscriptionId string, scripts []string) error
 	GetSubscription(ctx context.Context, subscriptionId string) (<-chan *ScriptEvent, func(), error)
-	GetAssetDetails(ctx context.Context, assetID string) (*AssetInfo, error)
+	GetAsset(ctx context.Context, assetID string) (*AssetInfo, error)
 
 	Close()
 }
 
 type AssetInfo struct {
-	AssetId  string
-	Quantity uint64
-	Metadata map[string]string
+	AssetId        string
+	Supply         string
+	ControlAssetId string
+	Metadata       []asset.Metadata
 }
 
 type VtxoTreeResponse struct {

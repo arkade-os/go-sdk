@@ -30,8 +30,7 @@ type ArkClient interface {
 		ctx context.Context, amount uint64, controlAsset types.ControlAsset, metadata []asset.Metadata, opt ...Option,
 	) (string, []asset.AssetId, error)
 	ReissueAsset(
-		// TODO : fetch control asset from DB / indexer ?
-		ctx context.Context, controlAssetId string, assetId string, amount uint64, opt ...Option,
+		ctx context.Context, assetId string, amount uint64, opt ...Option,
 	) (string, error)
 	BurnAsset(
 		ctx context.Context, assetID string, amount uint64, opt ...Option,

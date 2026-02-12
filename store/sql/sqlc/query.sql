@@ -28,16 +28,16 @@ WHERE spent = false AND unrolled = false;
 DELETE FROM vtxo;
 
 -- name: UpsertAsset :exec
-INSERT INTO asset (asset_id, metadata) VALUES (:asset_id, sqlc.narg(metadata))
+INSERT INTO asset (asset_id, control_asset_id, metadata) VALUES (:asset_id, sqlc.narg(control_asset_id), sqlc.narg(metadata))
 ON CONFLICT (asset_id) DO UPDATE SET
+    control_asset_id = COALESCE(EXCLUDED.control_asset_id, control_asset_id),
     metadata = COALESCE(EXCLUDED.metadata, metadata);
-
--- name: InsertAssetControl :exec
-INSERT INTO asset_control (asset_id, control_asset_id) VALUES (:asset_id, :control_asset_id)
-ON CONFLICT (asset_id, control_asset_id) DO NOTHING;
 
 -- name: InsertAssetVtxo :exec
 INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, amount) VALUES (?, ?, ?, ?);
+
+-- name: SelectAsset :one
+SELECT * FROM asset WHERE asset_id = :asset_id;
 
 -- name: CleanAssetVtxos :exec
 DELETE FROM asset_vtxo;

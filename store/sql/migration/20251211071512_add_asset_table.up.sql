@@ -1,14 +1,7 @@
 CREATE TABLE IF NOT EXISTS asset (
   asset_id TEXT PRIMARY KEY,
-  metadata TEXT NULL
-);
-
-CREATE TABLE IF NOT EXISTS asset_control (
-  asset_id TEXT NOT NULL,
-  control_asset_id TEXT NOT NULL,
-  PRIMARY KEY (asset_id, control_asset_id),
-  FOREIGN KEY (asset_id) REFERENCES asset(asset_id),
-  FOREIGN KEY (control_asset_id) REFERENCES asset(asset_id)
+  control_asset_id TEXT,
+  metadata TEXT
 );
 
 CREATE TABLE IF NOT EXISTS asset_vtxo (

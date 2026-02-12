@@ -62,21 +62,6 @@ func (q *Queries) DeleteUtxo(ctx context.Context, arg DeleteUtxoParams) error {
 	return err
 }
 
-const insertAssetControl = `-- name: InsertAssetControl :exec
-INSERT INTO asset_control (asset_id, control_asset_id) VALUES (?1, ?2)
-ON CONFLICT (asset_id, control_asset_id) DO NOTHING
-`
-
-type InsertAssetControlParams struct {
-	AssetID        string
-	ControlAssetID string
-}
-
-func (q *Queries) InsertAssetControl(ctx context.Context, arg InsertAssetControlParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetControl, arg.AssetID, arg.ControlAssetID)
-	return err
-}
-
 const insertAssetVtxo = `-- name: InsertAssetVtxo :exec
 INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, amount) VALUES (?, ?, ?, ?)
 `
@@ -372,6 +357,17 @@ func (q *Queries) SelectAllVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
 	return items, nil
 }
 
+const selectAsset = `-- name: SelectAsset :one
+SELECT asset_id, control_asset_id, metadata FROM asset WHERE asset_id = ?1
+`
+
+func (q *Queries) SelectAsset(ctx context.Context, assetID string) (Asset, error) {
+	row := q.db.QueryRowContext(ctx, selectAsset, assetID)
+	var i Asset
+	err := row.Scan(&i.AssetID, &i.ControlAssetID, &i.Metadata)
+	return i, err
+}
+
 const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount FROM asset_vtxo_vw
 WHERE spent = false AND unrolled = false
@@ -628,17 +624,19 @@ func (q *Queries) UpdateVtxo(ctx context.Context, arg UpdateVtxoParams) error {
 }
 
 const upsertAsset = `-- name: UpsertAsset :exec
-INSERT INTO asset (asset_id, metadata) VALUES (?1, ?2)
+INSERT INTO asset (asset_id, control_asset_id, metadata) VALUES (?1, ?2, ?3)
 ON CONFLICT (asset_id) DO UPDATE SET
+    control_asset_id = COALESCE(EXCLUDED.control_asset_id, control_asset_id),
     metadata = COALESCE(EXCLUDED.metadata, metadata)
 `
 
 type UpsertAssetParams struct {
-	AssetID  string
-	Metadata interface{}
+	AssetID        string
+	ControlAssetID sql.NullString
+	Metadata       sql.NullString
 }
 
 func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAsset, arg.AssetID, arg.Metadata)
+	_, err := q.db.ExecContext(ctx, upsertAsset, arg.AssetID, arg.ControlAssetID, arg.Metadata)
 	return err
 }

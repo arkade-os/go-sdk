@@ -14,33 +14,33 @@ import (
 	"encoding/json"
 )
 
-// checks if the GetAssetGroupRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &GetAssetGroupRequest{}
+// checks if the GetAssetRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &GetAssetRequest{}
 
-// GetAssetGroupRequest struct for GetAssetGroupRequest
-type GetAssetGroupRequest struct {
+// GetAssetRequest struct for GetAssetRequest
+type GetAssetRequest struct {
 		AssetId *string `json:"assetId,omitempty"`
 }
 
-// NewGetAssetGroupRequest instantiates a new GetAssetGroupRequest object
+// NewGetAssetRequest instantiates a new GetAssetRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGetAssetGroupRequest() *GetAssetGroupRequest {
-	this := GetAssetGroupRequest{}
+func NewGetAssetRequest() *GetAssetRequest {
+	this := GetAssetRequest{}
 	return &this
 }
 
-// NewGetAssetGroupRequestWithDefaults instantiates a new GetAssetGroupRequest object
+// NewGetAssetRequestWithDefaults instantiates a new GetAssetRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewGetAssetGroupRequestWithDefaults() *GetAssetGroupRequest {
-	this := GetAssetGroupRequest{}
+func NewGetAssetRequestWithDefaults() *GetAssetRequest {
+	this := GetAssetRequest{}
 	return &this
 }
 
 // GetAssetId returns the AssetId field value if set, zero value otherwise.
-func (o *GetAssetGroupRequest) GetAssetId() string {
+func (o *GetAssetRequest) GetAssetId() string {
 	if o == nil || IsNil(o.AssetId) {
 		var ret string
 		return ret
@@ -50,7 +50,7 @@ func (o *GetAssetGroupRequest) GetAssetId() string {
 
 // GetAssetIdOk returns a tuple with the AssetId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *GetAssetGroupRequest) GetAssetIdOk() (*string, bool) {
+func (o *GetAssetRequest) GetAssetIdOk() (*string, bool) {
 	if o == nil || IsNil(o.AssetId) {
 		return nil, false
 	}
@@ -58,7 +58,7 @@ func (o *GetAssetGroupRequest) GetAssetIdOk() (*string, bool) {
 }
 
 // HasAssetId returns a boolean if a field has been set.
-func (o *GetAssetGroupRequest) HasAssetId() bool {
+func (o *GetAssetRequest) HasAssetId() bool {
 	if o != nil && !IsNil(o.AssetId) {
 		return true
 	}
@@ -67,11 +67,11 @@ func (o *GetAssetGroupRequest) HasAssetId() bool {
 }
 
 // SetAssetId gets a reference to the given string and assigns it to the AssetId field.
-func (o *GetAssetGroupRequest) SetAssetId(v string) {
+func (o *GetAssetRequest) SetAssetId(v string) {
 	o.AssetId = &v
 }
 
-func (o GetAssetGroupRequest) MarshalJSON() ([]byte, error) {
+func (o GetAssetRequest) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -79,7 +79,7 @@ func (o GetAssetGroupRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o GetAssetGroupRequest) ToMap() (map[string]interface{}, error) {
+func (o GetAssetRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.AssetId) {
 		toSerialize["assetId"] = o.AssetId
@@ -87,38 +87,38 @@ func (o GetAssetGroupRequest) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableGetAssetGroupRequest struct {
-	value *GetAssetGroupRequest
+type NullableGetAssetRequest struct {
+	value *GetAssetRequest
 	isSet bool
 }
 
-func (v NullableGetAssetGroupRequest) Get() *GetAssetGroupRequest {
+func (v NullableGetAssetRequest) Get() *GetAssetRequest {
 	return v.value
 }
 
-func (v *NullableGetAssetGroupRequest) Set(val *GetAssetGroupRequest) {
+func (v *NullableGetAssetRequest) Set(val *GetAssetRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableGetAssetGroupRequest) IsSet() bool {
+func (v NullableGetAssetRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableGetAssetGroupRequest) Unset() {
+func (v *NullableGetAssetRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableGetAssetGroupRequest(val *GetAssetGroupRequest) *NullableGetAssetGroupRequest {
-	return &NullableGetAssetGroupRequest{value: val, isSet: true}
+func NewNullableGetAssetRequest(val *GetAssetRequest) *NullableGetAssetRequest {
+	return &NullableGetAssetRequest{value: val, isSet: true}
 }
 
-func (v NullableGetAssetGroupRequest) MarshalJSON() ([]byte, error) {
+func (v NullableGetAssetRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableGetAssetGroupRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableGetAssetRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

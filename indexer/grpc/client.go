@@ -2,12 +2,14 @@ package indexer
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/indexer"
@@ -480,29 +482,40 @@ func (a *grpcClient) GetBatchSweepTxs(
 	return resp.GetSweptBy(), nil
 }
 
-func (a *grpcClient) GetAssetDetails(ctx context.Context, assetID string) (
+func (a *grpcClient) GetAsset(ctx context.Context, assetID string) (
 	*indexer.AssetInfo, error,
 ) {
-	req := &arkv1.GetAssetGroupRequest{
+	req := &arkv1.GetAssetRequest{
 		AssetId: assetID,
 	}
 
-	resp, err := a.svc().GetAssetGroup(ctx, req)
+	resp, err := a.svc().GetAsset(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	group := resp.GetAssetGroup()
-
-	metadata := make(map[string]string)
-	for _, mt := range group.GetMetadata() {
-		metadata[mt.GetKey()] = mt.GetValue()
+	metadataFromResp := resp.GetMetadata()
+	metadata := make([]asset.Metadata, 0, len(metadataFromResp))
+	for _, mt := range metadataFromResp {
+		key, err := hex.DecodeString(mt.GetKey())
+		if err != nil {
+			return nil, err
+		}
+		value, err := hex.DecodeString(mt.GetValue())
+		if err != nil {
+			return nil, err
+		}
+		metadata = append(metadata, asset.Metadata{
+			Key:   key,
+			Value: value,
+		})
 	}
 
 	return &indexer.AssetInfo{
-		AssetId:  resp.GetAssetId(),
-		Quantity: group.GetQuantity(),
-		Metadata: metadata,
+		AssetId:        resp.GetAssetId(),
+		Supply:         resp.GetSupply(),
+		ControlAssetId: resp.GetControlAsset(),
+		Metadata:       metadata,
 	}, nil
 }
 

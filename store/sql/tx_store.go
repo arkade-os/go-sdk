@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -74,61 +73,37 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 				for groupIndex, assetGroup := range tx.AssetPacket {
 					assetId := getAssetId(uint16(groupIndex))
 
-					var metadataParam any = nil
+					metadata := sql.NullString{Valid: false}
 					if len(assetGroup.Metadata) > 0 {
 						metadataBytes, err := json.Marshal(assetGroup.Metadata)
 						if err != nil {
 							return err
 						}
-						metadataParam = string(metadataBytes)
+						metadata = sql.NullString{String: string(metadataBytes), Valid: true}
+					}
+
+					controlAssetId := sql.NullString{Valid: false}
+					if assetGroup.ControlAsset != nil {
+						switch assetGroup.ControlAsset.Type {
+						case asset.AssetRefByID:
+							controlAssetId = sql.NullString{
+								String: assetGroup.ControlAsset.AssetId.String(),
+								Valid:  true,
+							}
+						case asset.AssetRefByGroup:
+							ctrl := getAssetId(uint16(assetGroup.ControlAsset.GroupIndex))
+							if ctrl != nil {
+								controlAssetId = sql.NullString{String: ctrl.String(), Valid: true}
+							}
+						}
 					}
 
 					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
-						AssetID:  assetId.String(),
-						Metadata: metadataParam,
+						AssetID:        assetId.String(),
+						ControlAssetID: controlAssetId,
+						Metadata:       metadata,
 					}); err != nil {
 						return err
-					}
-
-					if assetGroup.ControlAsset != nil {
-						var controlAssetId *asset.AssetId
-
-						switch assetGroup.ControlAsset.Type {
-						case asset.AssetRefByID:
-							if len(assetGroup.ControlAsset.AssetId.Txid) == 0 {
-								return fmt.Errorf("control asset id is required")
-							}
-
-							controlAssetId = &assetGroup.ControlAsset.AssetId
-						case asset.AssetRefByGroup:
-							if assetGroup.ControlAsset.GroupIndex >= uint16(
-								len(tx.AssetPacket),
-							) {
-								return fmt.Errorf("control asset ref by group index out of range")
-							}
-
-							controlAssetId = getAssetId(uint16(assetGroup.ControlAsset.GroupIndex))
-						default:
-							return fmt.Errorf(
-								"invalid asset ref type %d",
-								assetGroup.ControlAsset.Type,
-							)
-						}
-
-						if controlAssetId != nil {
-							if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
-								AssetID: controlAssetId.String(),
-							}); err != nil {
-								return err
-							}
-
-							if err := querierWithTx.InsertAssetControl(ctx, queries.InsertAssetControlParams{
-								AssetID:        assetId.String(),
-								ControlAssetID: controlAssetId.String(),
-							}); err != nil {
-								return err
-							}
-						}
 					}
 				}
 			}

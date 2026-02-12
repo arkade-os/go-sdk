@@ -165,7 +165,7 @@ func TestAssetReissuance(t *testing.T) {
 	require.Equal(t, assetId, controlVtxos[0].Assets[1].AssetId)
 	require.Equal(t, uint64(1), controlVtxos[0].Assets[1].Amount)
 
-	_, err = alice.ReissueAsset(ctx, controlAssetId, assetId, 1000)
+	_, err = alice.ReissueAsset(ctx, assetId, 1000)
 	require.NoError(t, err)
 
 	assetVtxos := listVtxosWithAsset(t, alice, assetId)

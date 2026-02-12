@@ -9,13 +9,9 @@ import (
 )
 
 type Asset struct {
-	AssetID  string
-	Metadata interface{}
-}
-
-type AssetControl struct {
 	AssetID        string
-	ControlAssetID string
+	ControlAssetID sql.NullString
+	Metadata       sql.NullString
 }
 
 type AssetVtxo struct {

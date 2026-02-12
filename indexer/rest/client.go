@@ -2,12 +2,14 @@ package indexer
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/go-sdk/indexer"
 	indexer_service "github.com/arkade-os/go-sdk/indexer/rest/service"
@@ -237,32 +239,38 @@ func (a *restClient) GetConnectors(
 	}, nil
 }
 
-func (a *restClient) GetAssetDetails(ctx context.Context, assetID string) (
+func (a *restClient) GetAsset(ctx context.Context, assetID string) (
 	*indexer.AssetInfo, error,
 ) {
-	req := a.svc.IndexerServiceAPI.IndexerServiceGetAssetGroup(ctx, assetID)
+	req := a.svc.IndexerServiceAPI.IndexerServiceGetAsset(ctx, assetID)
 
 	resp, _, err := req.Execute()
 	if err != nil {
 		return nil, err
 	}
 
-	assetGroup := resp.GetAssetGroup()
-
-	metadata := make(map[string]string)
-	for _, mt := range assetGroup.Metadata {
-		metadata[mt.GetKey()] = mt.GetValue()
-	}
-
-	quantity := uint64(0)
-	if assetGroup.Quantity != nil {
-		quantity = uint64(*assetGroup.Quantity)
+	metadataFromResp := resp.GetMetadata()
+	metadata := make([]asset.Metadata, 0, len(metadataFromResp))
+	for _, mt := range metadataFromResp {
+		key, err := hex.DecodeString(mt.GetKey())
+		if err != nil {
+			return nil, err
+		}
+		value, err := hex.DecodeString(mt.GetValue())
+		if err != nil {
+			return nil, err
+		}
+		metadata = append(metadata, asset.Metadata{
+			Key:   key,
+			Value: value,
+		})
 	}
 
 	return &indexer.AssetInfo{
-		AssetId:  resp.GetAssetId(),
-		Quantity: quantity,
-		Metadata: metadata,
+		AssetId:        resp.GetAssetId(),
+		Supply:         resp.GetSupply(),
+		ControlAssetId: resp.GetControlAsset(),
+		Metadata:       metadata,
 	}, nil
 }
 

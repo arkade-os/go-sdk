@@ -100,6 +100,7 @@ var (
 			},
 			Inputs: []asset.AssetInput{
 				{
+					Type:   asset.AssetInputTypeLocal,
 					Vin:    0,
 					Amount: 1000,
 				},
@@ -314,6 +315,17 @@ var (
 	}
 	settledBy = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
+	testAsset = types.AssetInfo{
+		AssetId:        "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+		ControlAssetId: "02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021",
+		Metadata: []asset.Metadata{
+			{
+				Key:   []byte("ticker"),
+				Value: []byte("FRA"),
+			},
+		},
+	}
 )
 
 func TestService(t *testing.T) {
@@ -377,6 +389,7 @@ func TestService(t *testing.T) {
 				testUtxoStore(t, svc.UtxoStore(), tt.config.AppDataStoreType)
 				testVtxoStore(t, svc.VtxoStore(), tt.config.AppDataStoreType)
 				testTxStore(t, svc.TransactionStore(), tt.config.AppDataStoreType)
+				testAssetStore(t, svc.AssetStore())
 				svc.Close()
 			})
 		}
@@ -711,6 +724,28 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		require.Len(t, txs, 1)
 		require.NotEmpty(t, txs[0].SettledBy)
 	})
+}
+
+func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
+	ctx := t.Context()
+
+	err := storeSvc.UpsertAsset(ctx, testAsset)
+	require.NoError(t, err)
+
+	asset, err := storeSvc.GetAsset(ctx, testAsset.AssetId)
+	require.NoError(t, err)
+	require.Equal(t, testAsset, *asset)
+
+	// upsert does not erase metadata or control asset id
+	testAssetIdOnly := types.AssetInfo{
+		AssetId: testAsset.AssetId,
+	}
+	err = storeSvc.UpsertAsset(ctx, testAssetIdOnly)
+	require.NoError(t, err)
+
+	asset, err = storeSvc.GetAsset(ctx, testAssetIdOnly.AssetId)
+	require.NoError(t, err)
+	require.Equal(t, testAsset, *asset)
 }
 
 func requireVtxosListEqual(t *testing.T, expected, actual []types.Vtxo) {

@@ -351,3 +351,9 @@ type ExistingControlAsset struct {
 }
 
 func (ExistingControlAsset) isControlAsset() {}
+
+type AssetInfo struct {
+	AssetId        string
+	ControlAssetId string
+	Metadata       []asset.Metadata
+}

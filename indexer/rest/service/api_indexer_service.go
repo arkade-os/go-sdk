@@ -23,27 +23,27 @@ import (
 // IndexerServiceAPIService IndexerServiceAPI service
 type IndexerServiceAPIService service
 
-type ApiIndexerServiceGetAssetGroupRequest struct {
+type ApiIndexerServiceGetAssetRequest struct {
 	ctx context.Context
 	ApiService *IndexerServiceAPIService
 	assetId string
 }
 
-func (r ApiIndexerServiceGetAssetGroupRequest) Execute() (*GetAssetGroupResponse, *http.Response, error) {
-	return r.ApiService.IndexerServiceGetAssetGroupExecute(r)
+func (r ApiIndexerServiceGetAssetRequest) Execute() (*GetAssetResponse, *http.Response, error) {
+	return r.ApiService.IndexerServiceGetAssetExecute(r)
 }
 
 /*
-IndexerServiceGetAssetGroup Method for IndexerServiceGetAssetGroup
+IndexerServiceGetAsset Method for IndexerServiceGetAsset
 
 GetAsset returns the asset information and metadata for the specified asset ID.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param assetId
- @return ApiIndexerServiceGetAssetGroupRequest
+ @return ApiIndexerServiceGetAssetRequest
 */
-func (a *IndexerServiceAPIService) IndexerServiceGetAssetGroup(ctx context.Context, assetId string) ApiIndexerServiceGetAssetGroupRequest {
-	return ApiIndexerServiceGetAssetGroupRequest{
+func (a *IndexerServiceAPIService) IndexerServiceGetAsset(ctx context.Context, assetId string) ApiIndexerServiceGetAssetRequest {
+	return ApiIndexerServiceGetAssetRequest{
 		ApiService: a,
 		ctx: ctx,
 		assetId: assetId,
@@ -51,21 +51,21 @@ func (a *IndexerServiceAPIService) IndexerServiceGetAssetGroup(ctx context.Conte
 }
 
 // Execute executes the request
-//  @return GetAssetGroupResponse
-func (a *IndexerServiceAPIService) IndexerServiceGetAssetGroupExecute(r ApiIndexerServiceGetAssetGroupRequest) (*GetAssetGroupResponse, *http.Response, error) {
+//  @return GetAssetResponse
+func (a *IndexerServiceAPIService) IndexerServiceGetAssetExecute(r ApiIndexerServiceGetAssetRequest) (*GetAssetResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *GetAssetGroupResponse
+		localVarReturnValue  *GetAssetResponse
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IndexerServiceAPIService.IndexerServiceGetAssetGroup")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IndexerServiceAPIService.IndexerServiceGetAsset")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v1/indexer/assetGroup/{asset_id}"
+	localVarPath := localBasePath + "/v1/indexer/asset/{asset_id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"assetId"+"}", url.PathEscape(parameterValueToString(r.assetId, "assetId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
