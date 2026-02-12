@@ -3,7 +3,9 @@ package arksdk
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +22,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
+	arkv1 "github.com/arkade-os/go-sdk/api-spec/protobuf/gen/ark/v1"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
 	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
@@ -73,7 +76,8 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, fmt.Errorf("missing sdk repository")
 	}
 
-	cfgData, err := sdkStore.ConfigStore().GetData(context.Background())
+	ctx := context.Background()
+	cfgData, err := sdkStore.ConfigStore().GetData(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -81,11 +85,32 @@ func LoadArkClient(sdkStore types.Store, opts ...ClientOption) (ArkClient, error
 		return nil, ErrNotInitialized
 	}
 
+	// compute the digest if not already set in the config
+	if len(cfgData.InfoDigest) == 0 {
+		infoDigest, err := computeDigest(cfgData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute info digest: %s", err)
+		}
+		cfgData.InfoDigest = infoDigest
+		if err := sdkStore.ConfigStore().AddData(ctx, *cfgData); err != nil {
+			return nil, fmt.Errorf("failed to add info digest to config: %s", err)
+		}
+	}
+
 	clientSvc, err := getClient(
 		supportedClients, cfgData.ClientType, cfgData.ServerUrl,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
+	}
+
+	info, err := clientSvc.GetInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get info: %s", err)
+	}
+
+	if info.Digest != cfgData.InfoDigest {
+		return nil, DigestMismatchError{Expected: info.Digest, Actual: cfgData.InfoDigest}
 	}
 
 	explorerOpts := []mempool_explorer.Option{
@@ -145,7 +170,9 @@ func LoadArkClientWithWallet(
 		return nil, fmt.Errorf("missin wallet service")
 	}
 
-	cfgData, err := sdkStore.ConfigStore().GetData(context.Background())
+	ctx := context.Background()
+
+	cfgData, err := sdkStore.ConfigStore().GetData(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -153,11 +180,32 @@ func LoadArkClientWithWallet(
 		return nil, ErrNotInitialized
 	}
 
+	// compute the digest if not already set in the config
+	if len(cfgData.InfoDigest) == 0 {
+		infoDigest, err := computeDigest(cfgData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute info digest: %s", err)
+		}
+		cfgData.InfoDigest = infoDigest
+		if err := sdkStore.ConfigStore().AddData(ctx, *cfgData); err != nil {
+			return nil, fmt.Errorf("failed to add info digest to config: %s", err)
+		}
+	}
+
 	clientSvc, err := getClient(
 		supportedClients, cfgData.ClientType, cfgData.ServerUrl,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup transport client: %s", err)
+	}
+
+	info, err := clientSvc.GetInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get info: %s", err)
+	}
+
+	if info.Digest != cfgData.InfoDigest {
+		return nil, DigestMismatchError{Expected: info.Digest, Actual: cfgData.InfoDigest}
 	}
 
 	explorerOpts := []mempool_explorer.Option{
@@ -3443,4 +3491,30 @@ func verifyOffchainPsbt(original, signed *psbt.Packet, signerpubkey *btcec.Publi
 		}
 	}
 	return nil
+}
+
+func computeDigest(cfgData *types.Config) (string, error) {
+	resp := &arkv1.GetInfoResponse{
+		SignerPubkey:        hex.EncodeToString(cfgData.SignerPubKey.SerializeCompressed()),
+		ForfeitPubkey:       hex.EncodeToString(cfgData.ForfeitPubKey.SerializeCompressed()),
+		UnilateralExitDelay: int64(cfgData.UnilateralExitDelay.Value),
+		BoardingExitDelay:   int64(cfgData.BoardingExitDelay.Value),
+		SessionDuration:     cfgData.SessionDuration,
+		Network:             cfgData.Network.Name,
+		Dust:                int64(cfgData.Dust),
+		ForfeitAddress:      cfgData.ForfeitAddress,
+		// Version:             cfgData.Version, // TODO : add version to config ? remove from digest ?
+		UtxoMinAmount:       cfgData.UtxoMinAmount,
+		UtxoMaxAmount:       cfgData.UtxoMaxAmount,
+		VtxoMinAmount:       cfgData.VtxoMinAmount,
+		VtxoMaxAmount:       cfgData.VtxoMaxAmount,
+		CheckpointTapscript: cfgData.CheckpointTapscript,
+	}
+	buf, err := json.Marshal(resp)
+	if err != nil {
+		return "", err
+	}
+
+	digest := sha256.Sum256(buf)
+	return hex.EncodeToString(digest[:]), nil
 }
