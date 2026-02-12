@@ -95,7 +95,7 @@ The `Init` function accepts various configuration options through the `InitArgs`
 
 ```go
 type InitArgs struct {
-    ClientType          string // Type of client connection (e.g., "grpc" or "rest")
+    ClientType          string // Type of client connection (e.g., "grpc")
     WalletType          string // Type of wallet (e.g., "singlekey" or "hd")
     ServerUrl           string // URL of the Ark Server
     Seed                string // Private Key hex encoded for wallet initialization or restoration
@@ -106,9 +106,7 @@ type InitArgs struct {
 
 Let's explore each field in detail:
 
-- `ClientType`: Specifies the type of connection to use with the Ark Server. Options include:
-  - `"grpc"`: Uses gRPC for communication (recommended for better performance)
-  - `"rest"`: Uses REST API for communication
+- `ClientType`: Specifies the type of connection to use with the Ark Server.`"grpc"` is the only supported option currently.
 
 - `WalletType`: Defines the type of wallet to create or restore. Options include:
   - `"singlekey"`: A wallet using a single key for all transactions

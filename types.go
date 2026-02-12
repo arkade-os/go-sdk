@@ -5,7 +5,6 @@ import (
 	"time"
 
 	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
-	restclient "github.com/arkade-os/go-sdk/client/rest"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet"
@@ -17,7 +16,6 @@ var (
 	}
 	supportedClients = utils.SupportedType[utils.ClientFactory]{
 		GrpcClient: grpcclient.NewClient,
-		RestClient: restclient.NewClient,
 	}
 )
 
