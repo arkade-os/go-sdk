@@ -3471,6 +3471,7 @@ func (a *arkClient) handleArkTx(
 			Type:        types.TxSent,
 			CreatedAt:   time.Now(),
 			AssetPacket: assetPacket,
+			Hex:         arkTx.Tx,
 		})
 	}
 
