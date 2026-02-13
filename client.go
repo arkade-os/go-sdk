@@ -3242,11 +3242,14 @@ func (a *arkClient) handleCommitmentTx(
 	spentVtxos := make([]types.Outpoint, 0, len(commitmentTx.SpentVtxos))
 	indexedSpentVtxos := make(map[types.Outpoint]types.Vtxo)
 	for _, vtxo := range commitmentTx.SpentVtxos {
-		spentVtxos = append(spentVtxos, types.Outpoint{
-			Txid: vtxo.Txid,
-			VOut: vtxo.VOut,
-		})
-		indexedSpentVtxos[vtxo.Outpoint] = vtxo
+		tapkey := vtxo.Script[4:]
+		if _, ok := myPubkeys[tapkey]; ok {
+			spentVtxos = append(spentVtxos, types.Outpoint{
+				Txid: vtxo.Txid,
+				VOut: vtxo.VOut,
+			})
+			indexedSpentVtxos[vtxo.Outpoint] = vtxo
+		}
 	}
 	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, spentVtxos)
 	if err != nil {
