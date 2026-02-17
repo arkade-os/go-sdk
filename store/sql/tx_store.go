@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -276,7 +277,7 @@ func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, 
 	if err != nil {
 		return nil, err
 	}
-	return readTxRows(rows), nil
+	return readTxRows(rows)
 }
 
 func (v *txStore) GetTransactions(
@@ -287,7 +288,7 @@ func (v *txStore) GetTransactions(
 	if err != nil {
 		return nil, err
 	}
-	return readTxRows(rows), nil
+	return readTxRows(rows)
 }
 
 func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
@@ -350,7 +351,7 @@ func (v *txStore) sendEvent(event types.TransactionEvent) {
 	}
 }
 
-func rowToTx(row queries.Tx) types.Transaction {
+func rowToTx(row queries.Tx) (types.Transaction, error) {
 	var commitmentTxid, arkTxid, boardingTxid string
 	if row.TxidType == "commitment" {
 		commitmentTxid = row.Txid
@@ -367,8 +368,11 @@ func rowToTx(row queries.Tx) types.Transaction {
 	}
 	var assetPacket asset.Packet
 	if row.AssetPacket.Valid {
-		// nolint:all
-		assetPacket, _ = asset.NewPacketFromString(row.AssetPacket.String)
+		var err error
+		assetPacket, err = asset.NewPacketFromString(row.AssetPacket.String)
+		if err != nil {
+			return types.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
+		}
 	}
 	return types.Transaction{
 		TransactionKey: types.TransactionKey{
@@ -382,14 +386,18 @@ func rowToTx(row queries.Tx) types.Transaction {
 		CreatedAt:   createdAt,
 		Hex:         row.Hex.String,
 		AssetPacket: assetPacket,
-	}
+	}, nil
 }
 
-func readTxRows(rows []queries.Tx) []types.Transaction {
+func readTxRows(rows []queries.Tx) ([]types.Transaction, error) {
 	txs := make([]types.Transaction, 0, len(rows))
 	for _, tx := range rows {
-		txs = append(txs, rowToTx(tx))
+		t, err := rowToTx(tx)
+		if err != nil {
+			return nil, err
+		}
+		txs = append(txs, t)
 	}
 
-	return txs
+	return txs, nil
 }

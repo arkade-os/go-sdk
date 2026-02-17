@@ -90,10 +90,12 @@ var (
 			},
 			Outputs: []asset.AssetOutput{
 				{
+					Type:   asset.AssetOutputTypeLocal,
 					Vout:   0,
 					Amount: 500,
 				},
 				{
+					Type:   asset.AssetOutputTypeLocal,
 					Vout:   1,
 					Amount: 500,
 				},
@@ -111,6 +113,7 @@ var (
 			AssetId: nil,
 			Outputs: []asset.AssetOutput{
 				{
+					Type:   asset.AssetOutputTypeLocal,
 					Vout:   0,
 					Amount: 10000,
 				},
@@ -141,6 +144,7 @@ var (
 			AssetId: nil,
 			Outputs: []asset.AssetOutput{
 				{
+					Type:   asset.AssetOutputTypeLocal,
 					Vout:   0,
 					Amount: 10000,
 				},
@@ -165,6 +169,7 @@ var (
 			AssetId: nil, // created in the issuance
 			Outputs: []asset.AssetOutput{
 				{
+					Type:   asset.AssetOutputTypeLocal,
 					Vout:   0,
 					Amount: 100,
 				},
