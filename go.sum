@@ -23,6 +23,8 @@ github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8
 github.com/antlr4-go/antlr/v4 v4.13.0/go.mod h1:pfChB/xh/Unjila75QW7+VU4TSnWnnk9UTnmpPaOR2g=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260210151408-67ee91bbd639 h1:+RU15YX3VyI8XyMLwCOJGX1cCTKPCewTf+nNsUp7OU8=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260210151408-67ee91bbd639/go.mod h1:k/5HLBp1TM0c5FXmbxn5a+Z+H889M1eUrnj32JLTZBY=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260216152434-74a173c67a37 h1:dBSLrywZbu9KxP+VZerJjnV/Ok0j5mjdj1q/fd5uJak=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260216152434-74a173c67a37/go.mod h1:k/5HLBp1TM0c5FXmbxn5a+Z+H889M1eUrnj32JLTZBY=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260204162732-487698dc67f1 h1:G6OsvUrl7FAGugNKUtkYs74cCRebIzLE5EFrWor/bYw=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260204162732-487698dc67f1/go.mod h1:mmajjT3zudfhSAsAU0uWQQOHhtOfG0Yr1NK0L+V/IZ0=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
