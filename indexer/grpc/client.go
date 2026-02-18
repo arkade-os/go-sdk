@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
@@ -494,21 +493,12 @@ func (a *grpcClient) GetAsset(ctx context.Context, assetID string) (
 		return nil, err
 	}
 
-	metadataFromResp := resp.GetMetadata()
-	metadata := make([]asset.Metadata, 0, len(metadataFromResp))
-	for _, mt := range metadataFromResp {
-		key, err := hex.DecodeString(mt.GetKey())
+	var metadata []asset.Metadata
+	if md := resp.GetMetadata(); md != "" {
+		metadata, err = asset.NewMetadataListFromString(md)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse metadata: %w", err)
 		}
-		value, err := hex.DecodeString(mt.GetValue())
-		if err != nil {
-			return nil, err
-		}
-		metadata = append(metadata, asset.Metadata{
-			Key:   key,
-			Value: value,
-		})
 	}
 
 	return &indexer.AssetInfo{
