@@ -3182,7 +3182,13 @@ func (a *arkClient) getVtxos(ctx context.Context, opts *CoinSelectOptions) ([]ty
 	}
 
 	if opts != nil && opts.ExcludeAssetVtxos {
-		allVtxos = utils.RemoveVtxosWithAssets(allVtxos)
+		filteredVtxos := make([]types.Vtxo, 0, len(allVtxos))
+		for _, vtxo := range allVtxos {
+			if len(vtxo.Assets) == 0 {
+				filteredVtxos = append(filteredVtxos, vtxo)
+			}
+		}
+		allVtxos = filteredVtxos
 	}
 
 	return allVtxos, nil

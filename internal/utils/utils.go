@@ -442,13 +442,3 @@ func SortVtxosByExpiry(vtxos []types.Vtxo) []types.Vtxo {
 	})
 	return vtxos
 }
-
-func RemoveVtxosWithAssets(vtxos []types.Vtxo) []types.Vtxo {
-	filteredVtxos := make([]types.Vtxo, 0, len(vtxos))
-	for _, vtxo := range vtxos {
-		if len(vtxo.Assets) == 0 {
-			filteredVtxos = append(filteredVtxos, vtxo)
-		}
-	}
-	return filteredVtxos
-}
