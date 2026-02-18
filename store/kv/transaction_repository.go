@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -20,14 +21,19 @@ const (
 )
 
 type txStore struct {
-	db      *badgerhold.Store
-	lock    *sync.Mutex
-	eventCh chan types.TransactionEvent
+	db         *badgerhold.Store
+	lock       *sync.Mutex
+	eventCh    chan types.TransactionEvent
+	assetStore types.AssetStore
 }
 
 func NewTransactionStore(
-	dir string, logger badger.Logger,
+	dir string, logger badger.Logger, assetStore types.AssetStore,
 ) (types.TransactionStore, error) {
+	if assetStore == nil {
+		return nil, fmt.Errorf("asset store is required")
+	}
+
 	if dir != "" {
 		dir = filepath.Join(dir, transactionStoreDir)
 	}
@@ -35,18 +41,72 @@ func NewTransactionStore(
 	if err != nil {
 		return nil, fmt.Errorf("failed to open transaction store: %s", err)
 	}
+
 	return &txStore{
-		db:      badgerDb,
-		lock:    &sync.Mutex{},
-		eventCh: make(chan types.TransactionEvent, 100),
+		db:         badgerDb,
+		lock:       &sync.Mutex{},
+		eventCh:    make(chan types.TransactionEvent, 100),
+		assetStore: assetStore,
 	}, nil
 }
 
 func (s *txStore) AddTransactions(
-	_ context.Context, txs []types.Transaction,
+	ctx context.Context, txs []types.Transaction,
 ) (int, error) {
 	addedTxs := make([]types.Transaction, 0, len(txs))
 	for _, tx := range txs {
+		// Handle asset packet if present
+		if len(tx.AssetPacket) > 0 {
+			// txid is needed to compute asset id
+			txid := tx.TransactionKey.String()
+
+			getAssetId := func(groupIndex uint16) *asset.AssetId {
+				assetId := tx.AssetPacket[groupIndex].AssetId
+				if assetId == nil {
+					assetId, err := asset.NewAssetId(txid, groupIndex)
+					if err != nil {
+						return nil
+					}
+					return assetId
+				}
+				return assetId
+			}
+
+			for groupIndex, assetGroup := range tx.AssetPacket {
+				assetId := getAssetId(uint16(groupIndex))
+				if assetId == nil {
+					continue
+				}
+
+				assetInfo := types.AssetInfo{
+					AssetId: assetId.String(),
+				}
+
+				// Handle metadata
+				if len(assetGroup.Metadata) > 0 {
+					assetInfo.Metadata = assetGroup.Metadata
+				}
+
+				// Handle control asset
+				if assetGroup.ControlAsset != nil {
+					switch assetGroup.ControlAsset.Type {
+					case asset.AssetRefByID:
+						assetInfo.ControlAssetId = assetGroup.ControlAsset.AssetId.String()
+					case asset.AssetRefByGroup:
+						controlAssetId := getAssetId(uint16(assetGroup.ControlAsset.GroupIndex))
+						if controlAssetId != nil {
+							assetInfo.ControlAssetId = controlAssetId.String()
+						}
+					}
+				}
+
+				// Upsert asset
+				if err := s.assetStore.UpsertAsset(ctx, assetInfo); err != nil {
+					return -1, err
+				}
+			}
+		}
+
 		if err := s.db.Insert(tx.TransactionKey.String(), &tx); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
 				continue

@@ -13,30 +13,45 @@ SET
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SelectAllVtxos :many
-SELECT * from vtxo;
+SELECT * FROM asset_vtxo_vw;
 
--- name: SelectVtxo :one
+-- name: SelectVtxo :many
 SELECT *
-FROM vtxo
+FROM asset_vtxo_vw
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SelectSpendableVtxos :many
-SELECT *
-FROM vtxo
+SELECT * FROM asset_vtxo_vw
 WHERE spent = false AND unrolled = false;
 
 -- name: CleanVtxos :exec
 DELETE FROM vtxo;
 
+-- name: UpsertAsset :exec
+INSERT INTO asset (asset_id, control_asset_id, metadata) VALUES (:asset_id, sqlc.narg(control_asset_id), sqlc.narg(metadata))
+ON CONFLICT (asset_id) DO UPDATE SET
+    control_asset_id = COALESCE(EXCLUDED.control_asset_id, control_asset_id),
+    metadata = COALESCE(EXCLUDED.metadata, metadata);
+
+-- name: InsertAssetVtxo :exec
+INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, amount) VALUES (?, ?, ?, ?);
+
+-- name: SelectAsset :one
+SELECT * FROM asset WHERE asset_id = :asset_id;
+
+-- name: CleanAssetVtxos :exec
+DELETE FROM asset_vtxo;
+
 -- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateTx :exec
 UPDATE tx
 SET
     created_at     = COALESCE(sqlc.narg(created_at), created_at),
+    settled        = CASE WHEN :settled_by IS NOT NULL THEN TRUE ELSE settled END,
     settled_by    = COALESCE(sqlc.narg(settled_by), settled_by)
 WHERE txid = :txid; 
 
@@ -47,6 +62,7 @@ SET    txid       = :new_txid,
        amount     = :amount,
        type       = :type,
        settled_by    = :settled_by,
+       settled        = CASE WHEN :settled_by IS NOT NULL THEN TRUE ELSE FALSE END,
        created_at = :created_at,
        hex        = :hex
 WHERE  txid = :old_txid;

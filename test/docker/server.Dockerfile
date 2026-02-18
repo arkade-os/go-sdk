@@ -9,7 +9,7 @@ ARG BRANCH=master
 
 WORKDIR /app
 
-RUN git clone https://github.com/arkade-os/arkd.git && cd arkd && git checkout ${BRANCH}
+RUN git clone --branch ${BRANCH} --single-branch https://github.com/arkade-os/arkd.git
 
 RUN mkdir -p bin && cd arkd && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \

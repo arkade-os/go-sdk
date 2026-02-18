@@ -96,8 +96,9 @@ func (a InitWithWalletArgs) validate() error {
 }
 
 type Balance struct {
-	OnchainBalance  OnchainBalance  `json:"onchain_balance"`
-	OffchainBalance OffchainBalance `json:"offchain_balance"`
+	OnchainBalance  OnchainBalance    `json:"onchain_balance"`
+	OffchainBalance OffchainBalance   `json:"offchain_balance"`
+	AssetBalances   map[string]uint64 `json:"asset_balances,omitempty"`
 }
 
 type OnchainBalance struct {
@@ -126,6 +127,7 @@ type balanceRes struct {
 	onchainSpendableBalance     uint64
 	onchainLockedBalance        map[int64]uint64
 	offchainBalanceByExpiration map[int64]uint64
+	assetBalances               map[string]uint64
 	err                         error
 }
 
@@ -140,4 +142,6 @@ type CoinSelectOptions struct {
 	ExpiryThreshold int64
 	// If specified, coin selector will recompute the expiration of all vtxos from their anchestor leaves
 	RecomputeExpiry bool
+	// If true, coin selection will exclude vtxos holding assets
+	ExcludeAssetVtxos bool
 }

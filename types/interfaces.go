@@ -10,6 +10,7 @@ type Store interface {
 	TransactionStore() TransactionStore
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
+	AssetStore() AssetStore
 	Clean(ctx context.Context)
 	Close()
 }
@@ -62,5 +63,11 @@ type VtxoStore interface {
 	GetVtxos(ctx context.Context, keys []Outpoint) ([]Vtxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan VtxoEvent
+	Close()
+}
+
+type AssetStore interface {
+	GetAsset(ctx context.Context, assetId string) (*AssetInfo, error)
+	UpsertAsset(ctx context.Context, asset AssetInfo) error
 	Close()
 }
