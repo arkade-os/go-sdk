@@ -749,21 +749,21 @@ func (h *defaultBatchEventsHandler) validateVtxoTree(
 	vtxos := h.vtxosToForfeit()
 
 	if len(vtxos) > 0 {
-		if connectorTree != nil {
-			if err := connectorTree.Validate(); err != nil {
-				return err
-			}
+		if connectorTree == nil {
+			return fmt.Errorf("connector tree is required when spending vtxos")
 		}
 
-		if connectorTree != nil {
-			connectorsLeaves := connectorTree.Leaves()
-			if len(connectorsLeaves) != len(vtxos) {
-				return fmt.Errorf(
-					"unexpected num of connectors received: expected %d, got %d",
-					len(vtxos),
-					len(connectorsLeaves),
-				)
-			}
+		if err := connectorTree.Validate(); err != nil {
+			return err
+		}
+
+		connectorsLeaves := connectorTree.Leaves()
+		if len(connectorsLeaves) != len(vtxos) {
+			return fmt.Errorf(
+				"unexpected num of connectors received: expected %d, got %d",
+				len(vtxos),
+				len(connectorsLeaves),
+			)
 		}
 	}
 
