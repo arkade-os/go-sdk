@@ -206,7 +206,7 @@ func requireTxEqual(t *testing.T, expected, actual types.Transaction, settledBy 
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.Hex, actual.Hex)
 	require.Equal(t, expected.CreatedAt.Unix(), actual.CreatedAt.Unix())
-	if settledBy != "" {
+	if len(settledBy) > 0 {
 		require.Equal(t, settledBy, actual.SettledBy)
 		return
 	}

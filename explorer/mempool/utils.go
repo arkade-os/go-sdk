@@ -109,6 +109,9 @@ func isTimeoutError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
+	if strings.Contains(err.Error(), "connection reset by peer") {
+		return true
+	}
 
 	// All other errors are potentially temporary (should retry with circuit breaker)
 	return false
