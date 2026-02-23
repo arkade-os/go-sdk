@@ -15,23 +15,14 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
-)
-
-const (
-	initialDelay       = 5 * time.Second
-	maxDelay           = 60 * time.Second
-	multiplier         = 2.0
-	cloudflare524Error = "524"
 )
 
 type grpcClient struct {
-	conn             *grpc.ClientConn
-	connMu           sync.RWMutex
-	monitoringCancel context.CancelFunc
+	conn   *grpc.ClientConn
+	connMu sync.RWMutex
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -54,6 +45,15 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithDisableServiceConfig(),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff: backoff.Config{
+				BaseDelay:  1 * time.Second,
+				Multiplier: 1.6,
+				Jitter:     0.2,
+				MaxDelay:   10 * time.Second,
+			},
+			MinConnectTimeout: 3 * time.Second,
+		}),
 	}
 
 	conn, err := grpc.NewClient(serverUrl, options...)
@@ -61,65 +61,12 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 		return nil, err
 	}
 
-	monitorCtx, monitoringCancel := context.WithCancel(context.Background())
 	client := &grpcClient{
-		conn:             conn,
-		connMu:           sync.RWMutex{},
-		monitoringCancel: monitoringCancel,
+		conn:   conn,
+		connMu: sync.RWMutex{},
 	}
-
-	// Monitor the same connection - gRPC will handle reconnection internally
-	go utils.MonitorGrpcConn(monitorCtx, conn, func(ctx context.Context) error {
-		// Wait for the server to be actually ready for requests
-		if err := client.waitForServerReady(ctx); err != nil {
-			return fmt.Errorf("server not ready after reconnection: %w", err)
-		}
-
-		// TODO: trigger any application-level state refresh here
-		// e.g., resubscribe to streams, refresh cache, etc.
-
-		return nil
-	})
 
 	return client, nil
-}
-
-func (c *grpcClient) waitForServerReady(ctx context.Context) error {
-	delay := initialDelay
-	attempt := 0
-
-	// Create a temporary client to test the server
-	testClient := arkv1.NewIndexerServiceClient(c.conn)
-
-	for {
-		attempt++
-
-		// Use a short timeout for each ping attempt
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		_, err := testClient.GetVirtualTxs(pingCtx, &arkv1.GetVirtualTxsRequest{
-			Txids: []string{
-				"0000000000000000000000000000000000000000000000000000000000000000",
-			},
-		})
-		cancel()
-
-		if err == nil {
-			// Server responded successfully
-			log.Debugf("connection restored after %d attempt(s)", attempt)
-			return nil
-		}
-
-		log.Debugf("connection not ready (attempt %d), retrying in %v: %v\n", attempt, delay, err)
-
-		// Wait with exponential backoff before retrying
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(delay):
-			// Increase delay for next attempt
-			delay = min(time.Duration(float64(delay)*multiplier), maxDelay)
-		}
-	}
 }
 
 func (a *grpcClient) svc() arkv1.IndexerServiceClient {
@@ -495,41 +442,61 @@ func (a *grpcClient) GetSubscription(
 		return nil, nil, err
 	}
 	eventsCh := make(chan *indexer.ScriptEvent)
+	streamMu := sync.Mutex{}
 
 	go func() {
 		defer close(eventsCh)
+		backoffDelay := utils.GrpcReconnectConfig.InitialDelay
 
 		for {
-			resp, err := stream.Recv()
+			streamMu.Lock()
+			currentStream := stream
+			streamMu.Unlock()
+
+			resp, err := currentStream.Recv()
 			if err != nil {
-				if err == io.EOF {
-					eventsCh <- &indexer.ScriptEvent{Err: fmt.Errorf("connection closed by server")}
+				shouldRetry, retryDelay := utils.ShouldReconnect(err)
+				if !shouldRetry {
+					eventsCh <- &indexer.ScriptEvent{Err: err}
 					return
 				}
 
-				st, ok := status.FromError(err)
-				if ok {
-					switch st.Code() {
-					case codes.Canceled:
-						return
-					case codes.Unknown:
-						errMsg := st.Message()
-						// Check if it's a 524 error during stream reading
-						if strings.Contains(errMsg, cloudflare524Error) {
-							stream, err = a.svc().GetSubscription(ctx, req)
-							if err != nil {
-								eventsCh <- &indexer.ScriptEvent{Err: err}
-								return
-							}
-
-							continue
-						}
-					}
+				if err == io.EOF {
+					log.Debug("indexer subscription stream closed by server; reconnecting")
 				}
 
-				eventsCh <- &indexer.ScriptEvent{Err: err}
-				return
+				sleepDuration := max(retryDelay, backoffDelay)
+				log.Debugf("subscription stream error, reconnecting in %v: %v", sleepDuration, err)
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(sleepDuration):
+				}
+
+				newStream, dialErr := a.svc().GetSubscription(ctx, req)
+				if dialErr != nil {
+					shouldRetryDial, _ := utils.ShouldReconnect(dialErr)
+					if !shouldRetryDial {
+						eventsCh <- &indexer.ScriptEvent{Err: dialErr}
+						return
+					}
+					backoffDelay = min(
+						time.Duration(float64(backoffDelay)*utils.GrpcReconnectConfig.Multiplier),
+						utils.GrpcReconnectConfig.MaxDelay,
+					)
+					log.Debugf("subscription stream reconnect failed, retrying: %v", dialErr)
+					continue
+				}
+
+				streamMu.Lock()
+				stream = newStream
+				streamMu.Unlock()
+				backoffDelay = utils.GrpcReconnectConfig.InitialDelay
+				continue
 			}
+
+			backoffDelay = utils.GrpcReconnectConfig.InitialDelay
 
 			var checkpointTxs map[string]indexer.TxData
 			var event *arkv1.IndexerSubscriptionEvent
@@ -561,9 +528,12 @@ func (a *grpcClient) GetSubscription(
 	}()
 
 	closeFn := func() {
-		//nolint:errcheck
-		stream.CloseSend()
 		cancel()
+		streamMu.Lock()
+		defer streamMu.Unlock()
+		if err := stream.CloseSend(); err != nil {
+			log.Warnf("failed to close subscription stream: %v", err)
+		}
 	}
 
 	return eventsCh, closeFn, nil
@@ -607,7 +577,6 @@ func (a *grpcClient) UnsubscribeForScripts(
 }
 
 func (a *grpcClient) Close() {
-	a.monitoringCancel()
 	a.connMu.Lock()
 	defer a.connMu.Unlock()
 	// nolint:errcheck
