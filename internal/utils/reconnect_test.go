@@ -35,8 +35,11 @@ func TestShouldReconnect(t *testing.T) {
 			delay:    time.Second,
 		},
 		{
-			name:     "failed precondition reconnects (wallet not ready)",
-			err:      status.Error(codes.FailedPrecondition, "ark service not ready: wallet is locked or syncing"),
+			name: "failed precondition reconnects (wallet not ready)",
+			err: status.Error(
+				codes.FailedPrecondition,
+				"ark service not ready: wallet is locked or syncing",
+			),
 			expected: true,
 			delay:    2 * time.Second,
 		},

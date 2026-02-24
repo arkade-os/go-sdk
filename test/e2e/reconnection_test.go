@@ -121,7 +121,9 @@ func getArkdWalletStatus() (*walletStatusResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -138,7 +140,11 @@ func getArkdWalletStatus() (*walletStatusResponse, error) {
 func unlockArkdWallet() error {
 	httpClient := &http.Client{Timeout: 3 * time.Second}
 	body := []byte(fmt.Sprintf(`{"password":"%s"}`, password))
-	req, err := http.NewRequest(http.MethodPost, adminServerURL+"/v1/admin/wallet/unlock", bytes.NewReader(body))
+	req, err := http.NewRequest(
+		http.MethodPost,
+		adminServerURL+"/v1/admin/wallet/unlock",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return err
 	}
@@ -148,7 +154,9 @@ func unlockArkdWallet() error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		payload, _ := io.ReadAll(resp.Body)
@@ -196,7 +204,11 @@ func waitForVtxoAddedEvent(ch <-chan types.VtxoEvent, timeout time.Duration) err
 	}
 }
 
-func waitForArkTxEvent(ch <-chan types.TransactionEvent, arkTxid string, timeout time.Duration) error {
+func waitForArkTxEvent(
+	ch <-chan types.TransactionEvent,
+	arkTxid string,
+	timeout time.Duration,
+) error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 

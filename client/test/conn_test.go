@@ -44,18 +44,23 @@ func TestStream(t *testing.T) {
 func TestGetInfo(t *testing.T) {
 	client, err := grpcclient.NewClient("http://localhost:7070")
 	require.NoError(t, err)
-
-	for {
-		info, _ := client.GetInfo(context.Background())
-
-		fmt.Println(info)
-		time.Sleep(2 * time.Second)
-	}
+	defer client.Close()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
-	<-sigCh
-	client.Close()
-	fmt.Println("done")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-sigCh:
+			fmt.Println("done")
+			return
+		case <-ticker.C:
+			info, _ := client.GetInfo(context.Background())
+			fmt.Println(info)
+		}
+	}
 }

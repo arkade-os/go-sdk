@@ -492,7 +492,11 @@ func (c *grpcClient) GetTransactionsStream(
 
 				sleepDuration := max(retryDelay, backoffDelay)
 				if st, ok := status.FromError(err); ok && st.Code() == codes.FailedPrecondition {
-					log.Debugf("transactions stream server reachable but not ready yet, retrying in %v: %v", sleepDuration, err)
+					log.Debugf(
+						"transactions stream server reachable but not ready yet, retrying in %v: %v",
+						sleepDuration,
+						err,
+					)
 				} else {
 					log.Debugf("transactions stream error, reconnecting in %v: %v", sleepDuration, err)
 				}

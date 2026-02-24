@@ -5,11 +5,12 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION
 
+ARG ARKD_REPO=https://github.com/arkade-os/arkd.git
 ARG BRANCH=master
 
 WORKDIR /app
 
-RUN git clone https://github.com/arkade-os/arkd.git && cd arkd && git checkout ${BRANCH}
+RUN git clone ${ARKD_REPO} arkd && cd arkd && git checkout ${BRANCH}
 
 RUN mkdir -p bin && cd arkd && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \

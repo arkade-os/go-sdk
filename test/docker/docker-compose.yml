@@ -51,6 +51,9 @@ services:
         build:
             context: .
             dockerfile: wallet.Dockerfile
+            args:
+                ARKD_REPO: ${ARKD_REPO:-https://github.com/arkade-os/arkd.git}
+                BRANCH: ${ARKD_BRANCH:-master}
         container_name: arkd-wallet
         depends_on:
             - nbxplorer
@@ -68,6 +71,9 @@ services:
         build:
             context: .
             dockerfile: server.Dockerfile
+            args:
+                ARKD_REPO: ${ARKD_REPO:-https://github.com/arkade-os/arkd.git}
+                BRANCH: ${ARKD_BRANCH:-master}
         container_name: arkd
         restart: unless-stopped
         depends_on:
