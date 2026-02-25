@@ -13,6 +13,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
@@ -37,8 +38,12 @@ type arkTxInput struct {
 	ForfeitLeafHash chainhash.Hash
 }
 
+// validateReceivers verifies that all the intent's receivers are present in the commitment ptx (if onchain) or in the vtxo tree (if offchain)
 func validateReceivers(
-	network arklib.Network, ptx *psbt.Packet, receivers []types.Receiver, vtxoTree *tree.TxTree,
+	network arklib.Network,
+	commitmentPtx *psbt.Packet,
+	receivers []types.Receiver,
+	vtxoTree *tree.TxTree,
 ) error {
 	netParams := utils.ToBitcoinNetwork(network)
 	for _, receiver := range receivers {
@@ -48,7 +53,7 @@ func validateReceivers(
 		}
 
 		if isOnChain {
-			if err := validateOnchainReceiver(ptx, receiver, onchainScript); err != nil {
+			if err := validateOnchainReceiver(commitmentPtx, receiver, onchainScript); err != nil {
 				return err
 			}
 		} else {
@@ -94,7 +99,7 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 
 	leaves := vtxoTree.Leaves()
 	for _, leaf := range leaves {
-		for _, output := range leaf.UnsignedTx.TxOut {
+		for outputIndex, output := range leaf.UnsignedTx.TxOut {
 			if len(output.PkScript) == 0 {
 				continue
 			}
@@ -105,6 +110,12 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 				}
 
 				found = true
+				// if the leaf is found and the receiver has assets, validate asset packet
+				if len(receiver.Assets) > 0 {
+					if err := validateAssetOutputs(leaf.UnsignedTx, outputIndex, receiver); err != nil {
+						return err
+					}
+				}
 				break
 			}
 		}
@@ -118,6 +129,66 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 		return fmt.Errorf("offchain send output not found: %s", receiver.To)
 	}
 
+	return nil
+}
+
+func validateAssetOutputs(tx *wire.MsgTx, outputIndex int, receiver types.Receiver) error {
+	assetPacket, err := asset.NewPacketFromTx(tx)
+	if err != nil {
+		return err
+	}
+
+	// for each expected asset, verify the asset group exists and contains the correct output
+	for _, expectedAsset := range receiver.Assets {
+		// find asset group
+		found := false
+		for _, assetGroup := range assetPacket {
+			if assetGroup.AssetId == nil {
+				continue // skip issuance groups
+			}
+
+			if assetGroup.AssetId.String() == expectedAsset.AssetId {
+				if err := validateAssetGroupOutput(assetGroup.Outputs, outputIndex, expectedAsset); err != nil {
+					return err
+				}
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("asset group not found in batch leaf")
+		}
+	}
+
+	return nil
+}
+
+func validateAssetGroupOutput(
+	outputs []asset.AssetOutput,
+	outputIndex int,
+	expectedAsset types.Asset,
+) error {
+	found := false
+	for _, output := range outputs {
+		if int(output.Vout) != outputIndex {
+			continue
+		}
+
+		if output.Amount != expectedAsset.Amount {
+			return fmt.Errorf(
+				"invalid asset output amount: got %d, want %d",
+				output.Amount,
+				expectedAsset.Amount,
+			)
+		}
+		found = true
+		break
+	}
+
+	if !found {
+		return fmt.Errorf("asset output not found in asset group: %s", expectedAsset.AssetId)
+	}
 	return nil
 }
 
@@ -310,21 +381,22 @@ func extractCollaborativePath(tapscripts []string) ([]byte, *arklib.TaprootMerkl
 // it also returns the necessary data used to sign the proof PSBT
 func toIntentInputs(
 	boardingUtxos []types.Utxo, vtxos []client.TapscriptsVtxo, notes []string,
-) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
+) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, map[int][]types.Asset, error) {
 	inputs := make([]intent.Input, 0, len(boardingUtxos)+len(vtxos))
 	signingLeaves := make([]*arklib.TaprootMerkleProof, 0, len(boardingUtxos)+len(vtxos))
 	arkFields := make([][]*psbt.Unknown, 0, len(boardingUtxos)+len(vtxos))
+	assetInputs := make(map[int][]types.Asset)
 
-	for _, coin := range vtxos {
+	for inputIndex, coin := range vtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
 		pkScript, leafProof, err := extractCollaborativePath(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		signingLeaves = append(signingLeaves, leafProof)
@@ -338,9 +410,15 @@ func toIntentInputs(
 			},
 		})
 
+		if len(coin.Assets) > 0 {
+			// in context of intent transaction, there is a "fake" input at index 0
+			// that's why from the asset packet point of view, the index must be i+1
+			assetInputs[inputIndex+1] = coin.Assets
+		}
+
 		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
@@ -349,13 +427,13 @@ func toIntentInputs(
 	for _, coin := range boardingUtxos {
 		hash, err := chainhash.NewHashFromStr(coin.Txid)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		outpoint := wire.NewOutPoint(hash, coin.VOut)
 
 		pkScript, leafProof, err := extractCollaborativePath(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		signingLeaves = append(signingLeaves, leafProof)
@@ -371,7 +449,7 @@ func toIntentInputs(
 
 		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(coin.Tapscripts)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 	}
@@ -385,12 +463,12 @@ func toIntentInputs(
 	for _, n := range notes {
 		parsedNote, err := note.NewNoteFromString(n)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		outpoint, input, err := parsedNote.IntentProofInput()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		inputs = append(inputs, intent.Input{
@@ -406,18 +484,18 @@ func toIntentInputs(
 
 		_, taprootTree, err := vtxoScript.TapTree()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		forfeitScript, err := vtxoScript.Closures[0].Script()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
 		leafProof, err := taprootTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %s", err)
 		}
 
 		nextInputIndex++
@@ -430,7 +508,7 @@ func toIntentInputs(
 		arkFields = append(arkFields, input.Unknowns)
 	}
 
-	return inputs, signingLeaves, arkFields, nil
+	return inputs, signingLeaves, arkFields, assetInputs, nil
 }
 
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []VtxoDetails) {
@@ -505,25 +583,43 @@ func checkSendOffChainOptionsType(o interface{}) (*sendOffChainOptions, error) {
 	return opts, nil
 }
 
-func registerIntentMessage(outputs []types.Receiver, cosignersPublicKeys []string) (
-	string, []*wire.TxOut, error,
-) {
+func registerIntentMessage(
+	assetInputs map[int][]types.Asset, outputs []types.Receiver, cosignersPublicKeys []string,
+) (string, []*wire.TxOut, error) {
 	validAt := time.Now()
 	expireAt := validAt.Add(2 * time.Minute).Unix()
 	outputsTxOut := make([]*wire.TxOut, 0)
 	onchainOutputsIndexes := make([]int, 0)
 
-	for i, output := range outputs {
+	outputCounter := 0
+
+	for _, output := range outputs {
 		txOut, isOnchain, err := output.ToTxOut()
 		if err != nil {
 			return "", nil, err
 		}
 
 		if isOnchain {
-			onchainOutputsIndexes = append(onchainOutputsIndexes, i)
+			onchainOutputsIndexes = append(onchainOutputsIndexes, outputCounter)
 		}
 
 		outputsTxOut = append(outputsTxOut, txOut)
+
+		outputCounter++
+	}
+
+	// if some of the inputs hold assets, we must add the asset packet OP_RETURN as output
+	if len(assetInputs) > 0 {
+		assetPacket, err := createAssetPacket(assetInputs, outputs, nil)
+		if err != nil {
+			return "", nil, err
+		}
+
+		assetPacketOutput, err := assetPacket.TxOut()
+		if err != nil {
+			return "", nil, err
+		}
+		outputsTxOut = append(outputsTxOut, assetPacketOutput)
 	}
 
 	message, err := intent.RegisterMessage{
@@ -540,6 +636,100 @@ func registerIntentMessage(outputs []types.Receiver, cosignersPublicKeys []strin
 	}
 
 	return message, outputsTxOut, nil
+}
+
+func selectedCoinsToAssetInputs(selectedCoins []client.TapscriptsVtxo) map[int][]types.Asset {
+	assetInputs := make(map[int][]types.Asset)
+	for inputIndex, coin := range selectedCoins {
+		if len(coin.Assets) == 0 {
+			continue
+		}
+		assetInputs[inputIndex] = coin.Assets
+	}
+	return assetInputs
+}
+
+// createAssetPacket computes the right packet for the given asset inputs and receivers
+func createAssetPacket(
+	assetInputs map[int][]types.Asset, receivers []types.Receiver, changeReceiver *types.Receiver,
+) (asset.Packet, error) {
+	if changeReceiver != nil {
+		receivers = append(receivers, *changeReceiver)
+	}
+
+	type assetTransfer struct {
+		inputs  []asset.AssetInput
+		outputs []asset.AssetOutput
+	}
+
+	assetTransfers := make(map[string]*assetTransfer)
+	for inputIndex, assets := range assetInputs {
+		for _, a := range assets {
+			if _, exists := assetTransfers[a.AssetId]; !exists {
+				assetTransfers[a.AssetId] = &assetTransfer{
+					inputs:  make([]asset.AssetInput, 0),
+					outputs: make([]asset.AssetOutput, 0),
+				}
+			}
+
+			input, err := asset.NewAssetInput(uint16(inputIndex), a.Amount)
+			if err != nil {
+				return nil, err
+			}
+			assetTransfers[a.AssetId].inputs = append(
+				assetTransfers[a.AssetId].inputs,
+				*input,
+			)
+		}
+	}
+
+	for receiverIndex, receiver := range receivers {
+		if len(receiver.Assets) == 0 {
+			continue
+		}
+
+		for _, ass := range receiver.Assets {
+			// add the receiver asset output
+			if _, exists := assetTransfers[ass.AssetId]; !exists {
+				return nil, fmt.Errorf("asset %s not found", ass.AssetId)
+			}
+
+			output, err := asset.NewAssetOutput(uint16(receiverIndex), ass.Amount)
+			if err != nil {
+				return nil, err
+			}
+			assetTransfers[ass.AssetId].outputs = append(
+				assetTransfers[ass.AssetId].outputs,
+				*output,
+			)
+		}
+	}
+
+	assetGroups := make([]asset.AssetGroup, 0)
+	for assetId, inputsOutputs := range assetTransfers {
+		assetId, err := asset.NewAssetIdFromString(assetId)
+		if err != nil {
+			return nil, err
+		}
+
+		assetGroup, err := asset.NewAssetGroup(
+			assetId,
+			nil,
+			inputsOutputs.inputs,
+			inputsOutputs.outputs,
+			nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+		assetGroups = append(assetGroups, *assetGroup)
+	}
+
+	if len(assetGroups) == 0 {
+		return nil, nil
+	}
+
+	return asset.NewPacket(assetGroups)
 }
 
 func findVtxosSpentInSettlement(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {

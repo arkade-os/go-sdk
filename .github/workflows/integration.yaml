@@ -28,8 +28,5 @@ jobs:
       - name: Run regtest environment
         run: make regtest
 
-      - name: Run tests
-        env:
-          ARKD_REPO: https://github.com/sekulicd/ark.git
-          ARKD_BRANCH: rediness-interceptor
+      - name: Run tests=
         run: make integrationtest

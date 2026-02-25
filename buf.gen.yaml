@@ -25,9 +25,3 @@ plugins:
   - remote: buf.build/grpc/go:v1.5.1
     out: api-spec/protobuf/gen
     opt: paths=source_relative,require_unimplemented_servers=false
-  - local: protoc-gen-openapiv3
-    out: api-spec/openapi/swagger
-    opt:
-      - paths=source_relative
-      - openapi_config=./.openapi/openapi_config.yml
-      - log_level=trace

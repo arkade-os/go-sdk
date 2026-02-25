@@ -30,6 +30,7 @@ type service struct {
 	utxoStore   types.UtxoStore
 	vtxoStore   types.VtxoStore
 	txStore     types.TransactionStore
+	assetStore  types.AssetStore
 }
 
 type Config struct {
@@ -45,6 +46,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		utxoStore   types.UtxoStore
 		vtxoStore   types.VtxoStore
 		txStore     types.TransactionStore
+		assetStore  types.AssetStore
 		err         error
 
 		dir = storeConfig.BaseDir
@@ -73,7 +75,11 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			if err != nil {
 				return nil, err
 			}
-			txStore, err = kvstore.NewTransactionStore(dir, nil)
+			assetStore, err = kvstore.NewAssetStore(dir, nil)
+			if err != nil {
+				return nil, err
+			}
+			txStore, err = kvstore.NewTransactionStore(dir, nil, assetStore)
 		case types.SQLStore:
 			dbFile := filepath.Join(dir, sqliteDbFile)
 			db, err := sqlstore.OpenDb(dbFile)
@@ -101,6 +107,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			utxoStore = sqlstore.NewUtxoStore(db)
 			vtxoStore = sqlstore.NewVtxoStore(db)
 			txStore = sqlstore.NewTransactionStore(db)
+			assetStore = sqlstore.NewAssetStore(db)
 		default:
 			err = fmt.Errorf("unknown appdata store type")
 		}
@@ -109,7 +116,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		}
 	}
 
-	return &service{configStore, utxoStore, vtxoStore, txStore}, nil
+	return &service{configStore, utxoStore, vtxoStore, txStore, assetStore}, nil
 }
 
 func (s *service) ConfigStore() types.ConfigStore {
@@ -126,6 +133,10 @@ func (s *service) VtxoStore() types.VtxoStore {
 
 func (s *service) TransactionStore() types.TransactionStore {
 	return s.txStore
+}
+
+func (s *service) AssetStore() types.AssetStore {
+	return s.assetStore
 }
 
 func (s *service) Clean(ctx context.Context) {
@@ -145,4 +156,5 @@ func (s *service) Close() {
 	s.configStore.Close()
 	s.vtxoStore.Close()
 	s.txStore.Close()
+	s.assetStore.Close()
 }

@@ -3,10 +3,14 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -43,15 +47,79 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			if !tx.CreatedAt.IsZero() {
 				createdAt = tx.CreatedAt.Unix()
 			}
+
+			var serializedAssetPacket []byte
+			if len(tx.AssetPacket) > 0 {
+				var err error
+				serializedAssetPacket, err = tx.AssetPacket.Serialize()
+				if err != nil {
+					return err
+				}
+
+				// txid is needed to compute asset id
+				txid := tx.TransactionKey.String()
+
+				getAssetId := func(groupIndex uint16) *asset.AssetId {
+					assetId := tx.AssetPacket[groupIndex].AssetId
+					if assetId == nil {
+						assetId, err := asset.NewAssetId(txid, groupIndex)
+						if err != nil {
+							return nil
+						}
+						return assetId
+					}
+					return assetId
+				}
+
+				for groupIndex, assetGroup := range tx.AssetPacket {
+					assetId := getAssetId(uint16(groupIndex))
+
+					metadata := sql.NullString{Valid: false}
+					if len(assetGroup.Metadata) > 0 {
+						metadataBytes, err := json.Marshal(assetGroup.Metadata)
+						if err != nil {
+							return err
+						}
+						metadata = sql.NullString{String: string(metadataBytes), Valid: true}
+					}
+
+					controlAssetId := sql.NullString{Valid: false}
+					if assetGroup.ControlAsset != nil {
+						switch assetGroup.ControlAsset.Type {
+						case asset.AssetRefByID:
+							controlAssetId = sql.NullString{
+								String: assetGroup.ControlAsset.AssetId.String(),
+								Valid:  true,
+							}
+						case asset.AssetRefByGroup:
+							ctrl := getAssetId(uint16(assetGroup.ControlAsset.GroupIndex))
+							if ctrl != nil {
+								controlAssetId = sql.NullString{String: ctrl.String(), Valid: true}
+							}
+						}
+					}
+
+					if err := querierWithTx.UpsertAsset(ctx, queries.UpsertAssetParams{
+						AssetID:        assetId.String(),
+						ControlAssetID: controlAssetId,
+						Metadata:       metadata,
+					}); err != nil {
+						return err
+					}
+				}
+			}
+
 			if err := querierWithTx.InsertTx(
 				ctx, queries.InsertTxParams{
-					Txid:      tx.TransactionKey.String(),
-					TxidType:  txidType,
-					Amount:    int64(tx.Amount),
-					Type:      string(tx.Type),
-					CreatedAt: createdAt,
-					Hex:       sql.NullString{String: tx.Hex, Valid: true},
-					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
+					Txid:        tx.TransactionKey.String(),
+					TxidType:    txidType,
+					Amount:      int64(tx.Amount),
+					Type:        string(tx.Type),
+					CreatedAt:   createdAt,
+					Hex:         sql.NullString{String: tx.Hex, Valid: true},
+					SettledBy:   sql.NullString{String: tx.SettledBy, Valid: true},
+					Settled:     len(tx.SettledBy) > 0,
+					AssetPacket: sql.NullString{String: hex.EncodeToString(serializedAssetPacket), Valid: len(serializedAssetPacket) > 0},
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -61,7 +129,6 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 			}
 			addedTxs = append(addedTxs, tx)
 		}
-
 		return nil
 	}
 	if err := execTx(ctx, v.db, txBody); err != nil {
@@ -94,7 +161,6 @@ func (v *txStore) SettleTransactions(
 			tx.SettledBy = settledBy
 			if err := querierWithTx.UpdateTx(ctx, queries.UpdateTxParams{
 				Txid:      tx.TransactionKey.String(),
-				Settled:   sql.NullBool{Bool: true, Valid: true},
 				SettledBy: sql.NullString{String: settledBy, Valid: true},
 			}); err != nil {
 				return err
@@ -211,7 +277,7 @@ func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, 
 	if err != nil {
 		return nil, err
 	}
-	return readTxRows(rows), nil
+	return readTxRows(rows)
 }
 
 func (v *txStore) GetTransactions(
@@ -222,7 +288,7 @@ func (v *txStore) GetTransactions(
 	if err != nil {
 		return nil, err
 	}
-	return readTxRows(rows), nil
+	return readTxRows(rows)
 }
 
 func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
@@ -285,7 +351,7 @@ func (v *txStore) sendEvent(event types.TransactionEvent) {
 	}
 }
 
-func rowToTx(row queries.Tx) types.Transaction {
+func rowToTx(row queries.Tx) (types.Transaction, error) {
 	var commitmentTxid, arkTxid, boardingTxid string
 	if row.TxidType == "commitment" {
 		commitmentTxid = row.Txid
@@ -300,25 +366,38 @@ func rowToTx(row queries.Tx) types.Transaction {
 	if row.CreatedAt != 0 {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
+	var assetPacket asset.Packet
+	if row.AssetPacket.Valid {
+		var err error
+		assetPacket, err = asset.NewPacketFromString(row.AssetPacket.String)
+		if err != nil {
+			return types.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
+		}
+	}
 	return types.Transaction{
 		TransactionKey: types.TransactionKey{
 			CommitmentTxid: commitmentTxid,
 			ArkTxid:        arkTxid,
 			BoardingTxid:   boardingTxid,
 		},
-		Amount:    uint64(row.Amount),
-		Type:      types.TxType(row.Type),
-		SettledBy: row.SettledBy.String,
-		CreatedAt: createdAt,
-		Hex:       row.Hex.String,
-	}
+		Amount:      uint64(row.Amount),
+		Type:        types.TxType(row.Type),
+		SettledBy:   row.SettledBy.String,
+		CreatedAt:   createdAt,
+		Hex:         row.Hex.String,
+		AssetPacket: assetPacket,
+	}, nil
 }
 
-func readTxRows(rows []queries.Tx) []types.Transaction {
+func readTxRows(rows []queries.Tx) ([]types.Transaction, error) {
 	txs := make([]types.Transaction, 0, len(rows))
 	for _, tx := range rows {
-		txs = append(txs, rowToTx(tx))
+		t, err := rowToTx(tx)
+		if err != nil {
+			return nil, err
+		}
+		txs = append(txs, t)
 	}
 
-	return txs
+	return txs, nil
 }

@@ -883,7 +883,7 @@ func (a *arkClient) finalizePendingTxs(
 		return nil, err
 	}
 
-	inputs, exitLeaves, arkFields, err := toIntentInputs(nil, vtxosWithTapscripts, nil)
+	inputs, exitLeaves, arkFields, _, err := toIntentInputs(nil, vtxosWithTapscripts, nil)
 	if err != nil {
 		return nil, err
 	}

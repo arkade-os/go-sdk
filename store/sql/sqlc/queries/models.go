@@ -8,15 +8,48 @@ import (
 	"database/sql"
 )
 
+type Asset struct {
+	AssetID        string
+	ControlAssetID sql.NullString
+	Metadata       sql.NullString
+}
+
+type AssetVtxo struct {
+	VtxoTxid string
+	VtxoVout int64
+	AssetID  string
+	Amount   int64
+}
+
+type AssetVtxoVw struct {
+	Txid            string
+	Vout            int64
+	Script          string
+	Amount          int64
+	CommitmentTxids string
+	SpentBy         sql.NullString
+	Spent           bool
+	ExpiresAt       int64
+	CreatedAt       int64
+	Preconfirmed    bool
+	Swept           bool
+	SettledBy       sql.NullString
+	Unrolled        bool
+	ArkTxid         sql.NullString
+	AssetID         sql.NullString
+	AssetAmount     sql.NullInt64
+}
+
 type Tx struct {
-	Txid      string
-	TxidType  string
-	Amount    int64
-	Type      string
-	Settled   bool
-	CreatedAt int64
-	Hex       sql.NullString
-	SettledBy sql.NullString
+	Txid        string
+	TxidType    string
+	Amount      int64
+	Type        string
+	Settled     bool
+	CreatedAt   int64
+	Hex         sql.NullString
+	SettledBy   sql.NullString
+	AssetPacket sql.NullString
 }
 
 type Utxo struct {

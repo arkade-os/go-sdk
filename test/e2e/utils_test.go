@@ -35,7 +35,6 @@ func setupClient(t *testing.T) arksdk.ArkClient {
 	appDataStore, err := store.NewStore(store.Config{
 		ConfigStoreType:  types.InMemoryStore,
 		AppDataStoreType: types.KVStore,
-		BaseDir:          t.TempDir(),
 	})
 	require.NoError(t, err)
 
