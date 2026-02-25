@@ -22,7 +22,7 @@ import (
 
 type grpcClient struct {
 	conn   *grpc.ClientConn
-	connMu sync.RWMutex
+	connMu *sync.RWMutex
 }
 
 func NewClient(serverUrl string) (indexer.Indexer, error) {
@@ -63,7 +63,7 @@ func NewClient(serverUrl string) (indexer.Indexer, error) {
 
 	client := &grpcClient{
 		conn:   conn,
-		connMu: sync.RWMutex{},
+		connMu: &sync.RWMutex{},
 	}
 
 	return client, nil
@@ -457,7 +457,10 @@ func (a *grpcClient) GetSubscription(
 			if err != nil {
 				shouldRetry, retryDelay := utils.ShouldReconnect(err)
 				if !shouldRetry {
-					eventsCh <- &indexer.ScriptEvent{Err: err}
+					select {
+					case <-ctx.Done():
+					case eventsCh <- &indexer.ScriptEvent{Err: err}:
+					}
 					return
 				}
 
@@ -478,7 +481,10 @@ func (a *grpcClient) GetSubscription(
 				if dialErr != nil {
 					shouldRetryDial, _ := utils.ShouldReconnect(dialErr)
 					if !shouldRetryDial {
-						eventsCh <- &indexer.ScriptEvent{Err: dialErr}
+						select {
+						case <-ctx.Done():
+						case eventsCh <- &indexer.ScriptEvent{Err: dialErr}:
+						}
 						return
 					}
 					backoffDelay = min(
