@@ -246,7 +246,6 @@ Arkade supports issuing, transferring, reissuing, and burning custom assets offc
 
 ```go
 import (
-    arksdk "github.com/arkade-os/go-sdk"
     "github.com/arkade-os/go-sdk/types"
     "github.com/arkade-os/arkd/pkg/ark-lib/asset"
 )
@@ -261,9 +260,7 @@ log.Infof("Issued asset %s in tx %s", assetID, txid)
 
 // 2. With a new control asset issued together with the controlled one.
 //    Returns two asset IDs: [controlAssetId, issuedAssetId].
-txid, assetIds, err = arkClient.IssueAsset(
-    ctx, 5000, types.NewControlAsset{Amount: 1}, nil,
-)
+txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, types.NewControlAsset{Amount: 1}, nil)
 if err != nil {
     log.Fatal(err)
 }
@@ -286,9 +283,7 @@ meta := []asset.Metadata{
     {Key: "name", Value: "My Token"},
     {Key: "ticker", Value: "MTK"},
 }
-txid, assetIds, err = arkClient.IssueAsset(
-    ctx, 5000, types.NewControlAsset{Amount: 1}, meta,
-)
+txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, types.NewControlAsset{Amount: 1}, meta)
 ```
 
 ##### Reissue Asset
