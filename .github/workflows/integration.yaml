@@ -28,5 +28,5 @@ jobs:
       - name: Run regtest environment
         run: make regtest
 
-      - name: Run tests
+      - name: Run tests=
         run: make integrationtest
