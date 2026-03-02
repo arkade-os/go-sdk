@@ -135,7 +135,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		go func() {
 			a.explorer.Start()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 			a.stopFn = cancel
 
 			err := func() error {
