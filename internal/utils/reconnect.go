@@ -18,7 +18,6 @@ var GrpcReconnectConfig = struct {
 	Multiplier:   2.0,
 }
 
-const cloudflare524Error = "524"
 const grpcHTTPFallbackError = "unexpected HTTP status code received from server"
 
 func ShouldReconnect(err error) (bool, time.Duration) {
