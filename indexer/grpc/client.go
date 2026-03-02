@@ -44,7 +44,11 @@ func (a *indexerAdapter) GetVtxoTree(
 	batchOutpoint types.Outpoint,
 	opts ...sdkindexer.RequestOption,
 ) (*sdkindexer.VtxoTreeResponse, error) {
-	vtxoTree, err := a.inner.GetVtxoTree(ctx, toArkOutpoint(batchOutpoint), toArkRequestOptions(opts)...)
+	vtxoTree, err := a.inner.GetVtxoTree(
+		ctx,
+		toArkOutpoint(batchOutpoint),
+		toArkRequestOptions(opts)...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +69,11 @@ func (a *indexerAdapter) GetVtxoTreeLeaves(
 	batchOutpoint types.Outpoint,
 	opts ...sdkindexer.RequestOption,
 ) (*sdkindexer.VtxoTreeLeavesResponse, error) {
-	leaves, err := a.inner.GetVtxoTreeLeaves(ctx, toArkOutpoint(batchOutpoint), toArkRequestOptions(opts)...)
+	leaves, err := a.inner.GetVtxoTreeLeaves(
+		ctx,
+		toArkOutpoint(batchOutpoint),
+		toArkRequestOptions(opts)...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +91,10 @@ func (a *indexerAdapter) GetForfeitTxs(
 		return nil, err
 	}
 
-	return &sdkindexer.ForfeitTxsResponse{Txids: forfeits.Txids, Page: toSDKPage(forfeits.Page)}, nil
+	return &sdkindexer.ForfeitTxsResponse{
+		Txids: forfeits.Txids,
+		Page:  toSDKPage(forfeits.Page),
+	}, nil
 }
 
 func (a *indexerAdapter) GetConnectors(
@@ -118,7 +129,10 @@ func (a *indexerAdapter) GetVtxos(
 		return nil, err
 	}
 
-	return &sdkindexer.VtxosResponse{Vtxos: toSDKVtxos(vtxos.Vtxos), Page: toSDKPage(vtxos.Page)}, nil
+	return &sdkindexer.VtxosResponse{
+		Vtxos: toSDKVtxos(vtxos.Vtxos),
+		Page:  toSDKPage(vtxos.Page),
+	}, nil
 }
 
 func (a *indexerAdapter) GetVtxoChain(
@@ -154,7 +168,10 @@ func (a *indexerAdapter) GetVirtualTxs(
 		return nil, err
 	}
 
-	return &sdkindexer.VirtualTxsResponse{Txs: virtualTxs.Txs, Page: toSDKPage(virtualTxs.Page)}, nil
+	return &sdkindexer.VirtualTxsResponse{
+		Txs:  virtualTxs.Txs,
+		Page: toSDKPage(virtualTxs.Page),
+	}, nil
 }
 
 func (a *indexerAdapter) GetBatchSweepTxs(

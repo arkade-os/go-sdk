@@ -42,7 +42,10 @@ func (a *clientAdapter) DeleteIntent(ctx context.Context, proof, message string)
 	return a.inner.DeleteIntent(ctx, proof, message)
 }
 
-func (a *clientAdapter) EstimateIntentFee(ctx context.Context, proof, message string) (int64, error) {
+func (a *clientAdapter) EstimateIntentFee(
+	ctx context.Context,
+	proof, message string,
+) (int64, error) {
 	return a.inner.EstimateIntentFee(ctx, proof, message)
 }
 
