@@ -168,7 +168,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 			// start periodic refresh db
 			go a.periodicRefreshDb(ctx)
-		}()
+		}(ctx)
 	}
 
 	return nil
@@ -833,7 +833,7 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 						closedListeners,
 					)
 				}
-			}(ctx)
+			}()
 		}
 	}
 }
