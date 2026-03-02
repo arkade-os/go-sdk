@@ -41,7 +41,7 @@ func TestShouldReconnect(t *testing.T) {
 				"ark service not ready: wallet is locked or syncing",
 			),
 			expected: true,
-			delay:    2 * time.Second,
+			delay:    5 * time.Second,
 		},
 		{
 			name:     "canceled does not reconnect",
