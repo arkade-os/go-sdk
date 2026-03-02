@@ -132,10 +132,10 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 			a.setRestored(err)
 		}()
 
-		go func() {
+		go func(ctx context.Context) {
 			a.explorer.Start()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 			a.stopFn = cancel
 
 			err := func() error {
@@ -833,7 +833,7 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 						closedListeners,
 					)
 				}
-			}()
+			}(ctx)
 		}
 	}
 }
