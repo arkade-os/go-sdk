@@ -14,6 +14,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
@@ -133,10 +134,11 @@ func validateOffchainReceiver(vtxoTree *tree.TxTree, receiver types.Receiver) er
 }
 
 func validateAssetOutputs(tx *wire.MsgTx, outputIndex int, receiver types.Receiver) error {
-	assetPacket, err := asset.NewPacketFromTx(tx)
+	ext, err := extension.NewExtensionFromTx(tx)
 	if err != nil {
 		return err
 	}
+	assetPacket := ext.GetAssetPacket()
 
 	// for each expected asset, verify the asset group exists and contains the correct output
 	for _, expectedAsset := range receiver.Assets {
@@ -615,7 +617,7 @@ func registerIntentMessage(
 			return "", nil, err
 		}
 
-		assetPacketOutput, err := assetPacket.TxOut()
+		assetPacketOutput, err := extension.Extension{assetPacket}.TxOut()
 		if err != nil {
 			return "", nil, err
 		}
