@@ -3642,7 +3642,7 @@ func (a *arkClient) saveSendTransaction(
 	if err != nil {
 		log.Warnf("failed to create read asset packet: %v", err)
 	}
-	
+
 	// save sent transaction to DB
 	if _, err := a.store.TransactionStore().AddTransactions(ctx, []types.Transaction{
 		{
