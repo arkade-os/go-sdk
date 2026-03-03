@@ -3,6 +3,7 @@ package grpcclient
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	arkclient "github.com/arkade-os/arkd/pkg/client-lib/client"
@@ -246,6 +247,17 @@ func toSDKFeeInfo(feeInfo arktypes.FeeInfo) types.FeeInfo {
 }
 
 func toSDKBatchEvent(event any) (any, error) {
+	if event == nil {
+		return nil, fmt.Errorf("unsupported batch event type <nil>")
+	}
+	// Interface values can hold typed-nil pointers (type set, value nil):
+	// var e *arkclient.BatchFinalizedEvent = nil; var ev any = e; ev != nil.
+	// Use reflect to catch this and avoid nil dereference in pointer switch cases.
+	rv := reflect.ValueOf(event)
+	if rv.Kind() == reflect.Ptr && rv.IsNil() {
+		return nil, fmt.Errorf("nil batch event pointer %T", event)
+	}
+
 	switch e := event.(type) {
 	case arkclient.BatchFinalizationEvent:
 		return sdkclient.BatchFinalizationEvent{Id: e.Id, Tx: e.Tx}, nil
