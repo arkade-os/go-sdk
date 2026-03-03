@@ -132,11 +132,13 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 			a.setRestored(err)
 		}()
 
+		bgCtx, cancel := context.WithCancel(context.Background())
+		a.stopFn = cancel
+
 		go func() {
 			a.explorer.Start()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			a.stopFn = cancel
+			ctx := bgCtx
 
 			err := func() error {
 				if err := a.refreshDb(ctx); err != nil {
