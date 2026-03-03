@@ -4323,17 +4323,14 @@ func addAssetPacket(ptx *psbt.Packet, assetPacket asset.Packet) error {
 		return nil
 	}
 
-	pkScriptPacket, err := assetPacket.Serialize()
+	packetOut, err := extension.Extension{assetPacket}.TxOut()
 	if err != nil {
 		return err
 	}
 	// add the asset packet output, P2A should stay as last output
 	ptx.Outputs = append(ptx.Outputs, psbt.POutput{})
 	p2aOutput := ptx.UnsignedTx.TxOut[len(ptx.UnsignedTx.TxOut)-1]
-	ptx.UnsignedTx.TxOut[len(ptx.UnsignedTx.TxOut)-1] = &wire.TxOut{
-		Value:    0,
-		PkScript: pkScriptPacket,
-	}
+	ptx.UnsignedTx.TxOut[len(ptx.UnsignedTx.TxOut)-1] = packetOut
 	ptx.UnsignedTx.TxOut = append(ptx.UnsignedTx.TxOut, p2aOutput)
 	return nil
 }
