@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -31,8 +32,8 @@ func NewTransactionStore(db *sql.DB) types.TransactionStore {
 	}
 }
 
-func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
-	addedTxs := make([]types.Transaction, 0, len(txs))
+func (v *txStore) AddTransactions(ctx context.Context, txs []sdktypes.Transaction) (int, error) {
+	addedTxs := make([]sdktypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range txs {
 			tx := txs[i]
@@ -152,7 +153,7 @@ func (v *txStore) SettleTransactions(
 		return -1, err
 	}
 
-	settledTxs := make([]types.Transaction, 0, len(txs))
+	settledTxs := make([]sdktypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			if tx.SettledBy != "" {
@@ -190,7 +191,7 @@ func (v *txStore) ConfirmTransactions(
 		return -1, err
 	}
 
-	confirmedTxs := make([]types.Transaction, 0, len(txs))
+	confirmedTxs := make([]sdktypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			if !tx.CreatedAt.IsZero() {
@@ -272,7 +273,7 @@ func (v *txStore) RbfTransactions(
 	return len(txs), nil
 }
 
-func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, error) {
+func (v *txStore) GetAllTransactions(ctx context.Context) ([]sdktypes.Transaction, error) {
 	rows, err := v.querier.SelectAllTxs(ctx)
 	if err != nil {
 		return nil, err
@@ -283,7 +284,7 @@ func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, 
 func (v *txStore) GetTransactions(
 	ctx context.Context,
 	txids []string,
-) ([]types.Transaction, error) {
+) ([]sdktypes.Transaction, error) {
 	rows, err := v.querier.SelectTxs(ctx, txids)
 	if err != nil {
 		return nil, err
@@ -291,7 +292,7 @@ func (v *txStore) GetTransactions(
 	return readTxRows(rows)
 }
 
-func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
+func (v *txStore) UpdateTransactions(ctx context.Context, txs []sdktypes.Transaction) (int, error) {
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			var settledBy sql.NullString
@@ -351,7 +352,7 @@ func (v *txStore) sendEvent(event types.TransactionEvent) {
 	}
 }
 
-func rowToTx(row queries.Tx) (types.Transaction, error) {
+func rowToTx(row queries.Tx) (sdktypes.Transaction, error) {
 	var commitmentTxid, arkTxid, boardingTxid string
 	if row.TxidType == "commitment" {
 		commitmentTxid = row.Txid
@@ -371,17 +372,17 @@ func rowToTx(row queries.Tx) (types.Transaction, error) {
 		var err error
 		assetPacket, err = asset.NewPacketFromString(row.AssetPacket.String)
 		if err != nil {
-			return types.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
+			return sdktypes.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
 		}
 	}
-	return types.Transaction{
-		TransactionKey: types.TransactionKey{
+	return sdktypes.Transaction{
+		TransactionKey: sdktypes.TransactionKey{
 			CommitmentTxid: commitmentTxid,
 			ArkTxid:        arkTxid,
 			BoardingTxid:   boardingTxid,
 		},
 		Amount:      uint64(row.Amount),
-		Type:        types.TxType(row.Type),
+		Type:        sdktypes.TxType(row.Type),
 		SettledBy:   row.SettledBy.String,
 		CreatedAt:   createdAt,
 		Hex:         row.Hex.String,
@@ -389,8 +390,8 @@ func rowToTx(row queries.Tx) (types.Transaction, error) {
 	}, nil
 }
 
-func readTxRows(rows []queries.Tx) ([]types.Transaction, error) {
-	txs := make([]types.Transaction, 0, len(rows))
+func readTxRows(rows []queries.Tx) ([]sdktypes.Transaction, error) {
+	txs := make([]sdktypes.Transaction, 0, len(rows))
 	for _, tx := range rows {
 		t, err := rowToTx(tx)
 		if err != nil {

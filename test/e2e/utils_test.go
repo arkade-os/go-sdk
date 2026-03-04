@@ -14,14 +14,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey"
+	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey/store/inmemory"
 	arksdk "github.com/arkade-os/go-sdk"
-	"github.com/arkade-os/go-sdk/client"
-	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet"
-	singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
-	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,6 @@ const (
 
 func setupClient(t *testing.T) arksdk.ArkClient {
 	appDataStore, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.InMemoryStore,
 		AppDataStoreType: types.KVStore,
 	})
 	require.NoError(t, err)
@@ -71,7 +71,6 @@ func setupClientWithWallet(
 	t *testing.T, withoutFinalizePendingTxs bool, prvkey string,
 ) (arksdk.ArkClient, wallet.WalletService, client.TransportClient) {
 	appDataStore, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.InMemoryStore,
 		AppDataStoreType: types.KVStore,
 	})
 	require.NoError(t, err)
@@ -126,7 +125,7 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 	require.NoError(t, err)
 }
 
-func faucetOffchain(t *testing.T, client arksdk.ArkClient, amount float64) types.Vtxo {
+func faucetOffchain(t *testing.T, client arksdk.ArkClient, amount float64) clienttypes.Vtxo {
 	ctx := t.Context()
 	_, offchainAddr, _, err := client.Receive(ctx)
 	require.NoError(t, err)
@@ -138,7 +137,7 @@ func faucetOffchain(t *testing.T, client arksdk.ArkClient, amount float64) types
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	var vtxo types.Vtxo
+	var vtxo clienttypes.Vtxo
 	go func() {
 		defer wg.Done()
 		for event := range aliceVtxoCh {

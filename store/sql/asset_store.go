@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -23,7 +24,7 @@ func NewAssetStore(db *sql.DB) types.AssetStore {
 	}
 }
 
-func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*types.AssetInfo, error) {
+func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.AssetInfo, error) {
 	row, err := a.querier.SelectAsset(ctx, assetId)
 	if err != nil {
 		return nil, err
@@ -40,14 +41,14 @@ func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*types.Asset
 		json.Unmarshal([]byte(row.Metadata.String), &metadata)
 	}
 
-	return &types.AssetInfo{
+	return &sdktypes.AssetInfo{
 		AssetId:        row.AssetID,
 		ControlAssetId: controlAssetId,
 		Metadata:       metadata,
 	}, nil
 }
 
-func (a *assetStore) UpsertAsset(ctx context.Context, asset types.AssetInfo) error {
+func (a *assetStore) UpsertAsset(ctx context.Context, asset sdktypes.AssetInfo) error {
 	metadata := sql.NullString{Valid: false}
 	if len(asset.Metadata) > 0 {
 		metadataBytes, err := json.Marshal(asset.Metadata)

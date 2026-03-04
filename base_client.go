@@ -9,6 +9,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/client"
 	"github.com/arkade-os/go-sdk/explorer"
 	mempool_explorer "github.com/arkade-os/go-sdk/explorer/mempool"
@@ -16,11 +17,6 @@ import (
 	grpcindexer "github.com/arkade-os/go-sdk/indexer/grpc"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet"
-	singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
-	walletstore "github.com/arkade-os/go-sdk/wallet/singlekey/store"
-	filestore "github.com/arkade-os/go-sdk/wallet/singlekey/store/file"
-	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -450,220 +446,6 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 	return ch
 }
 
-func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs) error {
-	if err := args.validate(); err != nil {
-		return fmt.Errorf("invalid args: %s", err)
-	}
-
-	clientSvc, err := getClient(
-		supportedClients, args.ClientType, args.ServerUrl,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to setup client: %s", err)
-	}
-
-	info, err := clientSvc.GetInfo(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to connect to server: %s", err)
-	}
-
-	explorerOpts := []mempool_explorer.Option{
-		mempool_explorer.WithTracker(args.WithTransactionFeed),
-	}
-	if args.ExplorerPollInterval > 0 {
-		explorerOpts = append(
-			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
-		)
-	}
-
-	explorerSvc, err := mempool_explorer.NewExplorer(
-		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to setup explorer: %s", err)
-	}
-
-	indexerSvc, err := getIndexer(args.ClientType, args.ServerUrl)
-	if err != nil {
-		return fmt.Errorf("failed to setup indexer: %s", err)
-	}
-
-	network := utils.NetworkFromString(info.Network)
-
-	signerPubkey, err := ecPubkeyFromHex(info.SignerPubKey)
-	if err != nil {
-		return fmt.Errorf("failed to parse signer pubkey: %s", err)
-	}
-
-	forfeitPubkey, err := ecPubkeyFromHex(info.ForfeitPubKey)
-	if err != nil {
-		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
-	}
-
-	unilateralExitDelayType := arklib.LocktimeTypeBlock
-	if info.UnilateralExitDelay >= 512 {
-		unilateralExitDelayType = arklib.LocktimeTypeSecond
-	}
-
-	boardingExitDelayType := arklib.LocktimeTypeBlock
-	if info.BoardingExitDelay >= 512 {
-		boardingExitDelayType = arklib.LocktimeTypeSecond
-	}
-
-	storeData := types.Config{
-		ServerUrl:       args.ServerUrl,
-		SignerPubKey:    signerPubkey,
-		ForfeitPubKey:   forfeitPubkey,
-		WalletType:      args.Wallet.GetType(),
-		ClientType:      args.ClientType,
-		Network:         network,
-		SessionDuration: info.SessionDuration,
-		UnilateralExitDelay: arklib.RelativeLocktime{
-			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
-		},
-		Dust: info.Dust,
-		BoardingExitDelay: arklib.RelativeLocktime{
-			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
-		},
-		ForfeitAddress:               info.ForfeitAddress,
-		WithTransactionFeed:          args.WithTransactionFeed,
-		ExplorerURL:                  explorerSvc.BaseUrl(),
-		ExplorerTrackingPollInterval: args.ExplorerPollInterval,
-		UtxoMinAmount:                info.UtxoMinAmount,
-		UtxoMaxAmount:                info.UtxoMaxAmount,
-		VtxoMinAmount:                info.VtxoMinAmount,
-		VtxoMaxAmount:                info.VtxoMaxAmount,
-		CheckpointTapscript:          info.CheckpointTapscript,
-		Fees:                         info.Fees,
-	}
-	if err := a.store.ConfigStore().AddData(ctx, storeData); err != nil {
-		return err
-	}
-
-	if _, err := args.Wallet.Create(ctx, args.Password, args.Seed); err != nil {
-		//nolint:all
-		a.store.ConfigStore().CleanData(ctx)
-		return err
-	}
-
-	a.Config = &storeData
-	a.wallet = args.Wallet
-	a.explorer = explorerSvc
-	a.client = clientSvc
-	a.indexer = indexerSvc
-
-	return nil
-}
-
-func (a *arkClient) init(ctx context.Context, args InitArgs) error {
-	if err := args.validate(); err != nil {
-		return fmt.Errorf("invalid args: %s", err)
-	}
-
-	clientSvc, err := getClient(
-		supportedClients, args.ClientType, args.ServerUrl,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to setup client: %s", err)
-	}
-
-	info, err := clientSvc.GetInfo(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to connect to server: %s", err)
-	}
-	explorerOpts := []mempool_explorer.Option{
-		mempool_explorer.WithTracker(args.WithTransactionFeed),
-	}
-	if args.ExplorerPollInterval > 0 {
-		explorerOpts = append(
-			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
-		)
-	}
-
-	explorerSvc, err := mempool_explorer.NewExplorer(
-		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to setup explorer: %s", err)
-	}
-
-	indexerSvc, err := getIndexer(args.ClientType, args.ServerUrl)
-	if err != nil {
-		return fmt.Errorf("failed to setup indexer: %s", err)
-	}
-
-	network := utils.NetworkFromString(info.Network)
-
-	signerPubkey, err := ecPubkeyFromHex(info.SignerPubKey)
-	if err != nil {
-		return fmt.Errorf("failed to parse signer pubkey: %s", err)
-	}
-
-	forfeitPubkey, err := ecPubkeyFromHex(info.ForfeitPubKey)
-	if err != nil {
-		return fmt.Errorf("failed to parse forfeit pubkey: %s", err)
-	}
-
-	unilateralExitDelayType := arklib.LocktimeTypeBlock
-	if info.UnilateralExitDelay >= 512 {
-		unilateralExitDelayType = arklib.LocktimeTypeSecond
-	}
-
-	boardingExitDelayType := arklib.LocktimeTypeBlock
-	if info.BoardingExitDelay >= 512 {
-		boardingExitDelayType = arklib.LocktimeTypeSecond
-	}
-
-	cfgData := types.Config{
-		ServerUrl:       args.ServerUrl,
-		SignerPubKey:    signerPubkey,
-		ForfeitPubKey:   forfeitPubkey,
-		WalletType:      args.WalletType,
-		ClientType:      args.ClientType,
-		Network:         network,
-		SessionDuration: info.SessionDuration,
-		UnilateralExitDelay: arklib.RelativeLocktime{
-			Type: unilateralExitDelayType, Value: uint32(info.UnilateralExitDelay),
-		},
-		Dust: info.Dust,
-		BoardingExitDelay: arklib.RelativeLocktime{
-			Type: boardingExitDelayType, Value: uint32(info.BoardingExitDelay),
-		},
-		ExplorerURL:                  explorerSvc.BaseUrl(),
-		ExplorerTrackingPollInterval: args.ExplorerPollInterval,
-		ForfeitAddress:               info.ForfeitAddress,
-		WithTransactionFeed:          args.WithTransactionFeed,
-		UtxoMinAmount:                info.UtxoMinAmount,
-		UtxoMaxAmount:                info.UtxoMaxAmount,
-		VtxoMinAmount:                info.VtxoMinAmount,
-		VtxoMaxAmount:                info.VtxoMaxAmount,
-		CheckpointTapscript:          info.CheckpointTapscript,
-		Fees:                         info.Fees,
-	}
-	walletSvc, err := getWallet(a.store.ConfigStore(), &cfgData, supportedWallets)
-	if err != nil {
-		return err
-	}
-
-	if err := a.store.ConfigStore().AddData(ctx, cfgData); err != nil {
-		return err
-	}
-
-	if _, err := walletSvc.Create(ctx, args.Password, args.Seed); err != nil {
-		//nolint:all
-		a.store.ConfigStore().CleanData(ctx)
-		return err
-	}
-
-	a.Config = &cfgData
-	a.wallet = walletSvc
-	a.explorer = explorerSvc
-	a.client = clientSvc
-	a.indexer = indexerSvc
-
-	return nil
-}
-
 func (a *arkClient) listVtxosFromIndexer(
 	ctx context.Context,
 ) (spendableVtxos, spentVtxos []types.Vtxo, err error) {
@@ -955,41 +737,6 @@ func getIndexer(clientType, serverUrl string) (indexer.Indexer, error) {
 		return nil, fmt.Errorf("invalid client type")
 	}
 	return grpcindexer.NewClient(serverUrl)
-}
-
-func getWallet(
-	configStore types.ConfigStore, data *types.Config,
-	supportedWallets utils.SupportedType[struct{}],
-) (wallet.WalletService, error) {
-	switch data.WalletType {
-	case wallet.SingleKeyWallet:
-		return getSingleKeyWallet(configStore)
-	default:
-		return nil, fmt.Errorf(
-			"unsupported wallet type '%s', please select one of: %s",
-			data.WalletType, supportedWallets,
-		)
-	}
-}
-
-func getSingleKeyWallet(configStore types.ConfigStore) (wallet.WalletService, error) {
-	walletStore, err := getWalletStore(configStore.GetType(), configStore.GetDatadir())
-	if err != nil {
-		return nil, err
-	}
-
-	return singlekeywallet.NewBitcoinWallet(configStore, walletStore)
-}
-
-func getWalletStore(storeType, datadir string) (walletstore.WalletStore, error) {
-	switch storeType {
-	case types.InMemoryStore:
-		return inmemorystore.NewWalletStore()
-	case types.FileStore:
-		return filestore.NewWalletStore(datadir)
-	default:
-		return nil, fmt.Errorf("unknown wallet store type")
-	}
 }
 
 func filterByOutpoints(vtxos []types.Vtxo, outpoints []types.Outpoint) []types.Vtxo {

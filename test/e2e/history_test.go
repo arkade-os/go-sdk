@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
 

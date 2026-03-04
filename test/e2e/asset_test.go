@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	arksdk "github.com/arkade-os/go-sdk"
-	"github.com/arkade-os/go-sdk/types"
+	client "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -342,8 +342,8 @@ func TestAssetBurn(t *testing.T) {
 	require.Equal(t, uint64(3500), assetVtxos[0].Assets[0].Amount)
 }
 
-func listVtxosWithAsset(t *testing.T, client arksdk.ArkClient, assetID string) []types.Vtxo {
-	vtxos, err := client.ListSpendableVtxos(t.Context())
+func listVtxosWithAsset(t *testing.T, client client.ArkClient, assetID string) []types.Vtxo {
+	vtxos, _, err := client.ListVtxos(t.Context())
 	require.NoError(t, err)
 
 	assetVtxos := make([]types.Vtxo, 0, len(vtxos))

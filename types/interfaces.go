@@ -3,10 +3,11 @@ package types
 import (
 	"context"
 	"time"
+
+	"github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
 type Store interface {
-	ConfigStore() ConfigStore
 	TransactionStore() TransactionStore
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
@@ -15,59 +16,50 @@ type Store interface {
 	Close()
 }
 
-type ConfigStore interface {
-	GetType() string
-	GetDatadir() string
-	AddData(ctx context.Context, data Config) error
-	GetData(ctx context.Context) (*Config, error)
-	CleanData(ctx context.Context) error
-	Close()
-}
-
 type TransactionStore interface {
-	AddTransactions(ctx context.Context, txs []Transaction) (int, error)
+	AddTransactions(ctx context.Context, txs []types.Transaction) (int, error)
 	SettleTransactions(ctx context.Context, txids []string, settledBy string) (int, error)
 	ConfirmTransactions(ctx context.Context, txids []string, timestamp time.Time) (int, error)
 	RbfTransactions(ctx context.Context, rbfTxs map[string]string) (int, error)
-	GetAllTransactions(ctx context.Context) ([]Transaction, error)
-	GetTransactions(ctx context.Context, txids []string) ([]Transaction, error)
-	UpdateTransactions(ctx context.Context, txs []Transaction) (int, error)
+	GetAllTransactions(ctx context.Context) ([]types.Transaction, error)
+	GetTransactions(ctx context.Context, txids []string) ([]types.Transaction, error)
+	UpdateTransactions(ctx context.Context, txs []types.Transaction) (int, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan TransactionEvent
 	Close()
 }
 
 type UtxoStore interface {
-	AddUtxos(ctx context.Context, utxos []Utxo) (int, error)
-	ReplaceUtxo(ctx context.Context, from Outpoint, to Outpoint) error
-	ConfirmUtxos(ctx context.Context, confirmedUtxos map[Outpoint]int64) (int, error)
-	SpendUtxos(ctx context.Context, spentUtxos map[Outpoint]string) (int, error)
-	GetAllUtxos(ctx context.Context) (spendable, spent []Utxo, err error)
-	GetUtxos(ctx context.Context, keys []Outpoint) ([]Utxo, error)
+	AddUtxos(ctx context.Context, utxos []types.Utxo) (int, error)
+	ReplaceUtxo(ctx context.Context, from, to types.Outpoint) error
+	ConfirmUtxos(ctx context.Context, confirmedUtxos map[types.Outpoint]int64) (int, error)
+	SpendUtxos(ctx context.Context, spentUtxos map[types.Outpoint]string) (int, error)
+	GetAllUtxos(ctx context.Context) (spendable, spent []types.Utxo, err error)
+	GetUtxos(ctx context.Context, keys []types.Outpoint) ([]types.Utxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan UtxoEvent
 	Close()
 }
 
 type VtxoStore interface {
-	AddVtxos(ctx context.Context, vtxos []Vtxo) (int, error)
+	AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error)
 	SpendVtxos(
-		ctx context.Context, spentVtxos map[Outpoint]string, arkTxid string,
+		ctx context.Context, spentVtxos map[types.Outpoint]string, arkTxid string,
 	) (int, error)
 	SettleVtxos(
-		ctx context.Context, spentVtxos map[Outpoint]string, settledBy string,
+		ctx context.Context, spentVtxos map[types.Outpoint]string, settledBy string,
 	) (int, error)
-	UpdateVtxos(ctx context.Context, vtxos []Vtxo) (int, error)
-	GetAllVtxos(ctx context.Context) (spendable, spent []Vtxo, err error)
-	GetSpendableVtxos(ctx context.Context) ([]Vtxo, error)
-	GetVtxos(ctx context.Context, keys []Outpoint) ([]Vtxo, error)
+	UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error)
+	GetAllVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)
+	GetSpendableVtxos(ctx context.Context) ([]types.Vtxo, error)
+	GetVtxos(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan VtxoEvent
 	Close()
 }
 
 type AssetStore interface {
-	GetAsset(ctx context.Context, assetId string) (*AssetInfo, error)
-	UpsertAsset(ctx context.Context, asset AssetInfo) error
+	GetAsset(ctx context.Context, assetId string) (*types.AssetInfo, error)
+	UpsertAsset(ctx context.Context, asset types.AssetInfo) error
 	Close()
 }
