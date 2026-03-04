@@ -16,6 +16,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/arkfee"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/note"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -3412,7 +3413,11 @@ func (a *arkClient) handleArkTx(
 	}
 
 	// ignore error since we can still handle the ark tx without the asset packet
-	assetPacket, _ := asset.NewPacketFromTx(arkPtx.UnsignedTx)
+	ext, _ := extension.NewExtensionFromTx(arkPtx.UnsignedTx)
+	var assetPacket asset.Packet
+	if len(ext) > 0 {
+		assetPacket = ext.GetAssetPacket()
+	}
 
 	vtxosToAdd := make([]types.Vtxo, 0)
 	vtxosToSpend := make(map[types.Outpoint]string)
@@ -3633,7 +3638,7 @@ func (a *arkClient) saveSendTransaction(
 		log.Debugf("added %d vtxo(s)", count)
 	}
 
-	assetPacket, err := asset.NewPacketFromTx(arkTx.UnsignedTx)
+	ext, err := extension.NewExtensionFromTx(arkTx.UnsignedTx)
 	if err != nil {
 		log.Warnf("failed to create read asset packet: %v", err)
 	}
@@ -3648,7 +3653,7 @@ func (a *arkClient) saveSendTransaction(
 			Type:        types.TxSent,
 			CreatedAt:   createdAt,
 			Hex:         tx,
-			AssetPacket: assetPacket,
+			AssetPacket: ext.GetAssetPacket(),
 		},
 	}); err != nil {
 		log.Warnf("failed to add transactions: %s, skipping adding sent transaction", err)
@@ -4318,17 +4323,14 @@ func addAssetPacket(ptx *psbt.Packet, assetPacket asset.Packet) error {
 		return nil
 	}
 
-	pkScriptPacket, err := assetPacket.Serialize()
+	packetOut, err := extension.Extension{assetPacket}.TxOut()
 	if err != nil {
 		return err
 	}
 	// add the asset packet output, P2A should stay as last output
 	ptx.Outputs = append(ptx.Outputs, psbt.POutput{})
 	p2aOutput := ptx.UnsignedTx.TxOut[len(ptx.UnsignedTx.TxOut)-1]
-	ptx.UnsignedTx.TxOut[len(ptx.UnsignedTx.TxOut)-1] = &wire.TxOut{
-		Value:    0,
-		PkScript: pkScriptPacket,
-	}
+	ptx.UnsignedTx.TxOut[len(ptx.UnsignedTx.TxOut)-1] = packetOut
 	ptx.UnsignedTx.TxOut = append(ptx.UnsignedTx.TxOut, p2aOutput)
 	return nil
 }
