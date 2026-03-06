@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -29,8 +30,8 @@ func NewVtxoStore(db *sql.DB) types.VtxoStore {
 	}
 }
 
-func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error) {
-	addedVtxos := make([]types.Vtxo, 0, len(vtxos))
+func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int, error) {
+	addedVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range vtxos {
 			vtxo := vtxos[i]
@@ -97,9 +98,9 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []types.Vtxo) (int,
 }
 
 func (v *vtxoRepository) SpendVtxos(
-	ctx context.Context, spentVtxosMap map[types.Outpoint]string, arkTxid string,
+	ctx context.Context, spentVtxosMap map[sdktypes.Outpoint]string, arkTxid string,
 ) (int, error) {
-	outpoints := make([]types.Outpoint, 0, len(spentVtxosMap))
+	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxosMap))
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -108,7 +109,7 @@ func (v *vtxoRepository) SpendVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]types.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if vtxo.Spent {
@@ -141,9 +142,9 @@ func (v *vtxoRepository) SpendVtxos(
 }
 
 func (v *vtxoRepository) SettleVtxos(
-	ctx context.Context, spentVtxosMap map[types.Outpoint]string, settledBy string,
+	ctx context.Context, spentVtxosMap map[sdktypes.Outpoint]string, settledBy string,
 ) (int, error) {
-	outpoints := make([]types.Outpoint, 0, len(spentVtxosMap))
+	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxosMap))
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -152,7 +153,7 @@ func (v *vtxoRepository) SettleVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]types.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if vtxo.Spent {
@@ -184,8 +185,8 @@ func (v *vtxoRepository) SettleVtxos(
 	return len(spentVtxos), nil
 }
 
-func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error) {
-	updatedVtxos := make([]types.Vtxo, 0, len(vtxos))
+func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int, error) {
+	updatedVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if err := querierWithTx.UpdateVtxo(ctx, queries.UpdateVtxoParams{
@@ -215,7 +216,7 @@ func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (i
 
 func (v *vtxoRepository) GetAllVtxos(
 	ctx context.Context,
-) (spendable, spent []types.Vtxo, err error) {
+) (spendable, spent []sdktypes.Vtxo, err error) {
 	rows, err := v.querier.SelectAllVtxos(ctx)
 	if err != nil {
 		return
@@ -237,9 +238,9 @@ func (v *vtxoRepository) GetAllVtxos(
 }
 
 func (v *vtxoRepository) GetVtxos(
-	ctx context.Context, keys []types.Outpoint,
-) ([]types.Vtxo, error) {
-	vtxos := make([]types.Vtxo, 0, len(keys))
+	ctx context.Context, keys []sdktypes.Outpoint,
+) ([]sdktypes.Vtxo, error) {
+	vtxos := make([]sdktypes.Vtxo, 0, len(keys))
 	for _, key := range keys {
 		rows, err := v.querier.SelectVtxo(ctx, queries.SelectVtxoParams{
 			Txid: key.Txid,
@@ -251,7 +252,9 @@ func (v *vtxoRepository) GetVtxos(
 			}
 			return nil, err
 		}
-		vtxos = append(vtxos, assetVtxoVwGroupToVtxo(rows))
+		if len(rows) > 0 {
+			vtxos = append(vtxos, assetVtxoVwGroupToVtxo(rows))
+		}
 	}
 
 	return vtxos, nil
@@ -259,7 +262,7 @@ func (v *vtxoRepository) GetVtxos(
 
 func (v *vtxoRepository) GetSpendableVtxos(
 	ctx context.Context,
-) (spendable []types.Vtxo, err error) {
+) (spendable []sdktypes.Vtxo, err error) {
 	rows, err := v.querier.SelectSpendableVtxos(ctx)
 	if err != nil {
 		return nil, err
@@ -273,6 +276,9 @@ func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
 }
 
 func (v *vtxoRepository) Clean(ctx context.Context) error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	if err := v.querier.CleanAssetVtxos(ctx); err != nil {
 		return err
 	}
@@ -285,6 +291,9 @@ func (v *vtxoRepository) Clean(ctx context.Context) error {
 }
 
 func (v *vtxoRepository) Close() {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	// nolint:all
 	v.db.Close()
 }
@@ -301,7 +310,7 @@ func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	}
 }
 
-func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []types.Vtxo {
+func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []sdktypes.Vtxo {
 	// group rows by (txid, vout)
 	byOutpoint := make(map[string][]queries.AssetVtxoVw)
 	for _, row := range rows {
@@ -309,7 +318,7 @@ func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []types.Vtxo {
 		byOutpoint[key] = append(byOutpoint[key], row)
 	}
 
-	vtxos := make([]types.Vtxo, 0, len(byOutpoint))
+	vtxos := make([]sdktypes.Vtxo, 0, len(byOutpoint))
 	for _, group := range byOutpoint {
 		vtxo := assetVtxoVwGroupToVtxo(group)
 		vtxos = append(vtxos, vtxo)
@@ -319,9 +328,9 @@ func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []types.Vtxo {
 }
 
 // assetVtxoVwGroupToVtxo converts a group of AssetVtxoVw rows (same vtxo, one row per asset from the view) into one types.Vtxo.
-func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) types.Vtxo {
+func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) sdktypes.Vtxo {
 	if len(group) == 0 {
-		return types.Vtxo{}
+		return sdktypes.Vtxo{}
 	}
 	row := group[0]
 	vtxoRow := queries.Vtxo{
@@ -355,7 +364,7 @@ func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) types.Vtxo {
 	return rowToVtxo(vtxoRow, assets)
 }
 
-func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) types.Vtxo {
+func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) sdktypes.Vtxo {
 	var expiresAt, createdAt time.Time
 	if row.ExpiresAt != 0 {
 		expiresAt = time.Unix(row.ExpiresAt, 0)
@@ -364,18 +373,18 @@ func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) types.Vtxo {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	var assets []types.Asset
+	var assets []sdktypes.Asset
 	if len(assetVtxos) > 0 {
-		assets = make([]types.Asset, 0, len(assetVtxos))
+		assets = make([]sdktypes.Asset, 0, len(assetVtxos))
 		for _, av := range assetVtxos {
-			assets = append(assets, types.Asset{
+			assets = append(assets, sdktypes.Asset{
 				AssetId: av.AssetID,
 				Amount:  uint64(av.Amount),
 			})
 		}
 	}
-	return types.Vtxo{
-		Outpoint: types.Outpoint{
+	return sdktypes.Vtxo{
+		Outpoint: sdktypes.Outpoint{
 			Txid: row.Txid,
 			VOut: uint32(row.Vout),
 		},

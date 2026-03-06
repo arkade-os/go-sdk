@@ -1,23 +1,23 @@
-package utils
+package arksdk
 
 import (
 	"sync"
 )
 
-type Broadcaster[T any] struct {
+type broadcaster[T any] struct {
 	mu        *sync.RWMutex
 	listeners map[chan T]struct{}
 	closed    bool
 }
 
-func NewBroadcaster[T any]() *Broadcaster[T] {
-	return &Broadcaster[T]{
+func newBroadcaster[T any]() *broadcaster[T] {
+	return &broadcaster[T]{
 		mu:        &sync.RWMutex{},
 		listeners: make(map[chan T]struct{}),
 	}
 }
 
-func (l *Broadcaster[T]) Subscribe(buf int) <-chan T {
+func (l *broadcaster[T]) subscribe(buf int) <-chan T {
 	if buf == 0 {
 		buf = 64
 	}
@@ -32,7 +32,7 @@ func (l *Broadcaster[T]) Subscribe(buf int) <-chan T {
 	return ch
 }
 
-func (l *Broadcaster[T]) Unsubscribe(ch <-chan T) {
+func (l *broadcaster[T]) unsubscribe(ch <-chan T) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for c := range l.listeners {
@@ -44,7 +44,7 @@ func (l *Broadcaster[T]) Unsubscribe(ch <-chan T) {
 	}
 }
 
-func (l *Broadcaster[T]) Publish(v T) int {
+func (l *broadcaster[T]) publish(v T) int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	listenersToRemove := make([]chan T, 0)
@@ -64,7 +64,7 @@ func (l *Broadcaster[T]) Publish(v T) int {
 	return len(listenersToRemove)
 }
 
-func (l *Broadcaster[T]) Close() {
+func (l *broadcaster[T]) close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {
@@ -77,7 +77,7 @@ func (l *Broadcaster[T]) Close() {
 	l.closed = true
 }
 
-func (l *Broadcaster[T]) remove(chs []chan T) {
+func (l *broadcaster[T]) remove(chs []chan T) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, ch := range chs {

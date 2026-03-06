@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,31 +13,26 @@ import (
 	"testing"
 	"time"
 
-	arksdk "github.com/arkade-os/go-sdk"
-	"github.com/arkade-os/go-sdk/client"
-	grpcclient "github.com/arkade-os/go-sdk/client/grpc"
-	"github.com/arkade-os/go-sdk/store"
+	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
+	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey"
+	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey/store/inmemory"
+	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet"
-	singlekeywallet "github.com/arkade-os/go-sdk/wallet/singlekey"
-	inmemorystore "github.com/arkade-os/go-sdk/wallet/singlekey/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	password  = "secret"
-	serverUrl = "127.0.0.1:7070"
+	password    = "secret"
+	serverUrl   = "127.0.0.1:7070"
+	explorerUrl = "http://127.0.0.1:3000"
 )
 
-func setupClient(t *testing.T) arksdk.ArkClient {
-	appDataStore, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.InMemoryStore,
-		AppDataStoreType: types.KVStore,
-	})
-	require.NoError(t, err)
-
-	client, err := arksdk.NewArkClient(appDataStore)
+func setupClient(t *testing.T) sdk.ArkClient {
+	arkClient, err := sdk.NewArkClient("", false)
 	require.NoError(t, err)
 
 	privkey, err := btcec.NewPrivateKey()
@@ -46,48 +40,37 @@ func setupClient(t *testing.T) arksdk.ArkClient {
 
 	privkeyHex := hex.EncodeToString(privkey.Serialize())
 
-	err = client.Init(t.Context(), arksdk.InitArgs{
-		WalletType:           arksdk.SingleKeyWallet,
-		ClientType:           arksdk.GrpcClient,
-		ServerUrl:            serverUrl,
-		Password:             password,
-		Seed:                 privkeyHex,
-		WithTransactionFeed:  true,
-		ExplorerPollInterval: time.Second,
-	})
+	opts := []sdk.InitOption{
+		sdk.WithExplorerUrl(explorerUrl), sdk.WithExplorerPollInterval(2 * time.Second),
+	}
+	err = arkClient.Init(t.Context(), serverUrl, privkeyHex, password, opts...)
 	require.NoError(t, err)
 
-	err = client.Unlock(t.Context(), password)
+	err = arkClient.Unlock(t.Context(), password)
 	require.NoError(t, err)
 
-	synced := <-client.IsSynced(t.Context())
+	synced := <-arkClient.IsSynced(t.Context())
 	require.True(t, synced.Synced)
 	require.Nil(t, synced.Err)
 
-	return client
+	return arkClient
 }
 
 func setupClientWithWallet(
-	t *testing.T, withoutFinalizePendingTxs bool, prvkey string,
-) (arksdk.ArkClient, wallet.WalletService, client.TransportClient) {
-	appDataStore, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.InMemoryStore,
-		AppDataStoreType: types.KVStore,
-	})
+	t *testing.T, prvkey string,
+) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
+	arkClient, err := sdk.NewArkClient("", false)
 	require.NoError(t, err)
-
-	var opts []arksdk.ClientOption
-	if withoutFinalizePendingTxs {
-		opts = append(opts, arksdk.WithoutFinalizePendingTxs())
-	}
-	client, err := arksdk.NewArkClient(appDataStore, opts...)
-	require.NoError(t, err)
+	require.NotNil(t, arkClient)
 
 	walletStore, err := inmemorystore.NewWalletStore()
 	require.NoError(t, err)
 	require.NotNil(t, walletStore)
 
-	wallet, err := singlekeywallet.NewBitcoinWallet(appDataStore.ConfigStore(), walletStore)
+	configStore := arkClient.GetConfigStore()
+	require.NotNil(t, configStore)
+
+	wallet, err := singlekeywallet.NewBitcoinWallet(configStore, walletStore)
 	require.NoError(t, err)
 
 	if len(prvkey) <= 0 {
@@ -97,28 +80,24 @@ func setupClientWithWallet(
 		prvkey = hex.EncodeToString(key.Serialize())
 	}
 
-	err = client.InitWithWallet(context.Background(), arksdk.InitWithWalletArgs{
-		Wallet:               wallet,
-		ClientType:           arksdk.GrpcClient,
-		ServerUrl:            serverUrl,
-		Password:             password,
-		Seed:                 prvkey,
-		WithTransactionFeed:  true,
-		ExplorerPollInterval: 2 * time.Second,
-	})
+	opts := []sdk.InitOption{
+		sdk.WithWallet(wallet), sdk.WithExplorerUrl(explorerUrl),
+		sdk.WithExplorerPollInterval(2 * time.Second),
+	}
+	err = arkClient.Init(t.Context(), serverUrl, prvkey, password, opts...)
 	require.NoError(t, err)
 
-	err = client.Unlock(context.Background(), password)
+	err = arkClient.Unlock(t.Context(), password)
 	require.NoError(t, err)
 
-	synced := <-client.IsSynced(t.Context())
+	synced := <-arkClient.IsSynced(t.Context())
 	require.True(t, synced.Synced)
 	require.Nil(t, synced.Err)
 
 	grpcClient, err := grpcclient.NewClient(serverUrl)
 	require.NoError(t, err)
 
-	return client, wallet, grpcClient
+	return arkClient, wallet, grpcClient
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
@@ -126,9 +105,9 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 	require.NoError(t, err)
 }
 
-func faucetOffchain(t *testing.T, client arksdk.ArkClient, amount float64) types.Vtxo {
+func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTypes.Vtxo {
 	ctx := t.Context()
-	_, offchainAddr, _, err := client.Receive(ctx)
+	offchainAddr, err := client.NewOffchainAddress(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, offchainAddr)
 
@@ -138,7 +117,7 @@ func faucetOffchain(t *testing.T, client arksdk.ArkClient, amount float64) types
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	var vtxo types.Vtxo
+	var vtxo clientTypes.Vtxo
 	go func() {
 		defer wg.Done()
 		for event := range aliceVtxoCh {

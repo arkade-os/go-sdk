@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -51,9 +52,9 @@ func NewTransactionStore(
 }
 
 func (s *txStore) AddTransactions(
-	ctx context.Context, txs []types.Transaction,
+	ctx context.Context, txs []sdktypes.Transaction,
 ) (int, error) {
-	addedTxs := make([]types.Transaction, 0, len(txs))
+	addedTxs := make([]sdktypes.Transaction, 0, len(txs))
 	for _, tx := range txs {
 		// Handle asset packet if present
 		if len(tx.AssetPacket) > 0 {
@@ -78,7 +79,7 @@ func (s *txStore) AddTransactions(
 					continue
 				}
 
-				assetInfo := types.AssetInfo{
+				assetInfo := sdktypes.AssetInfo{
 					AssetId: assetId.String(),
 				}
 
@@ -131,7 +132,7 @@ func (s *txStore) SettleTransactions(
 		return -1, err
 	}
 
-	settledTxs := make([]types.Transaction, 0, len(txs))
+	settledTxs := make([]sdktypes.Transaction, 0, len(txs))
 	for _, tx := range txs {
 		if tx.SettledBy != "" {
 			continue
@@ -158,7 +159,7 @@ func (s *txStore) ConfirmTransactions(
 		return -1, err
 	}
 
-	confirmedTxs := make([]types.Transaction, 0, len(txs))
+	confirmedTxs := make([]sdktypes.Transaction, 0, len(txs))
 	for _, tx := range txs {
 		if !tx.CreatedAt.IsZero() {
 			continue
@@ -194,11 +195,11 @@ func (s *txStore) RbfTransactions(
 		return 0, nil
 	}
 
-	txsToAdd := make([]types.Transaction, 0, len(txs))
+	txsToAdd := make([]sdktypes.Transaction, 0, len(txs))
 	txsToDelete := make([]string, 0, len(txs))
 	for _, tx := range txs {
-		txsToAdd = append(txsToAdd, types.Transaction{
-			TransactionKey: types.TransactionKey{
+		txsToAdd = append(txsToAdd, sdktypes.Transaction{
+			TransactionKey: sdktypes.TransactionKey{
 				BoardingTxid: replacements[tx.TransactionKey.String()],
 			},
 			Type:      tx.Type,
@@ -226,8 +227,8 @@ func (s *txStore) RbfTransactions(
 
 func (s *txStore) GetAllTransactions(
 	_ context.Context,
-) ([]types.Transaction, error) {
-	var txs []types.Transaction
+) ([]sdktypes.Transaction, error) {
+	var txs []sdktypes.Transaction
 	err := s.db.Find(&txs, nil)
 
 	sort.Slice(txs, func(i, j int) bool {
@@ -244,10 +245,10 @@ func (s *txStore) GetAllTransactions(
 
 func (s *txStore) GetTransactions(
 	_ context.Context, txids []string,
-) ([]types.Transaction, error) {
-	txs := make([]types.Transaction, 0, len(txids))
+) ([]sdktypes.Transaction, error) {
+	txs := make([]sdktypes.Transaction, 0, len(txids))
 	for _, txid := range txids {
-		var tx types.Transaction
+		var tx sdktypes.Transaction
 		if err := s.db.Get(txid, &tx); err != nil {
 			if errors.Is(err, badgerhold.ErrNotFound) {
 				continue
@@ -260,7 +261,7 @@ func (s *txStore) GetTransactions(
 	return txs, nil
 }
 
-func (s *txStore) UpdateTransactions(_ context.Context, txs []types.Transaction) (int, error) {
+func (s *txStore) UpdateTransactions(_ context.Context, txs []sdktypes.Transaction) (int, error) {
 	for _, tx := range txs {
 		if err := s.db.Upsert(tx.TransactionKey.String(), &tx); err != nil {
 			return -1, err
@@ -280,6 +281,9 @@ func (s *txStore) GetEventChannel() <-chan types.TransactionEvent {
 }
 
 func (s *txStore) Clean(_ context.Context) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Badger().DropAll(); err != nil {
 		return fmt.Errorf("failed to clean the transaction db: %s", err)
 	}
@@ -287,13 +291,16 @@ func (s *txStore) Clean(_ context.Context) error {
 }
 
 func (s *txStore) Close() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Close(); err != nil {
 		log.Debugf("error on closing transactions db: %s", err)
 	}
 	close(s.eventCh)
 }
 
-func (s *txStore) replaceTxs(txsToAdd []types.Transaction, txsToDelete []string) (int, error) {
+func (s *txStore) replaceTxs(txsToAdd []sdktypes.Transaction, txsToDelete []string) (int, error) {
 	count := 0
 	dbtx := s.db.Badger().NewTransaction(true)
 	for _, tx := range txsToAdd {
@@ -306,7 +313,7 @@ func (s *txStore) replaceTxs(txsToAdd []types.Transaction, txsToDelete []string)
 		count++
 	}
 	for _, txid := range txsToDelete {
-		if err := s.db.TxDelete(dbtx, txid, &types.Transaction{}); err != nil {
+		if err := s.db.TxDelete(dbtx, txid, &sdktypes.Transaction{}); err != nil {
 			return -1, err
 		}
 	}

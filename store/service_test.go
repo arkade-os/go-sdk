@@ -7,36 +7,17 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	"github.com/arkade-os/go-sdk/client"
+	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet"
-	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	key, _         = btcec.NewPrivateKey()
-	forfeitkKey, _ = btcec.NewPrivateKey()
-	testConfigData = types.Config{
-		ServerUrl:           "127.0.0.1:7070",
-		SignerPubKey:        key.PubKey(),
-		ForfeitPubKey:       forfeitkKey.PubKey(),
-		WalletType:          wallet.SingleKeyWallet,
-		ClientType:          client.GrpcClient,
-		Network:             arklib.BitcoinRegTest,
-		SessionDuration:     10,
-		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		Dust:                1000,
-		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		ForfeitAddress:      "bcrt1qzvqj",
-		CheckpointTapscript: "abcdefghijklmnopqrtuvxyz",
-	}
-
-	testUtxos = []types.Utxo{
+	testUtxos = []sdktypes.Utxo{
 		{
-			Outpoint: types.Outpoint{
+			Outpoint: sdktypes.Outpoint{
 				Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 				VOut: 0,
 			},
@@ -47,7 +28,7 @@ var (
 			Delay:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 10},
 		},
 		{
-			Outpoint: types.Outpoint{
+			Outpoint: sdktypes.Outpoint{
 				Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				VOut: 0,
 			},
@@ -61,7 +42,7 @@ var (
 			Delay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		},
 	}
-	testUtxoKeys = []types.Outpoint{
+	testUtxoKeys = []sdktypes.Outpoint{
 		{
 			Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 			VOut: 0,
@@ -71,11 +52,11 @@ var (
 			VOut: 0,
 		},
 	}
-	testConfirmedUtxoKeys = map[types.Outpoint]int64{
+	testConfirmedUtxoKeys = map[sdktypes.Outpoint]int64{
 		testUtxoKeys[0]: time.Now().Unix(),
 		testUtxoKeys[1]: time.Now().Add(10 * time.Second).Unix(),
 	}
-	testSpendUtxoKeys = map[types.Outpoint]string{
+	testSpendUtxoKeys = map[sdktypes.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
 	testAssetGroups = []asset.AssetGroup{
@@ -177,7 +158,7 @@ var (
 		},
 	}
 
-	testVtxoAsset1 = types.Asset{
+	testVtxoAsset1 = sdktypes.Asset{
 		AssetId: asset.AssetId{
 			Txid: [32]byte{
 				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
@@ -188,7 +169,7 @@ var (
 		Amount: 123456789,
 	}
 
-	testVtxoAsset2 = types.Asset{
+	testVtxoAsset2 = sdktypes.Asset{
 		AssetId: asset.AssetId{
 			Txid: [32]byte{
 				0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
@@ -199,9 +180,9 @@ var (
 		Amount: 987654321,
 	}
 
-	testVtxos = []types.Vtxo{
+	testVtxos = []sdktypes.Vtxo{
 		{
-			Outpoint: types.Outpoint{
+			Outpoint: sdktypes.Outpoint{
 				Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 				VOut: 0,
 			},
@@ -215,7 +196,7 @@ var (
 			Preconfirmed: true,
 		},
 		{
-			Outpoint: types.Outpoint{
+			Outpoint: sdktypes.Outpoint{
 				Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				VOut: 0,
 			},
@@ -228,7 +209,7 @@ var (
 			CreatedAt: time.Unix(1746143068, 0),
 		},
 		{
-			Outpoint: types.Outpoint{
+			Outpoint: sdktypes.Outpoint{
 				Txid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				VOut: 0,
 			},
@@ -240,10 +221,10 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 			// vtxo with multiple assets
-			Assets: []types.Asset{testVtxoAsset1, testVtxoAsset2},
+			Assets: []sdktypes.Asset{testVtxoAsset1, testVtxoAsset2},
 		},
 		{
-			Outpoint: types.Outpoint{
+			Outpoint: sdktypes.Outpoint{
 				Txid: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 				VOut: 0,
 			},
@@ -255,10 +236,10 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 			// vtxo with single asset
-			Assets: []types.Asset{testVtxoAsset1},
+			Assets: []sdktypes.Asset{testVtxoAsset1},
 		},
 	}
-	testVtxoKeys = []types.Outpoint{
+	testVtxoKeys = []sdktypes.Outpoint{
 		{
 			Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 			VOut: 0,
@@ -276,27 +257,27 @@ var (
 			VOut: 0,
 		},
 	}
-	testSpendVtxoKeys = map[types.Outpoint]string{
+	testSpendVtxoKeys = map[sdktypes.Outpoint]string{
 		testVtxoKeys[0]: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
-	testSettleVtxoKeys = map[types.Outpoint]string{
+	testSettleVtxoKeys = map[sdktypes.Outpoint]string{
 		testVtxoKeys[1]: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	}
 
-	testTxs = []types.Transaction{
+	testTxs = []sdktypes.Transaction{
 		{
-			TransactionKey: types.TransactionKey{
+			TransactionKey: sdktypes.TransactionKey{
 				BoardingTxid: "0000000000000000000000000000000000000000000000000000000000000000",
 			},
 			Amount: 5000,
-			Type:   types.TxReceived,
+			Type:   sdktypes.TxReceived,
 		},
 		{
-			TransactionKey: types.TransactionKey{
+			TransactionKey: sdktypes.TransactionKey{
 				ArkTxid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 			Amount:      12000,
-			Type:        types.TxReceived,
+			Type:        sdktypes.TxReceived,
 			AssetPacket: asset.Packet(testAssetGroups),
 		},
 	}
@@ -321,7 +302,7 @@ var (
 	settledBy = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
-	testAsset = types.AssetInfo{
+	testAsset = sdktypes.AssetInfo{
 		AssetId:        "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
 		ControlAssetId: "02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021",
 		Metadata: []asset.Metadata{
@@ -333,37 +314,38 @@ var (
 	}
 )
 
-func TestService(t *testing.T) {
-	t.Run("config store", func(t *testing.T) {
-		dbDir := t.TempDir()
-		tests := []struct {
-			name   string
-			config store.Config
+func TestNewStore(t *testing.T) {
+	t.Run("invalid", func(t *testing.T) {
+		fixtures := []struct {
+			name            string
+			config          store.Config
+			wantErrContains string
 		}{
 			{
-				name: "inmemory",
-				config: store.Config{
-					ConfigStoreType: types.InMemoryStore,
-				},
+				name:            "unknown store type",
+				config:          store.Config{AppDataStoreType: "unknown"},
+				wantErrContains: "unknown appdata store type",
 			},
 			{
-				name: "file",
-				config: store.Config{
-					ConfigStoreType: types.FileStore,
-					BaseDir:         dbDir,
-				},
+				name:   "SQL store with non-creatable path",
+				config: store.Config{AppDataStoreType: types.SQLStore, BaseDir: "/dev/null/subdir"},
 			},
 		}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				svc, err := store.NewStore(tt.config)
-				require.NoError(t, err)
-				testConfigStore(t, svc.ConfigStore())
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				svc, err := store.NewStore(f.config)
+				require.Error(t, err)
+				if f.wantErrContains != "" {
+					require.ErrorContains(t, err, f.wantErrContains)
+				}
+				require.Nil(t, svc)
 			})
 		}
 	})
+}
 
+func TestService(t *testing.T) {
 	t.Run("app data store", func(t *testing.T) {
 		dbDir := t.TempDir()
 		tests := []struct {
@@ -373,14 +355,12 @@ func TestService(t *testing.T) {
 			{
 				name: "kv",
 				config: store.Config{
-					ConfigStoreType:  types.InMemoryStore,
 					AppDataStoreType: types.KVStore,
 				},
 			},
 			{
 				name: "sql",
 				config: store.Config{
-					ConfigStoreType:  types.InMemoryStore,
 					AppDataStoreType: types.SQLStore,
 					BaseDir:          dbDir,
 				},
@@ -399,41 +379,6 @@ func TestService(t *testing.T) {
 			})
 		}
 	})
-}
-
-func testConfigStore(t *testing.T, storeSvc types.ConfigStore) {
-	ctx := context.Background()
-
-	// Check empty data when store is empty.
-	data, err := storeSvc.GetData(ctx)
-	require.NoError(t, err)
-	require.Nil(t, data)
-
-	// Check no side effects when cleaning an empty store.
-	err = storeSvc.CleanData(ctx)
-	require.NoError(t, err)
-
-	// Check add and retrieve data.
-	err = storeSvc.AddData(ctx, testConfigData)
-	require.NoError(t, err)
-
-	data, err = storeSvc.GetData(ctx)
-	require.NoError(t, err)
-	require.Equal(t, testConfigData, *data)
-
-	// Check clean and retrieve data.
-	err = storeSvc.CleanData(ctx)
-	require.NoError(t, err)
-
-	data, err = storeSvc.GetData(ctx)
-	require.NoError(t, err)
-	require.Nil(t, data)
-
-	// Check overwriting the store.
-	err = storeSvc.AddData(ctx, testConfigData)
-	require.NoError(t, err)
-	err = storeSvc.AddData(ctx, testConfigData)
-	require.NoError(t, err)
 }
 
 func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
@@ -478,6 +423,12 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 		utxos, err := storeSvc.GetUtxos(ctx, testUtxoKeys)
 		require.NoError(t, err)
 		require.Equal(t, testUtxos, utxos)
+
+		utxos, err = storeSvc.GetUtxos(ctx, []sdktypes.Outpoint{
+			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
+		})
+		require.NoError(t, err)
+		require.Empty(t, utxos)
 	})
 
 	t.Run("confirm utxos", func(t *testing.T) {
@@ -588,6 +539,12 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
 		requireVtxosListEqual(t, testVtxos, vtxos)
+
+		vtxos, err = storeSvc.GetVtxos(ctx, []sdktypes.Outpoint{
+			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
+		})
+		require.NoError(t, err)
+		require.Empty(t, vtxos)
 	})
 
 	t.Run("spend vtxos", func(t *testing.T) {
@@ -607,6 +564,13 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
 			require.Equal(t, arkTxid, v.ArkTxid)
+		}
+
+		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		require.NoError(t, err)
+		require.Len(t, spendable, 3)
+		for _, v := range spendable {
+			require.False(t, v.Spent)
 		}
 	})
 
@@ -679,6 +643,12 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		txs, err := storeSvc.GetTransactions(ctx, testTxids)
 		require.NoError(t, err)
 		require.Equal(t, allTxs, txs)
+
+		txs, err = storeSvc.GetTransactions(ctx, []string{
+			"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		})
+		require.NoError(t, err)
+		require.Empty(t, txs)
 	})
 
 	t.Run("replace txs", func(t *testing.T) {
@@ -742,7 +712,7 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	require.Equal(t, testAsset, *asset)
 
 	// upsert does not erase metadata or control asset id
-	testAssetIdOnly := types.AssetInfo{
+	testAssetIdOnly := sdktypes.AssetInfo{
 		AssetId: testAsset.AssetId,
 	}
 	err = storeSvc.UpsertAsset(ctx, testAssetIdOnly)
@@ -751,9 +721,16 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	asset, err = storeSvc.GetAsset(ctx, testAssetIdOnly.AssetId)
 	require.NoError(t, err)
 	require.Equal(t, testAsset, *asset)
+
+	asset, err = storeSvc.GetAsset(
+		ctx, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+	)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "asset not found")
+	require.Nil(t, asset)
 }
 
-func requireVtxosListEqual(t *testing.T, expected, actual []types.Vtxo) {
+func requireVtxosListEqual(t *testing.T, expected, actual []sdktypes.Vtxo) {
 	require.Len(t, expected, len(actual))
 
 	for _, v := range expected {
