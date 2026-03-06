@@ -3,6 +3,7 @@ package e2e
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -16,9 +17,9 @@ func TestBatchSession(t *testing.T) {
 		alice := setupClient(t)
 		bob := setupClient(t)
 
-		_, _, aliceBoardingAddr, err := alice.Receive(ctx)
+		aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)
-		_, _, bobBoardingAddr, err := bob.Receive(ctx)
+		bobBoardingAddr, err := bob.NewBoardingAddress(ctx)
 		require.NoError(t, err)
 
 		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
@@ -31,8 +32,8 @@ func TestBatchSession(t *testing.T) {
 		// next event received by bob and alice utxo channel should be the added events related to boarding inputs
 		bobUtxoEvent := <-bobUtxoCh
 		aliceUtxoEvent := <-aliceUtxoCh
-		require.Equal(t, bobUtxoEvent.Type, types.UtxosAdded)
-		require.Equal(t, aliceUtxoEvent.Type, types.UtxosAdded)
+		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
+		require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
 		require.Len(t, bobUtxoEvent.Utxos, 1)
 		require.Len(t, aliceUtxoEvent.Utxos, 1)
 		aliceConfirmedUtxo := aliceUtxoEvent.Utxos[0]
@@ -84,8 +85,8 @@ func TestBatchSession(t *testing.T) {
 		// related to new vtxos created by the batch
 		aliceVtxoEvent := <-aliceVtxoCh
 		bobVtxoEvent := <-bobVtxoCh
-		require.Equal(t, aliceVtxoEvent.Type, types.VtxosAdded)
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		aliceVtxo := aliceVtxoEvent.Vtxos[0]
@@ -107,8 +108,8 @@ func TestBatchSession(t *testing.T) {
 		// related to boarding inputs
 		bobUtxoEvent = <-bobUtxoCh
 		aliceUtxoEvent = <-aliceUtxoCh
-		require.Equal(t, bobUtxoEvent.Type, types.UtxosSpent)
-		require.Equal(t, aliceUtxoEvent.Type, types.UtxosSpent)
+		require.Equal(t, types.UtxosSpent, bobUtxoEvent.Type)
+		require.Equal(t, types.UtxosSpent, aliceUtxoEvent.Type)
 		require.Len(t, bobUtxoEvent.Utxos, 1)
 		require.Len(t, aliceUtxoEvent.Utxos, 1)
 		require.Equal(t, bobUtxoEvent.Utxos[0].Outpoint, bobConfirmedUtxo.Outpoint)
@@ -135,8 +136,8 @@ func TestBatchSession(t *testing.T) {
 		// the event channel should he notified about the new vtxos
 		aliceVtxoEvent = <-aliceVtxoCh
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, aliceVtxoEvent.Type, types.VtxosAdded)
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		aliceRefreshVtxo := aliceVtxoEvent.Vtxos[0]
@@ -147,8 +148,8 @@ func TestBatchSession(t *testing.T) {
 		// the event channel should he notified about the spent vtxos
 		aliceVtxoEvent = <-aliceVtxoCh
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, aliceVtxoEvent.Type, types.VtxosSpent)
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosSpent)
+		require.Equal(t, types.VtxosSpent, aliceVtxoEvent.Type)
+		require.Equal(t, types.VtxosSpent, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		require.Equal(t, aliceVtxoEvent.Vtxos[0].Outpoint, aliceVtxo.Outpoint)
@@ -174,7 +175,7 @@ func TestBatchSession(t *testing.T) {
 	t.Run("redeem notes", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t)
-		_, offchainAddr, _, err := alice.Receive(ctx)
+		offchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, offchainAddr)
 
@@ -197,7 +198,7 @@ func TestBatchSession(t *testing.T) {
 		// next event received by alice vtxo channel should be the added event
 		// related to new vtxo created by the redemption
 		aliceVtxoEvent := <-aliceVtxoCh
-		require.Equal(t, aliceVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		aliceVtxo := aliceVtxoEvent.Vtxos[0]
 		require.Equal(t, 21000+2100, int(aliceVtxo.Amount))
@@ -215,5 +216,7 @@ func TestBatchSession(t *testing.T) {
 		require.Error(t, err)
 		_, err = alice.RedeemNotes(ctx, []string{note1, note2})
 		require.Error(t, err)
+
+		time.Sleep(5 * time.Second)
 	})
 }

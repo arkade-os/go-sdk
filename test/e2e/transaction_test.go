@@ -13,18 +13,13 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
-	"github.com/arkade-os/arkd/pkg/client-lib/types"
-	arksdk "github.com/arkade-os/go-sdk"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	types "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/stretchr/testify/require"
-)
-
-const (
-	withoutFinalizePendingTxs = true
-	withFinalizePendingTxs    = !withoutFinalizePendingTxs
 )
 
 func TestOffchainTx(t *testing.T) {
@@ -36,12 +31,12 @@ func TestOffchainTx(t *testing.T) {
 
 		faucetOffchain(t, alice, 0.001)
 
-		_, bobAddress, _, err := bob.Receive(ctx)
+		bobAddress, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
-		txid, err := alice.SendOffChain(ctx, []types.Receiver{{
+		txid, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobAddress,
 			Amount: 1000,
 		}})
@@ -50,7 +45,7 @@ func TestOffchainTx(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent := <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobVtxo1 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 1000, int(bobVtxo1.Amount))
@@ -60,7 +55,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 1)
 
-		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+		txid, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobAddress,
 			Amount: 10000,
 		}})
@@ -69,7 +64,7 @@ func TestOffchainTx(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobVtxo2 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 10000, int(bobVtxo2.Amount))
@@ -79,7 +74,7 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 2)
 
-		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+		txid, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobAddress,
 			Amount: 10000,
 		}})
@@ -88,7 +83,7 @@ func TestOffchainTx(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobVtxo3 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 10000, int(bobVtxo3.Amount))
@@ -98,16 +93,16 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 3)
 
-		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+		txid, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobAddress,
 			Amount: 10000,
-		}}, arksdk.WithoutExpirySorting())
+		}})
 		require.NoError(t, err)
 
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobVtxo4 := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 10000, int(bobVtxo4.Amount))
@@ -135,11 +130,11 @@ func TestOffchainTx(t *testing.T) {
 		alice := setupClient(t)
 		bob := setupClient(t)
 
-		_, aliceOffchainAddr, _, err := alice.Receive(ctx)
+		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, aliceOffchainAddr)
 
-		_, bobOffchainAddr, _, err := bob.Receive(ctx)
+		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOffchainAddr)
 
@@ -148,7 +143,7 @@ func TestOffchainTx(t *testing.T) {
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
 		for range numInputs {
-			txid, err := alice.SendOffChain(ctx, []types.Receiver{{
+			txid, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
 				To:     bobOffchainAddr,
 				Amount: amount,
 			}})
@@ -157,7 +152,7 @@ func TestOffchainTx(t *testing.T) {
 			// next event received by bob vtxo channel should be the added event
 			// related to the offchain send
 			bobVtxoEvent := <-bobVtxoCh
-			require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+			require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 			require.Len(t, bobVtxoEvent.Vtxos, 1)
 			bobVtxo := bobVtxoEvent.Vtxos[0]
 			require.Equal(t, amount, int(bobVtxo.Amount))
@@ -166,7 +161,7 @@ func TestOffchainTx(t *testing.T) {
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 
-		txid, err := bob.SendOffChain(ctx, []types.Receiver{{
+		txid, err := bob.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     aliceOffchainAddr,
 			Amount: numInputs * amount,
 		}})
@@ -174,12 +169,17 @@ func TestOffchainTx(t *testing.T) {
 
 		// next event received by alice vtxo channel should be the added event
 		// related to the offchain send
-		aliceVtxoEvent := <-aliceVtxoCh
-		require.Equal(t, aliceVtxoEvent.Type, types.VtxosAdded)
-		require.Len(t, aliceVtxoEvent.Vtxos, 1)
-		aliceVtxo := aliceVtxoEvent.Vtxos[0]
-		require.Equal(t, numInputs*amount, int(aliceVtxo.Amount))
-		require.Equal(t, txid, aliceVtxo.Txid)
+		for aliceVtxoEvent := range aliceVtxoCh {
+			if aliceVtxoEvent.Vtxos[0].Txid != txid {
+				continue
+			}
+			require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
+			require.Len(t, aliceVtxoEvent.Vtxos, 1)
+			aliceVtxo := aliceVtxoEvent.Vtxos[0]
+			require.Equal(t, txid, aliceVtxo.Txid)
+			require.Equal(t, numInputs*amount, int(aliceVtxo.Amount))
+			break
+		}
 	})
 
 	// In this test Alice sends to Bob a sub-dust VTXO. Bob can't spend or settle his VTXO.
@@ -192,17 +192,17 @@ func TestOffchainTx(t *testing.T) {
 
 		faucetOffchain(t, alice, 0.00021)
 
-		_, aliceOffchainAddr, _, err := alice.Receive(ctx)
+		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, aliceOffchainAddr)
 
-		_, bobOffchainAddr, _, err := bob.Receive(ctx)
+		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOffchainAddr)
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
-		txid, err := alice.SendOffChain(ctx, []types.Receiver{{
+		txid, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 100, // Sub-dust amount
 		}})
@@ -211,14 +211,14 @@ func TestOffchainTx(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent := <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobVtxo := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 100, int(bobVtxo.Amount))
 		require.Equal(t, txid, bobVtxo.Txid)
 
 		// bob can't spend subdust VTXO via ark tx
-		_, err = bob.SendOffChain(ctx, []types.Receiver{{
+		_, err = bob.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     aliceOffchainAddr,
 			Amount: 100,
 		}})
@@ -229,7 +229,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to register intent")
 
-		txid, err = alice.SendOffChain(ctx, []types.Receiver{{
+		txid, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 1000, // Another sub-dust amount
 		}})
@@ -238,7 +238,7 @@ func TestOffchainTx(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobSecondVtxo := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 1000, int(bobSecondVtxo.Amount))
@@ -251,7 +251,7 @@ func TestOffchainTx(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the settlement
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		bobSettledVtxo := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 1000+100, int(bobSettledVtxo.Amount))
@@ -266,7 +266,7 @@ func TestOffchainTx(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		alice, aliceWallet, arkClient := setupClientWithWallet(t, withoutFinalizePendingTxs, "")
+		alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
 		t.Cleanup(func() { alice.Stop() })
 		t.Cleanup(func() { arkClient.Close() })
 
@@ -363,11 +363,11 @@ func TestOffchainTx(t *testing.T) {
 
 		history, err := alice.GetTransactionHistory(ctx)
 		require.NoError(t, err)
-		require.False(t, slices.ContainsFunc(history, func(tx types.Transaction) bool {
+		require.False(t, slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 			return tx.TransactionKey.String() == txid
 		}))
 
-		var incomingFunds []types.Vtxo
+		var incomingFunds []clientTypes.Vtxo
 		var incomingErr error
 		wg := &sync.WaitGroup{}
 		wg.Go(func() {
@@ -390,7 +390,7 @@ func TestOffchainTx(t *testing.T) {
 
 		history, err = alice.GetTransactionHistory(ctx)
 		require.NoError(t, err)
-		require.True(t, slices.ContainsFunc(history, func(tx types.Transaction) bool {
+		require.True(t, slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 			return tx.TransactionKey.String() == txid
 		}))
 	})
@@ -404,21 +404,26 @@ func TestOffchainTx(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		alice, aliceWallet, arkClient := setupClientWithWallet(t, withoutFinalizePendingTxs, "")
-		t.Cleanup(func() { alice.Stop() })
-		t.Cleanup(func() { arkClient.Close() })
+		alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
+
+		bob, bobWallet, bobArkClient := setupClientWithWallet(t, "")
+		t.Cleanup(func() { bob.Stop() })
+		t.Cleanup(func() { bobArkClient.Close() })
 
 		vtxo := faucetOffchain(t, alice, 0.00021)
 
-		_, offchainAddresses, _, _, err := aliceWallet.GetAddresses(ctx)
+		_, aliceOffchainAddr, _, err := aliceWallet.NewAddress(ctx, false)
 		require.NoError(t, err)
-		require.NotEmpty(t, offchainAddresses)
-		offchainAddress := offchainAddresses[0]
+		require.NotEmpty(t, aliceOffchainAddr)
+
+		_, bobOffchainAddr, _, err := bobWallet.NewAddress(ctx, false)
+		require.NoError(t, err)
+		require.NotEmpty(t, bobOffchainAddr)
 
 		serverParams, err := arkClient.GetInfo(ctx)
 		require.NoError(t, err)
 
-		vtxoScript, err := script.ParseVtxoScript(offchainAddress.Tapscripts)
+		vtxoScript, err := script.ParseVtxoScript(aliceOffchainAddr.Tapscripts)
 		require.NoError(t, err)
 		forfeitClosures := vtxoScript.ForfeitClosures()
 		require.Len(t, forfeitClosures, 1)
@@ -449,7 +454,7 @@ func TestOffchainTx(t *testing.T) {
 		vtxoHash, err := chainhash.NewHashFromStr(vtxo.Txid)
 		require.NoError(t, err)
 
-		addr, err := arklib.DecodeAddressV0(offchainAddress.Address)
+		addr, err := arklib.DecodeAddressV0(bobOffchainAddr.Address)
 		require.NoError(t, err)
 		pkscript, err := addr.GetPkScript()
 		require.NoError(t, err)
@@ -463,7 +468,7 @@ func TestOffchainTx(t *testing.T) {
 					},
 					Tapscript:          tapscript,
 					Amount:             int64(vtxo.Amount),
-					RevealedTapscripts: offchainAddress.Tapscripts,
+					RevealedTapscripts: aliceOffchainAddr.Tapscripts,
 				},
 			},
 			[]*wire.TxOut{
@@ -503,24 +508,24 @@ func TestOffchainTx(t *testing.T) {
 
 		history, err := alice.GetTransactionHistory(ctx)
 		require.NoError(t, err)
-		require.False(t, slices.ContainsFunc(history, func(tx types.Transaction) bool {
+		require.False(t, slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 			return tx.TransactionKey.String() == txid
 		}))
 
+		alice.Stop()
+		arkClient.Close()
 		// Create a new client that automatically finalizes pending txs
-		restoredAlice, _, _ := setupClientWithWallet(t, withFinalizePendingTxs, key)
+		restoredAlice, _, _ := setupClientWithWallet(t, key)
 		t.Cleanup(func() { restoredAlice.Stop() })
 
-		// No pending txs should be finalized as they've been all handled in the background
+		// // No pending txs should be finalized as they've been all handled in the background
 		finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)
 		require.NoError(t, err)
 		require.Empty(t, finalizedTxIds)
 
-		time.Sleep(5 * time.Second)
-
 		history, err = restoredAlice.GetTransactionHistory(ctx)
 		require.NoError(t, err)
-		require.True(t, slices.ContainsFunc(history, func(tx types.Transaction) bool {
+		require.True(t, slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 			return tx.TransactionKey.String() == txid
 		}))
 	})

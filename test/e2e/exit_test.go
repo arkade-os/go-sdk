@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/client-lib/types"
-	arksdk "github.com/arkade-os/go-sdk"
+	client "github.com/arkade-os/arkd/pkg/client-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +33,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
-			bobOnchainAddr, _, _, err := bob.Receive(ctx)
+			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOnchainAddr)
 
@@ -45,7 +46,7 @@ func TestCollaborativeExit(t *testing.T) {
 			// next event received by bob utxo channel should be the added event
 			// related to the collaborative exit
 			bobUtxoEvent := <-bobUtxoCh
-			require.Equal(t, bobUtxoEvent.Type, types.UtxosAdded)
+			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
 			require.Len(t, bobUtxoEvent.Utxos, 1)
 			bobUtxo := bobUtxoEvent.Utxos[0]
 			require.Equal(t, 21000, int(bobUtxo.Amount))
@@ -57,7 +58,7 @@ func TestCollaborativeExit(t *testing.T) {
 			// next event received by bob utxo channel should be the confirmed event
 			// related to the commitment transaction
 			bobUtxoEvent = <-bobUtxoCh
-			require.Equal(t, bobUtxoEvent.Type, types.UtxosConfirmed)
+			require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
 			require.Len(t, bobUtxoEvent.Utxos, 1)
 			bobConfirmedUtxo := bobUtxoEvent.Utxos[0]
 			require.Equal(t, bobUtxo.Outpoint, bobConfirmedUtxo.Outpoint)
@@ -100,7 +101,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
-			bobOnchainAddr, _, _, err := bob.Receive(ctx)
+			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOnchainAddr)
 
@@ -113,7 +114,7 @@ func TestCollaborativeExit(t *testing.T) {
 			// next event received by bob utxo channel should be the added event
 			// related to the collaborative exit
 			bobUtxoEvent := <-bobUtxoCh
-			require.Equal(t, bobUtxoEvent.Type, types.UtxosAdded)
+			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
 			require.Len(t, bobUtxoEvent.Utxos, 1)
 			bobUtxo := bobUtxoEvent.Utxos[0]
 			require.Equal(t, 21000, int(bobUtxo.Amount))
@@ -125,7 +126,7 @@ func TestCollaborativeExit(t *testing.T) {
 			// next event received by bob utxo channel should be the confirmed event
 			// related to the commitment transaction
 			bobUtxoEvent = <-bobUtxoCh
-			require.Equal(t, bobUtxoEvent.Type, types.UtxosConfirmed)
+			require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
 			require.Len(t, bobUtxoEvent.Utxos, 1)
 			bobConfirmedUtxo := bobUtxoEvent.Utxos[0]
 			require.Equal(t, bobUtxo.Outpoint, bobConfirmedUtxo.Outpoint)
@@ -154,11 +155,11 @@ func TestCollaborativeExit(t *testing.T) {
 			alice := setupClient(t)
 			bob := setupClient(t)
 
-			_, _, aliceBoardingAddr, err := alice.Receive(ctx)
+			aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, aliceBoardingAddr)
 
-			bobOnchainAddr, _, _, err := bob.Receive(ctx)
+			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, aliceBoardingAddr)
 
@@ -182,7 +183,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		vtxoToUnroll := faucetOffchain(t, alice, 0.00021)
 
-		aliceOnchainAddr, _, _, err := alice.Receive(ctx)
+		aliceOnchainAddr, err := alice.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, aliceOnchainAddr)
 
@@ -194,7 +195,7 @@ func TestUnilateralExit(t *testing.T) {
 		// next event received by alice utxo channel should be the added event
 		// related to the faucet
 		aliceUtxoEvent := <-aliceUtxoCh
-		require.Equal(t, aliceUtxoEvent.Type, types.UtxosAdded)
+		require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
 		require.Len(t, aliceUtxoEvent.Utxos, 1)
 		aliceUtxo := aliceUtxoEvent.Utxos[0]
 		require.Equal(t, 10000, int(aliceUtxo.Amount))
@@ -208,7 +209,7 @@ func TestUnilateralExit(t *testing.T) {
 				continue
 			}
 
-			if errors.Is(err, arksdk.ErrWaitingForConfirmation) {
+			if errors.Is(err, client.ErrWaitingForConfirmation) {
 				require.NoError(t, generateBlocks(1))
 				continue
 			}
@@ -233,9 +234,11 @@ func TestUnilateralExit(t *testing.T) {
 		faucetOffchain(t, alice, 0.001)
 
 		bob := setupClient(t)
-		bobOnchainAddr, bobOffchainAddr, _, err := bob.Receive(ctx)
+		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOnchainAddr)
+		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
+		require.NoError(t, err)
 		require.NotEmpty(t, bobOffchainAddr)
 
 		bobBalance, err := bob.Balance(ctx)
@@ -246,7 +249,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 		// Alice sends to Bob
-		_, err = alice.SendOffChain(ctx, []types.Receiver{{
+		_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 21000,
 		}})
@@ -255,7 +258,7 @@ func TestUnilateralExit(t *testing.T) {
 		// next event received by bob vtxo channel should be the added event
 		// related to the offchain send
 		bobVtxoEvent := <-bobVtxoCh
-		require.Equal(t, bobVtxoEvent.Type, types.VtxosAdded)
+		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		vtxoToUnroll := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 21000, int(vtxoToUnroll.Amount))
@@ -268,7 +271,7 @@ func TestUnilateralExit(t *testing.T) {
 		// next event received by bob utxo channel should be the added event
 		// related to the faucet
 		bobUtxoEvent := <-bobUtxoCh
-		require.Equal(t, bobUtxoEvent.Type, types.UtxosAdded)
+		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
 		require.Len(t, bobUtxoEvent.Utxos, 1)
 		bobUtxo := bobUtxoEvent.Utxos[0]
 		require.Equal(t, 10000, int(bobUtxo.Amount))
@@ -282,7 +285,7 @@ func TestUnilateralExit(t *testing.T) {
 				continue
 			}
 
-			if errors.Is(err, arksdk.ErrWaitingForConfirmation) {
+			if errors.Is(err, client.ErrWaitingForConfirmation) {
 				require.NoError(t, generateBlocks(1))
 				continue
 			}
