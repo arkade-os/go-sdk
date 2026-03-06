@@ -54,7 +54,7 @@ func (a *arkClient) Init(
 				}
 			}
 		}
-		return a.ArkClient.InitWithWallet(ctx, client.InitWithWalletArgs{
+		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
 			ServerUrl: serverUrl,
 			Seed:      seed,
 			Password:  password,

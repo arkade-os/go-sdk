@@ -14,7 +14,7 @@ func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	_, offchainAddr, _, err := a.ArkClient.Receive(ctx)
+	_, offchainAddr, _, err := a.Receive(ctx)
 	return offchainAddr.Address, err
 }
 
@@ -23,7 +23,7 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	_, _, boardingAddr, err := a.ArkClient.Receive(ctx)
+	_, _, boardingAddr, err := a.Receive(ctx)
 	go func() {
 		if err := a.Explorer().SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
@@ -37,7 +37,7 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	onchainAddr, _, _, err := a.ArkClient.Receive(ctx)
+	onchainAddr, _, _, err := a.Receive(ctx)
 	return onchainAddr, err
 }
 

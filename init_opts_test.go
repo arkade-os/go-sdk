@@ -211,8 +211,10 @@ func TestInitOptions(t *testing.T) {
 				wantErrContains: "must be greater than 0",
 			},
 			{
-				name:            "WithExplorerPollInterval negative",
-				opts:            []arksdk.InitOption{arksdk.WithExplorerPollInterval(-1 * time.Second)},
+				name: "WithExplorerPollInterval negative",
+				opts: []arksdk.InitOption{
+					arksdk.WithExplorerPollInterval(-1 * time.Second),
+				},
 				wantErrContains: "must be greater than 0",
 			},
 		}

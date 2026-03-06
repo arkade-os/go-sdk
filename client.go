@@ -18,6 +18,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	sdkstore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -159,7 +160,31 @@ func LoadNewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	return client, nil
 }
 
+func (a *arkClient) Explorer() explorer.Explorer {
+	if err := a.safeCheck(); err != nil {
+		return nil
+	}
+	return a.ArkClient.Explorer()
+}
+
+func (a *arkClient) Indexer() indexer.Indexer {
+	if err := a.safeCheck(); err != nil {
+		return nil
+	}
+	return a.ArkClient.Indexer()
+}
+
+func (a *arkClient) Client() transport.TransportClient {
+	if err := a.safeCheck(); err != nil {
+		return nil
+	}
+	return a.Transport()
+}
+
 func (a *arkClient) GetConfigStore() clientTypes.ConfigStore {
+	if err := a.safeCheck(); err != nil {
+		return nil
+	}
 	return a.clientStore.ConfigStore()
 }
 
@@ -619,7 +644,8 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			for _, addr := range offchainAddrs {
 				// nolint
 				decoded, _ := arklib.DecodeAddressV0(addr.Address)
-				myPubkeys[hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))] = struct{}{}
+				pubkey := hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))
+				myPubkeys[pubkey] = struct{}{}
 			}
 
 			if event.CommitmentTx != nil {
@@ -654,7 +680,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		log.Error("failed to listen for onchain txs, explorer is nil")
 		return
 	}
-	cfg, err := a.ArkClient.GetConfigData(ctx)
+	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
 		// Should be unreachable
 		log.WithError(err).Error("failed to get config data")
@@ -827,7 +853,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						continue
 					}
 					var tx wire.MsgTx
-					if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(newTransaction))); err != nil {
+					if err := tx.Deserialize(
+						hex.NewDecoder(strings.NewReader(newTransaction)),
+					); err != nil {
 						log.WithError(err).
 							Error("failed to deserialize boarding replacement transaction")
 						continue
@@ -841,12 +869,16 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 							VOut: uint32(outputIndex),
 						}
 
-						if utxos, err := utxoStore.GetUtxos(ctx, []clientTypes.Outpoint{replacedUtxo}); err == nil &&
+						if utxos, err := utxoStore.GetUtxos(
+							ctx, []clientTypes.Outpoint{replacedUtxo},
+						); err == nil &&
 							len(utxos) > 0 {
-							if err := utxoStore.ReplaceUtxo(ctx, replacedUtxo, clientTypes.Outpoint{
+							if err := utxoStore.ReplaceUtxo(
+								ctx, replacedUtxo, clientTypes.Outpoint{
 								Txid: replacementTxid,
 								VOut: uint32(outputIndex),
-							}); err != nil {
+								},
+							); err != nil {
 								log.WithError(err).Error("failed to replace boarding utxo")
 								continue
 							}
@@ -1338,7 +1370,7 @@ func (a *arkClient) safeCheck() error {
 }
 
 func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
-	wallet := a.ArkClient.Wallet()
+	wallet := a.Wallet()
 	if wallet == nil {
 		return nil, fmt.Errorf("wallet not initialized")
 	}
@@ -1347,7 +1379,7 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 		return nil, fmt.Errorf("explorer not initialized")
 	}
 
-	cfg, err := a.ArkClient.GetConfigData(ctx)
+	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
 		return nil, err
 	}

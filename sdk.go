@@ -6,6 +6,9 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
+	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/types"
@@ -14,6 +17,10 @@ import (
 var Version string
 
 type ArkClient interface {
+	Explorer() explorer.Explorer
+	Indexer() indexer.Indexer
+	Client() transport.TransportClient
+
 	GetVersion() string
 	GetConfigStore() clientTypes.ConfigStore
 	GetConfigData(ctx context.Context) (*clientTypes.Config, error)
@@ -32,7 +39,8 @@ type ArkClient interface {
 	NewBoardingAddress(ctx context.Context) (string, error)
 	NewOnchainAddress(ctx context.Context) (string, error)
 	IssueAsset(
-		ctx context.Context, amount uint64, controlAsset clientTypes.ControlAsset, metadata []asset.Metadata,
+		ctx context.Context,
+		amount uint64, controlAsset clientTypes.ControlAsset, metadata []asset.Metadata,
 	) (string, []asset.AssetId, error)
 	ReissueAsset(
 		ctx context.Context, assetId string, amount uint64,
@@ -42,11 +50,13 @@ type ArkClient interface {
 	) (string, error)
 	SendOffChain(ctx context.Context, receivers []clientTypes.Receiver) (string, error)
 	RegisterIntent(
-		ctx context.Context, vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
+		ctx context.Context,
+		vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
 		outputs []clientTypes.Receiver, cosignersPublicKeys []string,
 	) (intentID string, err error)
 	DeleteIntent(
-		ctx context.Context, vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
+		ctx context.Context,
+		vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
 	) error
 	Settle(ctx context.Context) (string, error)
 	CollaborativeExit(ctx context.Context, addr string, amount uint64) (string, error)

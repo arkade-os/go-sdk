@@ -22,7 +22,7 @@ vet:
 ## lint: lint codebase
 lint:
 	@echo "Linting code..."
-	@$(GOLANGCI_LINT) run --timeout 5m
+	@$(GOLANGCI_LINT) run --timeout 5m --fix
 
 ## migrate: creates sqlite migration file(eg. make FILE=init migrate)
 migrate:

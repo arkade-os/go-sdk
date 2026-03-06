@@ -38,13 +38,15 @@ func TestBroadcaster(t *testing.T) {
 			}
 		})
 
-		t.Run("subscribe on closed broadcaster returns already-closed channel", func(t *testing.T) {
-			b := newBroadcaster[int]()
-			b.close()
-			ch := b.subscribe(1)
-			_, open := <-ch
-			require.False(t, open)
-		})
+		t.Run(
+			"subscribe on closed broadcaster returns already-closed channel", func(t *testing.T) {
+				b := newBroadcaster[int]()
+				b.close()
+				ch := b.subscribe(1)
+				_, open := <-ch
+				require.False(t, open)
+			},
+		)
 
 		t.Run("unsubscribe closes and removes the channel", func(t *testing.T) {
 			b := newBroadcaster[int]()

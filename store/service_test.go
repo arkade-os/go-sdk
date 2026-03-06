@@ -722,7 +722,9 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	require.NoError(t, err)
 	require.Equal(t, testAsset, *asset)
 
-	asset, err = storeSvc.GetAsset(ctx, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	asset, err = storeSvc.GetAsset(
+		ctx, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+	)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "asset not found")
 	require.Nil(t, asset)
