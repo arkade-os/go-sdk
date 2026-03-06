@@ -70,7 +70,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			}
 			driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
 			if err != nil {
-				return nil, fmt.Errorf("failed to init driver: %s", err)
+				return nil, fmt.Errorf("failed to open store: %s", err)
 			}
 
 			source, err := iofs.New(migrations, "sql/migration")

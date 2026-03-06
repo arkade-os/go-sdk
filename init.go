@@ -121,32 +121,22 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.setRestored(err)
 	}()
 
-	bgCtx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	a.stopFn = cancel
 
-	go func() {
-		a.ArkClient.Explorer().Start()
+	a.ArkClient.Explorer().Start()
 
-		ctx := bgCtx
+	err := a.refreshDb(ctx)
+	a.syncCh <- err
+	close(a.syncCh)
 
-		err := func() error {
-			if err := a.refreshDb(ctx); err != nil {
-				return err
-			}
+	// start listening to stream events
+	go a.listenForArkTxs(ctx)
+	go a.listenForOnchainTxs(ctx)
+	go a.listenDbEvents(ctx)
 
-			return nil
-		}()
-		a.syncCh <- err
-		close(a.syncCh)
-
-		// start listening to stream events
-		go a.listenForArkTxs(ctx)
-		go a.listenForOnchainTxs(ctx)
-		go a.listenDbEvents(ctx)
-
-		// start periodic refresh db
-		go a.periodicRefreshDb(ctx)
-	}()
+	// start periodic refresh db
+	go a.periodicRefreshDb(ctx)
 
 	return nil
 }
@@ -158,19 +148,16 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	a.ArkClient.Explorer().Stop()
 
-	go func() {
-		a.syncMu.Lock()
-		a.syncDone = false
-		a.syncErr = nil
-		a.syncMu.Unlock()
+	a.syncMu.Lock()
+	a.syncDone = false
+	a.syncErr = nil
 
-		if a.stopFn != nil {
-			a.stopFn()
-		}
-		if a.syncListeners != nil {
-			a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
-			a.syncListeners.clear()
-		}
-	}()
+	if a.stopFn != nil {
+		a.stopFn()
+	}
+	if a.syncListeners != nil {
+		a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
+		a.syncListeners.clear()
+	}
 	return nil
 }

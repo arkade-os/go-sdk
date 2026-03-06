@@ -20,7 +20,7 @@ import (
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
-	sdkstore "github.com/arkade-os/arkd/pkg/client-lib/store"
+	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
@@ -54,7 +54,7 @@ type arkClient struct {
 
 func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	datadir = strings.TrimSpace(datadir)
-	clientDbConfig := sdkstore.Config{
+	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
 	}
 	dbConfig := store.Config{
@@ -62,7 +62,7 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 		BaseDir:          datadir,
 	}
 	if len(datadir) > 0 {
-		clientDbConfig = sdkstore.Config{
+		clientDbConfig = clientStore.Config{
 			ConfigStoreType: clientTypes.FileStore,
 			BaseDir:         datadir,
 		}
@@ -72,7 +72,7 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 		}
 	}
 
-	clientDb, err := sdkstore.NewStore(clientDbConfig)
+	clientDb, err := clientStore.NewStore(clientDbConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 
 func LoadNewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	datadir = strings.TrimSpace(datadir)
-	clientDbConfig := sdkstore.Config{
+	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
 	}
 	dbConfig := store.Config{
@@ -116,7 +116,7 @@ func LoadNewArkClient(datadir string, verbose bool) (ArkClient, error) {
 		BaseDir:          datadir,
 	}
 	if len(datadir) > 0 {
-		clientDbConfig = sdkstore.Config{
+		clientDbConfig = clientStore.Config{
 			ConfigStoreType: clientTypes.FileStore,
 			BaseDir:         datadir,
 		}
@@ -126,11 +126,11 @@ func LoadNewArkClient(datadir string, verbose bool) (ArkClient, error) {
 		}
 	}
 
-	db, err := store.NewStore(dbConfig)
+	clientDb, err := clientStore.NewStore(clientDbConfig)
 	if err != nil {
 		return nil, err
 	}
-	clientDb, err := sdkstore.NewStore(clientDbConfig)
+	db, err := store.NewStore(dbConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +182,6 @@ func (a *arkClient) Client() transport.TransportClient {
 }
 
 func (a *arkClient) GetConfigStore() clientTypes.ConfigStore {
-	if err := a.safeCheck(); err != nil {
-		return nil
-	}
 	return a.clientStore.ConfigStore()
 }
 
@@ -875,8 +872,8 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 							len(utxos) > 0 {
 							if err := utxoStore.ReplaceUtxo(
 								ctx, replacedUtxo, clientTypes.Outpoint{
-								Txid: replacementTxid,
-								VOut: uint32(outputIndex),
+									Txid: replacementTxid,
+									VOut: uint32(outputIndex),
 								},
 							); err != nil {
 								log.WithError(err).Error("failed to replace boarding utxo")

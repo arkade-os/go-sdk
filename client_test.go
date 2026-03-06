@@ -96,8 +96,9 @@ func TestLoadNewArkClient(t *testing.T) {
 				wantErrContains: "not initialized",
 			},
 			{
-				name:    "non-creatable datadir",
-				datadir: "/dev/null/subdir",
+				name:            "non-creatable datadir",
+				datadir:         "/dev/null/subdir",
+				wantErrContains: "failed to open store",
 			},
 		}
 

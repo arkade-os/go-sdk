@@ -140,7 +140,7 @@ func TestAssetIssuance(t *testing.T) {
 		require.NotNil(t, vtxo)
 		require.Len(t, vtxo.Assets, 1)
 		require.Equal(t, assetIds[0].String(), vtxo.Assets[0].AssetId)
-		require.Equal(t, uint64(1), vtxo.Assets[0].Amount)
+		require.Equal(t, 1, int(vtxo.Assets[0].Amount))
 
 		// should add vtxo with the new asset
 		vtxoEvent = <-vtxoStream
@@ -265,9 +265,9 @@ func TestAssetReissuance(t *testing.T) {
 		2,
 	) // should hold both the control asset and the issued asset
 	require.Equal(t, controlAssetId, controlVtxos[0].Assets[0].AssetId)
-	require.Equal(t, uint64(1), controlVtxos[0].Assets[0].Amount)
+	require.Equal(t, 1, int(controlVtxos[0].Assets[0].Amount))
 	require.Equal(t, assetId, controlVtxos[0].Assets[1].AssetId)
-	require.Equal(t, uint64(1), controlVtxos[0].Assets[1].Amount)
+	require.Equal(t, 1, int(controlVtxos[0].Assets[1].Amount))
 
 	time.Sleep(2 * time.Second) // wait for the vtxo to be indexed
 
@@ -311,7 +311,7 @@ func TestAssetBurn(t *testing.T) {
 	require.NotNil(t, vtxo)
 	require.Len(t, vtxo.Assets, 1)
 	require.Equal(t, assetId, vtxo.Assets[0].AssetId)
-	require.Equal(t, uint64(5000), vtxo.Assets[0].Amount)
+	require.Equal(t, 5000, int(vtxo.Assets[0].Amount))
 
 	// should add vtxo with the new asset
 	vtxoEvent = <-vtxoStream
@@ -320,7 +320,7 @@ func TestAssetBurn(t *testing.T) {
 	assetVtxos := listVtxosWithAsset(t, alice, assetId)
 	require.Len(t, assetVtxos, 1)
 	require.Len(t, assetVtxos[0].Assets, 1)
-	require.Equal(t, uint64(5000), assetVtxos[0].Assets[0].Amount)
+	require.Equal(t, 5000, int(assetVtxos[0].Assets[0].Amount))
 
 	txid2, err := alice.BurnAsset(ctx, assetId, 1500)
 	require.NoError(t, err)
@@ -333,7 +333,7 @@ func TestAssetBurn(t *testing.T) {
 	require.NotNil(t, vtxo)
 	require.Len(t, vtxo.Assets, 1)
 	require.Equal(t, assetId, vtxo.Assets[0].AssetId)
-	require.Equal(t, uint64(3500), vtxo.Assets[0].Amount)
+	require.Equal(t, 3500, int(vtxo.Assets[0].Amount))
 
 	// should add vtxo with the burned asset
 	vtxoEvent = <-vtxoStream
@@ -342,7 +342,7 @@ func TestAssetBurn(t *testing.T) {
 	assetVtxos = listVtxosWithAsset(t, alice, assetId)
 	require.Len(t, assetVtxos, 1)
 	require.Len(t, assetVtxos[0].Assets, 1)
-	require.Equal(t, uint64(3500), assetVtxos[0].Assets[0].Amount)
+	require.Equal(t, 3500, int(assetVtxos[0].Assets[0].Amount))
 }
 
 func listVtxosWithAsset(t *testing.T, client sdk.ArkClient, assetID string) []clientTypes.Vtxo {

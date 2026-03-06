@@ -67,7 +67,10 @@ func setupClientWithWallet(
 	require.NoError(t, err)
 	require.NotNil(t, walletStore)
 
-	wallet, err := singlekeywallet.NewBitcoinWallet(arkClient.GetConfigStore(), walletStore)
+	configStore := arkClient.GetConfigStore()
+	require.NotNil(t, configStore)
+
+	wallet, err := singlekeywallet.NewBitcoinWallet(configStore, walletStore)
 	require.NoError(t, err)
 
 	if len(prvkey) <= 0 {
