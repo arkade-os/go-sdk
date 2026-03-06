@@ -34,7 +34,9 @@ func (m *mockWallet) NewAddresses(_ context.Context, _ bool, _ int) (
 ) {
 	return nil, nil, nil, nil
 }
-func (m *mockWallet) SignTransaction(_ context.Context, _ explorer.Explorer, _ string) (string, error) {
+func (m *mockWallet) SignTransaction(
+	_ context.Context, _ explorer.Explorer, _ string,
+) (string, error) {
 	return "", nil
 }
 func (m *mockWallet) SignMessage(_ context.Context, _ []byte) (string, error) { return "", nil }

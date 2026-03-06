@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -570,13 +569,13 @@ func (a *arkClient) refreshVtxoDb(
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
-	wallet := a.ArkClient.Wallet()
+	wallet := a.Wallet()
 	if wallet == nil {
 		// Should be unreachable
 		log.Error("failed to listen for offchain txs, wallet is nil")
 		return
 	}
-	client := a.ArkClient.Transport()
+	client := a.Transport()
 	if client == nil {
 		// Should be unreachable
 		log.Error("failed to listen for offchain txs, client is nil")
@@ -643,7 +642,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
-	wallet := a.ArkClient.Wallet()
+	wallet := a.Wallet()
 	if wallet == nil {
 		// Should be unreachable
 		log.Error("failed to listen for onchain txs, wallet is nil")
@@ -1745,139 +1744,139 @@ func (a *arkClient) saveSendTransaction(
 	return nil
 }
 
-func (a *arkClient) saveBatchTransaction(
-	ctx context.Context, res client.BatchTxRes,
-) error {
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+// func (a *arkClient) saveBatchTransaction(
+// 	ctx context.Context, res client.BatchTxRes,
+// ) error {
+// 	a.dbMu.Lock()
+// 	defer a.dbMu.Unlock()
 
-	cfg, err := a.GetConfigData(ctx)
-	if err != nil {
-		return err
-	}
+// 	cfg, err := a.GetConfigData(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	wallet := a.Wallet()
-	_, offchainAddrs, _, _, err := wallet.GetAddresses(ctx)
-	if err != nil {
-		return err
-	}
-	myPubkeys := make(map[string]struct{}, len(offchainAddrs))
-	for _, addr := range offchainAddrs {
-		decoded, err := arklib.DecodeAddressV0(addr.Address)
-		if err != nil {
-			continue
-		}
-		myPubkeys[hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))] = struct{}{}
-	}
-	// mark input utxos as spent by the commitment txid
-	spentUtxos := make(map[clientTypes.Outpoint]string)
-	spentAmount := uint64(0)
-	txsToSettle := make([]string, 0)
-	for _, utxo := range res.UtxoInputs {
-		// Keep track of the utxos to be marked as spent by commitment txid in DB
-		spentUtxos[utxo.Outpoint] = res.CommitmentTxid
-		// Kepp track of the spent amount for the tx record
-		spentAmount += utxo.Amount
-		// Keep track of the txs to be marked as settled in DB
-		txsToSettle = append(txsToSettle, utxo.Txid)
-	}
+// 	wallet := a.Wallet()
+// 	_, offchainAddrs, _, _, err := wallet.GetAddresses(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	myPubkeys := make(map[string]struct{}, len(offchainAddrs))
+// 	for _, addr := range offchainAddrs {
+// 		decoded, err := arklib.DecodeAddressV0(addr.Address)
+// 		if err != nil {
+// 			continue
+// 		}
+// 		myPubkeys[hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))] = struct{}{}
+// 	}
+// 	// mark input utxos as spent by the commitment txid
+// 	spentUtxos := make(map[clientTypes.Outpoint]string)
+// 	spentAmount := uint64(0)
+// 	txsToSettle := make([]string, 0)
+// 	for _, utxo := range res.UtxoInputs {
+// 		// Keep track of the utxos to be marked as spent by commitment txid in DB
+// 		spentUtxos[utxo.Outpoint] = res.CommitmentTxid
+// 		// Kepp track of the spent amount for the tx record
+// 		spentAmount += utxo.Amount
+// 		// Keep track of the txs to be marked as settled in DB
+// 		txsToSettle = append(txsToSettle, utxo.Txid)
+// 	}
 
-	forfeitTxs := make([]string, len(res.ForfeitTxs))
-	copy(forfeitTxs, res.ForfeitTxs)
+// 	forfeitTxs := make([]string, len(res.ForfeitTxs))
+// 	copy(forfeitTxs, res.ForfeitTxs)
 
-	spentVtxos := make(map[clientTypes.Outpoint]string)
-	// mark input vtxos as settled by the commitment txid and spent by the related forfeit txs
-	for _, vtxo := range res.VtxoInputs {
-		// Keep track of all the spent amount for the tx record to be added
-		spentAmount += vtxo.Amount
-		// Keep track of the txs to be marked as settled in DB
-		txsToSettle = append(txsToSettle, vtxo.Txid)
+// 	spentVtxos := make(map[clientTypes.Outpoint]string)
+// 	// mark input vtxos as settled by the commitment txid and spent by the related forfeit txs
+// 	for _, vtxo := range res.VtxoInputs {
+// 		// Keep track of all the spent amount for the tx record to be added
+// 		spentAmount += vtxo.Amount
+// 		// Keep track of the txs to be marked as settled in DB
+// 		txsToSettle = append(txsToSettle, vtxo.Txid)
 
-		if vtxo.Amount > cfg.Dust {
-			found := -1
-			for i, tx := range forfeitTxs {
-				forfeitTx, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
-				if err != nil {
-					return err
-				}
-				for _, in := range forfeitTx.UnsignedTx.TxIn {
-					if in.PreviousOutPoint.String() == vtxo.Outpoint.String() {
-						// Keep track of the vtxo to be marked as settled (and spent by forfeit tx) in DB
-						spentVtxos[vtxo.Outpoint] = forfeitTx.UnsignedTx.TxID()
-						found = i
-						break
-					}
-				}
-			}
-			if found < 0 {
-				return fmt.Errorf("missing signed forfeit tx for vtxo %s", vtxo.Outpoint.String())
-			}
+// 		if vtxo.Amount > cfg.Dust {
+// 			found := -1
+// 			for i, tx := range forfeitTxs {
+// 				forfeitTx, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
+// 				if err != nil {
+// 					return err
+// 				}
+// 				for _, in := range forfeitTx.UnsignedTx.TxIn {
+// 					if in.PreviousOutPoint.String() == vtxo.Outpoint.String() {
+// 						// Keep track of the vtxo to be marked as settled (and spent by forfeit tx) in DB
+// 						spentVtxos[vtxo.Outpoint] = forfeitTx.UnsignedTx.TxID()
+// 						found = i
+// 						break
+// 					}
+// 				}
+// 			}
+// 			if found < 0 {
+// 				return fmt.Errorf("missing signed forfeit tx for vtxo %s", vtxo.Outpoint.String())
+// 			}
 
-			forfeitTxs = slices.Delete(forfeitTxs, found, found+1)
-		} else {
-			// If the vtxo is sub-dust, we consider it as spent by the commitment tx since
-			// it won't be included in any forfeit tx
-			spentVtxos[vtxo.Outpoint] = res.CommitmentTxid
-		}
-	}
+// 			forfeitTxs = slices.Delete(forfeitTxs, found, found+1)
+// 		} else {
+// 			// If the vtxo is sub-dust, we consider it as spent by the commitment tx since
+// 			// it won't be included in any forfeit tx
+// 			spentVtxos[vtxo.Outpoint] = res.CommitmentTxid
+// 		}
+// 	}
 
-	for _, vtxo := range res.VtxoOutputs {
-		spentAmount -= vtxo.Amount
-	}
+// 	for _, vtxo := range res.VtxoOutputs {
+// 		spentAmount -= vtxo.Amount
+// 	}
 
-	// Filter VtxoOutputs to only those that belong to us.
-	myVtxoOutputs := make([]clientTypes.Vtxo, 0, len(res.VtxoOutputs))
-	for _, vtxo := range res.VtxoOutputs {
-		tapkey := vtxo.Script[4:]
-		if _, ok := myPubkeys[tapkey]; ok {
-			myVtxoOutputs = append(myVtxoOutputs, vtxo)
-		}
-	}
+// 	// Filter VtxoOutputs to only those that belong to us.
+// 	myVtxoOutputs := make([]clientTypes.Vtxo, 0, len(res.VtxoOutputs))
+// 	for _, vtxo := range res.VtxoOutputs {
+// 		tapkey := vtxo.Script[4:]
+// 		if _, ok := myPubkeys[tapkey]; ok {
+// 			myVtxoOutputs = append(myVtxoOutputs, vtxo)
+// 		}
+// 	}
 
-	// Add new vtxos to DB first so VtxosAdded fires before VtxosSpent,
-	// matching handleCommitmentTx's order and the expected event sequence.
-	if len(myVtxoOutputs) > 0 {
-		added, err := a.store.VtxoStore().AddVtxos(ctx, myVtxoOutputs)
-		if err != nil {
-			return err
-		}
-		log.Debugf("added %d vtxo(s)", added)
-	}
+// 	// Add new vtxos to DB first so VtxosAdded fires before VtxosSpent,
+// 	// matching handleCommitmentTx's order and the expected event sequence.
+// 	if len(myVtxoOutputs) > 0 {
+// 		added, err := a.store.VtxoStore().AddVtxos(ctx, myVtxoOutputs)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		log.Debugf("added %d vtxo(s)", added)
+// 	}
 
-	// Mark vtxos as spent in DB
-	if n, err := a.store.VtxoStore().SettleVtxos(ctx, spentVtxos, res.CommitmentTxid); err != nil {
-		return fmt.Errorf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
-	} else if n > 0 {
-		log.Debugf("spent %d vtxos", n)
-	}
+// 	// Mark vtxos as spent in DB
+// 	if n, err := a.store.VtxoStore().SettleVtxos(ctx, spentVtxos, res.CommitmentTxid); err != nil {
+// 		return fmt.Errorf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
+// 	} else if n > 0 {
+// 		log.Debugf("spent %d vtxos", n)
+// 	}
 
-	if n, err := a.store.UtxoStore().SpendUtxos(ctx, spentUtxos); err != nil {
-		return fmt.Errorf("failed to update utxos: %s, skipping marking utxo as spent", err)
-	} else if n > 0 {
-		log.Debugf("spent %d utxos", n)
-	}
+// 	if n, err := a.store.UtxoStore().SpendUtxos(ctx, spentUtxos); err != nil {
+// 		return fmt.Errorf("failed to update utxos: %s, skipping marking utxo as spent", err)
+// 	} else if n > 0 {
+// 		log.Debugf("spent %d utxos", n)
+// 	}
 
-	count, err := a.store.TransactionStore().SettleTransactions(ctx, txsToSettle, res.CommitmentTxid)
-	if err != nil {
-		return fmt.Errorf("failed to settle transactions: %s, skipping adding sent transaction", err)
-	}
-	if spentAmount > 0 {
-		if _, err := a.store.TransactionStore().AddTransactions(ctx, []clientTypes.Transaction{{
-			TransactionKey: clientTypes.TransactionKey{
-				CommitmentTxid: res.CommitmentTxid,
-			},
-			Amount:      spentAmount,
-			Type:        clientTypes.TxSent,
-			CreatedAt:   time.Now(),
-			Hex:         res.CommitmentTx,
-			AssetPacket: res.Extension.GetAssetPacket(),
-		}}); err != nil {
-			return fmt.Errorf("failed to add transactions: %s, skipping adding sent transaction", err)
-		}
-	}
-	if count > 0 {
-		log.Debugf("settled %d transaction(s)", count)
-	}
+// 	count, err := a.store.TransactionStore().SettleTransactions(ctx, txsToSettle, res.CommitmentTxid)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to settle transactions: %s, skipping adding sent transaction", err)
+// 	}
+// 	if spentAmount > 0 {
+// 		if _, err := a.store.TransactionStore().AddTransactions(ctx, []clientTypes.Transaction{{
+// 			TransactionKey: clientTypes.TransactionKey{
+// 				CommitmentTxid: res.CommitmentTxid,
+// 			},
+// 			Amount:      spentAmount,
+// 			Type:        clientTypes.TxSent,
+// 			CreatedAt:   time.Now(),
+// 			Hex:         res.CommitmentTx,
+// 			AssetPacket: res.Extension.GetAssetPacket(),
+// 		}}); err != nil {
+// 			return fmt.Errorf("failed to add transactions: %s, skipping adding sent transaction", err)
+// 		}
+// 	}
+// 	if count > 0 {
+// 		log.Debugf("settled %d transaction(s)", count)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }

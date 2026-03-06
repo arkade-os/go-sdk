@@ -90,23 +90,26 @@ func TestBroadcaster(t *testing.T) {
 			}
 		})
 
-		t.Run("publish returns dropped count and schedules removal of full-buffer listeners", func(t *testing.T) {
-			b := newBroadcaster[int]()
-			ch := b.subscribe(1)
-			b.publish(1)            // fills the buffer
-			dropped := b.publish(2) // buffer full → listener dropped
-			require.Equal(t, 1, dropped)
+		t.Run(
+			"publish returns dropped count and schedules removal of full-buffer listeners",
+			func(t *testing.T) {
+				b := newBroadcaster[int]()
+				ch := b.subscribe(1)
+				b.publish(1)            // fills the buffer
+				dropped := b.publish(2) // buffer full → listener dropped
+				require.Equal(t, 1, dropped)
 
-			// wait for the async remove goroutine to close the channel
-			require.Eventually(t, func() bool {
-				select {
-				case _, open := <-ch:
-					return !open
-				default:
-					return false
-				}
-			}, 100*time.Millisecond, time.Millisecond)
-		})
+				// wait for the async remove goroutine to close the channel
+				require.Eventually(t, func() bool {
+					select {
+					case _, open := <-ch:
+						return !open
+					default:
+						return false
+					}
+				}, 100*time.Millisecond, time.Millisecond)
+			},
+		)
 
 		t.Run("publish after close is a no-op", func(t *testing.T) {
 			b := newBroadcaster[int]()

@@ -10,14 +10,11 @@ import (
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	key, _ = btcec.NewPrivateKey()
-
 	testUtxos = []sdktypes.Utxo{
 		{
 			Outpoint: sdktypes.Outpoint{
