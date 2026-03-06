@@ -8,7 +8,6 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -17,21 +16,7 @@ import (
 )
 
 var (
-	key, _         = btcec.NewPrivateKey()
-	forfeitkKey, _ = btcec.NewPrivateKey()
-	testConfigData = sdktypes.Config{
-		ServerUrl:           "127.0.0.1:7070",
-		SignerPubKey:        key.PubKey(),
-		ForfeitPubKey:       forfeitkKey.PubKey(),
-		WalletType:          wallet.SingleKeyWallet,
-		Network:             arklib.BitcoinRegTest,
-		SessionDuration:     10,
-		UnilateralExitDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		Dust:                1000,
-		BoardingExitDelay:   arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		ForfeitAddress:      "bcrt1qzvqj",
-		CheckpointTapscript: "abcdefghijklmnopqrtuvxyz",
-	}
+	key, _ = btcec.NewPrivateKey()
 
 	testUtxos = []sdktypes.Utxo{
 		{
@@ -332,6 +317,37 @@ var (
 	}
 )
 
+func TestNewStore(t *testing.T) {
+	t.Run("invalid", func(t *testing.T) {
+		fixtures := []struct {
+			name            string
+			config          store.Config
+			wantErrContains string
+		}{
+			{
+				name:            "unknown store type",
+				config:          store.Config{AppDataStoreType: "unknown"},
+				wantErrContains: "unknown appdata store type",
+			},
+			{
+				name:   "SQL store with non-creatable path",
+				config: store.Config{AppDataStoreType: types.SQLStore, BaseDir: "/dev/null/subdir"},
+			},
+		}
+
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				svc, err := store.NewStore(f.config)
+				require.Error(t, err)
+				if f.wantErrContains != "" {
+					require.ErrorContains(t, err, f.wantErrContains)
+				}
+				require.Nil(t, svc)
+			})
+		}
+	})
+}
+
 func TestService(t *testing.T) {
 	t.Run("app data store", func(t *testing.T) {
 		dbDir := t.TempDir()
@@ -410,6 +426,12 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 		utxos, err := storeSvc.GetUtxos(ctx, testUtxoKeys)
 		require.NoError(t, err)
 		require.Equal(t, testUtxos, utxos)
+
+		utxos, err = storeSvc.GetUtxos(ctx, []sdktypes.Outpoint{
+			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
+		})
+		require.NoError(t, err)
+		require.Empty(t, utxos)
 	})
 
 	t.Run("confirm utxos", func(t *testing.T) {
@@ -520,6 +542,12 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
 		require.NoError(t, err)
 		requireVtxosListEqual(t, testVtxos, vtxos)
+
+		vtxos, err = storeSvc.GetVtxos(ctx, []sdktypes.Outpoint{
+			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
+		})
+		require.NoError(t, err)
+		require.Empty(t, vtxos)
 	})
 
 	t.Run("spend vtxos", func(t *testing.T) {
@@ -539,6 +567,13 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
 			require.Equal(t, arkTxid, v.ArkTxid)
+		}
+
+		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		require.NoError(t, err)
+		require.Len(t, spendable, 3)
+		for _, v := range spendable {
+			require.False(t, v.Spent)
 		}
 	})
 
@@ -611,6 +646,12 @@ func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string
 		txs, err := storeSvc.GetTransactions(ctx, testTxids)
 		require.NoError(t, err)
 		require.Equal(t, allTxs, txs)
+
+		txs, err = storeSvc.GetTransactions(ctx, []string{
+			"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		})
+		require.NoError(t, err)
+		require.Empty(t, txs)
 	})
 
 	t.Run("replace txs", func(t *testing.T) {
@@ -683,6 +724,11 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	asset, err = storeSvc.GetAsset(ctx, testAssetIdOnly.AssetId)
 	require.NoError(t, err)
 	require.Equal(t, testAsset, *asset)
+
+	asset, err = storeSvc.GetAsset(ctx, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "asset not found")
+	require.Nil(t, asset)
 }
 
 func requireVtxosListEqual(t *testing.T, expected, actual []sdktypes.Vtxo) {

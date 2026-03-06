@@ -281,6 +281,9 @@ func (s *txStore) GetEventChannel() <-chan types.TransactionEvent {
 }
 
 func (s *txStore) Clean(_ context.Context) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Badger().DropAll(); err != nil {
 		return fmt.Errorf("failed to clean the transaction db: %s", err)
 	}
@@ -288,6 +291,9 @@ func (s *txStore) Clean(_ context.Context) error {
 }
 
 func (s *txStore) Close() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Close(); err != nil {
 		log.Debugf("error on closing transactions db: %s", err)
 	}

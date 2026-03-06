@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -27,6 +29,9 @@ func NewAssetStore(db *sql.DB) types.AssetStore {
 func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.AssetInfo, error) {
 	row, err := a.querier.SelectAsset(ctx, assetId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("asset not found %s", assetId)
+		}
 		return nil, err
 	}
 

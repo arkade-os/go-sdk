@@ -323,6 +323,9 @@ func (r *utxoRepository) GetEventChannel() <-chan types.UtxoEvent {
 }
 
 func (r *utxoRepository) Clean(ctx context.Context) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	if err := r.querier.CleanUtxos(ctx); err != nil {
 		return err
 	}
@@ -332,6 +335,9 @@ func (r *utxoRepository) Clean(ctx context.Context) error {
 }
 
 func (r *utxoRepository) Close() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	// nolint:all
 	r.db.Close()
 }

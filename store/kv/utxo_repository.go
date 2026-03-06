@@ -192,6 +192,9 @@ func (s *utxoStore) GetEventChannel() <-chan types.UtxoEvent {
 }
 
 func (s *utxoStore) Clean(_ context.Context) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Badger().DropAll(); err != nil {
 		return fmt.Errorf("failed to clean the utxo db: %s", err)
 	}
@@ -199,6 +202,9 @@ func (s *utxoStore) Clean(_ context.Context) error {
 }
 
 func (s *utxoStore) Close() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Close(); err != nil {
 		log.Debugf("error on closing db: %s", err)
 	}

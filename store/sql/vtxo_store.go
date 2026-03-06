@@ -252,7 +252,9 @@ func (v *vtxoRepository) GetVtxos(
 			}
 			return nil, err
 		}
-		vtxos = append(vtxos, assetVtxoVwGroupToVtxo(rows))
+		if len(rows) > 0 {
+			vtxos = append(vtxos, assetVtxoVwGroupToVtxo(rows))
+		}
 	}
 
 	return vtxos, nil
@@ -274,6 +276,9 @@ func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
 }
 
 func (v *vtxoRepository) Clean(ctx context.Context) error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	if err := v.querier.CleanAssetVtxos(ctx); err != nil {
 		return err
 	}
@@ -286,6 +291,9 @@ func (v *vtxoRepository) Clean(ctx context.Context) error {
 }
 
 func (v *vtxoRepository) Close() {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	// nolint:all
 	v.db.Close()
 }

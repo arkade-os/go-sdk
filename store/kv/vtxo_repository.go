@@ -199,6 +199,9 @@ func (s *vtxoStore) GetEventChannel() <-chan types.VtxoEvent {
 }
 
 func (s *vtxoStore) Clean(_ context.Context) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Badger().DropAll(); err != nil {
 		return fmt.Errorf("failed to clean the vtxo db: %s", err)
 	}
@@ -206,6 +209,9 @@ func (s *vtxoStore) Clean(_ context.Context) error {
 }
 
 func (s *vtxoStore) Close() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Close(); err != nil {
 		log.Debugf("error on closing db: %s", err)
 	}

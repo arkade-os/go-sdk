@@ -327,6 +327,9 @@ func (v *txStore) GetEventChannel() <-chan types.TransactionEvent {
 }
 
 func (v *txStore) Clean(ctx context.Context) error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	if err := v.querier.CleanTxs(ctx); err != nil {
 		return err
 	}
@@ -336,6 +339,9 @@ func (v *txStore) Clean(ctx context.Context) error {
 }
 
 func (v *txStore) Close() {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	// nolint:all
 	v.db.Close()
 }
