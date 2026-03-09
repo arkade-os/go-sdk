@@ -95,12 +95,13 @@ The `Init` function accepts various configuration options through the `InitArgs`
 
 ```go
 type InitArgs struct {
-    ClientType          string // Type of client connection (e.g., "grpc")
-    WalletType          string // Type of wallet (e.g., "singlekey" or "hd")
-    ServerUrl           string // URL of the Ark Server
-    Seed                string // Private Key hex encoded for wallet initialization or restoration
-    Password            string // Wallet password
-    WithTransactionFeed bool // Receive notifications about received or spent funds
+    ClientType            string // Type of client connection (e.g., "grpc")
+    WalletType            string // Type of wallet (e.g., "singlekey" or "hd")
+    ServerUrl             string // URL of the Ark Server
+    Seed                  string // Private Key hex encoded for wallet initialization or restoration
+    Password              string // Wallet password
+    WithTransactionFeed   bool // Receive notifications about received or spent funds
+    ExplorerPollInterval  time.Duration // Polling interval for the explorer (defaults to 5s if omitted)
 }
 ```
 
@@ -118,6 +119,7 @@ Let's explore each field in detail:
 - `Password`: The password used to encrypt and protect the wallet.
 
 - `WithTransactionFeed`: Enable receiving notifications about received or spent funds.
+- `ExplorerPollInterval`: The time duration (e.g., `5 * time.Second`) between checks to the block explorer for new transactions. This is only active if `WithTransactionFeed` is enabled.
 
 Note: Always ensure that you keep your seed phrase and password secure. Never share them or store them in plaintext.
 
