@@ -55,6 +55,14 @@ func main() {
 	//nolint:all
 	defer aliceArkClient.Lock(ctx)
 
+	fmt.Println("Waiting for alice's wallet to sync...")
+	aliceSyncEvent := <-aliceArkClient.IsSynced(ctx)
+	if aliceSyncEvent.Err != nil {
+		log.Fatalf("Failed to sync wallet: %v", aliceSyncEvent.Err)
+	}
+	fmt.Println("Wallet synced successfully!")
+
+
 	log.Info("alice is acquiring onchain funds...")
 	_, _, boardingAddress, err := aliceArkClient.Receive(ctx)
 	if err != nil {
@@ -100,6 +108,13 @@ func main() {
 	}
 	//nolint:all
 	defer bobArkClient.Lock(ctx)
+
+	fmt.Println("Waiting for bob's wallet to sync...")
+	bobSyncEvent := <-bobArkClient.IsSynced(ctx)
+	if bobSyncEvent.Err != nil {
+		log.Fatalf("Failed to sync wallet: %v", bobSyncEvent.Err)
+	}
+	fmt.Println("Wallet synced successfully!")
 
 	_, bobOffchainAddr, _, err := bobArkClient.Receive(ctx)
 	if err != nil {

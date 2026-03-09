@@ -111,11 +111,6 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		return err
 	}
 
-	log.SetLevel(log.DebugLevel)
-	if !a.verbose {
-		log.SetLevel(log.ErrorLevel)
-	}
-
 	a.dbMu = &sync.Mutex{}
 
 	if cfgData.WithTransactionFeed {
