@@ -118,18 +118,35 @@ func (s *service) AssetStore() types.AssetStore {
 }
 
 func (s *service) Clean(ctx context.Context) {
+	if s.utxoStore != nil {
+		//nolint
+		s.utxoStore.Clean(ctx)
+	}
 	if s.txStore != nil {
-		//nolint:all
+		//nolint
 		s.txStore.Clean(ctx)
 	}
 	if s.vtxoStore != nil {
-		//nolint:all
+		//nolint
 		s.vtxoStore.Clean(ctx)
+	}
+	if s.assetStore != nil {
+		//nolint
+		s.assetStore.Clean(ctx)
 	}
 }
 
 func (s *service) Close() {
-	s.vtxoStore.Close()
-	s.txStore.Close()
-	s.assetStore.Close()
+	if s.utxoStore != nil {
+		s.utxoStore.Close()
+	}
+	if s.txStore != nil {
+		s.txStore.Close()
+	}
+	if s.vtxoStore != nil {
+		s.vtxoStore.Close()
+	}
+	if s.assetStore != nil {
+		s.assetStore.Close()
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
@@ -18,7 +19,8 @@ const (
 )
 
 type assetStore struct {
-	db *badgerhold.Store
+	db   *badgerhold.Store
+	lock *sync.Mutex
 }
 
 func NewAssetStore(dir string, logger badger.Logger) (types.AssetStore, error) {
@@ -30,11 +32,15 @@ func NewAssetStore(dir string, logger badger.Logger) (types.AssetStore, error) {
 		return nil, fmt.Errorf("failed to open asset store: %s", err)
 	}
 	return &assetStore{
-		db: badgerDb,
+		db:   badgerDb,
+		lock: &sync.Mutex{},
 	}, nil
 }
 
 func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.AssetInfo, error) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
 	var assetInfo sdktypes.AssetInfo
 	if err := a.db.Get(assetId, &assetInfo); err != nil {
 		if errors.Is(err, badgerhold.ErrNotFound) {
@@ -46,6 +52,9 @@ func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.As
 }
 
 func (a *assetStore) UpsertAsset(ctx context.Context, asset sdktypes.AssetInfo) error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
 	var existing sdktypes.AssetInfo
 	err := a.db.Get(asset.AssetId, &existing)
 	if err != nil && !errors.Is(err, badgerhold.ErrNotFound) {
@@ -66,7 +75,20 @@ func (a *assetStore) UpsertAsset(ctx context.Context, asset sdktypes.AssetInfo) 
 	return a.db.Upsert(asset.AssetId, &asset)
 }
 
+func (a *assetStore) Clean(_ context.Context) error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
+	if err := a.db.Badger().DropAll(); err != nil {
+		return fmt.Errorf("failed to clean the asset db: %s", err)
+	}
+	return nil
+}
+
 func (a *assetStore) Close() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
 	if err := a.db.Close(); err != nil {
 		log.Debugf("error on closing asset db: %s", err)
 	}

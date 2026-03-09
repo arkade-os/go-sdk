@@ -41,6 +41,9 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 }
 
 func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to sdktypes.Outpoint) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	var utxo sdktypes.Utxo
 	if err := s.db.Get(from.String(), &utxo); err != nil {
 		return err
@@ -61,6 +64,9 @@ func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to sdktypes.Outpoint)
 }
 
 func (s *utxoStore) AddUtxos(_ context.Context, utxos []sdktypes.Utxo) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	addedUtxos := make([]sdktypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if err := s.db.Insert(utxo.String(), &utxo); err != nil {
@@ -82,11 +88,14 @@ func (s *utxoStore) AddUtxos(_ context.Context, utxos []sdktypes.Utxo) (int, err
 func (s *utxoStore) ConfirmUtxos(
 	ctx context.Context, confirmedUtxoMap map[sdktypes.Outpoint]int64,
 ) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	outpoints := make([]sdktypes.Outpoint, 0, len(confirmedUtxoMap))
 	for outpoint := range confirmedUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	utxos, err := s.GetUtxos(ctx, outpoints)
+	utxos, err := s.getUtxos(outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -120,11 +129,14 @@ func (s *utxoStore) ConfirmUtxos(
 func (s *utxoStore) SpendUtxos(
 	ctx context.Context, spentUtxoMap map[sdktypes.Outpoint]string,
 ) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	outpoints := make([]sdktypes.Outpoint, 0, len(spentUtxoMap))
 	for outpoint := range spentUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	utxos, err := s.GetUtxos(ctx, outpoints)
+	utxos, err := s.getUtxos(outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -153,38 +165,19 @@ func (s *utxoStore) SpendUtxos(
 func (s *utxoStore) GetAllUtxos(
 	_ context.Context,
 ) (spendable, spent []sdktypes.Utxo, err error) {
-	var allUtxos []sdktypes.Utxo
-	if err := s.db.Find(&allUtxos, nil); err != nil {
-		return nil, nil, err
-	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-	for _, utxo := range allUtxos {
-		if utxo.Spent {
-			spent = append(spent, utxo)
-		} else {
-			spendable = append(spendable, utxo)
-		}
-	}
-	return
+	return s.getAllUtxos()
 }
 
 func (s *utxoStore) GetUtxos(
 	_ context.Context, keys []sdktypes.Outpoint,
 ) ([]sdktypes.Utxo, error) {
-	var utxos []sdktypes.Utxo
-	for _, key := range keys {
-		var utxo sdktypes.Utxo
-		if err := s.db.Get(key.String(), &utxo); err != nil {
-			if errors.Is(err, badgerhold.ErrNotFound) {
-				continue
-			}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-			return nil, err
-		}
-		utxos = append(utxos, utxo)
-	}
-
-	return utxos, nil
+	return s.getUtxos(keys)
 }
 
 func (s *utxoStore) GetEventChannel() <-chan types.UtxoEvent {
@@ -210,14 +203,48 @@ func (s *utxoStore) Close() {
 	}
 }
 
-func (s *utxoStore) sendEvent(event types.UtxoEvent) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	select {
-	case s.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+func (s *utxoStore) getAllUtxos() (spendable, spent []sdktypes.Utxo, err error) {
+	var allUtxos []sdktypes.Utxo
+	if err := s.db.Find(&allUtxos, nil); err != nil {
+		return nil, nil, err
 	}
+
+	for _, utxo := range allUtxos {
+		if utxo.Spent {
+			spent = append(spent, utxo)
+		} else {
+			spendable = append(spendable, utxo)
+		}
+	}
+	return
+}
+
+func (s *utxoStore) getUtxos(keys []sdktypes.Outpoint) ([]sdktypes.Utxo, error) {
+	var utxos []sdktypes.Utxo
+	for _, key := range keys {
+		var utxo sdktypes.Utxo
+		if err := s.db.Get(key.String(), &utxo); err != nil {
+			if errors.Is(err, badgerhold.ErrNotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+		utxos = append(utxos, utxo)
+	}
+
+	return utxos, nil
+}
+
+func (s *utxoStore) sendEvent(event types.UtxoEvent) {
+	for range 3 {
+
+		select {
+		case s.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	log.Warn("failed to send utxo event")
 }

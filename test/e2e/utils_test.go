@@ -40,10 +40,7 @@ func setupClient(t *testing.T) sdk.ArkClient {
 
 	privkeyHex := hex.EncodeToString(privkey.Serialize())
 
-	opts := []sdk.InitOption{
-		sdk.WithExplorerUrl(explorerUrl), sdk.WithExplorerPollInterval(2 * time.Second),
-	}
-	err = arkClient.Init(t.Context(), serverUrl, privkeyHex, password, opts...)
+	err = arkClient.Init(t.Context(), serverUrl, privkeyHex, password)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
@@ -80,11 +77,7 @@ func setupClientWithWallet(
 		prvkey = hex.EncodeToString(key.Serialize())
 	}
 
-	opts := []sdk.InitOption{
-		sdk.WithWallet(wallet), sdk.WithExplorerUrl(explorerUrl),
-		sdk.WithExplorerPollInterval(2 * time.Second),
-	}
-	err = arkClient.Init(t.Context(), serverUrl, prvkey, password, opts...)
+	err = arkClient.Init(t.Context(), serverUrl, prvkey, password, sdk.WithWallet(wallet))
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)

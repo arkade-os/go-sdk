@@ -3,7 +3,6 @@ package arksdk
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -12,6 +11,16 @@ import (
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
+)
+
+var (
+	defaultExplorerUrl = map[string]string{
+		arklib.Bitcoin.Name:          "https://mempool.space/api",
+		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
+		arklib.BitcoinTestNet.Name:   "https://mempool.space/testnet/api",
+		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
+		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
+	}
 )
 
 func (a *arkClient) Init(
@@ -33,27 +42,22 @@ func (a *arkClient) Init(
 		}
 	}
 
-	if initOpts.wallet != nil {
-		explorer := initOpts.explorer
-		if initOpts.explorerUrl != "" {
-			explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
-			if info.Network == arklib.BitcoinRegTest.Name {
-				interval := 2 * time.Second
-				if initOpts.explorerPollInterval > 0 {
-					interval = initOpts.explorerPollInterval
-				}
-				explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(interval))
-
-				net := networkFromString(info.Network)
-				var err error
-				explorer, err = mempool_explorer.NewExplorer(
-					initOpts.explorerUrl, net, explorerOpts...,
-				)
-				if err != nil {
-					return fmt.Errorf("failed to init explorer: %v", err)
-				}
-			}
+	explorer := initOpts.explorer
+	if explorer == nil {
+		explorerUrl := defaultExplorerUrl[info.Network]
+		explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
+		if info.Network == arklib.BitcoinRegTest.Name {
+			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
 		}
+		explorer, err = mempool_explorer.NewExplorer(
+			explorerUrl, networkFromString(info.Network), explorerOpts...,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to init explorer: %v", err)
+		}
+	}
+
+	if initOpts.wallet != nil {
 		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
 			ServerUrl: serverUrl,
 			Seed:      seed,
@@ -63,35 +67,11 @@ func (a *arkClient) Init(
 		})
 	}
 
-	explorer := initOpts.explorer
-	if initOpts.explorerUrl != "" {
-		explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
-		if info.Network == arklib.BitcoinRegTest.Name && initOpts.explorerPollInterval > 0 {
-			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(
-				initOpts.explorerPollInterval,
-			))
-
-			net := networkFromString(info.Network)
-			var err error
-			explorer, err = mempool_explorer.NewExplorer(
-				initOpts.explorerUrl, net, explorerOpts...,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to init explorer: %v", err)
-			}
-		}
-	}
-
-	walletType := client.SingleKeyWallet
-	if initOpts.walletType != "" {
-		walletType = initOpts.walletType
-	}
-
 	return a.ArkClient.Init(ctx, client.InitArgs{
 		ServerUrl:  serverUrl,
 		Seed:       seed,
 		Password:   password,
-		WalletType: walletType,
+		WalletType: client.SingleKeyWallet,
 		Explorer:   explorer,
 	})
 }
@@ -106,12 +86,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		log.SetLevel(log.ErrorLevel)
 	}
 
-	a.dbMu = &sync.Mutex{}
-
 	a.syncDone = false
 	a.syncErr = nil
 	a.syncCh = make(chan error)
-	a.syncMu = &sync.Mutex{}
 	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
 	a.txBroadcaster = newBroadcaster[types.TransactionEvent]()

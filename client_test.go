@@ -3,9 +3,34 @@ package arksdk_test
 import (
 	"testing"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
+
+// seedConfigStore seeds the config store of a freshly created client so that
+// LoadArkClient can subsequently load it without a live server.
+func seedConfigStore(t *testing.T, datadir string) {
+	t.Helper()
+
+	c, err := arksdk.NewArkClient(datadir, false)
+	require.NoError(t, err)
+
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	cfg := clientTypes.Config{
+		ServerUrl:     "localhost:7070",
+		SignerPubKey:  privKey.PubKey(),
+		ForfeitPubKey: privKey.PubKey(),
+		WalletType:    "singlekey",
+		Network:       arklib.BitcoinRegTest,
+		ExplorerURL:   "http://127.0.0.1:3000",
+	}
+	require.NoError(t, c.GetConfigStore().AddData(t.Context(), cfg))
+}
 
 func TestNewArkClient(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
@@ -70,8 +95,43 @@ func TestNewArkClient(t *testing.T) {
 }
 
 func TestLoadNewArkClient(t *testing.T) {
-	// Valid cases require a client that has already been initialized via Init(),
-	// which needs a live Ark server. Those are covered by e2e tests.
+	t.Run("valid", func(t *testing.T) {
+		fixtures := []struct {
+			name    string
+			datadir string
+			verbose bool
+		}{
+			{
+				name:    "seeded datadir loads client successfully",
+				datadir: func() string { d := t.TempDir(); seedConfigStore(t, d); return d }(),
+			},
+			{
+				name:    "seeded datadir with verbose flag",
+				datadir: func() string { d := t.TempDir(); seedConfigStore(t, d); return d }(),
+				verbose: true,
+			},
+		}
+
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				c, err := arksdk.LoadArkClient(f.datadir, f.verbose)
+				require.NoError(t, err)
+				require.NotNil(t, c)
+
+				// Unlock fails because no wallet keys were created (only config was seeded),
+				// but it must return an error — not panic.
+				// Regression: before the fix, Unlock would start goroutines that called
+				// explorer.GetAddressesEvents() on a nil listeners field and panic.
+				err = c.Unlock(t.Context(), "password")
+				require.Error(t, err)
+
+				// Stop must not panic on a locked/uninitialized wallet.
+				// Regression: old code called a.Explorer().Stop() via the safeCheck wrapper
+				// which returned nil for a locked wallet, causing a nil-deref panic.
+				require.NotPanics(t, func() { c.Stop() })
+			})
+		}
+	})
 
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
@@ -104,7 +164,7 @@ func TestLoadNewArkClient(t *testing.T) {
 
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
-				client, err := arksdk.LoadNewArkClient(f.datadir, false)
+				client, err := arksdk.LoadArkClient(f.datadir, false)
 				require.Error(t, err)
 				if f.wantErrContains != "" {
 					require.ErrorContains(t, err, f.wantErrContains)

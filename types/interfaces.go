@@ -61,5 +61,6 @@ type VtxoStore interface {
 type AssetStore interface {
 	GetAsset(ctx context.Context, assetId string) (*types.AssetInfo, error)
 	UpsertAsset(ctx context.Context, asset types.AssetInfo) error
+	Clean(ctx context.Context) error
 	Close()
 }

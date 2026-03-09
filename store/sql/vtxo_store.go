@@ -12,6 +12,7 @@ import (
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
+	log "github.com/sirupsen/logrus"
 )
 
 type vtxoRepository struct {
@@ -302,12 +303,15 @@ func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	v.lock.Lock()
 	defer v.lock.Unlock()
 
-	select {
-	case v.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+	for range 3 {
+		select {
+		case v.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
+	log.Warn("failed to send vtxo event")
 }
 
 func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []sdktypes.Vtxo {

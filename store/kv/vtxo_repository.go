@@ -41,6 +41,9 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 }
 
 func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []sdktypes.Vtxo) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	addedVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if err := s.db.Insert(vtxo.Outpoint.String(), &vtxo); err != nil {
@@ -62,11 +65,14 @@ func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []sdktypes.Vtxo) (int, err
 func (s *vtxoStore) SpendVtxos(
 	ctx context.Context, spentVtxoMap map[sdktypes.Outpoint]string, arkTxid string,
 ) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxoMap))
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := s.GetVtxos(ctx, outpoints)
+	vtxos, err := s.getVtxos(outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -96,11 +102,14 @@ func (s *vtxoStore) SpendVtxos(
 func (s *vtxoStore) SettleVtxos(
 	ctx context.Context, spentVtxoMap map[sdktypes.Outpoint]string, settledBy string,
 ) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxoMap))
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := s.GetVtxos(ctx, outpoints)
+	vtxos, err := s.getVtxos(outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -128,6 +137,9 @@ func (s *vtxoStore) SettleVtxos(
 }
 
 func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	for _, vtxo := range vtxos {
 		if err := s.db.Upsert(vtxo.Outpoint.String(), &vtxo); err != nil {
 			return -1, err
@@ -143,55 +155,26 @@ func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int
 func (s *vtxoStore) GetAllVtxos(
 	_ context.Context,
 ) (spendable, spent []sdktypes.Vtxo, err error) {
-	var allVtxos []sdktypes.Vtxo
-	err = s.db.Find(&allVtxos, nil)
-	if err != nil {
-		return nil, nil, err
-	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-	for _, vtxo := range allVtxos {
-		if vtxo.Spent || vtxo.Unrolled {
-			spent = append(spent, vtxo)
-		} else {
-			spendable = append(spendable, vtxo)
-		}
-	}
-	return
+	return s.getAllVtxos()
 }
 
 func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []sdktypes.Vtxo, err error) {
-	var allVtxos []sdktypes.Vtxo
-	err = s.db.Find(&allVtxos, nil)
-	if err != nil {
-		return nil, err
-	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-	for _, vtxo := range allVtxos {
-		if !vtxo.Spent && !vtxo.Unrolled {
-			spendable = append(spendable, vtxo)
-		}
-	}
-	return spendable, nil
+	return s.getSpendableVtxos()
 }
 
 func (s *vtxoStore) GetVtxos(
 	_ context.Context, keys []sdktypes.Outpoint,
 ) ([]sdktypes.Vtxo, error) {
-	var vtxos []sdktypes.Vtxo
-	for _, key := range keys {
-		var vtxo sdktypes.Vtxo
-		err := s.db.Get(key.String(), &vtxo)
-		if err != nil {
-			if errors.Is(err, badgerhold.ErrNotFound) {
-				continue
-			}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-			return nil, err
-		}
-		vtxos = append(vtxos, vtxo)
-	}
-
-	return vtxos, nil
+	return s.getVtxos(keys)
 }
 
 func (s *vtxoStore) GetEventChannel() <-chan types.VtxoEvent {
@@ -217,14 +200,65 @@ func (s *vtxoStore) Close() {
 	}
 }
 
-func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	select {
-	case s.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+func (s *vtxoStore) getAllVtxos() (spendable, spent []sdktypes.Vtxo, err error) {
+	var allVtxos []sdktypes.Vtxo
+	err = s.db.Find(&allVtxos, nil)
+	if err != nil {
+		return nil, nil, err
 	}
+
+	for _, vtxo := range allVtxos {
+		if vtxo.Spent || vtxo.Unrolled {
+			spent = append(spent, vtxo)
+		} else {
+			spendable = append(spendable, vtxo)
+		}
+	}
+	return
+}
+
+func (s *vtxoStore) getSpendableVtxos() (spendable []sdktypes.Vtxo, err error) {
+	var allVtxos []sdktypes.Vtxo
+	err = s.db.Find(&allVtxos, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, vtxo := range allVtxos {
+		if !vtxo.Spent && !vtxo.Unrolled {
+			spendable = append(spendable, vtxo)
+		}
+	}
+	return spendable, nil
+}
+
+func (s *vtxoStore) getVtxos(keys []sdktypes.Outpoint) ([]sdktypes.Vtxo, error) {
+	var vtxos []sdktypes.Vtxo
+	for _, key := range keys {
+		var vtxo sdktypes.Vtxo
+		err := s.db.Get(key.String(), &vtxo)
+		if err != nil {
+			if errors.Is(err, badgerhold.ErrNotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+		vtxos = append(vtxos, vtxo)
+	}
+
+	return vtxos, nil
+}
+
+func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
+	for range 3 {
+
+		select {
+		case s.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	log.Warn("failed to send vtxo event")
 }

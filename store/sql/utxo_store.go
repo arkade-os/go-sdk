@@ -13,6 +13,7 @@ import (
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
+	log "github.com/sirupsen/logrus"
 )
 
 type utxoRepository struct {
@@ -346,12 +347,15 @@ func (r *utxoRepository) sendEvent(event types.UtxoEvent) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	select {
-	case r.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+	for range 3 {
+		select {
+		case r.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
+	log.Warn("failed to send utxo event")
 }
 
 func rowToUtxo(row queries.Utxo) sdktypes.Utxo {

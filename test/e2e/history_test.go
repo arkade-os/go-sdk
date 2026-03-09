@@ -61,19 +61,35 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentTxid)
 
+	// Verify the boarding tx is marked as settled in history.
+	// This check is done independently of the event channel to catch cases where
+	// the settlement is not persisted even if no event fires.
+	require.Eventually(t, func() bool {
+		h, err := alice.GetTransactionHistory(ctx)
+		if err != nil || len(h) != 1 {
+			return false
+		}
+		return h[0].SettledBy == commitmentTxid
+	}, 30*time.Second, time.Second, "boarding tx should be marked as settled in history after Settle")
+
 	// should receive the boarding settled tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsSettled, event.Type)
-	require.Len(t, event.Txs, 1)
-	settledBoardingTx := event.Txs[0]
-	require.NotEmpty(t, settledBoardingTx.SettledBy)
-	require.Equal(t, clientTypes.TxReceived, settledBoardingTx.Type)
-	require.Equal(t, 21000, int(settledBoardingTx.Amount))
-	require.NotEmpty(t, settledBoardingTx.BoardingTxid)
-	require.Empty(t, settledBoardingTx.CommitmentTxid)
-	require.Empty(t, settledBoardingTx.ArkTxid)
-	require.Equal(t, boardingTx.BoardingTxid, settledBoardingTx.BoardingTxid)
-	require.Equal(t, settledBoardingTx.SettledBy, commitmentTxid)
+	var settledBoardingTx clientTypes.Transaction
+	select {
+	case event = <-aliceTxChan:
+		require.Equal(t, types.TxsSettled, event.Type)
+		require.Len(t, event.Txs, 1)
+		settledBoardingTx = event.Txs[0]
+		require.NotEmpty(t, settledBoardingTx.SettledBy)
+		require.Equal(t, clientTypes.TxReceived, settledBoardingTx.Type)
+		require.Equal(t, 21000, int(settledBoardingTx.Amount))
+		require.NotEmpty(t, settledBoardingTx.BoardingTxid)
+		require.Empty(t, settledBoardingTx.CommitmentTxid)
+		require.Empty(t, settledBoardingTx.ArkTxid)
+		require.Equal(t, boardingTx.BoardingTxid, settledBoardingTx.BoardingTxid)
+		require.Equal(t, settledBoardingTx.SettledBy, commitmentTxid)
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for TxsSettled event after Settle")
+	}
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)

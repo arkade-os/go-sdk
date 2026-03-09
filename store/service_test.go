@@ -1,7 +1,6 @@
 package store_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -382,7 +381,7 @@ func TestService(t *testing.T) {
 }
 
 func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	go func() {
 		eventCh := storeSvc.GetEventChannel()
@@ -488,7 +487,7 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 }
 
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	go func() {
 		eventCh := storeSvc.GetEventChannel()
@@ -599,7 +598,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 }
 
 func testTxStore(t *testing.T, storeSvc types.TransactionStore, storeType string) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	go func() {
 		eventCh := storeSvc.GetEventChannel()

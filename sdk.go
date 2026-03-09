@@ -25,7 +25,6 @@ type ArkClient interface {
 	GetConfigStore() clientTypes.ConfigStore
 	GetConfigData(ctx context.Context) (*clientTypes.Config, error)
 	Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) error
-	// InitWithWallet(ctx context.Context, args InitWithWalletArgs) error
 	IsLocked(ctx context.Context) bool
 	Unlock(ctx context.Context, password string) error
 	Lock(ctx context.Context) error

@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"slices"
@@ -25,7 +24,7 @@ import (
 func TestOffchainTx(t *testing.T) {
 	// In this test Alice sends several times to Bob to create a chain of offchain txs
 	t.Run("chain of txs", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		alice := setupClient(t)
 		bob := setupClient(t)
 

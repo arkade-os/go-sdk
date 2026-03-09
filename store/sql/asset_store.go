@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -17,12 +18,14 @@ import (
 type assetStore struct {
 	db      *sql.DB
 	querier *queries.Queries
+	lock    *sync.Mutex
 }
 
 func NewAssetStore(db *sql.DB) types.AssetStore {
 	return &assetStore{
 		db:      db,
 		querier: queries.New(db),
+		lock:    &sync.Mutex{},
 	}
 }
 
@@ -75,7 +78,22 @@ func (a *assetStore) UpsertAsset(ctx context.Context, asset sdktypes.AssetInfo) 
 	})
 }
 
+func (a *assetStore) Clean(ctx context.Context) error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
+	if err := a.querier.CleanUtxos(ctx); err != nil {
+		return err
+	}
+	// nolint:all
+	a.db.ExecContext(ctx, "VACUUM")
+	return nil
+}
+
 func (a *assetStore) Close() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
 	if err := a.db.Close(); err != nil {
 		log.Debugf("error on closing asset db: %s", err)
 	}

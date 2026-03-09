@@ -92,11 +92,14 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	}
 
 	client := &arkClient{
-		ArkClient:   cli,
-		verbose:     verbose,
-		store:       db,
-		clientStore: clientDb,
-		syncMu:      &sync.Mutex{},
+		ArkClient:     cli,
+		verbose:       verbose,
+		store:         db,
+		clientStore:   clientDb,
+		syncMu:        &sync.Mutex{},
+		syncListeners: newReadyListeners(),
+		syncCh:        make(chan error),
+		dbMu:          &sync.Mutex{},
 	}
 
 	syncListeners := newReadyListeners()
@@ -106,7 +109,7 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	return client, nil
 }
 
-func LoadNewArkClient(datadir string, verbose bool) (ArkClient, error) {
+func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
 	datadir = strings.TrimSpace(datadir)
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
@@ -140,17 +143,44 @@ func LoadNewArkClient(datadir string, verbose bool) (ArkClient, error) {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
 
+	// client.LoadArkClient defaults to noTracking=true, which leaves the explorer's
+	// listeners field nil. When listenForOnchainTxs calls GetAddressesEvents() it
+	// dereferences that nil field and panics. Pre-create a tracking-enabled explorer
+	// from the stored config and inject it so the underlying call skips creating its own.
+	cfgData, err := clientDb.ConfigStore().GetData(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if cfgData != nil {
+		explorerUrl := cfgData.ExplorerURL
+		if len(explorerUrl) == 0 {
+			explorerUrl = defaultExplorerUrl[cfgData.Network.Name]
+		}
+		explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
+		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
+			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
+		}
+		explorerSvc, err := mempool_explorer.NewExplorer(explorerUrl, cfgData.Network, explorerOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init explorer: %v", err)
+		}
+		clientOpts = append(clientOpts, client.WithExplorer(explorerSvc))
+	}
+
 	cli, err := client.LoadArkClient(clientDb, clientOpts...)
 	if err != nil {
 		return nil, err
 	}
 
 	client := &arkClient{
-		ArkClient:   cli,
-		verbose:     verbose,
-		store:       db,
-		clientStore: clientDb,
-		syncMu:      &sync.Mutex{},
+		ArkClient:     cli,
+		verbose:       verbose,
+		store:         db,
+		clientStore:   clientDb,
+		syncMu:        &sync.Mutex{},
+		syncListeners: newReadyListeners(),
+		syncCh:        make(chan error),
+		dbMu:          &sync.Mutex{},
 	}
 
 	syncListeners := newReadyListeners()
@@ -209,7 +239,9 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 
 func (a *arkClient) Reset(ctx context.Context) {
 	a.ArkClient.Reset(ctx)
-	a.Explorer().Stop()
+	if exp := a.ArkClient.Explorer(); exp != nil {
+		exp.Stop()
+	}
 
 	a.syncMu.Lock()
 	a.syncDone = false
@@ -230,7 +262,9 @@ func (a *arkClient) Reset(ctx context.Context) {
 
 func (a *arkClient) Stop() {
 	a.ArkClient.Stop()
-	a.Explorer().Stop()
+	if exp := a.ArkClient.Explorer(); exp != nil {
+		exp.Stop()
+	}
 
 	a.syncMu.Lock()
 	a.syncDone = false
