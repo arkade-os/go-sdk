@@ -161,7 +161,9 @@ func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
 			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
 		}
-		explorerSvc, err := mempool_explorer.NewExplorer(explorerUrl, cfgData.Network, explorerOpts...)
+		explorerSvc, err := mempool_explorer.NewExplorer(
+			explorerUrl, cfgData.Network, explorerOpts...,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init explorer: %v", err)
 		}
