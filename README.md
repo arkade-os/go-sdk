@@ -100,8 +100,9 @@ type InitArgs struct {
     ServerUrl             string // URL of the Ark Server
     Seed                  string // Private Key hex encoded for wallet initialization or restoration
     Password              string // Wallet password
+    ExplorerURL           string // Custom URL for the block explorer
+    ExplorerPollInterval  time.Duration // Polling interval for the explorer (defaults to 5s if <= 0)
     WithTransactionFeed   bool // Receive notifications about received or spent funds
-    ExplorerPollInterval  time.Duration // Polling interval for the explorer (defaults to 5s if omitted)
 }
 ```
 
@@ -118,8 +119,9 @@ Let's explore each field in detail:
 
 - `Password`: The password used to encrypt and protect the wallet.
 
+- `ExplorerURL`: The custom URL of the block explorer to use for transaction tracking and broadcasting.
+- `ExplorerPollInterval`: The time duration (e.g., `5 * time.Second`) between checks to the block explorer for new transactions. This is only active if `WithTransactionFeed` is enabled. If omitted or set to `<= 0`, it safely defaults to 5 seconds.
 - `WithTransactionFeed`: Enable receiving notifications about received or spent funds.
-- `ExplorerPollInterval`: The time duration (e.g., `5 * time.Second`) between checks to the block explorer for new transactions. This is only active if `WithTransactionFeed` is enabled.
 
 Note: Always ensure that you keep your seed phrase and password secure. Never share them or store them in plaintext.
 
