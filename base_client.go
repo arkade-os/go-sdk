@@ -470,11 +470,15 @@ func (a *arkClient) initWithWallet(ctx context.Context, args InitWithWalletArgs)
 	explorerOpts := []mempool_explorer.Option{
 		mempool_explorer.WithTracker(args.WithTransactionFeed),
 	}
-	if args.ExplorerPollInterval > 0 {
-		explorerOpts = append(
-			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
-		)
+
+	pollInterval := args.ExplorerPollInterval
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second // Fallback to a safe default
 	}
+
+	explorerOpts = append(
+		explorerOpts, mempool_explorer.WithPollInterval(pollInterval),
+	)
 
 	explorerSvc, err := mempool_explorer.NewExplorer(
 		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
@@ -574,11 +578,15 @@ func (a *arkClient) init(ctx context.Context, args InitArgs) error {
 	explorerOpts := []mempool_explorer.Option{
 		mempool_explorer.WithTracker(args.WithTransactionFeed),
 	}
-	if args.ExplorerPollInterval > 0 {
-		explorerOpts = append(
-			explorerOpts, mempool_explorer.WithPollInterval(args.ExplorerPollInterval),
-		)
+
+	pollInterval := args.ExplorerPollInterval
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second // Fallback to a safe default
 	}
+
+	explorerOpts = append(
+		explorerOpts, mempool_explorer.WithPollInterval(pollInterval),
+	)
 
 	explorerSvc, err := mempool_explorer.NewExplorer(
 		args.ExplorerURL, utils.NetworkFromString(info.Network), explorerOpts...,
