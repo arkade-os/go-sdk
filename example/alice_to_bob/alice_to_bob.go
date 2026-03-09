@@ -62,8 +62,7 @@ func main() {
 			log.Fatalf("Failed to sync alice wallet: %v", aliceSyncEvent.Err)
 		}
 	case <-time.After(30 * time.Second):
-		log.Error("timed out waiting for alice wallet sync")
-		return
+		log.Fatal("timed out waiting for alice wallet sync")
 	}
 	fmt.Println("Wallet synced successfully!")
 
@@ -120,8 +119,7 @@ func main() {
 			log.Fatalf("Failed to sync wallet: %v", bobSyncEvent.Err)
 		}
 	case <-time.After(30 * time.Second):
-		log.Error("timed out waiting for bob wallet sync")
-		return
+		log.Fatal("timed out waiting for bob wallet sync")
 	}
 	fmt.Println("Wallet synced successfully!")
 
