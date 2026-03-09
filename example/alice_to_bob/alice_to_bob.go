@@ -56,12 +56,16 @@ func main() {
 	defer aliceArkClient.Lock(ctx)
 
 	fmt.Println("Waiting for alice's wallet to sync...")
-	aliceSyncEvent := <-aliceArkClient.IsSynced(ctx)
-	if aliceSyncEvent.Err != nil {
-		log.Fatalf("Failed to sync wallet: %v", aliceSyncEvent.Err)
+	select {
+	case aliceSyncEvent := <-aliceArkClient.IsSynced(ctx):
+		if aliceSyncEvent.Err != nil {
+			log.Fatalf("Failed to sync alice wallet: %v", aliceSyncEvent.Err)
+		}
+	case <-time.After(30 * time.Second):
+		log.Error("timed out waiting for alice wallet sync")
+		return
 	}
 	fmt.Println("Wallet synced successfully!")
-
 
 	log.Info("alice is acquiring onchain funds...")
 	_, _, boardingAddress, err := aliceArkClient.Receive(ctx)
@@ -110,9 +114,14 @@ func main() {
 	defer bobArkClient.Lock(ctx)
 
 	fmt.Println("Waiting for bob's wallet to sync...")
-	bobSyncEvent := <-bobArkClient.IsSynced(ctx)
-	if bobSyncEvent.Err != nil {
-		log.Fatalf("Failed to sync wallet: %v", bobSyncEvent.Err)
+	select {
+	case bobSyncEvent := <-bobArkClient.IsSynced(ctx):
+		if bobSyncEvent.Err != nil {
+			log.Fatalf("Failed to sync wallet: %v", bobSyncEvent.Err)
+		}
+	case <-time.After(30 * time.Second):
+		log.Error("timed out waiting for bob wallet sync")
+		return
 	}
 	fmt.Println("Wallet synced successfully!")
 
