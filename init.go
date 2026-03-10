@@ -43,7 +43,7 @@ func (a *arkClient) Init(
 	}
 
 	explorerUrl := initOpts.explorerUrl
-	if initOpts.explorerUrl != "" {
+	if initOpts.explorerUrl == "" {
 		explorerUrl = defaultExplorerUrl[info.Network]
 	}
 	explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
