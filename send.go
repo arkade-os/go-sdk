@@ -35,7 +35,9 @@ func (a *arkClient) SendOffChain(
 func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
 ) ([]clientTypes.VtxoWithTapTree, error) {
+	a.dbMu.Lock()
 	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
+	a.dbMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

@@ -6,7 +6,7 @@ replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v
 
 require (
 	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260303153651-8615412e4dea
-	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260308035255-9992ae62d48e
+	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260310110142-4b97ff8d7ff5
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5

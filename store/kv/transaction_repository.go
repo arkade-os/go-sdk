@@ -54,9 +54,6 @@ func NewTransactionStore(
 func (s *txStore) AddTransactions(
 	ctx context.Context, txs []sdktypes.Transaction,
 ) (int, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
 	addedTxs := make([]sdktypes.Transaction, 0, len(txs))
 	for _, tx := range txs {
 		// Handle asset packet if present
@@ -130,10 +127,7 @@ func (s *txStore) AddTransactions(
 func (s *txStore) SettleTransactions(
 	ctx context.Context, txids []string, settledBy string,
 ) (int, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	txs, err := s.getTransactions(txids)
+	txs, err := s.GetTransactions(ctx, txids)
 	if err != nil {
 		return -1, err
 	}
@@ -160,10 +154,7 @@ func (s *txStore) SettleTransactions(
 func (s *txStore) ConfirmTransactions(
 	ctx context.Context, txids []string, timestamp time.Time,
 ) (int, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	txs, err := s.getTransactions(txids)
+	txs, err := s.GetTransactions(ctx, txids)
 	if err != nil {
 		return -1, err
 	}
@@ -190,15 +181,12 @@ func (s *txStore) ConfirmTransactions(
 func (s *txStore) RbfTransactions(
 	ctx context.Context, replacements map[string]string,
 ) (int, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
 	txids := make([]string, 0, len(replacements))
 	for replacedTxid := range replacements {
 		txids = append(txids, replacedTxid)
 	}
 
-	txs, err := s.getTransactions(txids)
+	txs, err := s.GetTransactions(ctx, txids)
 	if err != nil {
 		return -1, err
 	}
@@ -240,25 +228,40 @@ func (s *txStore) RbfTransactions(
 func (s *txStore) GetAllTransactions(
 	_ context.Context,
 ) ([]sdktypes.Transaction, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	var txs []sdktypes.Transaction
+	err := s.db.Find(&txs, nil)
 
-	return s.getAllTransactions()
+	sort.Slice(txs, func(i, j int) bool {
+		txi := txs[i]
+		txj := txs[j]
+		if txi.CreatedAt.Equal(txj.CreatedAt) {
+			return txi.Type > txj.Type
+		}
+		return txi.CreatedAt.After(txj.CreatedAt)
+	})
+
+	return txs, err
 }
 
 func (s *txStore) GetTransactions(
 	_ context.Context, txids []string,
 ) ([]sdktypes.Transaction, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	txs := make([]sdktypes.Transaction, 0, len(txids))
+	for _, txid := range txids {
+		var tx sdktypes.Transaction
+		if err := s.db.Get(txid, &tx); err != nil {
+			if errors.Is(err, badgerhold.ErrNotFound) {
+				continue
+			}
 
-	return s.getTransactions(txids)
+			return nil, err
+		}
+		txs = append(txs, tx)
+	}
+	return txs, nil
 }
 
 func (s *txStore) UpdateTransactions(_ context.Context, txs []sdktypes.Transaction) (int, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
 	for _, tx := range txs {
 		if err := s.db.Upsert(tx.TransactionKey.String(), &tx); err != nil {
 			return -1, err
@@ -297,38 +300,6 @@ func (s *txStore) Close() {
 	close(s.eventCh)
 }
 
-func (s *txStore) getTransactions(txids []string) ([]sdktypes.Transaction, error) {
-	txs := make([]sdktypes.Transaction, 0, len(txids))
-	for _, txid := range txids {
-		var tx sdktypes.Transaction
-		if err := s.db.Get(txid, &tx); err != nil {
-			if errors.Is(err, badgerhold.ErrNotFound) {
-				continue
-			}
-
-			return nil, err
-		}
-		txs = append(txs, tx)
-	}
-	return txs, nil
-}
-
-func (s *txStore) getAllTransactions() ([]sdktypes.Transaction, error) {
-	var txs []sdktypes.Transaction
-	err := s.db.Find(&txs, nil)
-
-	sort.Slice(txs, func(i, j int) bool {
-		txi := txs[i]
-		txj := txs[j]
-		if txi.CreatedAt.Equal(txj.CreatedAt) {
-			return txi.Type > txj.Type
-		}
-		return txi.CreatedAt.After(txj.CreatedAt)
-	})
-
-	return txs, err
-}
-
 func (s *txStore) replaceTxs(txsToAdd []sdktypes.Transaction, txsToDelete []string) (int, error) {
 	count := 0
 	dbtx := s.db.Badger().NewTransaction(true)
@@ -354,8 +325,10 @@ func (s *txStore) replaceTxs(txsToAdd []sdktypes.Transaction, txsToDelete []stri
 }
 
 func (s *txStore) sendEvent(event types.TransactionEvent) {
-	for range 3 {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
+	for range 3 {
 		select {
 		case s.eventCh <- event:
 			return

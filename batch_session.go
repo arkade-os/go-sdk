@@ -16,7 +16,9 @@ func (a *arkClient) Settle(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	a.dbMu.Lock()
 	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
+	a.dbMu.Unlock()
 	if err != nil {
 		return "", err
 	}
@@ -28,9 +30,9 @@ func (a *arkClient) Settle(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// if err := a.saveBatchTransaction(ctx, *res); err != nil {
-	// 	return "", err
-	// }
+	if err := a.saveBatchTransaction(ctx, *res); err != nil {
+		return "", err
+	}
 
 	return res.CommitmentTxid, nil
 }
@@ -46,7 +48,9 @@ func (a *arkClient) CollaborativeExit(
 	if err != nil {
 		return "", err
 	}
+	a.dbMu.Lock()
 	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
+	a.dbMu.Unlock()
 	if err != nil {
 		return "", err
 	}
@@ -56,9 +60,9 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	// if err := a.saveBatchTransaction(ctx, *res); err != nil {
-	// 	return "", err
-	// }
+	if err := a.saveBatchTransaction(ctx, *res); err != nil {
+		return "", err
+	}
 
 	return res.CommitmentTxid, nil
 }
@@ -75,9 +79,9 @@ func (a *arkClient) RedeemNotes(
 		return "", err
 	}
 
-	// if err := a.saveBatchTransaction(ctx, *res); err != nil {
-	// 	return "", err
-	// }
+	if err := a.saveBatchTransaction(ctx, *res); err != nil {
+		return "", err
+	}
 
 	return res.CommitmentTxid, nil
 }
