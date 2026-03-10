@@ -116,7 +116,7 @@ func main() {
 	select {
 	case bobSyncEvent := <-bobArkClient.IsSynced(ctx):
 		if bobSyncEvent.Err != nil {
-			log.Fatalf("Failed to sync wallet: %v", bobSyncEvent.Err)
+			log.Fatalf("Failed to sync bob wallet: %v", bobSyncEvent.Err)
 		}
 	case <-time.After(30 * time.Second):
 		log.Fatal("timed out waiting for bob wallet sync")

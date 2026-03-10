@@ -39,6 +39,7 @@ const (
 var (
 	ErrAlreadyInitialized = fmt.Errorf("client already initialized")
 	ErrNotInitialized     = fmt.Errorf("client not initialized")
+	logMu sync.Mutex
 )
 
 type ClientOption func(*arkClient)
@@ -110,6 +111,13 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	if _, err := a.wallet.Unlock(ctx, password); err != nil {
 		return err
 	}
+
+	logMu.Lock()
+	log.SetLevel(log.DebugLevel)
+	if !a.verbose {
+		log.SetLevel(log.ErrorLevel)
+	}
+	logMu.Unlock()
 
 	a.dbMu = &sync.Mutex{}
 
