@@ -21,14 +21,14 @@ func TestInitOptions(t *testing.T) {
 				opts: []arksdk.InitOption{arksdk.WithWallet(&mockWallet{})},
 			},
 			{
-				name: "WithExplorer",
-				opts: []arksdk.InitOption{arksdk.WithExplorer(&mockExplorer{})},
+				name: "WithExplorerURL",
+				opts: []arksdk.InitOption{arksdk.WithExplorerURL("https://example.com")},
 			},
 			{
-				name: "WithWallet with explorer",
+				name: "WithWallet and WithExplorerUrl",
 				opts: []arksdk.InitOption{
 					arksdk.WithWallet(&mockWallet{}),
-					arksdk.WithExplorer(&mockExplorer{}),
+					arksdk.WithExplorerURL("https://example.com"),
 				},
 			},
 		}
@@ -61,17 +61,17 @@ func TestInitOptions(t *testing.T) {
 				wantErrContains: "wallet already set",
 			},
 			{
-				name:            "WithExplorer nil",
-				opts:            []arksdk.InitOption{arksdk.WithExplorer(nil)},
-				wantErrContains: "explorer cannot be nil",
+				name:            "WithExplorerURL empty string",
+				opts:            []arksdk.InitOption{arksdk.WithExplorerURL("")},
+				wantErrContains: "explorer url cannot be empty",
 			},
 			{
 				name: "WithExplorer twice",
 				opts: []arksdk.InitOption{
-					arksdk.WithExplorer(&mockExplorer{}),
-					arksdk.WithExplorer(&mockExplorer{}),
+					arksdk.WithExplorerURL("https://example.com"),
+					arksdk.WithExplorerURL("https://example.com"),
 				},
-				wantErrContains: "explorer already set",
+				wantErrContains: "explorer url already set",
 			},
 		}
 

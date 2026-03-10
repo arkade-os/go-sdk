@@ -42,19 +42,19 @@ func (a *arkClient) Init(
 		}
 	}
 
-	explorer := initOpts.explorer
-	if explorer == nil {
-		explorerUrl := defaultExplorerUrl[info.Network]
-		explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
-		if info.Network == arklib.BitcoinRegTest.Name {
-			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
-		}
-		explorer, err = mempool_explorer.NewExplorer(
-			explorerUrl, networkFromString(info.Network), explorerOpts...,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to init explorer: %v", err)
-		}
+	explorerUrl := initOpts.explorerUrl
+	if initOpts.explorerUrl != "" {
+		explorerUrl = defaultExplorerUrl[info.Network]
+	}
+	explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
+	if info.Network == arklib.BitcoinRegTest.Name {
+		explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
+	}
+	explorer, err := mempool_explorer.NewExplorer(
+		explorerUrl, networkFromString(info.Network), explorerOpts...,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to init explorer: %v", err)
 	}
 
 	if initOpts.wallet != nil {

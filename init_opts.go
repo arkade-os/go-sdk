@@ -3,7 +3,6 @@ package arksdk
 import (
 	"fmt"
 
-	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 )
 
@@ -35,22 +34,22 @@ func WithWallet(wallet wallet.WalletService) InitOption {
 	}
 }
 
-func WithExplorer(explorer explorer.Explorer) InitOption {
+func WithExplorerURL(explorerUrl string) InitOption {
 	return func(o *initOptions) error {
-		if o.explorer != nil {
-			return fmt.Errorf("explorer already set")
+		if o.explorerUrl != "" {
+			return fmt.Errorf("explorer url already set")
 		}
-		if explorer == nil {
-			return fmt.Errorf("explorer cannot be nil")
+		if explorerUrl == "" {
+			return fmt.Errorf("explorer url cannot be empty")
 		}
-		o.explorer = explorer
+		o.explorerUrl = explorerUrl
 		return nil
 	}
 }
 
 type initOptions struct {
-	wallet   wallet.WalletService
-	explorer explorer.Explorer
+	wallet      wallet.WalletService
+	explorerUrl string
 }
 
 func newDefaultInitOptions() *initOptions {
