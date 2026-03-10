@@ -200,7 +200,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.Equal(t, 10000, int(aliceUtxo.Amount))
 
 		for {
-			err = alice.Unroll(ctx)
+			_, err = alice.Unroll(ctx, nil)
 			if err == nil {
 				err = generateBlocks(1)
 				require.NoError(t, err)
@@ -274,7 +274,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.Equal(t, 10000, int(bobUtxo.Amount))
 
 		for {
-			err = bob.Unroll(ctx)
+			_, err = bob.Unroll(ctx, nil)
 			if err == nil {
 				err = generateBlocks(1)
 				require.NoError(t, err)
