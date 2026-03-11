@@ -334,7 +334,7 @@ basic workflow shown above. Here is a quick overview:
 - `BurnAsset(ctx, assetID, amount)` — permanently destroy a quantity of an asset. Remaining balance is returned as change to the caller's address.
 - `GetAddresses(ctx)` - return all known onchain, offchain, boarding and redemption addresses.
 - `NewOnchainAddress(ctx)` / `NewBoardingAddress(ctx)` / `NewOffchainAddress(ctx)` - derive a fresh address of the respective type.
-- `SendOffChain(ctx, receivers)` - send funds offchain. Each `types.Receiver` can carry an `Assets []types.Asset` slice to transfer assets alongside sats.
+- `SendOffChain(ctx, receivers)` - send funds offchain. Each `clientTypes.Receiver` can carry an `Assets []clientTypes.Asset` slice to transfer assets alongside sats.
 - `Settle(ctx) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction.
 - `RegisterIntent(...)` / `DeleteIntent(...)` - manage spend intents for collaborative transactions.
 - `CollaborativeExit(ctx, addr, amount) (string, error)` - redeem offchain funds onchain.
