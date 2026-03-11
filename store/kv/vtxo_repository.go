@@ -22,6 +22,7 @@ const (
 type vtxoStore struct {
 	db      *badgerhold.Store
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.VtxoEvent
 }
 
@@ -36,6 +37,7 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 	return &vtxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.VtxoEvent, 100),
 	}, nil
 }
@@ -53,7 +55,12 @@ func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []sdktypes.Vtxo) (int, err
 	}
 
 	if len(addedVtxos) > 0 {
-		go s.sendEvent(types.VtxoEvent{Type: types.VtxosAdded, Vtxos: addedVtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosAdded,
+				Vtxos: addedVtxos,
+			})
+		})
 	}
 
 	return len(addedVtxos), nil
@@ -87,7 +94,12 @@ func (s *vtxoStore) SpendVtxos(
 	}
 
 	if len(spentVtxos) > 0 {
-		go s.sendEvent(types.VtxoEvent{Type: types.VtxosSpent, Vtxos: spentVtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSpent,
+				Vtxos: spentVtxos,
+			})
+		})
 	}
 
 	return len(spentVtxos), nil
@@ -121,7 +133,12 @@ func (s *vtxoStore) SettleVtxos(
 	}
 
 	if len(spentVtxos) > 0 {
-		go s.sendEvent(types.VtxoEvent{Type: types.VtxosSpent, Vtxos: spentVtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSpent,
+				Vtxos: spentVtxos,
+			})
+		})
 	}
 
 	return len(spentVtxos), nil
@@ -133,9 +150,11 @@ func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int
 			return -1, err
 		}
 	}
-	go s.sendEvent(types.VtxoEvent{
-		Type:  types.VtxosUpdated,
-		Vtxos: vtxos,
+	s.wg.Go(func() {
+		s.sendEvent(types.VtxoEvent{
+			Type:  types.VtxosUpdated,
+			Vtxos: vtxos,
+		})
 	})
 	return len(vtxos), nil
 }
@@ -209,6 +228,7 @@ func (s *vtxoStore) Clean(_ context.Context) error {
 }
 
 func (s *vtxoStore) Close() {
+	s.wg.Wait()
 	s.lock.Lock()
 	defer s.lock.Unlock()
 

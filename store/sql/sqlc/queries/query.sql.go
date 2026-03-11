@@ -20,6 +20,15 @@ func (q *Queries) CleanAssetVtxos(ctx context.Context) error {
 	return err
 }
 
+const cleanAssets = `-- name: CleanAssets :exec
+DELETE FROM asset
+`
+
+func (q *Queries) CleanAssets(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, cleanAssets)
+	return err
+}
+
 const cleanTxs = `-- name: CleanTxs :exec
 DELETE FROM tx
 `

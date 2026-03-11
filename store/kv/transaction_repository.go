@@ -24,6 +24,7 @@ const (
 type txStore struct {
 	db         *badgerhold.Store
 	lock       *sync.Mutex
+	wg         *sync.WaitGroup
 	eventCh    chan types.TransactionEvent
 	assetStore types.AssetStore
 }
@@ -46,6 +47,7 @@ func NewTransactionStore(
 	return &txStore{
 		db:         badgerDb,
 		lock:       &sync.Mutex{},
+		wg:         &sync.WaitGroup{},
 		eventCh:    make(chan types.TransactionEvent, 100),
 		assetStore: assetStore,
 	}, nil
@@ -118,7 +120,12 @@ func (s *txStore) AddTransactions(
 	}
 
 	if len(addedTxs) > 0 {
-		go s.sendEvent(types.TransactionEvent{Type: types.TxsAdded, Txs: addedTxs})
+		s.wg.Go(func() {
+			s.sendEvent(types.TransactionEvent{
+				Type: types.TxsAdded,
+				Txs:  addedTxs,
+			})
+		})
 	}
 
 	return len(addedTxs), nil
@@ -145,7 +152,12 @@ func (s *txStore) SettleTransactions(
 	}
 
 	if len(settledTxs) > 0 {
-		go s.sendEvent(types.TransactionEvent{Type: types.TxsSettled, Txs: settledTxs})
+		s.wg.Go(func() {
+			s.sendEvent(types.TransactionEvent{
+				Type: types.TxsSettled,
+				Txs:  settledTxs,
+			})
+		})
 	}
 
 	return len(settledTxs), nil
@@ -172,7 +184,12 @@ func (s *txStore) ConfirmTransactions(
 	}
 
 	if len(confirmedTxs) > 0 {
-		go s.sendEvent(types.TransactionEvent{Type: types.TxsConfirmed, Txs: confirmedTxs})
+		s.wg.Go(func() {
+			s.sendEvent(types.TransactionEvent{
+				Type: types.TxsConfirmed,
+				Txs:  confirmedTxs,
+			})
+		})
 	}
 
 	return len(confirmedTxs), nil
@@ -216,10 +233,12 @@ func (s *txStore) RbfTransactions(
 		return -1, err
 	}
 
-	go s.sendEvent(types.TransactionEvent{
-		Type:         types.TxsReplaced,
-		Txs:          txs,
-		Replacements: replacements,
+	s.wg.Go(func() {
+		s.sendEvent(types.TransactionEvent{
+			Type:         types.TxsReplaced,
+			Txs:          txs,
+			Replacements: replacements,
+		})
 	})
 
 	return count, nil
@@ -268,9 +287,11 @@ func (s *txStore) UpdateTransactions(_ context.Context, txs []sdktypes.Transacti
 		}
 	}
 
-	go s.sendEvent(types.TransactionEvent{
-		Type: types.TxsUpdated,
-		Txs:  txs,
+	s.wg.Go(func() {
+		s.sendEvent(types.TransactionEvent{
+			Type: types.TxsUpdated,
+			Txs:  txs,
+		})
 	})
 
 	return len(txs), nil
@@ -291,6 +312,7 @@ func (s *txStore) Clean(_ context.Context) error {
 }
 
 func (s *txStore) Close() {
+	s.wg.Wait()
 	s.lock.Lock()
 	defer s.lock.Unlock()
 

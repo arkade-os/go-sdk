@@ -42,6 +42,9 @@ SELECT * FROM asset WHERE asset_id = :asset_id;
 -- name: CleanAssetVtxos :exec
 DELETE FROM asset_vtxo;
 
+-- name: CleanAssets :exec
+DELETE FROM asset;
+
 -- name: InsertTx :exec
 INSERT INTO tx (
     txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet

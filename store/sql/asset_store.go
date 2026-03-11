@@ -82,7 +82,10 @@ func (a *assetStore) Clean(ctx context.Context) error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
-	if err := a.querier.CleanUtxos(ctx); err != nil {
+	if err := a.querier.CleanAssetVtxos(ctx); err != nil {
+		return err
+	}
+	if err := a.querier.CleanAssets(ctx); err != nil {
 		return err
 	}
 	// nolint:all

@@ -19,6 +19,7 @@ type vtxoRepository struct {
 	db      *sql.DB
 	querier *queries.Queries
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.VtxoEvent
 }
 
@@ -27,6 +28,7 @@ func NewVtxoStore(db *sql.DB) types.VtxoStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.VtxoEvent, 100),
 	}
 }
@@ -92,7 +94,12 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (i
 	}
 
 	if len(addedVtxos) > 0 {
-		go v.sendEvent(types.VtxoEvent{Type: types.VtxosAdded, Vtxos: addedVtxos})
+		v.wg.Go(func() {
+			v.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosAdded,
+				Vtxos: addedVtxos,
+			})
+		})
 	}
 
 	return len(addedVtxos), nil
@@ -136,7 +143,12 @@ func (v *vtxoRepository) SpendVtxos(
 	}
 
 	if len(spentVtxos) > 0 {
-		go v.sendEvent(types.VtxoEvent{Type: types.VtxosSpent, Vtxos: spentVtxos})
+		v.wg.Go(func() {
+			v.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSpent,
+				Vtxos: spentVtxos,
+			})
+		})
 	}
 
 	return len(spentVtxos), nil
@@ -180,7 +192,12 @@ func (v *vtxoRepository) SettleVtxos(
 	}
 
 	if len(spentVtxos) > 0 {
-		go v.sendEvent(types.VtxoEvent{Type: types.VtxosSpent, Vtxos: spentVtxos})
+		v.wg.Go(func() {
+			v.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSpent,
+				Vtxos: spentVtxos,
+			})
+		})
 	}
 
 	return len(spentVtxos), nil
@@ -207,9 +224,11 @@ func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo)
 		return -1, err
 	}
 
-	go v.sendEvent(types.VtxoEvent{
-		Type:  types.VtxosUpdated,
-		Vtxos: updatedVtxos,
+	v.wg.Go(func() {
+		v.sendEvent(types.VtxoEvent{
+			Type:  types.VtxosUpdated,
+			Vtxos: updatedVtxos,
+		})
 	})
 
 	return len(updatedVtxos), nil
@@ -292,6 +311,7 @@ func (v *vtxoRepository) Clean(ctx context.Context) error {
 }
 
 func (v *vtxoRepository) Close() {
+	v.wg.Wait()
 	v.lock.Lock()
 	defer v.lock.Unlock()
 

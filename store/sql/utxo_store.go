@@ -20,6 +20,7 @@ type utxoRepository struct {
 	db      *sql.DB
 	querier *queries.Queries
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.UtxoEvent
 }
 
@@ -28,6 +29,7 @@ func NewUtxoStore(db *sql.DB) types.UtxoStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.UtxoEvent, 100),
 	}
 }
@@ -109,9 +111,11 @@ func (r *utxoRepository) ReplaceUtxo(
 		return err
 	}
 
-	go r.sendEvent(types.UtxoEvent{
-		Type:  types.UtxosReplaced,
-		Utxos: []sdktypes.Utxo{existingUtxo},
+	r.wg.Go(func() {
+		r.sendEvent(types.UtxoEvent{
+			Type:  types.UtxosReplaced,
+			Utxos: []sdktypes.Utxo{existingUtxo},
+		})
 	})
 
 	return nil
@@ -177,7 +181,12 @@ func (r *utxoRepository) AddUtxos(ctx context.Context, utxos []sdktypes.Utxo) (i
 	}
 
 	if len(addedUtxos) > 0 {
-		go r.sendEvent(types.UtxoEvent{Type: types.UtxosAdded, Utxos: addedUtxos})
+		r.wg.Go(func() {
+			r.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosAdded,
+				Utxos: addedUtxos,
+			})
+		})
 	}
 
 	return len(addedUtxos), nil
@@ -220,7 +229,12 @@ func (r *utxoRepository) SpendUtxos(
 	}
 
 	if len(spentUtxos) > 0 {
-		go r.sendEvent(types.UtxoEvent{Type: types.UtxosSpent, Utxos: spentUtxos})
+		r.wg.Go(func() {
+			r.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosSpent,
+				Utxos: spentUtxos,
+			})
+		})
 	}
 
 	return len(spentUtxos), nil
@@ -273,7 +287,12 @@ func (r *utxoRepository) ConfirmUtxos(
 	}
 
 	if len(confirmedUtxos) > 0 {
-		go r.sendEvent(types.UtxoEvent{Type: types.UtxosConfirmed, Utxos: confirmedUtxos})
+		r.wg.Go(func() {
+			r.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosConfirmed,
+				Utxos: confirmedUtxos,
+			})
+		})
 	}
 
 	return len(confirmedUtxos), nil
@@ -336,6 +355,7 @@ func (r *utxoRepository) Clean(ctx context.Context) error {
 }
 
 func (r *utxoRepository) Close() {
+	r.wg.Wait()
 	r.lock.Lock()
 	defer r.lock.Unlock()
 

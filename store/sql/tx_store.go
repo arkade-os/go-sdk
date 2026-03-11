@@ -21,6 +21,7 @@ type txStore struct {
 	db      *sql.DB
 	querier *queries.Queries
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.TransactionEvent
 }
 
@@ -29,6 +30,7 @@ func NewTransactionStore(db *sql.DB) types.TransactionStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.TransactionEvent, 100),
 	}
 }
@@ -138,7 +140,12 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []sdktypes.Transactio
 	}
 
 	if len(addedTxs) > 0 {
-		go v.sendEvent(types.TransactionEvent{Type: types.TxsAdded, Txs: addedTxs})
+		v.wg.Go(func() {
+			v.sendEvent(types.TransactionEvent{
+				Type: types.TxsAdded,
+				Txs:  addedTxs,
+			})
+		})
 	}
 
 	return len(addedTxs), nil
@@ -176,7 +183,12 @@ func (v *txStore) SettleTransactions(
 	}
 
 	if len(settledTxs) > 0 {
-		go v.sendEvent(types.TransactionEvent{Type: types.TxsSettled, Txs: settledTxs})
+		v.wg.Go(func() {
+			v.sendEvent(types.TransactionEvent{
+				Type: types.TxsSettled,
+				Txs:  settledTxs,
+			})
+		})
 	}
 
 	return len(settledTxs), nil
@@ -213,7 +225,12 @@ func (v *txStore) ConfirmTransactions(
 	}
 
 	if len(confirmedTxs) > 0 {
-		go v.sendEvent(types.TransactionEvent{Type: types.TxsConfirmed, Txs: confirmedTxs})
+		v.wg.Go(func() {
+			v.sendEvent(types.TransactionEvent{
+				Type: types.TxsConfirmed,
+				Txs:  confirmedTxs,
+			})
+		})
 	}
 
 	return len(confirmedTxs), nil
@@ -265,10 +282,12 @@ func (v *txStore) RbfTransactions(
 		return -1, err
 	}
 
-	go v.sendEvent(types.TransactionEvent{
-		Type:         types.TxsReplaced,
-		Txs:          txs,
-		Replacements: replacements,
+	v.wg.Go(func() {
+		v.sendEvent(types.TransactionEvent{
+			Type:         types.TxsReplaced,
+			Txs:          txs,
+			Replacements: replacements,
+		})
 	})
 
 	return len(txs), nil
@@ -340,6 +359,7 @@ func (v *txStore) Clean(ctx context.Context) error {
 }
 
 func (v *txStore) Close() {
+	v.wg.Wait()
 	v.lock.Lock()
 	defer v.lock.Unlock()
 

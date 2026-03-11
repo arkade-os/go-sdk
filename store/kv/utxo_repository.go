@@ -22,6 +22,7 @@ const (
 type utxoStore struct {
 	db      *badgerhold.Store
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.UtxoEvent
 }
 
@@ -36,6 +37,7 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 	return &utxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.UtxoEvent, 100),
 	}, nil
 }
@@ -55,7 +57,12 @@ func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to sdktypes.Outpoint)
 		return err
 	}
 
-	go s.sendEvent(types.UtxoEvent{Type: types.UtxosReplaced, Utxos: []sdktypes.Utxo{utxo}})
+	s.wg.Go(func() {
+		s.sendEvent(types.UtxoEvent{
+			Type:  types.UtxosReplaced,
+			Utxos: []sdktypes.Utxo{utxo},
+		})
+	})
 
 	return nil
 }
@@ -73,7 +80,12 @@ func (s *utxoStore) AddUtxos(_ context.Context, utxos []sdktypes.Utxo) (int, err
 	}
 
 	if len(addedUtxos) > 0 {
-		go s.sendEvent(types.UtxoEvent{Type: types.UtxosAdded, Utxos: addedUtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosAdded,
+				Utxos: addedUtxos,
+			})
+		})
 	}
 
 	return len(addedUtxos), nil
@@ -111,7 +123,12 @@ func (s *utxoStore) ConfirmUtxos(
 	}
 
 	if len(confirmedUtxos) > 0 {
-		go s.sendEvent(types.UtxoEvent{Type: types.UtxosConfirmed, Utxos: confirmedUtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosConfirmed,
+				Utxos: confirmedUtxos,
+			})
+		})
 	}
 
 	return len(confirmedUtxos), nil
@@ -144,7 +161,12 @@ func (s *utxoStore) SpendUtxos(
 	}
 
 	if len(spentUtxos) > 0 {
-		go s.sendEvent(types.UtxoEvent{Type: types.UtxosSpent, Utxos: spentUtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosSpent,
+				Utxos: spentUtxos,
+			})
+		})
 	}
 
 	return len(spentUtxos), nil
@@ -202,6 +224,7 @@ func (s *utxoStore) Clean(_ context.Context) error {
 }
 
 func (s *utxoStore) Close() {
+	s.wg.Wait()
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
