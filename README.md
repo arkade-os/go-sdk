@@ -16,110 +16,75 @@ Here's a comprehensive guide on how to use the Arkade Go SDK:
 
 ### 1. Setting up the Ark Client
 
-The Ark client can be set up with different storage options and configurations. Here's how you can create and initialize an Ark client with different storage options:
+`NewArkClient(datadir string, verbose bool)` accepts two parameters:
 
-#### Using In-Memory Storage (only for testing)
+- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing).
+- `verbose` — when `true`, debug-level logs are printed after the wallet is unlocked.
 
-The code snippet below demonstrates how to set up an Ark client with in-memory storage. This will create a new seed and holds it in the storeSvc variable.
+This gives four combinations:
 
 ```go
-import (
-    arksdk "github.com/arkade-os/go-sdk"
-    inmemorystore "github.com/arkade-os/go-sdk/store/inmemory"
-)
+import arksdk "github.com/arkade-os/go-sdk"
 
-func setupInMemoryArkClient() (arksdk.ArkClient, error) {
-    storeSvc, err := store.NewStore(store.Config{ConfigStoreType:  types.InMemoryStore})
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup store: %s", err)
-	}
+// In-memory storage, no logs (testing)
+client, err := arksdk.NewArkClient("", false)
 
-	client, err := arksdk.NewArkClient(storeSvc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup ark client: %s", err)
-	}
+// In-memory storage, verbose logs (testing with debug output)
+client, err := arksdk.NewArkClient("", true)
 
-	if err := client.Init(context.Background(), arksdk.InitArgs{
-		WalletType: arksdk.SingleKeyWallet,
-		ClientType: arksdk.GrpcClient,
-		ServerUrl:  "localhost:7070",
-		Password:   "your_password",
-	}); err != nil {
-		return nil, fmt.Errorf("failed to initialize wallet: %s", err)
-	}
+// Persistent storage, no logs (production)
+client, err := arksdk.NewArkClient("/path/to/data/dir", false)
 
-	return client, nil
-}
+// Persistent storage, verbose logs (production with debug output)
+client, err := arksdk.NewArkClient("/path/to/data/dir", true)
 ```
 
-#### Using Persistent File Storage
-
-For production use, it's recommended to use persistent storage. Here's how you can set up a file-based storage:
+Once you have a client, call `Init` to connect it to an Ark server and set up the wallet:
 
 ```go
-import (
-    arksdk "github.com/arkade-os/go-sdk"
-    filestore "github.com/arkade-os/go-sdk/store/file"
-)
+// Minimal — single-key wallet, default explorer URL for the network.
+if err := client.Init(ctx, "localhost:7070", "your_seed", "your_password"); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
+}
 
-func setupFileBasedArkClient() (arksdk.ArkClient, error) {
-    storeSvc, err := store.NewStore(store.Config{
-		ConfigStoreType:  types.FileStore,
-		BaseDir:          "/path/to/storage/directory",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup file store: %s", err)
-	}
+// Restore an existing wallet from seed.
+if err := client.Init(ctx, "localhost:7070", "your_seed", "your_password"); err != nil {
+    return fmt.Errorf("failed to restore wallet: %s", err)
+}
 
-	client, err := arksdk.NewArkClient(storeSvc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup ark client: %s", err)
-	}
+// Custom explorer URL.
+if err := client.Init(
+    ctx, "localhost:7070", "your_seed", "your_password",
+    arksdk.WithExplorerURL("https://example.com"),
+); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
+}
 
-	if err := client.Init(context.Background(), arksdk.InitArgs{
-		WalletType: arksdk.SingleKeyWallet,
-		ClientType: arksdk.GrpcClient,
-		ServerUrl:  "localhost:7070",
-		Password:   "your_password",
-	}); err != nil {
-		return nil, fmt.Errorf("failed to initialize wallet: %s", err)
-	}
-
-	return client, nil
+// Bring your own wallet implementation.
+if err := client.Init(
+    ctx, "localhost:7070", "your_seed", "your_password",
+    arksdk.WithWallet(myWalletService),
+); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
 }
 ```
 
 ### 2. Client Configuration Options
 
-The `Init` function accepts various configuration options through the `InitArgs` struct. Here's a breakdown of all available options:
+`Init` has the following signature:
 
 ```go
-type InitArgs struct {
-    ClientType          string // Type of client connection (e.g., "grpc")
-    WalletType          string // Type of wallet (e.g., "singlekey" or "hd")
-    ServerUrl           string // URL of the Ark Server
-    Seed                string // Private Key hex encoded for wallet initialization or restoration
-    Password            string // Wallet password
-    WithTransactionFeed bool // Receive notifications about received or spent funds
-}
+Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) error
 ```
 
-Let's explore each field in detail:
+- `serverUrl` — address of the Ark server (e.g. `"localhost:7070"`).
+- `seed` — hex-encoded private key for wallet initialization or restoration.
+- `password` — password used to encrypt and protect the wallet.
+- `opts` — optional functional options:
+  - `WithExplorerURL(url string)` — override the default mempool explorer URL for the network.
+  - `WithWallet(wallet wallet.WalletService)` — supply a custom wallet implementation instead of the built-in single-key wallet.
 
-- `ClientType`: Specifies the type of connection to use with the Ark Server.`"grpc"` is the only supported option currently.
-
-- `WalletType`: Defines the type of wallet to create or restore. Options include:
-  - `"singlekey"`: A wallet using a single key for all transactions
-
-- `ServerUrl`: The URL of the Ark Server to connect to. For example, `"localhost:7070"` for a local instance.
-
-- `Seed`: The hex-encoded private key used to initialize or restore a wallet. This should be a secure, randomly generated string for new wallets, or the backup key for restoring an existing wallet.
-
-- `Password`: The password used to encrypt and protect the wallet.
-
-- `WithTransactionFeed`: Enable receiving notifications about received or spent funds.
-
-Note: Always ensure that you keep your seed phrase and password secure. Never share them or store them in plaintext.
+Note: Always keep your seed and password secure. Never share them or store them in plaintext.
 
 ### 3. Wallet Operations
 
@@ -129,18 +94,31 @@ Note: Always ensure that you keep your seed phrase and password secure. Never sh
 if err := arkClient.Unlock(ctx, password); err != nil {
     log.Fatal(err)
 }
-defer arkClient.Lock(ctx, password)
+defer arkClient.Lock(ctx)
 ```
 
 #### Receive Funds
 
+The old `Receive` API has been split into three dedicated methods:
+
 ```go
-offchainAddr, boardingAddr, err := arkClient.Receive(ctx)
+onchainAddr, err := arkClient.NewOnchainAddress(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("Onchain address: %s", onchainAddr)
+
+boardingAddr, err := arkClient.NewBoardingAddress(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("Boarding address: %s", boardingAddr)
+
+offchainAddr, err := arkClient.NewOffchainAddress(ctx)
 if err != nil {
     log.Fatal(err)
 }
 log.Infof("Offchain address: %s", offchainAddr)
-log.Infof("Boarding address: %s", boardingAddr)
 ```
 
 #### Check Balance
@@ -162,8 +140,10 @@ for assetID, amount := range balance.AssetBalances {
 #### Send Offchain
 
 ```go
+import clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+
 // Send sats offchain.
-receivers := []types.Receiver{
+receivers := []clientTypes.Receiver{
     {To: recipientOffchainAddr, Amount: 1000},
 }
 txid, err := arkClient.SendOffChain(ctx, receivers)
@@ -173,10 +153,10 @@ if err != nil {
 log.Infof("Transaction completed: %s", txid)
 
 // Send assets offchain. If not specified, like in this example, the real recipient's amount defaults to 330 sats (dust).
-assetReceivers := []types.Receiver{
+assetReceivers := []clientTypes.Receiver{
     {
-        To:     recipientOffchainAddr,
-        Assets: []types.Asset{
+        To: recipientOffchainAddr,
+        Assets: []clientTypes.Asset{
             {AssetId: assetID, Amount: 1200},
         },
     },
@@ -246,8 +226,8 @@ Arkade supports issuing, transferring, reissuing, and burning custom assets offc
 
 ```go
 import (
-    "github.com/arkade-os/go-sdk/types"
     "github.com/arkade-os/arkd/pkg/ark-lib/asset"
+    clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
 // 1. Fixed supply — no control asset. Returns one asset ID.
@@ -260,7 +240,7 @@ log.Infof("Issued asset %s in tx %s", assetID, txid)
 
 // 2. With a new control asset issued together with the controlled one.
 //    Returns two asset IDs: [controlAssetId, issuedAssetId].
-txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, types.NewControlAsset{Amount: 1}, nil)
+txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, clientTypes.NewControlAsset{Amount: 1}, nil)
 if err != nil {
     log.Fatal(err)
 }
@@ -271,7 +251,7 @@ log.Infof("Control asset: %s, issued asset: %s", controlAssetID, assetID)
 // 3. With an existing control asset.
 //    Returns one asset ID for the newly issued asset.
 txid, assetIds, err = arkClient.IssueAsset(
-    ctx, 5000, types.ExistingControlAsset{ID: controlAssetID}, nil,
+    ctx, 5000, clientTypes.ExistingControlAsset{ID: controlAssetID}, nil,
 )
 if err != nil {
     log.Fatal(err)
@@ -283,7 +263,7 @@ meta := []asset.Metadata{
     {Key: "name", Value: "My Token"},
     {Key: "ticker", Value: "MTK"},
 }
-txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, types.NewControlAsset{Amount: 1}, meta)
+txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, clientTypes.NewControlAsset{Amount: 1}, meta)
 ```
 
 ##### Reissue Asset
@@ -318,7 +298,7 @@ log.Infof("Burned 500 units of %s in tx %s", assetID, txid)
 You can send to multiple recipients in a single transaction:
 
 ```go
-receivers := []types.Receiver{
+receivers := []clientTypes.Receiver{
     {To: recipient1OffchainAddr, Amount: amount1},
     {To: recipient2OffchainAddr, Amount: amount2},
 }
@@ -344,31 +324,33 @@ basic workflow shown above. Here is a quick overview:
 
 - `GetVersion()` - return the SDK version.
 - `GetConfigData(ctx)` - retrieve Ark server configuration details.
-- `Init(ctx, args)` / `InitWithWallet(ctx, args)` - create or restore a wallet.
+- `Init(ctx, serverUrl, seed, password, opts...)` - create or restore a wallet and connect to the server. See §2 for available options.
 - `IsLocked(ctx)` - check if the wallet is currently locked.
 - `Unlock(ctx, password)` / `Lock(ctx)` - unlock or lock the wallet.
+- `IsSynced(ctx) <-chan types.SyncEvent` - returns a channel that emits once the local database has finished syncing after unlock.
 - `Balance(ctx)` - query onchain and offchain balances. The returned struct includes `AssetBalances map[string]uint64` keyed by asset ID.
-- `IssueAsset(ctx, amount, controlAsset, metadata, opts...)` — mint a new offchain asset. Pass `nil` for a fixed-supply asset, `types.NewControlAsset{Amount}` to create a reissuable asset with a new control asset, or `types.ExistingControlAsset{ID}` to issue under an existing control asset. Returns the ark txid and the resulting asset IDs.
-- `ReissueAsset(ctx, assetId, amount, opts...)` — mint additional supply of an existing controllable asset. Requires the caller to hold the corresponding control asset vtxo.
-- `BurnAsset(ctx, assetId, amount, opts...)` — permanently destroy a quantity of an asset. Remaining balance is returned as change to the caller's address.
-- `Receive(ctx)` - generate onchain, offchain and boarding addresses.
-- `SendOffChain(ctx, receivers, opts...)` - send funds offchain. Each `types.Receiver` can carry an `Assets []types.Asset` slice to transfer assets alongside sats.
-- `Settle(ctx, opts ...) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction.
-
+- `IssueAsset(ctx, amount, controlAsset, metadata)` — mint a new offchain asset. Pass `nil` for a fixed-supply asset, `types.NewControlAsset{Amount}` to create a reissuable asset with a new control asset, or `types.ExistingControlAsset{ID}` to issue under an existing control asset. Returns the ark txid and the resulting asset IDs.
+- `ReissueAsset(ctx, assetId, amount)` — mint additional supply of an existing controllable asset. Requires the caller to hold the corresponding control asset vtxo.
+- `BurnAsset(ctx, assetID, amount)` — permanently destroy a quantity of an asset. Remaining balance is returned as change to the caller's address.
+- `GetAddresses(ctx)` - return all known onchain, offchain, boarding and redemption addresses.
+- `NewOnchainAddress(ctx)` / `NewBoardingAddress(ctx)` / `NewOffchainAddress(ctx)` - derive a fresh address of the respective type.
+- `SendOffChain(ctx, receivers)` - send funds offchain. Each `types.Receiver` can carry an `Assets []types.Asset` slice to transfer assets alongside sats.
+- `Settle(ctx) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction.
 - `RegisterIntent(...)` / `DeleteIntent(...)` - manage spend intents for collaborative transactions.
-- `CollaborativeExit(ctx, addr, amount, withExpiryCoinselect, opts ...) (string, error)` - redeem offchain funds onchain.
+- `CollaborativeExit(ctx, addr, amount) (string, error)` - redeem offchain funds onchain.
 - `Unroll(ctx) error` - broadcast unroll transactions when ready.
 - `CompleteUnroll(ctx, to string) (string, error)` - finalize an unroll and sweep to an onchain address.
 - `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
 - `WithdrawFromAllExpiredBoardings(ctx, to string) (string, error)` - withdraw expired boarding amounts onchain.
-- `ListVtxos(ctx) (spendable, spent []types.Vtxo, err error)` - list virtual UTXOs. Each `Vtxo` includes an `Assets []types.Asset` field listing any assets it carries.
+- `ListVtxos(ctx) (spendable, spent []clientTypes.Vtxo, err error)` - list virtual UTXOs. Each `Vtxo` includes an `Assets []types.Asset` field listing any assets it carries.
+- `ListSpendableVtxos(ctx)` - list only spendable virtual UTXOs.
 - `Dump(ctx) (seed string, error)` - export the wallet seed.
 - `GetTransactionHistory(ctx)` - fetch past transactions.
-- `GetTransactionEventChannel(ctx)` and `GetVtxoEventChannel(ctx)` - subscribe to wallet events.
-- `RedeemNotes(ctx, notes, opts ...)` - redeem Ark notes back to your wallet.
+- `GetTransactionEventChannel(ctx)`, `GetVtxoEventChannel(ctx)` and `GetUtxoEventChannel(ctx)` - subscribe to wallet events.
+- `FinalizePendingTxs(ctx, createdAfter *time.Time) ([]string, error)` - finalize any pending transactions, optionally filtered by creation time.
+- `RedeemNotes(ctx, notes)` - redeem Ark notes back to your wallet.
 - `SignTransaction(ctx, tx)` - sign an arbitrary transaction.
 - `NotifyIncomingFunds(ctx, address)` - wait until a specific offchain address receives funds.
-- `Reset(ctx)` - clear local caches and state.
 - `Stop()` - stop any running listeners.
 
 ### 6. Transport Client
@@ -399,7 +381,75 @@ make regtestdown
 
 ## Full Example
 
-For a complete end-to-end example demonstrating the usage of the Arkade Go SDK, including setting up multiple clients, boarding, and transferring funds, please refer to our [GitHub repository](https://github.com/arkade-os/go-sdk/blob/master/example/alice_to_bob/alice_to_bob.go).
+The snippet below shows the complete flow from client creation to an offchain send:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    arksdk "github.com/arkade-os/go-sdk"
+    clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+)
+
+func main() {
+    ctx := context.Background()
+	prvkey := "ff694aab53abf53843f5cd1ffd8d488d743b08b35f48598bdcbab3f71d430e01"
+	password := "secret"
+	serverUrl := "localhost:7070"
+
+    // Create a persistent client with debug logs enabled.
+    client, err := arksdk.NewArkClient("/path/to/data/dir", true)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Stop()
+
+    // Connect to the server and set up the wallet.
+    if err := client.Init(ctx, serverUrl, prvkey, password); err != nil {
+        log.Fatal(err)
+    }
+
+    // Unlock the wallet to start syncing.
+    if err := client.Unlock(ctx, password); err != nil {
+        log.Fatal(err)
+    }
+    defer client.Lock(ctx)
+
+    // Wait for the local database to finish syncing.
+    syncCh := client.IsSynced(ctx)
+    if event := <-syncCh; event.Err != nil {
+        log.Fatal(event.Err)
+    }
+
+    // Generate a fresh offchain address to receive funds.
+    offchainAddr, err := client.NewOffchainAddress(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Offchain address:", offchainAddr)
+
+    // Check balance.
+    balance, err := client.Balance(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Offchain balance: %d sats\n", balance.OffchainBalance.Total)
+
+    // Send offchain.
+    receivers := []clientTypes.Receiver{
+        {To: "<recipient_offchain_addr>", Amount: 1000},
+    }
+    txid, err := client.SendOffChain(ctx, receivers)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Transaction ID:", txid)
+}
+```
 
 ## Support
 
