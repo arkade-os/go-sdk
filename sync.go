@@ -27,8 +27,13 @@ func (l *syncListeners) add(ch chan types.SyncEvent) {
 func (l *syncListeners) broadcast(err error) {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
+
+	event := types.SyncEvent{Synced: err == nil, Err: err}
 	for ch := range l.listeners {
-		ch <- types.SyncEvent{Synced: err == nil, Err: err}
+		select {
+		case ch <- event:
+		default:
+		}
 	}
 }
 

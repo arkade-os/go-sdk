@@ -24,12 +24,15 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	}
 
 	_, _, boardingAddr, err := a.Receive(ctx)
+	if err != nil {
+		return "", err
+	}
 	go func() {
 		if err := a.Explorer().SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
 		}
 	}()
-	return boardingAddr.Address, err
+	return boardingAddr.Address, nil
 }
 
 func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
