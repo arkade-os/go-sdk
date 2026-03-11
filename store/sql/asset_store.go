@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -29,7 +29,7 @@ func NewAssetStore(db *sql.DB) types.AssetStore {
 	}
 }
 
-func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.AssetInfo, error) {
+func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*clientTypes.AssetInfo, error) {
 	row, err := a.querier.SelectAsset(ctx, assetId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -49,14 +49,14 @@ func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.As
 		json.Unmarshal([]byte(row.Metadata.String), &metadata)
 	}
 
-	return &sdktypes.AssetInfo{
+	return &clientTypes.AssetInfo{
 		AssetId:        row.AssetID,
 		ControlAssetId: controlAssetId,
 		Metadata:       metadata,
 	}, nil
 }
 
-func (a *assetStore) UpsertAsset(ctx context.Context, asset sdktypes.AssetInfo) error {
+func (a *assetStore) UpsertAsset(ctx context.Context, asset clientTypes.AssetInfo) error {
 	metadata := sql.NullString{Valid: false}
 	if len(asset.Metadata) > 0 {
 		metadataBytes, err := json.Marshal(asset.Metadata)

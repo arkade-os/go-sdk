@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -35,8 +35,8 @@ func NewTransactionStore(db *sql.DB) types.TransactionStore {
 	}
 }
 
-func (v *txStore) AddTransactions(ctx context.Context, txs []sdktypes.Transaction) (int, error) {
-	addedTxs := make([]sdktypes.Transaction, 0, len(txs))
+func (v *txStore) AddTransactions(ctx context.Context, txs []clientTypes.Transaction) (int, error) {
+	addedTxs := make([]clientTypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range txs {
 			tx := txs[i]
@@ -161,7 +161,7 @@ func (v *txStore) SettleTransactions(
 		return -1, err
 	}
 
-	settledTxs := make([]sdktypes.Transaction, 0, len(txs))
+	settledTxs := make([]clientTypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			if tx.SettledBy != "" {
@@ -204,7 +204,7 @@ func (v *txStore) ConfirmTransactions(
 		return -1, err
 	}
 
-	confirmedTxs := make([]sdktypes.Transaction, 0, len(txs))
+	confirmedTxs := make([]clientTypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			if !tx.CreatedAt.IsZero() {
@@ -293,7 +293,7 @@ func (v *txStore) RbfTransactions(
 	return len(txs), nil
 }
 
-func (v *txStore) GetAllTransactions(ctx context.Context) ([]sdktypes.Transaction, error) {
+func (v *txStore) GetAllTransactions(ctx context.Context) ([]clientTypes.Transaction, error) {
 	rows, err := v.querier.SelectAllTxs(ctx)
 	if err != nil {
 		return nil, err
@@ -304,7 +304,7 @@ func (v *txStore) GetAllTransactions(ctx context.Context) ([]sdktypes.Transactio
 func (v *txStore) GetTransactions(
 	ctx context.Context,
 	txids []string,
-) ([]sdktypes.Transaction, error) {
+) ([]clientTypes.Transaction, error) {
 	rows, err := v.querier.SelectTxs(ctx, txids)
 	if err != nil {
 		return nil, err
@@ -312,7 +312,7 @@ func (v *txStore) GetTransactions(
 	return readTxRows(rows)
 }
 
-func (v *txStore) UpdateTransactions(ctx context.Context, txs []sdktypes.Transaction) (int, error) {
+func (v *txStore) UpdateTransactions(ctx context.Context, txs []clientTypes.Transaction) (int, error) {
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			var settledBy sql.NullString
@@ -382,7 +382,7 @@ func (v *txStore) sendEvent(event types.TransactionEvent) {
 	log.Warn("failed to send tx event")
 }
 
-func rowToTx(row queries.Tx) (sdktypes.Transaction, error) {
+func rowToTx(row queries.Tx) (clientTypes.Transaction, error) {
 	var commitmentTxid, arkTxid, boardingTxid string
 	if row.TxidType == "commitment" {
 		commitmentTxid = row.Txid
@@ -402,17 +402,17 @@ func rowToTx(row queries.Tx) (sdktypes.Transaction, error) {
 		var err error
 		assetPacket, err = asset.NewPacketFromString(row.AssetPacket.String)
 		if err != nil {
-			return sdktypes.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
+			return clientTypes.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
 		}
 	}
-	return sdktypes.Transaction{
-		TransactionKey: sdktypes.TransactionKey{
+	return clientTypes.Transaction{
+		TransactionKey: clientTypes.TransactionKey{
 			CommitmentTxid: commitmentTxid,
 			ArkTxid:        arkTxid,
 			BoardingTxid:   boardingTxid,
 		},
 		Amount:      uint64(row.Amount),
-		Type:        sdktypes.TxType(row.Type),
+		Type:        clientTypes.TxType(row.Type),
 		SettledBy:   row.SettledBy.String,
 		CreatedAt:   createdAt,
 		Hex:         row.Hex.String,
@@ -420,8 +420,8 @@ func rowToTx(row queries.Tx) (sdktypes.Transaction, error) {
 	}, nil
 }
 
-func readTxRows(rows []queries.Tx) ([]sdktypes.Transaction, error) {
-	txs := make([]sdktypes.Transaction, 0, len(rows))
+func readTxRows(rows []queries.Tx) ([]clientTypes.Transaction, error) {
+	txs := make([]clientTypes.Transaction, 0, len(rows))
 	for _, tx := range rows {
 		t, err := rowToTx(tx)
 		if err != nil {

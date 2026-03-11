@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -42,8 +42,8 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 	}, nil
 }
 
-func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []sdktypes.Vtxo) (int, error) {
-	addedVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []clientTypes.Vtxo) (int, error) {
+	addedVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if err := s.db.Insert(vtxo.Outpoint.String(), &vtxo); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
@@ -67,9 +67,9 @@ func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []sdktypes.Vtxo) (int, err
 }
 
 func (s *vtxoStore) SpendVtxos(
-	ctx context.Context, spentVtxoMap map[sdktypes.Outpoint]string, arkTxid string,
+	ctx context.Context, spentVtxoMap map[clientTypes.Outpoint]string, arkTxid string,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxoMap))
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -78,7 +78,7 @@ func (s *vtxoStore) SpendVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if vtxo.Spent {
 			continue
@@ -106,9 +106,9 @@ func (s *vtxoStore) SpendVtxos(
 }
 
 func (s *vtxoStore) SettleVtxos(
-	ctx context.Context, spentVtxoMap map[sdktypes.Outpoint]string, settledBy string,
+	ctx context.Context, spentVtxoMap map[clientTypes.Outpoint]string, settledBy string,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxoMap))
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -117,7 +117,7 @@ func (s *vtxoStore) SettleVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if vtxo.Spent {
 			continue
@@ -144,7 +144,7 @@ func (s *vtxoStore) SettleVtxos(
 	return len(spentVtxos), nil
 }
 
-func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int, error) {
+func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
 	for _, vtxo := range vtxos {
 		if err := s.db.Upsert(vtxo.Outpoint.String(), &vtxo); err != nil {
 			return -1, err
@@ -161,8 +161,8 @@ func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int
 
 func (s *vtxoStore) GetAllVtxos(
 	_ context.Context,
-) (spendable, spent []sdktypes.Vtxo, err error) {
-	var allVtxos []sdktypes.Vtxo
+) (spendable, spent []clientTypes.Vtxo, err error) {
+	var allVtxos []clientTypes.Vtxo
 	err = s.db.Find(&allVtxos, nil)
 	if err != nil {
 		return nil, nil, err
@@ -178,8 +178,8 @@ func (s *vtxoStore) GetAllVtxos(
 	return
 }
 
-func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []sdktypes.Vtxo, err error) {
-	var allVtxos []sdktypes.Vtxo
+func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []clientTypes.Vtxo, err error) {
+	var allVtxos []clientTypes.Vtxo
 	err = s.db.Find(&allVtxos, nil)
 	if err != nil {
 		return nil, err
@@ -194,11 +194,11 @@ func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []sdktypes
 }
 
 func (s *vtxoStore) GetVtxos(
-	_ context.Context, keys []sdktypes.Outpoint,
-) ([]sdktypes.Vtxo, error) {
-	var vtxos []sdktypes.Vtxo
+	_ context.Context, keys []clientTypes.Outpoint,
+) ([]clientTypes.Vtxo, error) {
+	var vtxos []clientTypes.Vtxo
 	for _, key := range keys {
-		var vtxo sdktypes.Vtxo
+		var vtxo clientTypes.Vtxo
 		err := s.db.Get(key.String(), &vtxo)
 		if err != nil {
 			if errors.Is(err, badgerhold.ErrNotFound) {

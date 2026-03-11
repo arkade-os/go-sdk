@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -42,8 +42,8 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 	}, nil
 }
 
-func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to sdktypes.Outpoint) error {
-	var utxo sdktypes.Utxo
+func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to clientTypes.Outpoint) error {
+	var utxo clientTypes.Utxo
 	if err := s.db.Get(from.String(), &utxo); err != nil {
 		return err
 	}
@@ -60,15 +60,15 @@ func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to sdktypes.Outpoint)
 	s.wg.Go(func() {
 		s.sendEvent(types.UtxoEvent{
 			Type:  types.UtxosReplaced,
-			Utxos: []sdktypes.Utxo{utxo},
+			Utxos: []clientTypes.Utxo{utxo},
 		})
 	})
 
 	return nil
 }
 
-func (s *utxoStore) AddUtxos(_ context.Context, utxos []sdktypes.Utxo) (int, error) {
-	addedUtxos := make([]sdktypes.Utxo, 0, len(utxos))
+func (s *utxoStore) AddUtxos(_ context.Context, utxos []clientTypes.Utxo) (int, error) {
+	addedUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if err := s.db.Insert(utxo.String(), &utxo); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
@@ -92,9 +92,9 @@ func (s *utxoStore) AddUtxos(_ context.Context, utxos []sdktypes.Utxo) (int, err
 }
 
 func (s *utxoStore) ConfirmUtxos(
-	ctx context.Context, confirmedUtxoMap map[sdktypes.Outpoint]int64,
+	ctx context.Context, confirmedUtxoMap map[clientTypes.Outpoint]int64,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(confirmedUtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(confirmedUtxoMap))
 	for outpoint := range confirmedUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -103,7 +103,7 @@ func (s *utxoStore) ConfirmUtxos(
 		return -1, err
 	}
 
-	confirmedUtxos := make([]sdktypes.Utxo, 0, len(utxos))
+	confirmedUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if !utxo.CreatedAt.IsZero() {
 			continue
@@ -135,9 +135,9 @@ func (s *utxoStore) ConfirmUtxos(
 }
 
 func (s *utxoStore) SpendUtxos(
-	ctx context.Context, spentUtxoMap map[sdktypes.Outpoint]string,
+	ctx context.Context, spentUtxoMap map[clientTypes.Outpoint]string,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(spentUtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentUtxoMap))
 	for outpoint := range spentUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -146,7 +146,7 @@ func (s *utxoStore) SpendUtxos(
 		return -1, err
 	}
 
-	spentUtxos := make([]sdktypes.Utxo, 0, len(utxos))
+	spentUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if utxo.Spent {
 			continue
@@ -174,8 +174,8 @@ func (s *utxoStore) SpendUtxos(
 
 func (s *utxoStore) GetAllUtxos(
 	_ context.Context,
-) (spendable, spent []sdktypes.Utxo, err error) {
-	var allUtxos []sdktypes.Utxo
+) (spendable, spent []clientTypes.Utxo, err error) {
+	var allUtxos []clientTypes.Utxo
 	if err := s.db.Find(&allUtxos, nil); err != nil {
 		return nil, nil, err
 	}
@@ -191,11 +191,11 @@ func (s *utxoStore) GetAllUtxos(
 }
 
 func (s *utxoStore) GetUtxos(
-	_ context.Context, keys []sdktypes.Outpoint,
-) ([]sdktypes.Utxo, error) {
-	var utxos []sdktypes.Utxo
+	_ context.Context, keys []clientTypes.Outpoint,
+) ([]clientTypes.Utxo, error) {
+	var utxos []clientTypes.Utxo
 	for _, key := range keys {
-		var utxo sdktypes.Utxo
+		var utxo clientTypes.Utxo
 		if err := s.db.Get(key.String(), &utxo); err != nil {
 			if errors.Is(err, badgerhold.ErrNotFound) {
 				continue

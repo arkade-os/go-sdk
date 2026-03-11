@@ -6,7 +6,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	testUtxos = []sdktypes.Utxo{
+	testUtxos = []clientTypes.Utxo{
 		{
-			Outpoint: sdktypes.Outpoint{
+			Outpoint: clientTypes.Outpoint{
 				Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 				VOut: 0,
 			},
@@ -27,7 +27,7 @@ var (
 			Delay:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 10},
 		},
 		{
-			Outpoint: sdktypes.Outpoint{
+			Outpoint: clientTypes.Outpoint{
 				Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				VOut: 0,
 			},
@@ -41,7 +41,7 @@ var (
 			Delay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
 		},
 	}
-	testUtxoKeys = []sdktypes.Outpoint{
+	testUtxoKeys = []clientTypes.Outpoint{
 		{
 			Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 			VOut: 0,
@@ -51,11 +51,11 @@ var (
 			VOut: 0,
 		},
 	}
-	testConfirmedUtxoKeys = map[sdktypes.Outpoint]int64{
+	testConfirmedUtxoKeys = map[clientTypes.Outpoint]int64{
 		testUtxoKeys[0]: time.Now().Unix(),
 		testUtxoKeys[1]: time.Now().Add(10 * time.Second).Unix(),
 	}
-	testSpendUtxoKeys = map[sdktypes.Outpoint]string{
+	testSpendUtxoKeys = map[clientTypes.Outpoint]string{
 		testUtxoKeys[0]: "tx3",
 	}
 	testAssetGroups = []asset.AssetGroup{
@@ -157,7 +157,7 @@ var (
 		},
 	}
 
-	testVtxoAsset1 = sdktypes.Asset{
+	testVtxoAsset1 = clientTypes.Asset{
 		AssetId: asset.AssetId{
 			Txid: [32]byte{
 				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
@@ -168,7 +168,7 @@ var (
 		Amount: 123456789,
 	}
 
-	testVtxoAsset2 = sdktypes.Asset{
+	testVtxoAsset2 = clientTypes.Asset{
 		AssetId: asset.AssetId{
 			Txid: [32]byte{
 				0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00,
@@ -179,9 +179,9 @@ var (
 		Amount: 987654321,
 	}
 
-	testVtxos = []sdktypes.Vtxo{
+	testVtxos = []clientTypes.Vtxo{
 		{
-			Outpoint: sdktypes.Outpoint{
+			Outpoint: clientTypes.Outpoint{
 				Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 				VOut: 0,
 			},
@@ -195,7 +195,7 @@ var (
 			Preconfirmed: true,
 		},
 		{
-			Outpoint: sdktypes.Outpoint{
+			Outpoint: clientTypes.Outpoint{
 				Txid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				VOut: 0,
 			},
@@ -208,7 +208,7 @@ var (
 			CreatedAt: time.Unix(1746143068, 0),
 		},
 		{
-			Outpoint: sdktypes.Outpoint{
+			Outpoint: clientTypes.Outpoint{
 				Txid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				VOut: 0,
 			},
@@ -220,10 +220,10 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 			// vtxo with multiple assets
-			Assets: []sdktypes.Asset{testVtxoAsset1, testVtxoAsset2},
+			Assets: []clientTypes.Asset{testVtxoAsset1, testVtxoAsset2},
 		},
 		{
-			Outpoint: sdktypes.Outpoint{
+			Outpoint: clientTypes.Outpoint{
 				Txid: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 				VOut: 0,
 			},
@@ -235,10 +235,10 @@ var (
 			ExpiresAt: time.Unix(1748143068, 0),
 			CreatedAt: time.Unix(1746143068, 0),
 			// vtxo with single asset
-			Assets: []sdktypes.Asset{testVtxoAsset1},
+			Assets: []clientTypes.Asset{testVtxoAsset1},
 		},
 	}
-	testVtxoKeys = []sdktypes.Outpoint{
+	testVtxoKeys = []clientTypes.Outpoint{
 		{
 			Txid: "0000000000000000000000000000000000000000000000000000000000000000",
 			VOut: 0,
@@ -256,27 +256,27 @@ var (
 			VOut: 0,
 		},
 	}
-	testSpendVtxoKeys = map[sdktypes.Outpoint]string{
+	testSpendVtxoKeys = map[clientTypes.Outpoint]string{
 		testVtxoKeys[0]: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
-	testSettleVtxoKeys = map[sdktypes.Outpoint]string{
+	testSettleVtxoKeys = map[clientTypes.Outpoint]string{
 		testVtxoKeys[1]: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	}
 
-	testTxs = []sdktypes.Transaction{
+	testTxs = []clientTypes.Transaction{
 		{
-			TransactionKey: sdktypes.TransactionKey{
+			TransactionKey: clientTypes.TransactionKey{
 				BoardingTxid: "0000000000000000000000000000000000000000000000000000000000000000",
 			},
 			Amount: 5000,
-			Type:   sdktypes.TxReceived,
+			Type:   clientTypes.TxReceived,
 		},
 		{
-			TransactionKey: sdktypes.TransactionKey{
+			TransactionKey: clientTypes.TransactionKey{
 				ArkTxid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 			Amount:      12000,
-			Type:        sdktypes.TxReceived,
+			Type:        clientTypes.TxReceived,
 			AssetPacket: asset.Packet(testAssetGroups),
 		},
 	}
@@ -301,7 +301,7 @@ var (
 	settledBy = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	arkTxid   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
-	testAsset = sdktypes.AssetInfo{
+	testAsset = clientTypes.AssetInfo{
 		AssetId:        "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
 		ControlAssetId: "02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021",
 		Metadata: []asset.Metadata{
@@ -423,7 +423,7 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Equal(t, testUtxos, utxos)
 
-		utxos, err = storeSvc.GetUtxos(ctx, []sdktypes.Outpoint{
+		utxos, err = storeSvc.GetUtxos(ctx, []clientTypes.Outpoint{
 			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
 		})
 		require.NoError(t, err)
@@ -539,7 +539,7 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		requireVtxosListEqual(t, testVtxos, vtxos)
 
-		vtxos, err = storeSvc.GetVtxos(ctx, []sdktypes.Outpoint{
+		vtxos, err = storeSvc.GetVtxos(ctx, []clientTypes.Outpoint{
 			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
 		})
 		require.NoError(t, err)
@@ -711,7 +711,7 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	require.Equal(t, testAsset, *asset)
 
 	// upsert does not erase metadata or control asset id
-	testAssetIdOnly := sdktypes.AssetInfo{
+	testAssetIdOnly := clientTypes.AssetInfo{
 		AssetId: testAsset.AssetId,
 	}
 	err = storeSvc.UpsertAsset(ctx, testAssetIdOnly)
@@ -729,7 +729,7 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	require.Nil(t, asset)
 }
 
-func requireVtxosListEqual(t *testing.T, expected, actual []sdktypes.Vtxo) {
+func requireVtxosListEqual(t *testing.T, expected, actual []clientTypes.Vtxo) {
 	require.Len(t, expected, len(actual))
 
 	for _, v := range expected {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -37,11 +37,11 @@ func NewAssetStore(dir string, logger badger.Logger) (types.AssetStore, error) {
 	}, nil
 }
 
-func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.AssetInfo, error) {
+func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*clientTypes.AssetInfo, error) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
-	var assetInfo sdktypes.AssetInfo
+	var assetInfo clientTypes.AssetInfo
 	if err := a.db.Get(assetId, &assetInfo); err != nil {
 		if errors.Is(err, badgerhold.ErrNotFound) {
 			return nil, fmt.Errorf("asset not found: %s", assetId)
@@ -51,11 +51,11 @@ func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*sdktypes.As
 	return &assetInfo, nil
 }
 
-func (a *assetStore) UpsertAsset(ctx context.Context, asset sdktypes.AssetInfo) error {
+func (a *assetStore) UpsertAsset(ctx context.Context, asset clientTypes.AssetInfo) error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
-	var existing sdktypes.AssetInfo
+	var existing clientTypes.AssetInfo
 	err := a.db.Get(asset.AssetId, &existing)
 	if err != nil && !errors.Is(err, badgerhold.ErrNotFound) {
 		return err

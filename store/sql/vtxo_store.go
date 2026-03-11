@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -33,8 +33,8 @@ func NewVtxoStore(db *sql.DB) types.VtxoStore {
 	}
 }
 
-func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int, error) {
-	addedVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
+	addedVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range vtxos {
 			vtxo := vtxos[i]
@@ -106,9 +106,9 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (i
 }
 
 func (v *vtxoRepository) SpendVtxos(
-	ctx context.Context, spentVtxosMap map[sdktypes.Outpoint]string, arkTxid string,
+	ctx context.Context, spentVtxosMap map[clientTypes.Outpoint]string, arkTxid string,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxosMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxosMap))
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -117,7 +117,7 @@ func (v *vtxoRepository) SpendVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if vtxo.Spent {
@@ -155,9 +155,9 @@ func (v *vtxoRepository) SpendVtxos(
 }
 
 func (v *vtxoRepository) SettleVtxos(
-	ctx context.Context, spentVtxosMap map[sdktypes.Outpoint]string, settledBy string,
+	ctx context.Context, spentVtxosMap map[clientTypes.Outpoint]string, settledBy string,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(spentVtxosMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxosMap))
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -166,7 +166,7 @@ func (v *vtxoRepository) SettleVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if vtxo.Spent {
@@ -203,8 +203,8 @@ func (v *vtxoRepository) SettleVtxos(
 	return len(spentVtxos), nil
 }
 
-func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo) (int, error) {
-	updatedVtxos := make([]sdktypes.Vtxo, 0, len(vtxos))
+func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
+	updatedVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if err := querierWithTx.UpdateVtxo(ctx, queries.UpdateVtxoParams{
@@ -236,7 +236,7 @@ func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []sdktypes.Vtxo)
 
 func (v *vtxoRepository) GetAllVtxos(
 	ctx context.Context,
-) (spendable, spent []sdktypes.Vtxo, err error) {
+) (spendable, spent []clientTypes.Vtxo, err error) {
 	rows, err := v.querier.SelectAllVtxos(ctx)
 	if err != nil {
 		return
@@ -258,9 +258,9 @@ func (v *vtxoRepository) GetAllVtxos(
 }
 
 func (v *vtxoRepository) GetVtxos(
-	ctx context.Context, keys []sdktypes.Outpoint,
-) ([]sdktypes.Vtxo, error) {
-	vtxos := make([]sdktypes.Vtxo, 0, len(keys))
+	ctx context.Context, keys []clientTypes.Outpoint,
+) ([]clientTypes.Vtxo, error) {
+	vtxos := make([]clientTypes.Vtxo, 0, len(keys))
 	for _, key := range keys {
 		rows, err := v.querier.SelectVtxo(ctx, queries.SelectVtxoParams{
 			Txid: key.Txid,
@@ -282,7 +282,7 @@ func (v *vtxoRepository) GetVtxos(
 
 func (v *vtxoRepository) GetSpendableVtxos(
 	ctx context.Context,
-) (spendable []sdktypes.Vtxo, err error) {
+) (spendable []clientTypes.Vtxo, err error) {
 	rows, err := v.querier.SelectSpendableVtxos(ctx)
 	if err != nil {
 		return nil, err
@@ -334,7 +334,7 @@ func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	log.Warn("failed to send vtxo event")
 }
 
-func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []sdktypes.Vtxo {
+func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []clientTypes.Vtxo {
 	// group rows by (txid, vout)
 	byOutpoint := make(map[string][]queries.AssetVtxoVw)
 	for _, row := range rows {
@@ -342,7 +342,7 @@ func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []sdktypes.Vtxo {
 		byOutpoint[key] = append(byOutpoint[key], row)
 	}
 
-	vtxos := make([]sdktypes.Vtxo, 0, len(byOutpoint))
+	vtxos := make([]clientTypes.Vtxo, 0, len(byOutpoint))
 	for _, group := range byOutpoint {
 		vtxo := assetVtxoVwGroupToVtxo(group)
 		vtxos = append(vtxos, vtxo)
@@ -352,9 +352,9 @@ func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []sdktypes.Vtxo {
 }
 
 // assetVtxoVwGroupToVtxo converts a group of AssetVtxoVw rows (same vtxo, one row per asset from the view) into one types.Vtxo.
-func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) sdktypes.Vtxo {
+func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) clientTypes.Vtxo {
 	if len(group) == 0 {
-		return sdktypes.Vtxo{}
+		return clientTypes.Vtxo{}
 	}
 	row := group[0]
 	vtxoRow := queries.Vtxo{
@@ -388,7 +388,7 @@ func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) sdktypes.Vtxo {
 	return rowToVtxo(vtxoRow, assets)
 }
 
-func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) sdktypes.Vtxo {
+func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) clientTypes.Vtxo {
 	var expiresAt, createdAt time.Time
 	if row.ExpiresAt != 0 {
 		expiresAt = time.Unix(row.ExpiresAt, 0)
@@ -397,18 +397,18 @@ func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) sdktypes.Vtxo {
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	var assets []sdktypes.Asset
+	var assets []clientTypes.Asset
 	if len(assetVtxos) > 0 {
-		assets = make([]sdktypes.Asset, 0, len(assetVtxos))
+		assets = make([]clientTypes.Asset, 0, len(assetVtxos))
 		for _, av := range assetVtxos {
-			assets = append(assets, sdktypes.Asset{
+			assets = append(assets, clientTypes.Asset{
 				AssetId: av.AssetID,
 				Amount:  uint64(av.Amount),
 			})
 		}
 	}
-	return sdktypes.Vtxo{
-		Outpoint: sdktypes.Outpoint{
+	return clientTypes.Vtxo{
+		Outpoint: clientTypes.Outpoint{
 			Txid: row.Txid,
 			VOut: uint32(row.Vout),
 		},

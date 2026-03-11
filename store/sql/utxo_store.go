@@ -10,7 +10,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -36,8 +36,8 @@ func NewUtxoStore(db *sql.DB) types.UtxoStore {
 
 func (r *utxoRepository) ReplaceUtxo(
 	ctx context.Context,
-	from sdktypes.Outpoint,
-	to sdktypes.Outpoint,
+	from clientTypes.Outpoint,
+	to clientTypes.Outpoint,
 ) error {
 	utxo, err := r.querier.SelectUtxo(ctx, queries.SelectUtxoParams{
 		Txid: from.Txid,
@@ -114,15 +114,15 @@ func (r *utxoRepository) ReplaceUtxo(
 	r.wg.Go(func() {
 		r.sendEvent(types.UtxoEvent{
 			Type:  types.UtxosReplaced,
-			Utxos: []sdktypes.Utxo{existingUtxo},
+			Utxos: []clientTypes.Utxo{existingUtxo},
 		})
 	})
 
 	return nil
 }
 
-func (r *utxoRepository) AddUtxos(ctx context.Context, utxos []sdktypes.Utxo) (int, error) {
-	addedUtxos := make([]sdktypes.Utxo, 0, len(utxos))
+func (r *utxoRepository) AddUtxos(ctx context.Context, utxos []clientTypes.Utxo) (int, error) {
+	addedUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range utxos {
 			utxo := utxos[i]
@@ -193,9 +193,9 @@ func (r *utxoRepository) AddUtxos(ctx context.Context, utxos []sdktypes.Utxo) (i
 }
 
 func (r *utxoRepository) SpendUtxos(
-	ctx context.Context, spentUtxoMap map[sdktypes.Outpoint]string,
+	ctx context.Context, spentUtxoMap map[clientTypes.Outpoint]string,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(spentUtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentUtxoMap))
 	for outpoint := range spentUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -204,7 +204,7 @@ func (r *utxoRepository) SpendUtxos(
 		return -1, err
 	}
 
-	spentUtxos := make([]sdktypes.Utxo, 0, len(utxos))
+	spentUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, utxo := range utxos {
 			if utxo.Spent {
@@ -241,9 +241,9 @@ func (r *utxoRepository) SpendUtxos(
 }
 
 func (r *utxoRepository) ConfirmUtxos(
-	ctx context.Context, confirmedUtxosMap map[sdktypes.Outpoint]int64,
+	ctx context.Context, confirmedUtxosMap map[clientTypes.Outpoint]int64,
 ) (int, error) {
-	outpoints := make([]sdktypes.Outpoint, 0, len(confirmedUtxosMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(confirmedUtxosMap))
 	for outpoint := range confirmedUtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -252,7 +252,7 @@ func (r *utxoRepository) ConfirmUtxos(
 		return -1, err
 	}
 
-	confirmedUtxos := make([]sdktypes.Utxo, 0, len(utxos))
+	confirmedUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, utxo := range utxos {
 			if !utxo.CreatedAt.IsZero() {
@@ -300,7 +300,7 @@ func (r *utxoRepository) ConfirmUtxos(
 
 func (r *utxoRepository) GetAllUtxos(
 	ctx context.Context,
-) (spendable, spent []sdktypes.Utxo, err error) {
+) (spendable, spent []clientTypes.Utxo, err error) {
 	rows, err := r.querier.SelectAllUtxos(ctx)
 	if err != nil {
 		return
@@ -318,9 +318,9 @@ func (r *utxoRepository) GetAllUtxos(
 }
 
 func (r *utxoRepository) GetUtxos(
-	ctx context.Context, keys []sdktypes.Outpoint,
-) ([]sdktypes.Utxo, error) {
-	vtxos := make([]sdktypes.Utxo, 0, len(keys))
+	ctx context.Context, keys []clientTypes.Outpoint,
+) ([]clientTypes.Utxo, error) {
+	vtxos := make([]clientTypes.Utxo, 0, len(keys))
 	for _, key := range keys {
 		row, err := r.querier.SelectUtxo(ctx, queries.SelectUtxoParams{
 			Txid: key.Txid,
@@ -378,7 +378,7 @@ func (r *utxoRepository) sendEvent(event types.UtxoEvent) {
 	log.Warn("failed to send utxo event")
 }
 
-func rowToUtxo(row queries.Utxo) sdktypes.Utxo {
+func rowToUtxo(row queries.Utxo) clientTypes.Utxo {
 	var createdAt, spendableAt time.Time
 	if row.CreatedAt.Valid {
 		createdAt = time.Unix(row.CreatedAt.Int64, 0)
@@ -401,8 +401,8 @@ func rowToUtxo(row queries.Utxo) sdktypes.Utxo {
 			Type:  delayType,
 		}
 	}
-	return sdktypes.Utxo{
-		Outpoint: sdktypes.Outpoint{
+	return clientTypes.Utxo{
+		Outpoint: clientTypes.Outpoint{
 			Txid: row.Txid,
 			VOut: uint32(row.Vout),
 		},

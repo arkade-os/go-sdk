@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdktypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
 const (
@@ -31,7 +31,7 @@ func (e UtxoEventType) String() string {
 
 type UtxoEvent struct {
 	Type  UtxoEventType
-	Utxos []sdktypes.Utxo
+	Utxos []clientTypes.Utxo
 }
 
 type VtxoEventType int
@@ -52,7 +52,7 @@ func (e VtxoEventType) String() string {
 
 type VtxoEvent struct {
 	Type  VtxoEventType
-	Vtxos []sdktypes.Vtxo
+	Vtxos []clientTypes.Vtxo
 }
 
 type TxEventType int
@@ -76,15 +76,15 @@ func (e TxEventType) String() string {
 
 type TransactionEvent struct {
 	Type         TxEventType
-	Txs          []sdktypes.Transaction
+	Txs          []clientTypes.Transaction
 	Replacements map[string]string
 }
 
 type OnchainAddressEvent struct {
 	Error          error
-	SpentUtxos     []sdktypes.OnchainOutput
-	NewUtxos       []sdktypes.OnchainOutput
-	ConfirmedUtxos []sdktypes.OnchainOutput
+	SpentUtxos     []clientTypes.OnchainOutput
+	NewUtxos       []clientTypes.OnchainOutput
+	ConfirmedUtxos []clientTypes.OnchainOutput
 	Replacements   map[string]string // replacedTxid -> replacementTxid
 }
 
