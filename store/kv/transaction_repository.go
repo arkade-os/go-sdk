@@ -280,7 +280,9 @@ func (s *txStore) GetTransactions(
 	return txs, nil
 }
 
-func (s *txStore) UpdateTransactions(_ context.Context, txs []clientTypes.Transaction) (int, error) {
+func (s *txStore) UpdateTransactions(
+	_ context.Context, txs []clientTypes.Transaction,
+) (int, error) {
 	for _, tx := range txs {
 		if err := s.db.Upsert(tx.TransactionKey.String(), &tx); err != nil {
 			return -1, err
@@ -322,7 +324,9 @@ func (s *txStore) Close() {
 	close(s.eventCh)
 }
 
-func (s *txStore) replaceTxs(txsToAdd []clientTypes.Transaction, txsToDelete []string) (int, error) {
+func (s *txStore) replaceTxs(
+	txsToAdd []clientTypes.Transaction, txsToDelete []string,
+) (int, error) {
 	count := 0
 	dbtx := s.db.Badger().NewTransaction(true)
 	for _, tx := range txsToAdd {

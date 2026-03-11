@@ -178,7 +178,9 @@ func (s *vtxoStore) GetAllVtxos(
 	return
 }
 
-func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []clientTypes.Vtxo, err error) {
+func (s *vtxoStore) GetSpendableVtxos(
+	ctx context.Context,
+) (spendable []clientTypes.Vtxo, err error) {
 	var allVtxos []clientTypes.Vtxo
 	err = s.db.Find(&allVtxos, nil)
 	if err != nil {

@@ -312,7 +312,9 @@ func (v *txStore) GetTransactions(
 	return readTxRows(rows)
 }
 
-func (v *txStore) UpdateTransactions(ctx context.Context, txs []clientTypes.Transaction) (int, error) {
+func (v *txStore) UpdateTransactions(
+	ctx context.Context, txs []clientTypes.Transaction,
+) (int, error) {
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			var settledBy sql.NullString
