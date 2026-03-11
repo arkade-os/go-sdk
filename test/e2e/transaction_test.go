@@ -507,8 +507,6 @@ func TestOffchainTx(t *testing.T) {
 			return tx.TransactionKey.String() == txid
 		}))
 
-		alice.Stop()
-		arkClient.Close()
 		// Create a new client that automatically finalizes pending txs
 		restoredAlice, _, _ := setupClientWithWallet(t, key)
 

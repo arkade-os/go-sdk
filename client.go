@@ -45,6 +45,7 @@ type arkClient struct {
 	syncErr           error
 	syncListeners     *syncListeners
 	stopFn            context.CancelFunc
+	stopOnce          sync.Once
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
 	logMu             *sync.Mutex
@@ -258,23 +259,25 @@ func (a *arkClient) Reset(ctx context.Context) {
 }
 
 func (a *arkClient) Stop() {
-	a.ArkClient.Stop()
-	a.Explorer().Stop()
+	a.stopOnce.Do(func() {
+		a.ArkClient.Stop()
+		a.Explorer().Stop()
 
-	a.syncMu.Lock()
-	a.syncDone = false
-	a.syncErr = nil
-	a.syncMu.Unlock()
+		a.syncMu.Lock()
+		a.syncDone = false
+		a.syncErr = nil
+		a.syncMu.Unlock()
 
-	if a.stopFn != nil {
-		a.stopFn()
-	}
-	if a.syncListeners != nil {
-		a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
-		a.syncListeners.clear()
-	}
+		if a.stopFn != nil {
+			a.stopFn()
+		}
+		if a.syncListeners != nil {
+			a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
+			a.syncListeners.clear()
+		}
 
-	a.store.Close()
+		a.store.Close()
+	})
 }
 
 func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]clientTypes.Transaction, error) {
