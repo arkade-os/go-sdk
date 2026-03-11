@@ -47,6 +47,7 @@ type arkClient struct {
 	stopFn            context.CancelFunc
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
+	logMu             *sync.Mutex
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -101,6 +102,7 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 		syncListeners: newReadyListeners(),
 		syncCh:        make(chan error),
 		dbMu:          &sync.Mutex{},
+		logMu:         &sync.Mutex{},
 	}
 
 	syncListeners := newReadyListeners()
@@ -184,6 +186,7 @@ func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
 		syncListeners: newReadyListeners(),
 		syncCh:        make(chan error),
 		dbMu:          &sync.Mutex{},
+		logMu:         &sync.Mutex{},
 	}
 
 	syncListeners := newReadyListeners()

@@ -81,10 +81,12 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		return err
 	}
 
+	a.logMu.Lock()
 	log.SetLevel(log.DebugLevel)
 	if !a.verbose {
 		log.SetLevel(log.ErrorLevel)
 	}
+	a.logMu.Unlock()
 
 	a.syncDone = false
 	a.syncErr = nil
