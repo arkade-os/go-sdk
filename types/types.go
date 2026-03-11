@@ -71,6 +71,7 @@ func (e TxEventType) String() string {
 		TxsSettled:   "TXS_SETTLED",
 		TxsConfirmed: "TXS_CONFIRMED",
 		TxsReplaced:  "TXS_REPLACED",
+		TxsUpdated:   "TXS_UPDATED",
 	}[e]
 }
 

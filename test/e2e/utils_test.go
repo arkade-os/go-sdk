@@ -32,6 +32,8 @@ const (
 )
 
 func setupClient(t *testing.T) sdk.ArkClient {
+	t.Helper()
+
 	arkClient, err := sdk.NewArkClient("", false)
 	require.NoError(t, err)
 
@@ -50,12 +52,16 @@ func setupClient(t *testing.T) sdk.ArkClient {
 	require.True(t, synced.Synced)
 	require.Nil(t, synced.Err)
 
+	t.Cleanup(arkClient.Stop)
+
 	return arkClient
 }
 
 func setupClientWithWallet(
 	t *testing.T, prvkey string,
 ) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
+	t.Helper()
+
 	arkClient, err := sdk.NewArkClient("", false)
 	require.NoError(t, err)
 	require.NotNil(t, arkClient)
@@ -86,6 +92,8 @@ func setupClientWithWallet(
 	synced := <-arkClient.IsSynced(t.Context())
 	require.True(t, synced.Synced)
 	require.Nil(t, synced.Err)
+
+	t.Cleanup(arkClient.Stop)
 
 	grpcClient, err := grpcclient.NewClient(serverUrl)
 	require.NoError(t, err)

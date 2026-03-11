@@ -266,8 +266,6 @@ func TestOffchainTx(t *testing.T) {
 		require.NoError(t, err)
 
 		alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
-		t.Cleanup(func() { alice.Stop() })
-		t.Cleanup(func() { arkClient.Close() })
 
 		vtxo := faucetOffchain(t, alice, 0.00021)
 
@@ -405,9 +403,7 @@ func TestOffchainTx(t *testing.T) {
 
 		alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
 
-		bob, bobWallet, bobArkClient := setupClientWithWallet(t, "")
-		t.Cleanup(func() { bob.Stop() })
-		t.Cleanup(func() { bobArkClient.Close() })
+		_, bobWallet, _ := setupClientWithWallet(t, "")
 
 		vtxo := faucetOffchain(t, alice, 0.00021)
 
@@ -515,7 +511,6 @@ func TestOffchainTx(t *testing.T) {
 		arkClient.Close()
 		// Create a new client that automatically finalizes pending txs
 		restoredAlice, _, _ := setupClientWithWallet(t, key)
-		t.Cleanup(func() { restoredAlice.Stop() })
 
 		// // No pending txs should be finalized as they've been all handled in the background
 		finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)
