@@ -164,8 +164,12 @@ func TestCollaborativeExit(t *testing.T) {
 			require.NotEmpty(t, aliceBoardingAddr)
 
 			faucetOffchain(t, alice, 0.00021)
+			aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
 			faucetOnchain(t, aliceBoardingAddr, 0.001)
-			time.Sleep(5 * time.Second)
+
+			// wait for Alice's boarding UTXO to be detected before calling CollaborativeExit
+			aliceUtxoEvent := <-aliceUtxoCh
+			require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
 
 			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 			require.Error(t, err)
