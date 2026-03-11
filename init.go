@@ -100,22 +100,26 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.setRestored(err)
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	bgCtx, cancel := context.WithCancel(context.Background())
 	a.stopFn = cancel
 
-	a.ArkClient.Explorer().Start()
+	go func() {
+		a.Explorer().Start()
 
-	err := a.refreshDb(ctx)
-	a.syncCh <- err
-	close(a.syncCh)
+		ctx := bgCtx
 
-	// start listening to stream events
-	go a.listenForArkTxs(ctx)
-	go a.listenForOnchainTxs(ctx)
-	go a.listenDbEvents(ctx)
+		err := a.refreshDb(ctx)
+		a.syncCh <- err
+		close(a.syncCh)
 
-	// start periodic refresh db
-	go a.periodicRefreshDb(ctx)
+		// start listening to stream events
+		go a.listenForArkTxs(ctx)
+		go a.listenForOnchainTxs(ctx)
+		go a.listenDbEvents(ctx)
+
+		// start periodic refresh db
+		go a.periodicRefreshDb(ctx)
+	}()
 
 	return nil
 }
@@ -125,11 +129,12 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		return err
 	}
 
-	a.ArkClient.Explorer().Stop()
+	a.Explorer().Stop()
 
 	a.syncMu.Lock()
 	a.syncDone = false
 	a.syncErr = nil
+	a.syncMu.Unlock()
 
 	if a.stopFn != nil {
 		a.stopFn()

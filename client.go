@@ -197,23 +197,14 @@ func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
 }
 
 func (a *arkClient) Explorer() explorer.Explorer {
-	if err := a.safeCheck(); err != nil {
-		return nil
-	}
 	return a.ArkClient.Explorer()
 }
 
 func (a *arkClient) Indexer() indexer.Indexer {
-	if err := a.safeCheck(); err != nil {
-		return nil
-	}
 	return a.ArkClient.Indexer()
 }
 
 func (a *arkClient) Client() transport.TransportClient {
-	if err := a.safeCheck(); err != nil {
-		return nil
-	}
 	return a.Transport()
 }
 
@@ -268,9 +259,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 
 func (a *arkClient) Stop() {
 	a.ArkClient.Stop()
-	if exp := a.ArkClient.Explorer(); exp != nil {
-		exp.Stop()
-	}
+	a.Explorer().Stop()
 
 	a.syncMu.Lock()
 	a.syncDone = false
