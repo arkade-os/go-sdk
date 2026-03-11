@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -16,8 +17,13 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, history)
 
-	_, aliceOffchainAddr, aliceBoardingAddr, err := alice.Receive(ctx)
+	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 	require.NoError(t, err)
+	require.NotEmpty(t, aliceOffchainAddr)
+
+	aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, aliceBoardingAddr)
 
 	aliceTxChan := alice.GetTransactionEventChannel(ctx)
 	utxoCh := alice.GetUtxoEventChannel(ctx)
@@ -36,7 +42,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	boardingTx := event.Txs[0]
-	require.Equal(t, types.TxReceived, boardingTx.Type)
+	require.Equal(t, clientTypes.TxReceived, boardingTx.Type)
 	require.Equal(t, 21000, int(boardingTx.Amount))
 	require.Empty(t, boardingTx.Hex)
 	require.NotEmpty(t, boardingTx.BoardingTxid)
@@ -55,19 +61,35 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentTxid)
 
+	// Verify the boarding tx is marked as settled in history.
+	// This check is done independently of the event channel to catch cases where
+	// the settlement is not persisted even if no event fires.
+	require.Eventually(t, func() bool {
+		h, err := alice.GetTransactionHistory(ctx)
+		if err != nil || len(h) != 1 {
+			return false
+		}
+		return h[0].SettledBy == commitmentTxid
+	}, 30*time.Second, time.Second, "boarding tx should be marked as settled in history after Settle")
+
 	// should receive the boarding settled tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsSettled, event.Type)
-	require.Len(t, event.Txs, 1)
-	settledBoardingTx := event.Txs[0]
-	require.NotEmpty(t, settledBoardingTx.SettledBy)
-	require.Equal(t, types.TxReceived, settledBoardingTx.Type)
-	require.Equal(t, 21000, int(settledBoardingTx.Amount))
-	require.NotEmpty(t, settledBoardingTx.BoardingTxid)
-	require.Empty(t, settledBoardingTx.CommitmentTxid)
-	require.Empty(t, settledBoardingTx.ArkTxid)
-	require.Equal(t, boardingTx.BoardingTxid, settledBoardingTx.BoardingTxid)
-	require.Equal(t, settledBoardingTx.SettledBy, commitmentTxid)
+	var settledBoardingTx clientTypes.Transaction
+	select {
+	case event = <-aliceTxChan:
+		require.Equal(t, types.TxsSettled, event.Type)
+		require.Len(t, event.Txs, 1)
+		settledBoardingTx = event.Txs[0]
+		require.NotEmpty(t, settledBoardingTx.SettledBy)
+		require.Equal(t, clientTypes.TxReceived, settledBoardingTx.Type)
+		require.Equal(t, 21000, int(settledBoardingTx.Amount))
+		require.NotEmpty(t, settledBoardingTx.BoardingTxid)
+		require.Empty(t, settledBoardingTx.CommitmentTxid)
+		require.Empty(t, settledBoardingTx.ArkTxid)
+		require.Equal(t, boardingTx.BoardingTxid, settledBoardingTx.BoardingTxid)
+		require.Equal(t, settledBoardingTx.SettledBy, commitmentTxid)
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for TxsSettled event after Settle")
+	}
 
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
@@ -96,26 +118,32 @@ func TestTransactionHistory(t *testing.T) {
 	bob := setupClient(t)
 	bobTxChan := bob.GetTransactionEventChannel(ctx)
 
-	bobOnchainAddr, bobAddress, _, err := bob.Receive(ctx)
+	bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, bobOnchainAddr)
+
+	bobAddress, err := bob.NewOffchainAddress(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddress)
 
-	arkTxid, err := alice.SendOffChain(ctx, []types.Receiver{{
+	arkTxid, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     bobAddress,
-		Amount: 1000,
+		Amount: 10000,
 	}})
 	require.NoError(t, err)
+
+	time.Sleep(10 * time.Second)
 
 	// should receive the ark tx event
 	event = <-aliceTxChan
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	offchainTx := event.Txs[0]
-	require.Equal(t, types.TxSent, offchainTx.Type)
+	require.Equal(t, clientTypes.TxSent, offchainTx.Type)
 	require.Equal(t, arkTxid, offchainTx.ArkTxid)
 	require.Empty(t, offchainTx.BoardingTxid)
 	require.Empty(t, offchainTx.CommitmentTxid)
-	require.Equal(t, 1000, int(offchainTx.Amount))
+	require.Equal(t, 10000, int(offchainTx.Amount))
 	require.NotEmpty(t, offchainTx.Hex)
 
 	history, err = alice.GetTransactionHistory(ctx)
@@ -129,8 +157,8 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	offchainReceivedTx := event.Txs[0]
-	require.Equal(t, types.TxReceived, offchainReceivedTx.Type)
-	require.Equal(t, 1000, int(offchainReceivedTx.Amount))
+	require.Equal(t, clientTypes.TxReceived, offchainReceivedTx.Type)
+	require.Equal(t, 10000, int(offchainReceivedTx.Amount))
 	require.NotEmpty(t, offchainReceivedTx.Hex)
 	require.Empty(t, offchainReceivedTx.BoardingTxid)
 	require.Empty(t, offchainReceivedTx.CommitmentTxid)
@@ -144,9 +172,9 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, offchainReceivedTx, history[0], "")
 
 	// bob sends funds to alice
-	arkTxid, err = bob.SendOffChain(ctx, []types.Receiver{{
+	arkTxid, err = bob.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     aliceOffchainAddr,
-		Amount: 1000,
+		Amount: 10000,
 	}})
 	require.NoError(t, err)
 
@@ -155,11 +183,11 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	offchainReceivedTx = event.Txs[0]
-	require.Equal(t, types.TxReceived, offchainReceivedTx.Type)
+	require.Equal(t, clientTypes.TxReceived, offchainReceivedTx.Type)
 	require.Equal(t, arkTxid, offchainReceivedTx.ArkTxid)
 	require.Empty(t, offchainReceivedTx.BoardingTxid)
 	require.Empty(t, offchainReceivedTx.CommitmentTxid)
-	require.Equal(t, 1000, int(offchainReceivedTx.Amount))
+	require.Equal(t, 10000, int(offchainReceivedTx.Amount))
 	require.NotEmpty(t, offchainReceivedTx.Hex)
 
 	// check history matches
@@ -172,7 +200,7 @@ func TestTransactionHistory(t *testing.T) {
 
 	time.Sleep(5 * time.Second)
 
-	commitmentTxid, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 2000)
+	commitmentTxid, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 12000)
 	require.NoError(t, err)
 	require.NotEmpty(t, commitmentTxid)
 
@@ -181,8 +209,8 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	collabExitTx := event.Txs[0]
-	require.Equal(t, types.TxSent, collabExitTx.Type)
-	require.Equal(t, 2000, int(collabExitTx.Amount))
+	require.Equal(t, clientTypes.TxSent, collabExitTx.Type)
+	require.Equal(t, 12000, int(collabExitTx.Amount))
 	require.Empty(t, collabExitTx.BoardingTxid)
 	require.NotEmpty(t, collabExitTx.CommitmentTxid)
 	require.Empty(t, collabExitTx.ArkTxid)
@@ -200,7 +228,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, settledBoardingTx, history[3], "")
 }
 
-func requireTxEqual(t *testing.T, expected, actual types.Transaction, settledBy string) {
+func requireTxEqual(t *testing.T, expected, actual clientTypes.Transaction, settledBy string) {
 	require.Equal(t, expected.TransactionKey, actual.TransactionKey)
 	require.Equal(t, expected.Type, actual.Type)
 	require.Equal(t, expected.Amount, actual.Amount)

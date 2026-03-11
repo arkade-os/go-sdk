@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	filestore "github.com/arkade-os/go-sdk/store/file"
-	inmemorystore "github.com/arkade-os/go-sdk/store/inmemory"
 	kvstore "github.com/arkade-os/go-sdk/store/kv"
 	sqlstore "github.com/arkade-os/go-sdk/store/sql"
 	"github.com/arkade-os/go-sdk/types"
@@ -26,43 +24,27 @@ const (
 )
 
 type service struct {
-	configStore types.ConfigStore
-	utxoStore   types.UtxoStore
-	vtxoStore   types.VtxoStore
-	txStore     types.TransactionStore
-	assetStore  types.AssetStore
+	utxoStore  types.UtxoStore
+	vtxoStore  types.VtxoStore
+	txStore    types.TransactionStore
+	assetStore types.AssetStore
 }
 
 type Config struct {
-	ConfigStoreType  string
 	AppDataStoreType string
-
-	BaseDir string
+	BaseDir          string
 }
 
 func NewStore(storeConfig Config) (types.Store, error) {
 	var (
-		configStore types.ConfigStore
-		utxoStore   types.UtxoStore
-		vtxoStore   types.VtxoStore
-		txStore     types.TransactionStore
-		assetStore  types.AssetStore
-		err         error
+		utxoStore  types.UtxoStore
+		vtxoStore  types.VtxoStore
+		txStore    types.TransactionStore
+		assetStore types.AssetStore
+		err        error
 
 		dir = storeConfig.BaseDir
 	)
-
-	switch storeConfig.ConfigStoreType {
-	case types.InMemoryStore:
-		configStore, err = inmemorystore.NewConfigStore()
-	case types.FileStore:
-		configStore, err = filestore.NewConfigStore(dir)
-	default:
-		err = fmt.Errorf("unknown config store type")
-	}
-	if err != nil {
-		return nil, err
-	}
 
 	if len(storeConfig.AppDataStoreType) > 0 {
 		switch storeConfig.AppDataStoreType {
@@ -88,7 +70,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			}
 			driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
 			if err != nil {
-				return nil, fmt.Errorf("failed to init driver: %s", err)
+				return nil, fmt.Errorf("failed to open store: %s", err)
 			}
 
 			source, err := iofs.New(migrations, "sql/migration")
@@ -116,11 +98,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		}
 	}
 
-	return &service{configStore, utxoStore, vtxoStore, txStore, assetStore}, nil
-}
-
-func (s *service) ConfigStore() types.ConfigStore {
-	return s.configStore
+	return &service{utxoStore, vtxoStore, txStore, assetStore}, nil
 }
 
 func (s *service) UtxoStore() types.UtxoStore {
@@ -140,21 +118,35 @@ func (s *service) AssetStore() types.AssetStore {
 }
 
 func (s *service) Clean(ctx context.Context) {
-	//nolint:all
-	s.configStore.CleanData(ctx)
+	if s.utxoStore != nil {
+		//nolint
+		s.utxoStore.Clean(ctx)
+	}
 	if s.txStore != nil {
-		//nolint:all
+		//nolint
 		s.txStore.Clean(ctx)
 	}
 	if s.vtxoStore != nil {
-		//nolint:all
+		//nolint
 		s.vtxoStore.Clean(ctx)
+	}
+	if s.assetStore != nil {
+		//nolint
+		s.assetStore.Clean(ctx)
 	}
 }
 
 func (s *service) Close() {
-	s.configStore.Close()
-	s.vtxoStore.Close()
-	s.txStore.Close()
-	s.assetStore.Close()
+	if s.utxoStore != nil {
+		s.utxoStore.Close()
+	}
+	if s.txStore != nil {
+		s.txStore.Close()
+	}
+	if s.vtxoStore != nil {
+		s.vtxoStore.Close()
+	}
+	if s.assetStore != nil {
+		s.assetStore.Close()
+	}
 }

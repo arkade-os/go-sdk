@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -21,6 +22,7 @@ const (
 type vtxoStore struct {
 	db      *badgerhold.Store
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.VtxoEvent
 }
 
@@ -35,12 +37,13 @@ func NewVtxoStore(dir string, logger badger.Logger) (types.VtxoStore, error) {
 	return &vtxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.VtxoEvent, 100),
 	}, nil
 }
 
-func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []types.Vtxo) (int, error) {
-	addedVtxos := make([]types.Vtxo, 0, len(vtxos))
+func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []clientTypes.Vtxo) (int, error) {
+	addedVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if err := s.db.Insert(vtxo.Outpoint.String(), &vtxo); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
@@ -52,16 +55,21 @@ func (s *vtxoStore) AddVtxos(_ context.Context, vtxos []types.Vtxo) (int, error)
 	}
 
 	if len(addedVtxos) > 0 {
-		go s.sendEvent(types.VtxoEvent{Type: types.VtxosAdded, Vtxos: addedVtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosAdded,
+				Vtxos: addedVtxos,
+			})
+		})
 	}
 
 	return len(addedVtxos), nil
 }
 
 func (s *vtxoStore) SpendVtxos(
-	ctx context.Context, spentVtxoMap map[types.Outpoint]string, arkTxid string,
+	ctx context.Context, spentVtxoMap map[clientTypes.Outpoint]string, arkTxid string,
 ) (int, error) {
-	outpoints := make([]types.Outpoint, 0, len(spentVtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxoMap))
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -70,7 +78,7 @@ func (s *vtxoStore) SpendVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]types.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if vtxo.Spent {
 			continue
@@ -86,16 +94,21 @@ func (s *vtxoStore) SpendVtxos(
 	}
 
 	if len(spentVtxos) > 0 {
-		go s.sendEvent(types.VtxoEvent{Type: types.VtxosSpent, Vtxos: spentVtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSpent,
+				Vtxos: spentVtxos,
+			})
+		})
 	}
 
 	return len(spentVtxos), nil
 }
 
 func (s *vtxoStore) SettleVtxos(
-	ctx context.Context, spentVtxoMap map[types.Outpoint]string, settledBy string,
+	ctx context.Context, spentVtxoMap map[clientTypes.Outpoint]string, settledBy string,
 ) (int, error) {
-	outpoints := make([]types.Outpoint, 0, len(spentVtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxoMap))
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -104,7 +117,7 @@ func (s *vtxoStore) SettleVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]types.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		if vtxo.Spent {
 			continue
@@ -120,29 +133,36 @@ func (s *vtxoStore) SettleVtxos(
 	}
 
 	if len(spentVtxos) > 0 {
-		go s.sendEvent(types.VtxoEvent{Type: types.VtxosSpent, Vtxos: spentVtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSpent,
+				Vtxos: spentVtxos,
+			})
+		})
 	}
 
 	return len(spentVtxos), nil
 }
 
-func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error) {
+func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
 	for _, vtxo := range vtxos {
 		if err := s.db.Upsert(vtxo.Outpoint.String(), &vtxo); err != nil {
 			return -1, err
 		}
 	}
-	go s.sendEvent(types.VtxoEvent{
-		Type:  types.VtxosUpdated,
-		Vtxos: vtxos,
+	s.wg.Go(func() {
+		s.sendEvent(types.VtxoEvent{
+			Type:  types.VtxosUpdated,
+			Vtxos: vtxos,
+		})
 	})
 	return len(vtxos), nil
 }
 
 func (s *vtxoStore) GetAllVtxos(
 	_ context.Context,
-) (spendable, spent []types.Vtxo, err error) {
-	var allVtxos []types.Vtxo
+) (spendable, spent []clientTypes.Vtxo, err error) {
+	var allVtxos []clientTypes.Vtxo
 	err = s.db.Find(&allVtxos, nil)
 	if err != nil {
 		return nil, nil, err
@@ -158,8 +178,10 @@ func (s *vtxoStore) GetAllVtxos(
 	return
 }
 
-func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []types.Vtxo, err error) {
-	var allVtxos []types.Vtxo
+func (s *vtxoStore) GetSpendableVtxos(
+	ctx context.Context,
+) (spendable []clientTypes.Vtxo, err error) {
+	var allVtxos []clientTypes.Vtxo
 	err = s.db.Find(&allVtxos, nil)
 	if err != nil {
 		return nil, err
@@ -174,11 +196,11 @@ func (s *vtxoStore) GetSpendableVtxos(ctx context.Context) (spendable []types.Vt
 }
 
 func (s *vtxoStore) GetVtxos(
-	_ context.Context, keys []types.Outpoint,
-) ([]types.Vtxo, error) {
-	var vtxos []types.Vtxo
+	_ context.Context, keys []clientTypes.Outpoint,
+) ([]clientTypes.Vtxo, error) {
+	var vtxos []clientTypes.Vtxo
 	for _, key := range keys {
-		var vtxo types.Vtxo
+		var vtxo clientTypes.Vtxo
 		err := s.db.Get(key.String(), &vtxo)
 		if err != nil {
 			if errors.Is(err, badgerhold.ErrNotFound) {
@@ -198,6 +220,9 @@ func (s *vtxoStore) GetEventChannel() <-chan types.VtxoEvent {
 }
 
 func (s *vtxoStore) Clean(_ context.Context) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Badger().DropAll(); err != nil {
 		return fmt.Errorf("failed to clean the vtxo db: %s", err)
 	}
@@ -205,6 +230,10 @@ func (s *vtxoStore) Clean(_ context.Context) error {
 }
 
 func (s *vtxoStore) Close() {
+	s.wg.Wait()
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Close(); err != nil {
 		log.Debugf("error on closing db: %s", err)
 	}
@@ -214,10 +243,13 @@ func (s *vtxoStore) sendEvent(event types.VtxoEvent) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	select {
-	case s.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+	for range 3 {
+		select {
+		case s.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
+	log.Warn("failed to send vtxo event")
 }

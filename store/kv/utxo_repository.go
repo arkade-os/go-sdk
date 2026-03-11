@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -21,6 +22,7 @@ const (
 type utxoStore struct {
 	db      *badgerhold.Store
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.UtxoEvent
 }
 
@@ -35,16 +37,13 @@ func NewUtxoStore(dir string, logger badger.Logger) (types.UtxoStore, error) {
 	return &utxoStore{
 		db:      badgerDb,
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.UtxoEvent, 100),
 	}, nil
 }
 
-func (s *utxoStore) ReplaceUtxo(
-	ctx context.Context,
-	from types.Outpoint,
-	to types.Outpoint,
-) error {
-	var utxo types.Utxo
+func (s *utxoStore) ReplaceUtxo(ctx context.Context, from, to clientTypes.Outpoint) error {
+	var utxo clientTypes.Utxo
 	if err := s.db.Get(from.String(), &utxo); err != nil {
 		return err
 	}
@@ -58,13 +57,18 @@ func (s *utxoStore) ReplaceUtxo(
 		return err
 	}
 
-	go s.sendEvent(types.UtxoEvent{Type: types.UtxosReplaced, Utxos: []types.Utxo{utxo}})
+	s.wg.Go(func() {
+		s.sendEvent(types.UtxoEvent{
+			Type:  types.UtxosReplaced,
+			Utxos: []clientTypes.Utxo{utxo},
+		})
+	})
 
 	return nil
 }
 
-func (s *utxoStore) AddUtxos(_ context.Context, utxos []types.Utxo) (int, error) {
-	addedUtxos := make([]types.Utxo, 0, len(utxos))
+func (s *utxoStore) AddUtxos(_ context.Context, utxos []clientTypes.Utxo) (int, error) {
+	addedUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if err := s.db.Insert(utxo.String(), &utxo); err != nil {
 			if errors.Is(err, badgerhold.ErrKeyExists) {
@@ -76,16 +80,21 @@ func (s *utxoStore) AddUtxos(_ context.Context, utxos []types.Utxo) (int, error)
 	}
 
 	if len(addedUtxos) > 0 {
-		go s.sendEvent(types.UtxoEvent{Type: types.UtxosAdded, Utxos: addedUtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosAdded,
+				Utxos: addedUtxos,
+			})
+		})
 	}
 
 	return len(addedUtxos), nil
 }
 
 func (s *utxoStore) ConfirmUtxos(
-	ctx context.Context, confirmedUtxoMap map[types.Outpoint]int64,
+	ctx context.Context, confirmedUtxoMap map[clientTypes.Outpoint]int64,
 ) (int, error) {
-	outpoints := make([]types.Outpoint, 0, len(confirmedUtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(confirmedUtxoMap))
 	for outpoint := range confirmedUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -94,7 +103,7 @@ func (s *utxoStore) ConfirmUtxos(
 		return -1, err
 	}
 
-	confirmedUtxos := make([]types.Utxo, 0, len(utxos))
+	confirmedUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if !utxo.CreatedAt.IsZero() {
 			continue
@@ -114,16 +123,21 @@ func (s *utxoStore) ConfirmUtxos(
 	}
 
 	if len(confirmedUtxos) > 0 {
-		go s.sendEvent(types.UtxoEvent{Type: types.UtxosConfirmed, Utxos: confirmedUtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosConfirmed,
+				Utxos: confirmedUtxos,
+			})
+		})
 	}
 
 	return len(confirmedUtxos), nil
 }
 
 func (s *utxoStore) SpendUtxos(
-	ctx context.Context, spentUtxoMap map[types.Outpoint]string,
+	ctx context.Context, spentUtxoMap map[clientTypes.Outpoint]string,
 ) (int, error) {
-	outpoints := make([]types.Outpoint, 0, len(spentUtxoMap))
+	outpoints := make([]clientTypes.Outpoint, 0, len(spentUtxoMap))
 	for outpoint := range spentUtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
@@ -132,7 +146,7 @@ func (s *utxoStore) SpendUtxos(
 		return -1, err
 	}
 
-	spentUtxos := make([]types.Utxo, 0, len(utxos))
+	spentUtxos := make([]clientTypes.Utxo, 0, len(utxos))
 	for _, utxo := range utxos {
 		if utxo.Spent {
 			continue
@@ -147,7 +161,12 @@ func (s *utxoStore) SpendUtxos(
 	}
 
 	if len(spentUtxos) > 0 {
-		go s.sendEvent(types.UtxoEvent{Type: types.UtxosSpent, Utxos: spentUtxos})
+		s.wg.Go(func() {
+			s.sendEvent(types.UtxoEvent{
+				Type:  types.UtxosSpent,
+				Utxos: spentUtxos,
+			})
+		})
 	}
 
 	return len(spentUtxos), nil
@@ -155,8 +174,8 @@ func (s *utxoStore) SpendUtxos(
 
 func (s *utxoStore) GetAllUtxos(
 	_ context.Context,
-) (spendable, spent []types.Utxo, err error) {
-	var allUtxos []types.Utxo
+) (spendable, spent []clientTypes.Utxo, err error) {
+	var allUtxos []clientTypes.Utxo
 	if err := s.db.Find(&allUtxos, nil); err != nil {
 		return nil, nil, err
 	}
@@ -172,11 +191,11 @@ func (s *utxoStore) GetAllUtxos(
 }
 
 func (s *utxoStore) GetUtxos(
-	_ context.Context, keys []types.Outpoint,
-) ([]types.Utxo, error) {
-	var utxos []types.Utxo
+	_ context.Context, keys []clientTypes.Outpoint,
+) ([]clientTypes.Utxo, error) {
+	var utxos []clientTypes.Utxo
 	for _, key := range keys {
-		var utxo types.Utxo
+		var utxo clientTypes.Utxo
 		if err := s.db.Get(key.String(), &utxo); err != nil {
 			if errors.Is(err, badgerhold.ErrNotFound) {
 				continue
@@ -195,6 +214,9 @@ func (s *utxoStore) GetEventChannel() <-chan types.UtxoEvent {
 }
 
 func (s *utxoStore) Clean(_ context.Context) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Badger().DropAll(); err != nil {
 		return fmt.Errorf("failed to clean the utxo db: %s", err)
 	}
@@ -202,6 +224,10 @@ func (s *utxoStore) Clean(_ context.Context) error {
 }
 
 func (s *utxoStore) Close() {
+	s.wg.Wait()
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if err := s.db.Close(); err != nil {
 		log.Debugf("error on closing db: %s", err)
 	}
@@ -211,10 +237,13 @@ func (s *utxoStore) sendEvent(event types.UtxoEvent) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	select {
-	case s.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+	for range 3 {
+		select {
+		case s.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
+	log.Warn("failed to send utxo event")
 }

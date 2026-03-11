@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	arksdk "github.com/arkade-os/go-sdk"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -47,6 +48,8 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	tx := txEvent.Txs[0]
 	require.Equal(t, txid, tx.TransactionKey.String())
 
+	time.Sleep(time.Second)
+
 	assetVtxos := listVtxosWithAsset(t, alice, assetId)
 	require.Len(t, assetVtxos, 1)
 	require.Len(t, assetVtxos[0].Assets, 1)
@@ -54,13 +57,13 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	require.Equal(t, assetId, assetVtxos[0].Assets[0].AssetId)
 	require.Equal(t, txid, assetVtxos[0].Txid)
 
-	_, bobAddr, _, err := bob.Receive(ctx)
+	bobAddr, err := bob.NewOffchainAddress(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, bobAddr)
 
 	_, err = alice.SendOffChain(
-		ctx, []types.Receiver{
-			{To: bobAddr, Amount: 400, Assets: []types.Asset{
+		ctx, []clientTypes.Receiver{
+			{To: bobAddr, Amount: 400, Assets: []clientTypes.Asset{
 				{AssetId: assetId, Amount: transferAmount},
 			}},
 		},
@@ -131,17 +134,17 @@ func TestAssetIssuance(t *testing.T) {
 
 		// should spent vtxo
 		vtxoEvent := <-vtxoStream
-		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-		// should add vtxo with the new asset
-		vtxoEvent = <-vtxoStream
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 		vtxo := findVtxoWithTxid(vtxoEvent.Vtxos, txid, 0)
 		require.NotNil(t, vtxo)
 		require.Len(t, vtxo.Assets, 1)
 		require.Equal(t, assetIds[0].String(), vtxo.Assets[0].AssetId)
-		require.Equal(t, uint64(1), vtxo.Assets[0].Amount)
+		require.Equal(t, 1, int(vtxo.Assets[0].Amount))
+
+		// should add vtxo with the new asset
+		vtxoEvent = <-vtxoStream
+		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 	})
 
 	t.Run("with new control asset", func(t *testing.T) {
@@ -151,7 +154,7 @@ func TestAssetIssuance(t *testing.T) {
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
 
-		txid, assetIds, err := alice.IssueAsset(ctx, 1, types.NewControlAsset{Amount: 1}, nil)
+		txid, assetIds, err := alice.IssueAsset(ctx, 1, clientTypes.NewControlAsset{Amount: 1}, nil)
 		require.NoError(t, err)
 		require.Len(t, assetIds, 2)
 
@@ -161,15 +164,15 @@ func TestAssetIssuance(t *testing.T) {
 
 		// should spent vtxo
 		vtxoEvent := <-vtxoStream
-		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-		// should add vtxo with the new assets
-		vtxoEvent = <-vtxoStream
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 		vtxo := findVtxoWithTxid(vtxoEvent.Vtxos, txid, 0)
 		require.NotNil(t, vtxo)
 		require.Len(t, vtxo.Assets, 2) // both control asset and the issued asset
+
+		// should add vtxo with the new assets
+		vtxoEvent = <-vtxoStream
+		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 	})
 
 	t.Run("with existing control asset", func(t *testing.T) {
@@ -187,10 +190,6 @@ func TestAssetIssuance(t *testing.T) {
 
 		// should spent vtxo
 		vtxoEvent := <-vtxoStream
-		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-		// should add vtxo with the control asset
-		vtxoEvent = <-vtxoStream
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 		vtxo := findVtxoWithTxid(vtxoEvent.Vtxos, txid1, 0)
@@ -198,11 +197,15 @@ func TestAssetIssuance(t *testing.T) {
 		require.Len(t, vtxo.Assets, 1)
 		require.Equal(t, controlAssetId, vtxo.Assets[0].AssetId)
 
+		// should add vtxo with the control asset
+		vtxoEvent = <-vtxoStream
+		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
+
 		// issue another asset	 with existing control asset
 		txid2, assetIds2, err := alice.IssueAsset(
 			ctx,
 			1,
-			types.ExistingControlAsset{ID: controlAssetId},
+			clientTypes.ExistingControlAsset{ID: controlAssetId},
 			nil,
 		)
 		require.NoError(t, err)
@@ -212,15 +215,15 @@ func TestAssetIssuance(t *testing.T) {
 
 		// should spent vtxo (with control asset)
 		vtxoEvent = <-vtxoStream
-		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-		// should add vtxo with the new asset and control asset
-		vtxoEvent = <-vtxoStream
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 		vtxo = findVtxoWithTxid(vtxoEvent.Vtxos, txid2, 0)
 		require.NotNil(t, vtxo)
 		require.Len(t, vtxo.Assets, 2) // both control asset and the new issued asset
+
+		// should add vtxo with the new asset and control asset
+		vtxoEvent = <-vtxoStream
+		require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 	})
 }
 
@@ -234,7 +237,7 @@ func TestAssetReissuance(t *testing.T) {
 	vtxoStream := alice.GetVtxoEventChannel(ctx)
 
 	// issue an asset with a control asset
-	txid1, assetIds, err := alice.IssueAsset(ctx, 1, types.NewControlAsset{Amount: 1}, nil)
+	txid1, assetIds, err := alice.IssueAsset(ctx, 1, clientTypes.NewControlAsset{Amount: 1}, nil)
 	require.NoError(t, err)
 	require.Len(t, assetIds, 2)
 
@@ -244,15 +247,15 @@ func TestAssetReissuance(t *testing.T) {
 
 	// should spent vtxo
 	vtxoEvent := <-vtxoStream
-	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-	// should add vtxo with the new assets
-	vtxoEvent = <-vtxoStream
 	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 	require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 	vtxo := findVtxoWithTxid(vtxoEvent.Vtxos, txid1, 0)
 	require.NotNil(t, vtxo)
 	require.Len(t, vtxo.Assets, 2) // both control asset and the issued asset
+
+	// should add vtxo with the new assets
+	vtxoEvent = <-vtxoStream
+	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 
 	controlVtxos := listVtxosWithAsset(t, alice, controlAssetId)
 	require.Len(t, controlVtxos, 1)
@@ -262,9 +265,9 @@ func TestAssetReissuance(t *testing.T) {
 		2,
 	) // should hold both the control asset and the issued asset
 	require.Equal(t, controlAssetId, controlVtxos[0].Assets[0].AssetId)
-	require.Equal(t, uint64(1), controlVtxos[0].Assets[0].Amount)
+	require.Equal(t, 1, int(controlVtxos[0].Assets[0].Amount))
 	require.Equal(t, assetId, controlVtxos[0].Assets[1].AssetId)
-	require.Equal(t, uint64(1), controlVtxos[0].Assets[1].Amount)
+	require.Equal(t, 1, int(controlVtxos[0].Assets[1].Amount))
 
 	time.Sleep(2 * time.Second) // wait for the vtxo to be indexed
 
@@ -273,15 +276,15 @@ func TestAssetReissuance(t *testing.T) {
 
 	// should spent vtxo (with control asset and the asset)
 	vtxoEvent = <-vtxoStream
-	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-	// should add vtxo with reissued asset
-	vtxoEvent = <-vtxoStream
 	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 	require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 	vtxo = findVtxoWithTxid(vtxoEvent.Vtxos, txid2, 0)
 	require.NotNil(t, vtxo)
 	require.Len(t, vtxo.Assets, 2) // both control asset and the reissued asset
+
+	// should add vtxo with reissued asset
+	vtxoEvent = <-vtxoStream
+	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 
 	assetVtxos := listVtxosWithAsset(t, alice, assetId)
 	require.Len(t, assetVtxos, 2)
@@ -302,51 +305,51 @@ func TestAssetBurn(t *testing.T) {
 
 	// should spent vtxo
 	vtxoEvent := <-vtxoStream
-	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-	// should add vtxo with the new asset
-	vtxoEvent = <-vtxoStream
 	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 	require.Len(t, vtxoEvent.Vtxos, 2) // 2 because of the change
 	vtxo := findVtxoWithTxid(vtxoEvent.Vtxos, txid1, 0)
 	require.NotNil(t, vtxo)
 	require.Len(t, vtxo.Assets, 1)
 	require.Equal(t, assetId, vtxo.Assets[0].AssetId)
-	require.Equal(t, uint64(5000), vtxo.Assets[0].Amount)
+	require.Equal(t, 5000, int(vtxo.Assets[0].Amount))
+
+	// should add vtxo with the new asset
+	vtxoEvent = <-vtxoStream
+	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 
 	assetVtxos := listVtxosWithAsset(t, alice, assetId)
 	require.Len(t, assetVtxos, 1)
 	require.Len(t, assetVtxos[0].Assets, 1)
-	require.Equal(t, uint64(5000), assetVtxos[0].Assets[0].Amount)
+	require.Equal(t, 5000, int(assetVtxos[0].Assets[0].Amount))
 
 	txid2, err := alice.BurnAsset(ctx, assetId, 1500)
 	require.NoError(t, err)
 
 	// should spent vtxo (with the asset)
 	vtxoEvent = <-vtxoStream
-	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
-
-	// should add vtxo with the burned asset
-	vtxoEvent = <-vtxoStream
 	require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
-	require.Len(t, vtxoEvent.Vtxos, 1)
+	require.Len(t, vtxoEvent.Vtxos, 2)
 	vtxo = findVtxoWithTxid(vtxoEvent.Vtxos, txid2, 0)
 	require.NotNil(t, vtxo)
 	require.Len(t, vtxo.Assets, 1)
 	require.Equal(t, assetId, vtxo.Assets[0].AssetId)
-	require.Equal(t, uint64(3500), vtxo.Assets[0].Amount)
+	require.Equal(t, 3500, int(vtxo.Assets[0].Amount))
+
+	// should add vtxo with the burned asset
+	vtxoEvent = <-vtxoStream
+	require.Equal(t, types.VtxosSpent, vtxoEvent.Type)
 
 	assetVtxos = listVtxosWithAsset(t, alice, assetId)
 	require.Len(t, assetVtxos, 1)
 	require.Len(t, assetVtxos[0].Assets, 1)
-	require.Equal(t, uint64(3500), assetVtxos[0].Assets[0].Amount)
+	require.Equal(t, 3500, int(assetVtxos[0].Assets[0].Amount))
 }
 
-func listVtxosWithAsset(t *testing.T, client arksdk.ArkClient, assetID string) []types.Vtxo {
-	vtxos, err := client.ListSpendableVtxos(t.Context())
+func listVtxosWithAsset(t *testing.T, client sdk.ArkClient, assetID string) []clientTypes.Vtxo {
+	vtxos, _, err := client.ListVtxos(t.Context())
 	require.NoError(t, err)
 
-	assetVtxos := make([]types.Vtxo, 0, len(vtxos))
+	assetVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 
 	for _, vtxo := range vtxos {
 		for _, asset := range vtxo.Assets {
@@ -360,7 +363,7 @@ func listVtxosWithAsset(t *testing.T, client arksdk.ArkClient, assetID string) [
 	return assetVtxos
 }
 
-func findVtxoWithTxid(vtxos []types.Vtxo, txid string, vout uint32) *types.Vtxo {
+func findVtxoWithTxid(vtxos []clientTypes.Vtxo, txid string, vout uint32) *clientTypes.Vtxo {
 	for _, vtxo := range vtxos {
 		if vtxo.Txid == txid && vtxo.VOut == vout {
 			return &vtxo

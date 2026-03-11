@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/dgraph-io/badger/v4"
 	log "github.com/sirupsen/logrus"
@@ -17,7 +19,8 @@ const (
 )
 
 type assetStore struct {
-	db *badgerhold.Store
+	db   *badgerhold.Store
+	lock *sync.Mutex
 }
 
 func NewAssetStore(dir string, logger badger.Logger) (types.AssetStore, error) {
@@ -29,12 +32,16 @@ func NewAssetStore(dir string, logger badger.Logger) (types.AssetStore, error) {
 		return nil, fmt.Errorf("failed to open asset store: %s", err)
 	}
 	return &assetStore{
-		db: badgerDb,
+		db:   badgerDb,
+		lock: &sync.Mutex{},
 	}, nil
 }
 
-func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*types.AssetInfo, error) {
-	var assetInfo types.AssetInfo
+func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*clientTypes.AssetInfo, error) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
+	var assetInfo clientTypes.AssetInfo
 	if err := a.db.Get(assetId, &assetInfo); err != nil {
 		if errors.Is(err, badgerhold.ErrNotFound) {
 			return nil, fmt.Errorf("asset not found: %s", assetId)
@@ -44,8 +51,11 @@ func (a *assetStore) GetAsset(ctx context.Context, assetId string) (*types.Asset
 	return &assetInfo, nil
 }
 
-func (a *assetStore) UpsertAsset(ctx context.Context, asset types.AssetInfo) error {
-	var existing types.AssetInfo
+func (a *assetStore) UpsertAsset(ctx context.Context, asset clientTypes.AssetInfo) error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
+	var existing clientTypes.AssetInfo
 	err := a.db.Get(asset.AssetId, &existing)
 	if err != nil && !errors.Is(err, badgerhold.ErrNotFound) {
 		return err
@@ -65,7 +75,20 @@ func (a *assetStore) UpsertAsset(ctx context.Context, asset types.AssetInfo) err
 	return a.db.Upsert(asset.AssetId, &asset)
 }
 
+func (a *assetStore) Clean(_ context.Context) error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
+	if err := a.db.Badger().DropAll(); err != nil {
+		return fmt.Errorf("failed to clean the asset db: %s", err)
+	}
+	return nil
+}
+
 func (a *assetStore) Close() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
 	if err := a.db.Close(); err != nil {
 		log.Debugf("error on closing asset db: %s", err)
 	}

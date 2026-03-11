@@ -11,14 +11,17 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
+	log "github.com/sirupsen/logrus"
 )
 
 type txStore struct {
 	db      *sql.DB
 	querier *queries.Queries
 	lock    *sync.Mutex
+	wg      *sync.WaitGroup
 	eventCh chan types.TransactionEvent
 }
 
@@ -27,12 +30,13 @@ func NewTransactionStore(db *sql.DB) types.TransactionStore {
 		db:      db,
 		querier: queries.New(db),
 		lock:    &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
 		eventCh: make(chan types.TransactionEvent, 100),
 	}
 }
 
-func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
-	addedTxs := make([]types.Transaction, 0, len(txs))
+func (v *txStore) AddTransactions(ctx context.Context, txs []clientTypes.Transaction) (int, error) {
+	addedTxs := make([]clientTypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range txs {
 			tx := txs[i]
@@ -136,7 +140,12 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []types.Transaction) 
 	}
 
 	if len(addedTxs) > 0 {
-		go v.sendEvent(types.TransactionEvent{Type: types.TxsAdded, Txs: addedTxs})
+		v.wg.Go(func() {
+			v.sendEvent(types.TransactionEvent{
+				Type: types.TxsAdded,
+				Txs:  addedTxs,
+			})
+		})
 	}
 
 	return len(addedTxs), nil
@@ -152,7 +161,7 @@ func (v *txStore) SettleTransactions(
 		return -1, err
 	}
 
-	settledTxs := make([]types.Transaction, 0, len(txs))
+	settledTxs := make([]clientTypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			if tx.SettledBy != "" {
@@ -174,7 +183,12 @@ func (v *txStore) SettleTransactions(
 	}
 
 	if len(settledTxs) > 0 {
-		go v.sendEvent(types.TransactionEvent{Type: types.TxsSettled, Txs: settledTxs})
+		v.wg.Go(func() {
+			v.sendEvent(types.TransactionEvent{
+				Type: types.TxsSettled,
+				Txs:  settledTxs,
+			})
+		})
 	}
 
 	return len(settledTxs), nil
@@ -190,7 +204,7 @@ func (v *txStore) ConfirmTransactions(
 		return -1, err
 	}
 
-	confirmedTxs := make([]types.Transaction, 0, len(txs))
+	confirmedTxs := make([]clientTypes.Transaction, 0, len(txs))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			if !tx.CreatedAt.IsZero() {
@@ -211,7 +225,12 @@ func (v *txStore) ConfirmTransactions(
 	}
 
 	if len(confirmedTxs) > 0 {
-		go v.sendEvent(types.TransactionEvent{Type: types.TxsConfirmed, Txs: confirmedTxs})
+		v.wg.Go(func() {
+			v.sendEvent(types.TransactionEvent{
+				Type: types.TxsConfirmed,
+				Txs:  confirmedTxs,
+			})
+		})
 	}
 
 	return len(confirmedTxs), nil
@@ -263,16 +282,18 @@ func (v *txStore) RbfTransactions(
 		return -1, err
 	}
 
-	go v.sendEvent(types.TransactionEvent{
-		Type:         types.TxsReplaced,
-		Txs:          txs,
-		Replacements: replacements,
+	v.wg.Go(func() {
+		v.sendEvent(types.TransactionEvent{
+			Type:         types.TxsReplaced,
+			Txs:          txs,
+			Replacements: replacements,
+		})
 	})
 
 	return len(txs), nil
 }
 
-func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, error) {
+func (v *txStore) GetAllTransactions(ctx context.Context) ([]clientTypes.Transaction, error) {
 	rows, err := v.querier.SelectAllTxs(ctx)
 	if err != nil {
 		return nil, err
@@ -283,7 +304,7 @@ func (v *txStore) GetAllTransactions(ctx context.Context) ([]types.Transaction, 
 func (v *txStore) GetTransactions(
 	ctx context.Context,
 	txids []string,
-) ([]types.Transaction, error) {
+) ([]clientTypes.Transaction, error) {
 	rows, err := v.querier.SelectTxs(ctx, txids)
 	if err != nil {
 		return nil, err
@@ -291,7 +312,9 @@ func (v *txStore) GetTransactions(
 	return readTxRows(rows)
 }
 
-func (v *txStore) UpdateTransactions(ctx context.Context, txs []types.Transaction) (int, error) {
+func (v *txStore) UpdateTransactions(
+	ctx context.Context, txs []clientTypes.Transaction,
+) (int, error) {
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, tx := range txs {
 			var settledBy sql.NullString
@@ -326,6 +349,9 @@ func (v *txStore) GetEventChannel() <-chan types.TransactionEvent {
 }
 
 func (v *txStore) Clean(ctx context.Context) error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	if err := v.querier.CleanTxs(ctx); err != nil {
 		return err
 	}
@@ -335,6 +361,10 @@ func (v *txStore) Clean(ctx context.Context) error {
 }
 
 func (v *txStore) Close() {
+	v.wg.Wait()
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	// nolint:all
 	v.db.Close()
 }
@@ -343,15 +373,18 @@ func (v *txStore) sendEvent(event types.TransactionEvent) {
 	v.lock.Lock()
 	defer v.lock.Unlock()
 
-	select {
-	case v.eventCh <- event:
-		return
-	default:
-		time.Sleep(100 * time.Millisecond)
+	for range 3 {
+		select {
+		case v.eventCh <- event:
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
+	log.Warn("failed to send tx event")
 }
 
-func rowToTx(row queries.Tx) (types.Transaction, error) {
+func rowToTx(row queries.Tx) (clientTypes.Transaction, error) {
 	var commitmentTxid, arkTxid, boardingTxid string
 	if row.TxidType == "commitment" {
 		commitmentTxid = row.Txid
@@ -371,17 +404,17 @@ func rowToTx(row queries.Tx) (types.Transaction, error) {
 		var err error
 		assetPacket, err = asset.NewPacketFromString(row.AssetPacket.String)
 		if err != nil {
-			return types.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
+			return clientTypes.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
 		}
 	}
-	return types.Transaction{
-		TransactionKey: types.TransactionKey{
+	return clientTypes.Transaction{
+		TransactionKey: clientTypes.TransactionKey{
 			CommitmentTxid: commitmentTxid,
 			ArkTxid:        arkTxid,
 			BoardingTxid:   boardingTxid,
 		},
 		Amount:      uint64(row.Amount),
-		Type:        types.TxType(row.Type),
+		Type:        clientTypes.TxType(row.Type),
 		SettledBy:   row.SettledBy.String,
 		CreatedAt:   createdAt,
 		Hex:         row.Hex.String,
@@ -389,8 +422,8 @@ func rowToTx(row queries.Tx) (types.Transaction, error) {
 	}, nil
 }
 
-func readTxRows(rows []queries.Tx) ([]types.Transaction, error) {
-	txs := make([]types.Transaction, 0, len(rows))
+func readTxRows(rows []queries.Tx) ([]clientTypes.Transaction, error) {
+	txs := make([]clientTypes.Transaction, 0, len(rows))
 	for _, tx := range rows {
 		t, err := rowToTx(tx)
 		if err != nil {
