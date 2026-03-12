@@ -57,8 +57,10 @@ type ArkClient interface {
 		ctx context.Context,
 		vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
 	) error
-	Settle(ctx context.Context) (string, error)
-	CollaborativeExit(ctx context.Context, addr string, amount uint64) (string, error)
+	Settle(ctx context.Context, opts ...BatchSessionOption) (string, error)
+	CollaborativeExit(
+		ctx context.Context, addr string, amount uint64, opts ...BatchSessionOption,
+	) (string, error)
 	Unroll(ctx context.Context) error
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)

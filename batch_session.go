@@ -7,7 +7,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 )
 
-func (a *arkClient) Settle(ctx context.Context) (string, error) {
+func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
@@ -25,7 +25,20 @@ func (a *arkClient) Settle(ctx context.Context) (string, error) {
 	if len(vtxos)+len(utxos) == 0 {
 		return "", fmt.Errorf("no funds to settle")
 	}
-	res, err := a.ArkClient.Settle(ctx, client.WithFunds(utxos, vtxos))
+
+	batchSessionOpts := newDefaultBatchSessionOptions()
+	for _, opt := range opts {
+		if err := opt(batchSessionOpts); err != nil {
+			return "", err
+		}
+	}
+
+	settleOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
+	if batchSessionOpts.retryNum > 0 {
+		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
+	}
+
+	res, err := a.ArkClient.Settle(ctx, settleOpts...)
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +51,7 @@ func (a *arkClient) Settle(ctx context.Context) (string, error) {
 }
 
 func (a *arkClient) CollaborativeExit(
-	ctx context.Context, addr string, amount uint64,
+	ctx context.Context, addr string, amount uint64, opts ...BatchSessionOption,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -55,7 +68,19 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, client.WithFunds(utxos, vtxos))
+	batchSessionOpts := newDefaultBatchSessionOptions()
+	for _, opt := range opts {
+		if err := opt(batchSessionOpts); err != nil {
+			return "", err
+		}
+	}
+
+	exitOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
+	if batchSessionOpts.retryNum > 0 {
+		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))
+	}
+
+	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, exitOpts...)
 	if err != nil {
 		return "", err
 	}
