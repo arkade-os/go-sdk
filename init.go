@@ -35,11 +35,9 @@ func (a *arkClient) Init(
 		return err
 	}
 
-	initOpts := newDefaultInitOptions()
-	for _, opt := range opts {
-		if err := opt(initOpts); err != nil {
-			return fmt.Errorf("invalid options: %v", err)
-		}
+	initOpts, err := applyInitOptions(opts...)
+	if err != nil {
+		return fmt.Errorf("invalid options: %v", err)
 	}
 
 	explorerUrl := initOpts.explorerUrl

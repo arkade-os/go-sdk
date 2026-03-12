@@ -26,11 +26,9 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("no funds to settle")
 	}
 
-	batchSessionOpts := newDefaultBatchSessionOptions()
-	for _, opt := range opts {
-		if err := opt(batchSessionOpts); err != nil {
-			return "", err
-		}
+	batchSessionOpts, err := applyBatchSessionOptions(opts...)
+	if err != nil {
+		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
 	settleOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
@@ -68,11 +66,9 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	batchSessionOpts := newDefaultBatchSessionOptions()
-	for _, opt := range opts {
-		if err := opt(batchSessionOpts); err != nil {
-			return "", err
-		}
+	batchSessionOpts, err := applyBatchSessionOptions(opts...)
+	if err != nil {
+		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
 	exitOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}

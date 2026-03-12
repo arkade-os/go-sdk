@@ -12,16 +12,8 @@ type BatchSessionOption func(options *batchSessionOptions) error
 // batchSessionOptions struct and returns the first error encountered, if any.
 // Exposed for use in external (arksdk_test) test packages.
 func ApplyBatchSessionOptions(opts ...BatchSessionOption) error {
-	o := newDefaultBatchSessionOptions()
-	for _, opt := range opts {
-		if opt == nil {
-			return fmt.Errorf("batch session option cannot be nil")
-		}
-		if err := opt(o); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := applyBatchSessionOptions(opts...)
+	return err
 }
 
 func WithRetries(num int) BatchSessionOption {
@@ -35,6 +27,19 @@ func WithRetries(num int) BatchSessionOption {
 		o.retryNum = num
 		return nil
 	}
+}
+
+func applyBatchSessionOptions(opts ...BatchSessionOption) (*batchSessionOptions, error) {
+	o := newDefaultBatchSessionOptions()
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, fmt.Errorf("batch session option cannot be nil")
+		}
+		if err := opt(o); err != nil {
+			return nil, err
+		}
+	}
+	return o, nil
 }
 
 type batchSessionOptions struct {
