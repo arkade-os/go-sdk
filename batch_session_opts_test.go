@@ -45,6 +45,11 @@ func TestBatchSessionOptions(t *testing.T) {
 			wantErrContains string
 		}{
 			{
+				name:            "nil option",
+				opts:            []arksdk.BatchSessionOption{nil},
+				wantErrContains: "batch session option cannot be nil",
+			},
+			{
 				name:            "WithRetries zero",
 				opts:            []arksdk.BatchSessionOption{arksdk.WithRetries(0)},
 				wantErrContains: "retry num must be in range",

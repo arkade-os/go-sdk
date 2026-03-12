@@ -48,6 +48,11 @@ func TestInitOptions(t *testing.T) {
 			wantErrContains string
 		}{
 			{
+				name:            "nil option",
+				opts:            []arksdk.InitOption{nil},
+				wantErrContains: "init option cannot be nil",
+			},
+			{
 				name:            "WithWallet nil",
 				opts:            []arksdk.InitOption{arksdk.WithWallet(nil)},
 				wantErrContains: "wallet cannot be nil",

@@ -14,6 +14,9 @@ type BatchSessionOption func(options *batchSessionOptions) error
 func ApplyBatchSessionOptions(opts ...BatchSessionOption) error {
 	o := newDefaultBatchSessionOptions()
 	for _, opt := range opts {
+		if opt == nil {
+			return fmt.Errorf("batch session option cannot be nil")
+		}
 		if err := opt(o); err != nil {
 			return err
 		}

@@ -14,6 +14,9 @@ type InitOption func(options *initOptions) error
 func ApplyInitOptions(opts ...InitOption) error {
 	o := newDefaultInitOptions()
 	for _, opt := range opts {
+		if opt == nil {
+			return fmt.Errorf("init option cannot be nil")
+		}
 		if err := opt(o); err != nil {
 			return err
 		}
