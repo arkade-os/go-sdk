@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25.7'
+          go-version: '1.26.0'
 
       - run: go mod tidy
 
@@ -33,7 +33,7 @@ jobs:
       - name: Check linting
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.5.0
+          version: v2.9.0
           args: --timeout 5m
 
       - name: Check code integrity

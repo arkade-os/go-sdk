@@ -115,15 +115,18 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []clientTypes.Transac
 
 			if err := querierWithTx.InsertTx(
 				ctx, queries.InsertTxParams{
-					Txid:        tx.TransactionKey.String(),
-					TxidType:    txidType,
-					Amount:      int64(tx.Amount),
-					Type:        string(tx.Type),
-					CreatedAt:   createdAt,
-					Hex:         sql.NullString{String: tx.Hex, Valid: true},
-					SettledBy:   sql.NullString{String: tx.SettledBy, Valid: true},
-					Settled:     len(tx.SettledBy) > 0,
-					AssetPacket: sql.NullString{String: hex.EncodeToString(serializedAssetPacket), Valid: len(serializedAssetPacket) > 0},
+					Txid:      tx.TransactionKey.String(),
+					TxidType:  txidType,
+					Amount:    int64(tx.Amount),
+					Type:      string(tx.Type),
+					CreatedAt: createdAt,
+					Hex:       sql.NullString{String: tx.Hex, Valid: true},
+					SettledBy: sql.NullString{String: tx.SettledBy, Valid: true},
+					Settled:   len(tx.SettledBy) > 0,
+					AssetPacket: sql.NullString{
+						String: hex.EncodeToString(serializedAssetPacket),
+						Valid:  len(serializedAssetPacket) > 0,
+					},
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
