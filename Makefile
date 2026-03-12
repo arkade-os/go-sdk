@@ -1,7 +1,7 @@
 .PHONY: proto test vet lint migrate sqlc
 
 GOLANGCI_LINT ?= $(shell \
-	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.5.0 golangci-lint"; \
+	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
 )
 
 proto:

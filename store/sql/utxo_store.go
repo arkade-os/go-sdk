@@ -86,7 +86,10 @@ func (r *utxoRepository) ReplaceUtxo(
 			SpendableAt: sql.NullInt64{Int64: spendableAt, Valid: spendableAt != 0},
 			CreatedAt:   sql.NullInt64{Int64: createdAt, Valid: createdAt != 0},
 			Spent:       existingUtxo.Spent,
-			SpentBy:     sql.NullString{String: existingUtxo.SpentBy, Valid: existingUtxo.SpentBy != ""},
+			SpentBy: sql.NullString{
+				String: existingUtxo.SpentBy,
+				Valid:  existingUtxo.SpentBy != "",
+			},
 			Tapscripts: sql.NullString{
 				String: strings.Join(existingUtxo.Tapscripts, ","),
 				Valid:  len(existingUtxo.Tapscripts) > 0,
