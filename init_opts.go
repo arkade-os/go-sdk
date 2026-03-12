@@ -12,13 +12,8 @@ type InitOption func(options *initOptions) error
 // initOptions struct and returns the first error encountered, if any.
 // Exposed for use in external (arksdk_test) test packages.
 func ApplyInitOptions(opts ...InitOption) error {
-	o := newDefaultInitOptions()
-	for _, opt := range opts {
-		if err := opt(o); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := applyInitOptions(opts...)
+	return err
 }
 
 func WithWallet(wallet wallet.WalletService) InitOption {
@@ -45,6 +40,19 @@ func WithExplorerURL(explorerUrl string) InitOption {
 		o.explorerUrl = explorerUrl
 		return nil
 	}
+}
+
+func applyInitOptions(opts ...InitOption) (*initOptions, error) {
+	o := newDefaultInitOptions()
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, fmt.Errorf("init option cannot be nil")
+		}
+		if err := opt(o); err != nil {
+			return nil, err
+		}
+	}
+	return o, nil
 }
 
 type initOptions struct {

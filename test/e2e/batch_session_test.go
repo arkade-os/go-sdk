@@ -1,10 +1,14 @@
 package e2e
 
 import (
+	"encoding/hex"
 	"sync"
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -218,5 +222,100 @@ func TestBatchSession(t *testing.T) {
 		require.Error(t, err)
 
 		time.Sleep(5 * time.Second)
+	})
+
+	// In this test Alice onboards some onchain and joins a batch to complete the boarding plus
+	// renews a vtxo and a recoverable (expired) vtxo
+	t.Run("onboard and renew expired funds", func(t *testing.T) {
+		ctx := t.Context()
+		alice := setupClient(t)
+
+		boardingAddr, err := alice.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, boardingAddr)
+
+		offchainAddr, err := alice.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, offchainAddr)
+
+		// Send alice offchain funds
+		vtxoCh := alice.GetVtxoEventChannel(ctx)
+		faucetOffchain(t, alice, 0.00005)
+
+		vtxoEvent := <-vtxoCh
+		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
+		require.Len(t, vtxoEvent.Vtxos, 1)
+		require.Equal(t, 5000, int(vtxoEvent.Vtxos[0].Amount))
+
+		decoded, err := arklib.DecodeAddressV0(offchainAddr)
+		require.NoError(t, err)
+		require.NotNil(t, decoded)
+		outScript, err := script.P2TRScript(decoded.VtxoTapKey)
+		require.NoError(t, err)
+		require.NotEmpty(t, outScript)
+
+		opts := indexer.GetVtxosRequestOption{}
+		err = opts.WithScripts([]string{hex.EncodeToString(outScript)})
+		require.NoError(t, err)
+
+		res, err := alice.Indexer().GetVtxos(t.Context(), opts)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		require.Len(t, res.Vtxos, 1)
+		require.False(t, res.Vtxos[0].Swept)
+
+		// Make the offchain funds expire
+		err = generateBlocks(21)
+		require.NoError(t, err)
+
+		// Give the time to the server to sweep the funds
+		time.Sleep(10 * time.Second)
+
+		res, err = alice.Indexer().GetVtxos(t.Context(), opts)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		require.Len(t, res.Vtxos, 1)
+		require.True(t, res.Vtxos[0].Swept)
+
+		// Repeat the operation to have many funds that are going to be swept and renewed
+		faucetOffchain(t, alice, 0.00003)
+
+		vtxoEvent = <-vtxoCh
+		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
+		require.Len(t, vtxoEvent.Vtxos, 1)
+		require.Equal(t, 3000, int(vtxoEvent.Vtxos[0].Amount))
+
+		utxoCh := alice.GetUtxoEventChannel(ctx)
+
+		faucetOnchain(t, boardingAddr, 0.00021)
+
+		utxoEvent := <-utxoCh
+		require.Equal(t, types.UtxosAdded, utxoEvent.Type)
+		require.Len(t, utxoEvent.Utxos, 1)
+		require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
+
+		// first alice and bob join the same batch to complete their onboarding
+		wg := &sync.WaitGroup{}
+		var batchTx string
+		var batchErr error
+		wg.Go(func() {
+			batchTx, batchErr = alice.Settle(ctx)
+		})
+		wg.Wait()
+		require.NoError(t, batchErr)
+		require.NotEmpty(t, batchTx)
+
+		// next event received by alice and bob vtxo channel should be the added events
+		// related to new vtxos created by the batch
+		vtxoEvent = <-vtxoCh
+		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
+		require.Len(t, vtxoEvent.Vtxos, 1)
+		vtxo := vtxoEvent.Vtxos[0]
+		require.Equal(t, 29000, int(vtxo.Amount))
+
+		balance, err := alice.Balance(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, balance)
+		require.GreaterOrEqual(t, int(balance.OffchainBalance.Total), 29000)
 	})
 }
