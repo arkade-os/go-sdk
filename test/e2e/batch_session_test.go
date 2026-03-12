@@ -255,7 +255,9 @@ func TestBatchSession(t *testing.T) {
 		require.NotEmpty(t, outScript)
 
 		opts := indexer.GetVtxosRequestOption{}
-		opts.WithScripts([]string{hex.EncodeToString(outScript)})
+		err = opts.WithScripts([]string{hex.EncodeToString(outScript)})
+		require.NoError(t, err)
+
 		res, err := alice.Indexer().GetVtxos(t.Context(), opts)
 		require.NoError(t, err)
 		require.NotNil(t, res)
@@ -263,7 +265,8 @@ func TestBatchSession(t *testing.T) {
 		require.False(t, res.Vtxos[0].Swept)
 
 		// Make the offchain funds expire
-		generateBlocks(21)
+		err = generateBlocks(21)
+		require.NoError(t, err)
 
 		// Give the time to the server to sweep the funds
 		time.Sleep(10 * time.Second)
