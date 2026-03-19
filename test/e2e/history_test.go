@@ -11,7 +11,7 @@ import (
 
 func TestTransactionHistory(t *testing.T) {
 	ctx := t.Context()
-	alice := setupClient(t)
+	alice, _ := setupClient(t)
 
 	history, err := alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, settledBoardingTx, history[0], "")
 
 	// alice sends funds to bob
-	bob := setupClient(t)
+	bob, _ := setupClient(t)
 	bobTxChan := bob.GetTransactionEventChannel(ctx)
 
 	bobOnchainAddr, err := bob.NewOnchainAddress(ctx)

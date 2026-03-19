@@ -16,8 +16,8 @@ func TestCollaborativeExit(t *testing.T) {
 		// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
 		t.Run("with change", func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupClient(t)
-			bob := setupClient(t)
+			alice, _ := setupClient(t)
+			bob, _ := setupClient(t)
 
 			// Faucet Alice
 			faucetOffchain(t, alice, 0.001)
@@ -83,8 +83,8 @@ func TestCollaborativeExit(t *testing.T) {
 		// In this test Alice sends all to Bob'c onchain address without (VTXO) change
 		t.Run("without change", func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupClient(t)
-			bob := setupClient(t)
+			alice, _ := setupClient(t)
+			bob, _ := setupClient(t)
 
 			// Faucet Alice
 			faucetOffchain(t, alice, 0.00021)
@@ -152,8 +152,8 @@ func TestCollaborativeExit(t *testing.T) {
 		// funding Bob's onchain address. The server should reject the request
 		t.Run("with boarding inputs", func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupClient(t)
-			bob := setupClient(t)
+			alice, _ := setupClient(t)
+			bob, _ := setupClient(t)
 
 			aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 			require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Alice owns a leaf VTXO and unrolls it onchain
 	t.Run("leaf vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 
 		vtxoToUnroll := faucetOffchain(t, alice, 0.00021)
 
@@ -233,11 +233,11 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
 	t.Run("preconfirmed vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 
 		faucetOffchain(t, alice, 0.001)
 
-		bob := setupClient(t)
+		bob, _ := setupClient(t)
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOnchainAddr)

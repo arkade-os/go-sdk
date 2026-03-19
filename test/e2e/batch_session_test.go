@@ -18,8 +18,8 @@ func TestBatchSession(t *testing.T) {
 	// refresh their vtxos together in another commitment tx
 	t.Run("refresh vtxos", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
-		bob := setupClient(t)
+		alice, _ := setupClient(t)
+		bob, _ := setupClient(t)
 
 		aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestBatchSession(t *testing.T) {
 	// they can be redeeemed only once
 	t.Run("redeem notes", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 		offchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, offchainAddr)
@@ -228,7 +228,7 @@ func TestBatchSession(t *testing.T) {
 	// renews a vtxo and a recoverable (expired) vtxo
 	t.Run("onboard and renew expired funds", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 
 		boardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, err)
 
 		// Give the time to the server to sweep the funds
-		time.Sleep(10 * time.Second)
+		time.Sleep(20 * time.Second)
 
 		res, err = alice.Indexer().GetVtxos(t.Context(), opts)
 		require.NoError(t, err)

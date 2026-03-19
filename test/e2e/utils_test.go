@@ -31,7 +31,7 @@ const (
 	explorerUrl = "http://127.0.0.1:3000"
 )
 
-func setupClient(t *testing.T) sdk.ArkClient {
+func setupClient(t *testing.T) (sdk.ArkClient, *btcec.PrivateKey) {
 	t.Helper()
 
 	arkClient, err := sdk.NewArkClient("", false)
@@ -54,7 +54,7 @@ func setupClient(t *testing.T) sdk.ArkClient {
 
 	t.Cleanup(arkClient.Stop)
 
-	return arkClient
+	return arkClient, privkey
 }
 
 func setupClientWithWallet(
@@ -232,4 +232,256 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 func generateBlocks(n int) error {
 	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
 	return err
+}
+
+// --- mock-boltz admin API helpers ---
+
+const mockBoltzAdminURL = "http://127.0.0.1:9101"
+
+// setMockBoltzConfig updates the mock-boltz runtime configuration via POST /admin/config.
+// Accepted fields: claimMode, refundMode, arkRefundLocktimeSeconds, btcLockupTimeoutBlocks, etc.
+func setMockBoltzConfig(t *testing.T, cfg map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest("POST", mockBoltzAdminURL+"/admin/config", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	require.Equalf(t, http.StatusOK, resp.StatusCode,
+		"setMockBoltzConfig failed: %s", string(respBody))
+}
+
+// resetMockBoltz resets all swaps and runtime config to defaults via POST /admin/reset.
+func resetMockBoltz(t *testing.T) {
+	t.Helper()
+	req, err := http.NewRequest("POST", mockBoltzAdminURL+"/admin/reset", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// injectMockBoltzSwapEvent sends a swap status event via POST /admin/swaps/:id/event.
+// This allows tests to force specific swap state transitions (e.g., swap.expired, transaction.lockupFailed).
+func injectMockBoltzSwapEvent(t *testing.T, swapID, status string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"status": status})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("%s/admin/swaps/%s/event", mockBoltzAdminURL, swapID)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	require.Equalf(t, http.StatusOK, resp.StatusCode,
+		"injectMockBoltzSwapEvent(%s, %s) failed: %s", swapID, status, string(respBody))
+}
+
+// getMockBoltzSwap retrieves a swap's state from mock-boltz via GET /admin/swaps/:id.
+func getMockBoltzSwap(t *testing.T, swapID string) map[string]any {
+	t.Helper()
+	url := fmt.Sprintf("%s/admin/swaps/%s", mockBoltzAdminURL, swapID)
+	resp, err := http.Get(url) //nolint:gosec
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var result map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+	return result
+}
+
+// waitForMockBoltzHealth polls the mock-boltz /health endpoint until it returns 200 or the timeout expires.
+func waitForMockBoltzHealth(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(mockBoltzAdminURL + "/health") //nolint:gosec
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatal("mock-boltz did not become healthy within timeout")
+}
+
+// --- LND helpers (for Lightning swap tests with real Boltz) ---
+
+// lndAddInvoice creates a Lightning invoice on nigiri's LND node.
+// Returns the payment_request string.
+func lndAddInvoice(sats int) (string, error) {
+	out, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"addinvoice", "--amt", fmt.Sprintf("%d", sats),
+	)
+	if err != nil {
+		return "", fmt.Errorf("lnd addinvoice: %w", err)
+	}
+
+	var resp struct {
+		PaymentRequest string `json:"payment_request"`
+		RHash          string `json:"r_hash"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return "", fmt.Errorf("parse lnd addinvoice response: %w (raw: %s)", err, out)
+	}
+	return resp.PaymentRequest, nil
+}
+
+// lndPayInvoice pays a Lightning invoice from nigiri's LND node.
+func lndPayInvoice(invoice string) error {
+	_, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"payinvoice", "--force", invoice,
+	)
+	return err
+}
+
+// --- Regtest BTC helpers ---
+
+// getBlockHeight returns the current regtest block height via nigiri RPC.
+func getBlockHeight(t *testing.T) int {
+	t.Helper()
+	out, err := runCommand("nigiri", "rpc", "getblockcount")
+	require.NoError(t, err)
+
+	var height int
+	_, err = fmt.Sscanf(strings.TrimSpace(out), "%d", &height)
+	require.NoError(t, err)
+	return height
+}
+
+// mineBlocks generates n regtest blocks.
+func mineBlocks(t *testing.T, n int) {
+	t.Helper()
+	if n <= 0 {
+		return
+	}
+	addr, err := runCommand("nigiri", "rpc", "getnewaddress")
+	require.NoError(t, err)
+	_, err = runCommand("nigiri", "rpc", "generatetoaddress", fmt.Sprintf("%d", n), strings.TrimSpace(addr))
+	require.NoError(t, err)
+}
+
+// mineBlocksToHeight mines blocks until the chain height reaches at least target.
+func mineBlocksToHeight(t *testing.T, target int) {
+	t.Helper()
+	current := getBlockHeight(t)
+	if current >= target {
+		return
+	}
+	mineBlocks(t, target-current)
+}
+
+// sendToAddress sends the given BTC amount (as a string like "0.00003000")
+// to the address and returns the txid.
+func sendToAddress(t *testing.T, address, amountBtc string) string {
+	t.Helper()
+	out, err := runCommand("nigiri", "rpc", "sendtoaddress", address, amountBtc)
+	require.NoError(t, err)
+	txid := strings.TrimSpace(out)
+	require.NotEmpty(t, txid)
+	return txid
+}
+
+// getRawTransaction returns the raw hex of a transaction by txid.
+func getRawTransaction(t *testing.T, txid string) string {
+	t.Helper()
+	out, err := runCommand("nigiri", "rpc", "getrawtransaction", txid)
+	require.NoError(t, err)
+	txhex := strings.TrimSpace(out)
+	require.NotEmpty(t, txhex)
+	return txhex
+}
+
+// fundAddressAndGetConfirmedTx sends sats to address, mines blocks to confirm,
+// and returns the txid and raw tx hex.
+func fundAddressAndGetConfirmedTx(t *testing.T, address string, sats uint64) (string, string) {
+	t.Helper()
+	amountBtc := fmt.Sprintf("%d.%08d", sats/100000000, sats%100000000)
+	txid := sendToAddress(t, address, amountBtc)
+	mineBlocks(t, 10)
+	txhex := getRawTransaction(t, txid)
+	return txid, txhex
+}
+
+// injectMockBoltzSwapEventWithTx sends a swap event via admin API with
+// optional transaction ID and hex, used for events like transaction.server.mempool.
+func injectMockBoltzSwapEventWithTx(t *testing.T, swapID, status, txid, txhex string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{
+		"status": status,
+		"txid":   txid,
+		"txhex":  txhex,
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("%s/admin/swaps/%s/event", mockBoltzAdminURL, swapID)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	require.Equalf(t, http.StatusOK, resp.StatusCode,
+		"injectMockBoltzSwapEventWithTx(%s, %s) failed: %s", swapID, status, string(respBody))
+}
+
+// getMockBoltzSwapTyped retrieves a swap's state from mock-boltz as a typed struct.
+type mockSwapState struct {
+	ID               string `json:"id"`
+	LastStatus       string `json:"lastStatus"`
+	ServerLockAmount uint64 `json:"serverLockAmount"`
+	BTCLockupAddress string `json:"btcLockupAddress"`
+	ClaimRequests    int    `json:"claimRequests"`
+	RefundRequests   int    `json:"refundRequests"`
+}
+
+func getMockBoltzSwapTyped(t *testing.T, swapID string) mockSwapState {
+	t.Helper()
+	url := fmt.Sprintf("%s/admin/swaps/%s", mockBoltzAdminURL, swapID)
+	resp, err := http.Get(url) //nolint:gosec
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var state mockSwapState
+	err = json.NewDecoder(resp.Body).Decode(&state)
+	require.NoError(t, err)
+	return state
+}
+
+// --- Thread-safe error collection for concurrent tests ---
+
+type concurrentErrors struct {
+	mu   sync.Mutex
+	errs []error
+}
+
+func (e *concurrentErrors) add(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.errs = append(e.errs, err)
 }

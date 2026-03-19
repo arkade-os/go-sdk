@@ -18,8 +18,8 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	const supply = 5_000
 	const transferAmount = 1_200
 
-	alice := setupClient(t)
-	bob := setupClient(t)
+	alice, _ := setupClient(t)
+	bob, _ := setupClient(t)
 	aliceTxStream := alice.GetTransactionEventChannel(ctx)
 	bobTxStream := bob.GetTransactionEventChannel(ctx)
 
@@ -123,7 +123,7 @@ func TestAssetTransferAndRenew(t *testing.T) {
 func TestAssetIssuance(t *testing.T) {
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 		faucetOffchain(t, alice, 0.01)
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
@@ -149,7 +149,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with new control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 		faucetOffchain(t, alice, 0.01)
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
@@ -177,7 +177,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with existing control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
+		alice, _ := setupClient(t)
 		faucetOffchain(t, alice, 0.01)
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
@@ -231,7 +231,7 @@ func TestAssetIssuance(t *testing.T) {
 func TestAssetReissuance(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupClient(t)
+	alice, _ := setupClient(t)
 	faucetOffchain(t, alice, 0.01)
 
 	vtxoStream := alice.GetVtxoEventChannel(ctx)
@@ -293,7 +293,7 @@ func TestAssetReissuance(t *testing.T) {
 func TestAssetBurn(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupClient(t)
+	alice, _ := setupClient(t)
 	faucetOffchain(t, alice, 0.01)
 
 	vtxoStream := alice.GetVtxoEventChannel(ctx)
