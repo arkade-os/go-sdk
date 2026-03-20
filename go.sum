@@ -24,8 +24,8 @@ github.com/arkade-os/arkd/api-spec v0.0.0-20260320025730-282cad4d8404 h1:uA1a79G
 github.com/arkade-os/arkd/api-spec v0.0.0-20260320025730-282cad4d8404/go.mod h1:2+6ix1UGGE22Q/rbab1dycFPPKiTyq0gldKVqVfFPWs=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260303153651-8615412e4dea h1:tezaYim7/hneEC30qVU63jq8kc2p6thfcaTG4aG+7rc=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260303153651-8615412e4dea/go.mod h1:17cDAc+zQKdP4oppBJ51lPMO3Vk6+EWB0JHNMsXGb74=
-github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260320025730-282cad4d8404 h1:sbcxscRJgWyEC3acaMzbAOmpbNFzihy+7SQmUptRZdg=
-github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260320025730-282cad4d8404/go.mod h1:Y59cvCug7rHWjERYKbbrjStn4+vXGmWu5LOqLggf7Aw=
+github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260320130236-2d5cb78d0157 h1:2lS4byMiiHhKo71Jt4I2cMVkAu22yK9DAc3/wcvOUYs=
+github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260320130236-2d5cb78d0157/go.mod h1:Y59cvCug7rHWjERYKbbrjStn4+vXGmWu5LOqLggf7Aw=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea h1:x9ZwZL+F2b9E0uBZYBVjCLGtlqIE4zahDOY4C89h3X4=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea/go.mod h1:NYGE+baj57ynbXNwjISJddMDpMqAWOX27dV22xqFm2A=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
