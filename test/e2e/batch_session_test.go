@@ -254,10 +254,7 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, outScript)
 
-		opts := indexer.GetVtxosRequestOption{}
-		err = opts.WithScripts([]string{hex.EncodeToString(outScript)})
-		require.NoError(t, err)
-
+		opts := indexer.WithScripts([]string{hex.EncodeToString(outScript)})
 		res, err := alice.Indexer().GetVtxos(t.Context(), opts)
 		require.NoError(t, err)
 		require.NotNil(t, res)

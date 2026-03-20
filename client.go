@@ -49,13 +49,19 @@ type arkClient struct {
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
 	logMu             *sync.Mutex
+	lastUpdate        time.Time
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 }
 
-func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
+func NewArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient, error) {
+	o, err := applyClientOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	datadir = strings.TrimSpace(datadir)
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
@@ -95,15 +101,16 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	}
 
 	client := &arkClient{
-		ArkClient:     cli,
-		verbose:       verbose,
-		store:         db,
-		clientStore:   clientDb,
-		syncMu:        &sync.Mutex{},
-		syncListeners: newReadyListeners(),
-		syncCh:        make(chan error),
-		dbMu:          &sync.Mutex{},
-		logMu:         &sync.Mutex{},
+		ArkClient:         cli,
+		verbose:           verbose,
+		store:             db,
+		clientStore:       clientDb,
+		syncMu:            &sync.Mutex{},
+		syncListeners:     newReadyListeners(),
+		syncCh:            make(chan error),
+		dbMu:              &sync.Mutex{},
+		logMu:             &sync.Mutex{},
+		refreshDbInterval: o.refreshDbInterval,
 	}
 
 	syncListeners := newReadyListeners()
@@ -113,7 +120,12 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	return client, nil
 }
 
-func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
+func LoadArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient, error) {
+	o, err := applyClientOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	datadir = strings.TrimSpace(datadir)
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
@@ -179,15 +191,16 @@ func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
 	}
 
 	client := &arkClient{
-		ArkClient:     cli,
-		verbose:       verbose,
-		store:         db,
-		clientStore:   clientDb,
-		syncMu:        &sync.Mutex{},
-		syncListeners: newReadyListeners(),
-		syncCh:        make(chan error),
-		dbMu:          &sync.Mutex{},
-		logMu:         &sync.Mutex{},
+		ArkClient:         cli,
+		verbose:           verbose,
+		store:             db,
+		clientStore:       clientDb,
+		syncMu:            &sync.Mutex{},
+		syncListeners:     newReadyListeners(),
+		syncCh:            make(chan error),
+		dbMu:              &sync.Mutex{},
+		logMu:             &sync.Mutex{},
+		refreshDbInterval: o.refreshDbInterval,
 	}
 
 	syncListeners := newReadyListeners()
@@ -339,8 +352,14 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
+	time.Sleep(5 * time.Second)
+
+	opts := []client.ListVtxosOption{}
+	if !a.lastUpdate.IsZero() {
+		opts = append(opts, client.WithTimeRange(time.Now().Unix(), a.lastUpdate.Unix()))
+	}
 	// Fetch new and spent vtxos.
-	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx)
+	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx, opts...)
 	if err != nil {
 		return err
 	}
@@ -420,6 +439,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	// TODO goroutines
 
 	// Update tx history in db.
+	lastUpdate := time.Now()
 	if err := a.refreshTxDb(ctx, history); err != nil {
 		return err
 	}
@@ -430,7 +450,13 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	}
 
 	// Update vtxos in db.
-	return a.refreshVtxoDb(ctx, spendableVtxos, spentVtxos)
+	if err := a.refreshVtxoDb(ctx, spendableVtxos, spentVtxos); err != nil {
+		return err
+	}
+
+	a.lastUpdate = lastUpdate
+
+	return nil
 }
 
 func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transaction) error {
@@ -1070,8 +1096,10 @@ func (a *arkClient) periodicRefreshDb(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			log.Debugf("refreshing db (last update %s)...", a.lastUpdate.Format(time.RFC3339))
 			if err := a.refreshDb(ctx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
+				continue
 			}
 		}
 	}
@@ -1593,10 +1621,8 @@ func (i *arkClient) vtxosToTxs(
 		vtxo := getVtxo(resultedVtxos, vtxosBySpentBy[sb])
 		if resultedAmount == 0 {
 			// send all: fetch the created vtxo to source creation and expiration timestamps
-			opts := &indexer.GetVtxosRequestOption{}
-			// nolint
-			opts.WithOutpoints([]clientTypes.Outpoint{{Txid: sb, VOut: 0}})
-			resp, err := indexerSvc.GetVtxos(ctx, *opts)
+			opt := indexer.WithOutpoints([]clientTypes.Outpoint{{Txid: sb, VOut: 0}})
+			resp, err := indexerSvc.GetVtxos(ctx, opt)
 			if err != nil {
 				return nil, err
 			}
