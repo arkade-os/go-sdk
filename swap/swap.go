@@ -943,8 +943,10 @@ func (h *SwapHandler) reverseSwap(
 			swapDetails.Status = SwapSuccess
 		}
 
-		if err := postProcess(swapDetails); err != nil {
-			log.WithError(err).Error("failed to post process swap")
+		if postProcess != nil {
+			if err := postProcess(swapDetails); err != nil {
+				log.WithError(err).Error("failed to post process swap")
+			}
 		}
 	}(swapDetails)
 	return swapDetails, nil

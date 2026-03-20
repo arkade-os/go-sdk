@@ -24,6 +24,10 @@ type ClaimTransactionParams struct {
 	Network         *chaincfg.Params
 }
 
+// Estimated witness vbytes for the signed key-path and refund-path claim spends.
+const cooperativeClaimWitnessVBytes = 17
+const refundClaimWitnessVBytes = 56
+
 // constructClaimTransaction creates a transaction to claim BTC lockup
 // This constructs a bare transaction skeleton that will be signed with MuSig2 (key path)
 // or Schnorr signature (script path)
@@ -62,7 +66,7 @@ func constructClaimTransaction(
 		PkScript: pkScript,
 	})
 
-	vbytes := computeVSize(tx)
+	vbytes := computeClaimVSize(tx)
 
 	feeRate, err := explorerClient.GetFeeRate()
 	if err != nil {
@@ -70,11 +74,15 @@ func constructClaimTransaction(
 	}
 
 	feeAmount := uint64(math.Ceil(float64(vbytes)*feeRate) + 100)
-	if params.LockupAmount-feeAmount <= dustAmount {
+	if feeAmount >= params.LockupAmount {
+		return nil, fmt.Errorf("not enough funds to cover network fees")
+	}
+	outputAmount := params.LockupAmount - feeAmount
+	if outputAmount <= dustAmount {
 		return nil, fmt.Errorf("not enough funds to cover network fees")
 	}
 
-	tx.TxOut[0].Value = int64(params.LockupAmount - feeAmount)
+	tx.TxOut[0].Value = int64(outputAmount)
 
 	return tx, nil
 }
@@ -84,6 +92,15 @@ func computeVSize(tx *wire.MsgTx) lntypes.VByte {
 	totalSize := tx.SerializeSize() // including witness
 	weight := totalSize + baseSize*3
 	return lntypes.WeightUnit(uint64(weight)).ToVB()
+}
+
+func computeClaimVSize(tx *wire.MsgTx) lntypes.VByte {
+	vsize := uint64(computeVSize(tx))
+
+	// Claim transactions are later signed either via cooperative MuSig2 key path
+	// or the refund tapscript path. Account for the larger refund-path witness so
+	// fee estimation doesn't underprice the final signed transaction.
+	return lntypes.VByte(vsize + refundClaimWitnessVBytes + cooperativeClaimWitnessVBytes)
 }
 
 func payToAddrScript(addr btcutil.Address) ([]byte, error) {

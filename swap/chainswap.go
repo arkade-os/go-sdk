@@ -696,10 +696,12 @@ func (h *SwapHandler) RefundArkToBTCSwap(
 	if err != nil {
 		log.WithError(err).Error("failed to refund swap collaboratively")
 
-		if callbackErr := unilateralRefundCallback(
-			swapId, vhtlcOpts,
-		); callbackErr != nil {
-			return "", callbackErr
+		if unilateralRefundCallback != nil {
+			if callbackErr := unilateralRefundCallback(
+				swapId, vhtlcOpts,
+			); callbackErr != nil {
+				return "", callbackErr
+			}
 		}
 
 		return "", nil

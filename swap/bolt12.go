@@ -196,37 +196,13 @@ func cleanBech32String(bech32String string) string {
 }
 
 func bech32ToWords(bech32String string, hrp string) (payload []byte, err error) {
-	cleanString := strings.ToLower(cleanBech32String(bech32String))
-
-	// Split into prefix and data by first '1'
-	parts := strings.SplitN(cleanString, "1", 2)
-	if len(parts) != 2 {
-		return nil, errors.New("invalid BOLT12 format: missing separator")
+	decodedHRP, words, err := bech32.DecodeNoLimit(cleanBech32String(bech32String))
+	if err != nil {
+		return nil, fmt.Errorf("decode bech32: %w", err)
 	}
-	prefix, data := parts[0], parts[1]
-
-	const charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-
-	words := make([]byte, 0, len(data))
-	for _, r := range data {
-		index := strings.IndexRune(charset, r)
-		if index == -1 {
-			return nil, errors.New("invalid character in data part")
-		}
-		words = append(words, byte(index))
+	if decodedHRP != hrp {
+		return nil, fmt.Errorf("invalid prefix: expected %s, got %s", hrp, decodedHRP)
 	}
-
-	if prefix != hrp {
-		return nil, fmt.Errorf("invalid prefix: expected %s, got %s", hrp, prefix)
-	}
-
-	//decodedHRP, words, err := bech32.DecodeNoLimit(cleanBech32String(bech32String))
-	//if err != nil {
-	//	return nil, fmt.Errorf("decode bech32: %w", err)
-	//}
-	//if decodedHRP != hrp {
-	//	return nil, fmt.Errorf("invalid prefix: expected %s, got %s", hrp, decodedHRP)
-	//}
 
 	payload, err = bech32.ConvertBits(words, 5, 8, false)
 	if err != nil {
