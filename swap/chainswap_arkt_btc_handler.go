@@ -146,7 +146,8 @@ func (h *arkToBtcHandler) handleArkToBtcServerLocked(
 	}
 
 	serverLockupTxID := update.Transaction.Id
-	if existing := h.chainSwapState.Swap.GetServerLockTxid(); existing != "" && existing == serverLockupTxID {
+	if existing := h.chainSwapState.Swap.GetServerLockTxid(); existing != "" &&
+		existing == serverLockupTxID {
 		log.Infof(
 			"Server lock for swap %s already processed for tx %s",
 			h.chainSwapState.SwapID,

@@ -333,10 +333,11 @@ func TestReverseSwap(t *testing.T) {
 	select {
 	case <-postProcessDone:
 		t.Logf("Reverse swap %s postProcess completed: status=%d", postProcessSwap.Id, postProcessSwap.Status)
-		if postProcessSwap.Status == swap.SwapSuccess {
+		switch postProcessSwap.Status {
+		case swap.SwapSuccess:
 			require.NotEmpty(t, postProcessSwap.RedeemTxid, "redeem txid should be set")
 			t.Logf("Reverse swap %s fully succeeded! RedeemTxid: %s", postProcessSwap.Id, postProcessSwap.RedeemTxid)
-		} else if postProcessSwap.Status == swap.SwapFailed {
+		case swap.SwapFailed:
 			// The swap creation, invoice, and LN payment delivery all worked.
 			// The failure is in the ClaimVHTLC step which has a known timing issue
 			// where the VTXO from Boltz hasn't been settled in a round yet.

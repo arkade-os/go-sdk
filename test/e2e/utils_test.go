@@ -306,23 +306,6 @@ func getMockBoltzSwap(t *testing.T, swapID string) map[string]any {
 	return result
 }
 
-// waitForMockBoltzHealth polls the mock-boltz /health endpoint until it returns 200 or the timeout expires.
-func waitForMockBoltzHealth(t *testing.T, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(mockBoltzAdminURL + "/health") //nolint:gosec
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return
-			}
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Fatal("mock-boltz did not become healthy within timeout")
-}
-
 // --- LND helpers (for Lightning swap tests with real Boltz) ---
 
 // lndAddInvoice creates a Lightning invoice on nigiri's LND node.

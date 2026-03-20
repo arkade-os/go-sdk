@@ -21,9 +21,9 @@ import (
 	"syscall"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -275,7 +275,9 @@ func (s *Server) handleChainRoot(w http.ResponseWriter, r *http.Request) {
 
 	go func(id string, delay time.Duration) {
 		time.Sleep(delay)
-		s.pushSwapUpdate(id, "swap.created", "", "")
+		if err := s.pushSwapUpdate(id, "swap.created", "", ""); err != nil {
+			s.log.Printf("failed to push swap.created update for %s: %v", id, err)
+		}
 	}(state.ID, s.cfg.AutoSwapCreatedDelay)
 
 	writeJSON(w, http.StatusOK, resp)
@@ -1206,15 +1208,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 func (s *swapState) MarshalJSON() ([]byte, error) {
 	type alias struct {
-		ID               string              `json:"id"`
-		From             string              `json:"from"`
-		To               string              `json:"to"`
-		CreatedAt        string              `json:"createdAt"`
-		LastStatus       string              `json:"lastStatus"`
-		UserLockAmount   uint64              `json:"userLockAmount"`
-		ServerLockAmount uint64              `json:"serverLockAmount"`
-		BTCLockupAddress string              `json:"btcLockupAddress"`
-		ARKLockupAddress string              `json:"arkLockupAddress"`
+		ID               string `json:"id"`
+		From             string `json:"from"`
+		To               string `json:"to"`
+		CreatedAt        string `json:"createdAt"`
+		LastStatus       string `json:"lastStatus"`
+		UserLockAmount   uint64 `json:"userLockAmount"`
+		ServerLockAmount uint64 `json:"serverLockAmount"`
+		BTCLockupAddress string `json:"btcLockupAddress"`
+		ARKLockupAddress string `json:"arkLockupAddress"`
 		ClaimRequests    int    `json:"claimRequests"`
 		RefundRequests   int    `json:"refundRequests"`
 		UserLockTxID     string `json:"userLockTxid"`

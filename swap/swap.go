@@ -466,7 +466,10 @@ func (h *SwapHandler) RefundSwap(
 
 			boltzIn := boltzSignedRefundPtx.Inputs[i]
 			if len(boltzIn.TaprootScriptSpendSig) == 0 {
-				return "", fmt.Errorf("boltz refund psbt input %d missing taproot script spend signature", i)
+				return "", fmt.Errorf(
+					"boltz refund psbt input %d missing taproot script spend signature",
+					i,
+				)
 			}
 
 			partialSig := boltzIn.TaprootScriptSpendSig[0]

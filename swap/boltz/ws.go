@@ -110,11 +110,11 @@ func (boltz *Websocket) Connect() error {
 			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(pongWait))
 			if err != nil {
 				boltz.mu.RLock()
-				closed := boltz.closed
-				boltz.mu.RUnlock()
-				if closed {
+				if boltz.closed {
+					boltz.mu.RUnlock()
 					return
 				}
+				boltz.mu.RUnlock()
 				return
 			}
 		}
