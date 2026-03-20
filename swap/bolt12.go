@@ -220,6 +220,14 @@ func bech32ToWords(bech32String string, hrp string) (payload []byte, err error) 
 		return nil, fmt.Errorf("invalid prefix: expected %s, got %s", hrp, prefix)
 	}
 
+	//decodedHRP, words, err := bech32.DecodeNoLimit(cleanBech32String(bech32String))
+	//if err != nil {
+	//	return nil, fmt.Errorf("decode bech32: %w", err)
+	//}
+	//if decodedHRP != hrp {
+	//	return nil, fmt.Errorf("invalid prefix: expected %s, got %s", hrp, decodedHRP)
+	//}
+
 	payload, err = bech32.ConvertBits(words, 5, 8, false)
 	if err != nil {
 		return nil, fmt.Errorf("ConvertBits: %w", err)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -40,6 +41,7 @@ type Websocket struct {
 
 	apiUrl        string
 	subscriptions chan bool
+	mu            sync.RWMutex
 	conn          *websocket.Conn
 	closed        bool
 	reconnect     bool
@@ -88,7 +90,9 @@ func (boltz *Websocket) Connect() error {
 	if err != nil {
 		return fmt.Errorf("could not connect to boltz ws at %s: %w", wsUrl, err)
 	}
+	boltz.mu.Lock()
 	boltz.conn = conn
+	boltz.mu.Unlock()
 
 	setDeadline := func() error {
 		return conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
@@ -105,7 +109,10 @@ func (boltz *Websocket) Connect() error {
 			// Will not wait longer with writing than for the response
 			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(pongWait))
 			if err != nil {
-				if boltz.closed {
+				boltz.mu.RLock()
+				closed := boltz.closed
+				boltz.mu.RUnlock()
+				if closed {
 					return
 				}
 				return
@@ -123,7 +130,10 @@ func (boltz *Websocket) Connect() error {
 		for {
 			msgType, message, err := conn.ReadMessage()
 			if err != nil {
-				if boltz.closed {
+				boltz.mu.RLock()
+				closed := boltz.closed
+				boltz.mu.RUnlock()
+				if closed {
 					close(boltz.Updates)
 					return
 				}
@@ -162,8 +172,13 @@ func (boltz *Websocket) Connect() error {
 		}
 		for {
 			pingTicker.Stop()
-			if boltz.reconnect {
+			boltz.mu.Lock()
+			reconnect := boltz.reconnect
+			if reconnect {
 				boltz.reconnect = false
+			}
+			boltz.mu.Unlock()
+			if reconnect {
 				return
 			} else {
 				time.Sleep(reconnectInterval)
@@ -175,21 +190,33 @@ func (boltz *Websocket) Connect() error {
 		}
 	}()
 
-	if len(boltz.swapIds) > 0 {
-		return boltz.subscribe(boltz.swapIds)
+	boltz.mu.RLock()
+	swapIDs := append([]string(nil), boltz.swapIds...)
+	boltz.mu.RUnlock()
+	if len(swapIDs) > 0 {
+		return boltz.subscribe(swapIDs)
 	}
 
 	return nil
 }
 
 func (boltz *Websocket) subscribe(swapIds []string) error {
-	if boltz.closed {
+	boltz.mu.RLock()
+	closed := boltz.closed
+	boltz.mu.RUnlock()
+	if closed {
 		return errors.New("websocket is closed")
 	}
 	if len(swapIds) == 0 {
 		return nil
 	}
-	if err := boltz.conn.WriteJSON(map[string]any{
+	boltz.mu.RLock()
+	conn := boltz.conn
+	boltz.mu.RUnlock()
+	if conn == nil {
+		return errors.New("websocket is not connected")
+	}
+	if err := conn.WriteJSON(map[string]any{
 		"op":      "subscribe",
 		"channel": "swap.update",
 		"args":    swapIds,
@@ -214,27 +241,43 @@ func (boltz *Websocket) Subscribe(swapIds []string) error {
 			return err
 		}
 	}
+	boltz.mu.Lock()
 	boltz.swapIds = append(boltz.swapIds, swapIds...)
+	boltz.mu.Unlock()
 	return nil
 }
 
 func (boltz *Websocket) Unsubscribe(swapId string) {
+	boltz.mu.Lock()
 	boltz.swapIds = slices.DeleteFunc(boltz.swapIds, func(id string) bool {
 		return id == swapId
 	})
+	boltz.mu.Unlock()
 }
 
 func (boltz *Websocket) Close() error {
+	boltz.mu.Lock()
 	boltz.closed = true
-	return boltz.conn.Close()
+	conn := boltz.conn
+	boltz.mu.Unlock()
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
 }
 
 func (boltz *Websocket) Reconnect() error {
+	boltz.mu.Lock()
 	if boltz.closed {
+		boltz.mu.Unlock()
 		return errors.New("websocket is closed")
 	}
 	boltz.reconnect = true
-	_ = boltz.conn.Close()
+	conn := boltz.conn
+	boltz.mu.Unlock()
+	if conn != nil {
+		_ = conn.Close()
+	}
 	return boltz.Connect()
 }
 

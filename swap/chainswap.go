@@ -115,17 +115,19 @@ func NewChainSwap(
 		onEvent:              eventCallback,
 	}
 
-	eventCallback(CreateEvent{
-		Id:                   id,
-		Timestamp:            time.Now().Unix(),
-		Status:               ChainSwapPending,
-		Amount:               amount,
-		Preimage:             preimage,
-		VhtlcOpts:            *vhtlcOpts,
-		SwapRespJson:         swapRespJson,
-		IsArkToBtc:           isArkToBtc,
-		UserBtcLockupAddress: userBtcLockupAddress,
-	})
+	if eventCallback != nil {
+		eventCallback(CreateEvent{
+			Id:                   id,
+			Timestamp:            time.Now().Unix(),
+			Status:               ChainSwapPending,
+			Amount:               amount,
+			Preimage:             preimage,
+			VhtlcOpts:            *vhtlcOpts,
+			SwapRespJson:         swapRespJson,
+			IsArkToBtc:           isArkToBtc,
+			UserBtcLockupAddress: userBtcLockupAddress,
+		})
+	}
 
 	return ch, nil
 }
