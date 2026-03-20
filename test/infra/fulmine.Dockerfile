@@ -1,5 +1,5 @@
 # Build fulmine from source (used as boltz-fulmine sidecar for Boltz backend)
-FROM golang:1.26.0 AS go-builder
+FROM golang:1.26.1 AS go-builder
 
 ARG VERSION
 ARG TARGETOS
