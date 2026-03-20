@@ -276,7 +276,7 @@ func (s *Server) handleChainRoot(w http.ResponseWriter, r *http.Request) {
 	go func(id string, delay time.Duration) {
 		time.Sleep(delay)
 		if err := s.pushSwapUpdate(id, "swap.created", "", ""); err != nil {
-			s.log.Printf("failed to push swap.created update for %s: %v", id, err)
+			log.WithError(err).Warnf("failed to push swap.created update for %s", id)
 		}
 	}(state.ID, s.cfg.AutoSwapCreatedDelay)
 
