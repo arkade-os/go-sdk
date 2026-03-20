@@ -457,7 +457,18 @@ func (h *SwapHandler) RefundSwap(
 		}
 
 		for i := range signedRefundPsbt.Inputs {
+			if i >= len(boltzSignedRefundPtx.Inputs) {
+				return "", fmt.Errorf(
+					"boltz refund psbt missing input %d: got %d inputs, want at least %d",
+					i, len(boltzSignedRefundPtx.Inputs), len(signedRefundPsbt.Inputs),
+				)
+			}
+
 			boltzIn := boltzSignedRefundPtx.Inputs[i]
+			if len(boltzIn.TaprootScriptSpendSig) == 0 {
+				return "", fmt.Errorf("boltz refund psbt input %d missing taproot script spend signature", i)
+			}
+
 			partialSig := boltzIn.TaprootScriptSpendSig[0]
 			signedRefundPsbt.Inputs[i].TaprootScriptSpendSig =
 				append(signedRefundPsbt.Inputs[i].TaprootScriptSpendSig, partialSig)
@@ -477,6 +488,10 @@ func (h *SwapHandler) RefundSwap(
 	)
 	if err != nil {
 		return "", err
+	}
+
+	if len(serverSignedCheckpoints) == 0 {
+		return "", fmt.Errorf("server did not return any signed checkpoint transactions")
 	}
 
 	finalRefundPtx, err := psbt.NewFromRawBytes(strings.NewReader(finalRefundTx), true)

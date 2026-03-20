@@ -203,10 +203,21 @@ func combineTapscripts(signedPackets []*psbt.Packet) (*psbt.Packet, error) {
 
 	finalCheckpoint := signedPackets[0]
 	for i := range finalCheckpoint.Inputs {
-		scriptSigs := make([]*psbt.TaprootScriptSpendSig, len(signedPackets))
+		scriptSigs := make([]*psbt.TaprootScriptSpendSig, 0, len(signedPackets))
 		for j, signedCheckpointPsbt := range signedPackets {
+			if i >= len(signedCheckpointPsbt.Inputs) {
+				return nil, fmt.Errorf(
+					"signed checkpoint packet %d missing input %d: got %d inputs",
+					j, i, len(signedCheckpointPsbt.Inputs),
+				)
+			}
+
 			boltzIn := signedCheckpointPsbt.Inputs[i]
-			scriptSigs[j] = boltzIn.TaprootScriptSpendSig[0]
+			if len(boltzIn.TaprootScriptSpendSig) == 0 {
+				continue
+			}
+
+			scriptSigs = append(scriptSigs, boltzIn.TaprootScriptSpendSig...)
 		}
 		finalCheckpoint.Inputs[i].TaprootScriptSpendSig = scriptSigs
 	}
