@@ -269,6 +269,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 	if a.store != nil {
 		a.store.Clean(ctx)
 	}
+	a.lastUpdate = time.Time{}
 }
 
 func (a *arkClient) Stop() {
@@ -352,11 +353,10 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	time.Sleep(5 * time.Second)
-
+	updateTime := time.Now()
 	opts := []client.ListVtxosOption{}
 	if !a.lastUpdate.IsZero() {
-		opts = append(opts, client.WithTimeRange(time.Now().Unix(), a.lastUpdate.Unix()))
+		opts = append(opts, client.WithTimeRange(updateTime.Unix(), a.lastUpdate.Unix()))
 	}
 	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx, opts...)
@@ -439,7 +439,6 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	// TODO goroutines
 
 	// Update tx history in db.
-	lastUpdate := time.Now()
 	if err := a.refreshTxDb(ctx, history); err != nil {
 		return err
 	}
@@ -454,7 +453,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		return err
 	}
 
-	a.lastUpdate = lastUpdate
+	a.lastUpdate = updateTime
 
 	return nil
 }
