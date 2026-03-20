@@ -25,8 +25,8 @@ func TestOffchainTx(t *testing.T) {
 	// In this test Alice sends several times to Bob to create a chain of offchain txs
 	t.Run("chain of txs", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
-		bob := setupClient(t)
+		alice, _ := setupClient(t)
+		bob, _ := setupClient(t)
 
 		faucetOffchain(t, alice, 0.001)
 
@@ -126,8 +126,8 @@ func TestOffchainTx(t *testing.T) {
 		const numInputs = 5
 		const amount = 2100
 
-		alice := setupClient(t)
-		bob := setupClient(t)
+		alice, _ := setupClient(t)
+		bob, _ := setupClient(t)
 
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -186,8 +186,8 @@ func TestOffchainTx(t *testing.T) {
 	// can be spent
 	t.Run("sub dust", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t)
-		bob := setupClient(t)
+		alice, _ := setupClient(t)
+		bob, _ := setupClient(t)
 
 		faucetOffchain(t, alice, 0.00021)
 
