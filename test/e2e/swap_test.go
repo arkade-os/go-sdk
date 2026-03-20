@@ -91,7 +91,11 @@ func TestChainSwapArkToBtc(t *testing.T) {
 		case <-ticker.C:
 			t.Logf("Chain swap %s status: %d", chainSwap.Id, chainSwap.GetStatus())
 			if chainSwap.GetStatus() == swap.ChainSwapClaimed {
-				t.Logf("Chain swap %s successfully claimed! ClaimTxid: %s", chainSwap.Id, chainSwap.GetClaimTxid())
+				t.Logf(
+					"Chain swap %s successfully claimed! ClaimTxid: %s",
+					chainSwap.Id,
+					chainSwap.GetClaimTxid(),
+				)
 				require.NotEmpty(t, chainSwap.GetClaimTxid(), "claim txid should be set")
 
 				// Verify we got all expected events
@@ -115,7 +119,11 @@ func TestChainSwapArkToBtc(t *testing.T) {
 				require.True(t, hasUserLock, "should have UserLockEvent")
 				require.True(t, hasServerLock, "should have ServerLockEvent")
 				require.True(t, hasClaim, "should have ClaimEvent")
-				require.False(t, unilateralRefundCalled.Load(), "unilateral refund should NOT have been called")
+				require.False(
+					t,
+					unilateralRefundCalled.Load(),
+					"unilateral refund should NOT have been called",
+				)
 				return
 			}
 			if chainSwap.GetStatus() == swap.ChainSwapFailed {
@@ -165,7 +173,11 @@ func TestChainSwapBtcToArk(t *testing.T) {
 	require.NotEmpty(t, chainSwap.Id)
 	require.NotEmpty(t, chainSwap.UserBtcLockupAddress, "should have a BTC lockup address")
 
-	t.Logf("BtcToArk chain swap %s created, lockup address: %s", chainSwap.Id, chainSwap.UserBtcLockupAddress)
+	t.Logf(
+		"BtcToArk chain swap %s created, lockup address: %s",
+		chainSwap.Id,
+		chainSwap.UserBtcLockupAddress,
+	)
 
 	// Fund the BTC lockup address
 	_, err = runCommand("nigiri", "faucet", chainSwap.UserBtcLockupAddress, "0.00002500")
@@ -184,7 +196,11 @@ func TestChainSwapBtcToArk(t *testing.T) {
 		case <-ticker.C:
 			t.Logf("BtcToArk chain swap %s status: %d", chainSwap.Id, chainSwap.GetStatus())
 			if chainSwap.GetStatus() == swap.ChainSwapClaimed {
-				t.Logf("BtcToArk chain swap %s successfully claimed! ClaimTxid: %s", chainSwap.Id, chainSwap.GetClaimTxid())
+				t.Logf(
+					"BtcToArk chain swap %s successfully claimed! ClaimTxid: %s",
+					chainSwap.Id,
+					chainSwap.GetClaimTxid(),
+				)
 				require.NotEmpty(t, chainSwap.GetClaimTxid(), "claim txid should be set")
 				return
 			}
@@ -214,13 +230,23 @@ func TestChainSwapBtcToArk(t *testing.T) {
 				if hasServerLock {
 					t.Logf("BtcToArk chain swap %s reached ServerLocked then failed at claim: %s",
 						chainSwap.Id, chainSwap.GetError())
-					t.Logf("This is a known limitation in pkg/swap ClaimVHTLC (needs retry for VTXO settlement)")
+					t.Logf(
+						"This is a known limitation in pkg/swap ClaimVHTLC (needs retry for VTXO settlement)",
+					)
 					return
 				}
-				t.Fatalf("BtcToArk chain swap %s FAILED before server lock: %s", chainSwap.Id, chainSwap.GetError())
+				t.Fatalf(
+					"BtcToArk chain swap %s FAILED before server lock: %s",
+					chainSwap.Id,
+					chainSwap.GetError(),
+				)
 			}
 		case <-deadline:
-			t.Fatalf("BtcToArk chain swap %s timed out in status %d", chainSwap.Id, chainSwap.GetStatus())
+			t.Fatalf(
+				"BtcToArk chain swap %s timed out in status %d",
+				chainSwap.Id,
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -302,7 +328,12 @@ func TestReverseSwap(t *testing.T) {
 	var postProcessSwap swap.Swap
 	postProcess := func(s swap.Swap) error {
 		postProcessSwap = s
-		t.Logf("PostProcess callback: swap %s status=%d redeemTxid=%s", s.Id, s.Status, s.RedeemTxid)
+		t.Logf(
+			"PostProcess callback: swap %s status=%d redeemTxid=%s",
+			s.Id,
+			s.Status,
+			s.RedeemTxid,
+		)
 		select {
 		case postProcessDone <- struct{}{}:
 		default:
@@ -332,17 +363,30 @@ func TestReverseSwap(t *testing.T) {
 	// Wait for the postProcess callback to fire (swap completion)
 	select {
 	case <-postProcessDone:
-		t.Logf("Reverse swap %s postProcess completed: status=%d", postProcessSwap.Id, postProcessSwap.Status)
+		t.Logf(
+			"Reverse swap %s postProcess completed: status=%d",
+			postProcessSwap.Id,
+			postProcessSwap.Status,
+		)
 		switch postProcessSwap.Status {
 		case swap.SwapSuccess:
 			require.NotEmpty(t, postProcessSwap.RedeemTxid, "redeem txid should be set")
-			t.Logf("Reverse swap %s fully succeeded! RedeemTxid: %s", postProcessSwap.Id, postProcessSwap.RedeemTxid)
+			t.Logf(
+				"Reverse swap %s fully succeeded! RedeemTxid: %s",
+				postProcessSwap.Id,
+				postProcessSwap.RedeemTxid,
+			)
 		case swap.SwapFailed:
 			// The swap creation, invoice, and LN payment delivery all worked.
 			// The failure is in the ClaimVHTLC step which has a known timing issue
 			// where the VTXO from Boltz hasn't been settled in a round yet.
-			t.Logf("Reverse swap %s: Boltz delivered VTXO but VHTLC claim failed (known limitation in pkg/swap)", postProcessSwap.Id)
-			t.Logf("This test verifies: swap creation, invoice generation, LN payment delivery by Boltz")
+			t.Logf(
+				"Reverse swap %s: Boltz delivered VTXO but VHTLC claim failed (known limitation in pkg/swap)",
+				postProcessSwap.Id,
+			)
+			t.Logf(
+				"This test verifies: swap creation, invoice generation, LN payment delivery by Boltz",
+			)
 		}
 	case <-time.After(90 * time.Second):
 		t.Fatalf("reverse swap %s timed out waiting for postProcess", swapResult.Id)
@@ -413,7 +457,11 @@ func TestChainSwapMockArkToBTCCooperativeRefund(t *testing.T) {
 		case <-ticker.C:
 			switch chainSwap.GetStatus() {
 			case swap.ChainSwapRefunded:
-				t.Logf("Chain swap %s refunded cooperatively, refund tx: %s", chainSwap.Id, chainSwap.GetRefundTxid())
+				t.Logf(
+					"Chain swap %s refunded cooperatively, refund tx: %s",
+					chainSwap.Id,
+					chainSwap.GetRefundTxid(),
+				)
 				require.NotEmpty(t, events, "should have received chain swap events")
 				return
 			case swap.ChainSwapRefundedUnilaterally:
@@ -430,7 +478,11 @@ func TestChainSwapMockArkToBTCCooperativeRefund(t *testing.T) {
 				t.Fatal("swap should NOT have been claimed after swap.expired injection")
 			}
 		case <-deadline:
-			t.Fatalf("chain swap %s timed out in status %d waiting for refund", chainSwap.Id, chainSwap.GetStatus())
+			t.Fatalf(
+				"chain swap %s timed out in status %d waiting for refund",
+				chainSwap.Id,
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -502,9 +554,15 @@ func TestChainSwapMockArkToBTCUnilateralRefund(t *testing.T) {
 	case <-time.After(60 * time.Second):
 		switch chainSwap.GetStatus() {
 		case swap.ChainSwapRefundedUnilaterally, swap.ChainSwapFailed, swap.ChainSwapRefundFailed:
-			t.Logf("Swap reached terminal state %d (valid for unilateral refund test)", chainSwap.GetStatus())
+			t.Logf(
+				"Swap reached terminal state %d (valid for unilateral refund test)",
+				chainSwap.GetStatus(),
+			)
 		default:
-			t.Fatalf("timed out waiting for unilateral refund, swap status: %d", chainSwap.GetStatus())
+			t.Fatalf(
+				"timed out waiting for unilateral refund, swap status: %d",
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -605,12 +663,20 @@ func TestChainSwapEventInjection(t *testing.T) {
 				chainSwap.GetStatus() == swap.ChainSwapRefunded ||
 				chainSwap.GetStatus() == swap.ChainSwapRefundedUnilaterally ||
 				chainSwap.GetStatus() == swap.ChainSwapRefundFailed {
-				t.Logf("Chain swap %s reached terminal state %d after event injection", chainSwap.Id, chainSwap.GetStatus())
+				t.Logf(
+					"Chain swap %s reached terminal state %d after event injection",
+					chainSwap.Id,
+					chainSwap.GetStatus(),
+				)
 				require.NotEmpty(t, events, "should have received events")
 				return
 			}
 		case <-deadline:
-			t.Fatalf("swap %s did not reach terminal state, current: %d", chainSwap.Id, chainSwap.GetStatus())
+			t.Fatalf(
+				"swap %s did not reach terminal state, current: %d",
+				chainSwap.Id,
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -672,7 +738,11 @@ func TestChainSwapMockBTCToARKUnilateralRefund(t *testing.T) {
 	require.NotNil(t, chainSwap)
 	require.NotEmpty(t, chainSwap.Id)
 	require.NotEmpty(t, chainSwap.UserBtcLockupAddress, "should have a BTC lockup address")
-	t.Logf("BtcToArk refund swap %s created, lockup address: %s", chainSwap.Id, chainSwap.UserBtcLockupAddress)
+	t.Logf(
+		"BtcToArk refund swap %s created, lockup address: %s",
+		chainSwap.Id,
+		chainSwap.UserBtcLockupAddress,
+	)
 
 	// Fund the BTC lockup address and get the confirmed transaction details
 	// We need the txid and hex for the event injection
@@ -680,13 +750,23 @@ func TestChainSwapMockBTCToARKUnilateralRefund(t *testing.T) {
 	if lockupAmount == 0 {
 		lockupAmount = 3000
 	}
-	userLockTxid, userLockTxHex := fundAddressAndGetConfirmedTx(t, chainSwap.UserBtcLockupAddress, lockupAmount)
+	userLockTxid, userLockTxHex := fundAddressAndGetConfirmedTx(
+		t,
+		chainSwap.UserBtcLockupAddress,
+		lockupAmount,
+	)
 	t.Logf("Funded lockup address with txid: %s", userLockTxid)
 
 	time.Sleep(5 * time.Second)
 
 	// Notify the handler that user's BTC lockup is confirmed
-	injectMockBoltzSwapEventWithTx(t, chainSwap.Id, "transaction.confirmed", userLockTxid, userLockTxHex)
+	injectMockBoltzSwapEventWithTx(
+		t,
+		chainSwap.Id,
+		"transaction.confirmed",
+		userLockTxid,
+		userLockTxHex,
+	)
 	t.Logf("Injected transaction.confirmed for swap %s", chainSwap.Id)
 
 	// Mine past the lockup timeout so the refund script-path becomes spendable
@@ -724,14 +804,26 @@ func TestChainSwapMockBTCToARKUnilateralRefund(t *testing.T) {
 					}
 				}
 				if hasUserLock {
-					t.Logf("BtcToArk swap %s: user lockup confirmed, refund attempted: status=%d error=%s",
-						chainSwap.Id, chainSwap.GetStatus(), chainSwap.GetError())
+					t.Logf(
+						"BtcToArk swap %s: user lockup confirmed, refund attempted: status=%d error=%s",
+						chainSwap.Id,
+						chainSwap.GetStatus(),
+						chainSwap.GetError(),
+					)
 					return
 				}
-				t.Fatalf("BtcToArk swap %s failed before user lock: %s", chainSwap.Id, chainSwap.GetError())
+				t.Fatalf(
+					"BtcToArk swap %s failed before user lock: %s",
+					chainSwap.Id,
+					chainSwap.GetError(),
+				)
 			}
 		case <-deadline:
-			t.Fatalf("BtcToArk refund swap %s timed out in status %d", chainSwap.Id, chainSwap.GetStatus())
+			t.Fatalf(
+				"BtcToArk refund swap %s timed out in status %d",
+				chainSwap.Id,
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -777,7 +869,11 @@ func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
 	require.NotEmpty(t, chainSwap.Id)
 	require.NotEmpty(t, chainSwap.UserBtcLockupAddress, "should have a BTC lockup address")
 
-	t.Logf("BtcToArk quote swap %s created, lockup address: %s", chainSwap.Id, chainSwap.UserBtcLockupAddress)
+	t.Logf(
+		"BtcToArk quote swap %s created, lockup address: %s",
+		chainSwap.Id,
+		chainSwap.UserBtcLockupAddress,
+	)
 
 	// Overfund the lockup address: send 15500 sats instead of the exact amount.
 	// This triggers the quote mechanism in Boltz.
@@ -797,7 +893,11 @@ func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
 		case <-ticker.C:
 			t.Logf("BtcToArk quote swap %s status: %d", chainSwap.Id, chainSwap.GetStatus())
 			if chainSwap.GetStatus() == swap.ChainSwapClaimed {
-				t.Logf("BtcToArk quote swap %s successfully claimed! ClaimTxid: %s", chainSwap.Id, chainSwap.GetClaimTxid())
+				t.Logf(
+					"BtcToArk quote swap %s successfully claimed! ClaimTxid: %s",
+					chainSwap.Id,
+					chainSwap.GetClaimTxid(),
+				)
 				return
 			}
 			if chainSwap.GetStatus() == swap.ChainSwapFailed {
@@ -816,8 +916,11 @@ func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
 					}
 				}
 				if hasServerLock {
-					t.Logf("BtcToArk quote swap %s reached ServerLocked then failed at claim: %s (known limitation)",
-						chainSwap.Id, chainSwap.GetError())
+					t.Logf(
+						"BtcToArk quote swap %s reached ServerLocked then failed at claim: %s (known limitation)",
+						chainSwap.Id,
+						chainSwap.GetError(),
+					)
 					return
 				}
 				require.True(t, hasCreate, "should have CreateEvent")
@@ -825,7 +928,11 @@ func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
 				t.Fatalf("BtcToArk quote swap %s failed: %s", chainSwap.Id, chainSwap.GetError())
 			}
 		case <-deadline:
-			t.Fatalf("BtcToArk quote swap %s timed out in status %d", chainSwap.Id, chainSwap.GetStatus())
+			t.Fatalf(
+				"BtcToArk quote swap %s timed out in status %d",
+				chainSwap.Id,
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -896,11 +1003,24 @@ func TestChainSwapMockArkToBTCScriptPathClaim(t *testing.T) {
 	// that Boltz would normally lock. We need to fund it with a real regtest tx.
 	mockState := getMockBoltzSwapTyped(t, chainSwap.Id)
 	require.NotEmpty(t, mockState.BTCLockupAddress, "mock should have a BTC lockup address")
-	require.Greater(t, mockState.ServerLockAmount, uint64(0), "mock should have a server lock amount")
-	t.Logf("Mock state: BTCLockupAddress=%s, ServerLockAmount=%d", mockState.BTCLockupAddress, mockState.ServerLockAmount)
+	require.Greater(
+		t,
+		mockState.ServerLockAmount,
+		uint64(0),
+		"mock should have a server lock amount",
+	)
+	t.Logf(
+		"Mock state: BTCLockupAddress=%s, ServerLockAmount=%d",
+		mockState.BTCLockupAddress,
+		mockState.ServerLockAmount,
+	)
 
 	// Fund the BTC lockup address with the exact amount Boltz expects
-	serverLockTxid, serverLockTxHex := fundAddressAndGetConfirmedTx(t, mockState.BTCLockupAddress, mockState.ServerLockAmount)
+	serverLockTxid, serverLockTxHex := fundAddressAndGetConfirmedTx(
+		t,
+		mockState.BTCLockupAddress,
+		mockState.ServerLockAmount,
+	)
 	t.Logf("Funded BTC lockup with txid: %s", serverLockTxid)
 
 	time.Sleep(1 * time.Second)
@@ -909,7 +1029,13 @@ func TestChainSwapMockArkToBTCScriptPathClaim(t *testing.T) {
 	// 1. transaction.confirmed - user VTXO lockup confirmed
 	// 2. transaction.server.mempool - server BTC lockup detected with tx details
 	injectMockBoltzSwapEvent(t, chainSwap.Id, "transaction.confirmed")
-	injectMockBoltzSwapEventWithTx(t, chainSwap.Id, "transaction.server.mempool", serverLockTxid, serverLockTxHex)
+	injectMockBoltzSwapEventWithTx(
+		t,
+		chainSwap.Id,
+		"transaction.server.mempool",
+		serverLockTxid,
+		serverLockTxHex,
+	)
 	t.Logf("Injected transaction.confirmed + transaction.server.mempool for swap %s", chainSwap.Id)
 
 	// Wait for the swap to reach a terminal state
@@ -944,7 +1070,11 @@ func TestChainSwapMockArkToBTCScriptPathClaim(t *testing.T) {
 					chainSwap.Id, chainSwap.GetStatus(), chainSwap.GetError())
 			}
 		case <-deadline:
-			t.Fatalf("Script-path claim swap %s timed out in status %d", chainSwap.Id, chainSwap.GetStatus())
+			t.Fatalf(
+				"Script-path claim swap %s timed out in status %d",
+				chainSwap.Id,
+				chainSwap.GetStatus(),
+			)
 		}
 	}
 }
@@ -979,7 +1109,12 @@ func TestCircularSwap(t *testing.T) {
 	var postProcessSwap swap.Swap
 	postProcess := func(s swap.Swap) error {
 		postProcessSwap = s
-		t.Logf("Reverse swap postProcess: swap %s status=%d redeemTxid=%s", s.Id, s.Status, s.RedeemTxid)
+		t.Logf(
+			"Reverse swap postProcess: swap %s status=%d redeemTxid=%s",
+			s.Id,
+			s.Status,
+			s.RedeemTxid,
+		)
 		select {
 		case postProcessDone <- struct{}{}:
 		default:
@@ -1022,7 +1157,9 @@ func TestCircularSwap(t *testing.T) {
 			t.Logf("Circular swap fully succeeded!")
 		} else {
 			// The reverse swap claim may fail due to known VTXO timing limitation
-			t.Logf("Circular swap: submarine succeeded, reverse claim pending/failed (known limitation)")
+			t.Logf(
+				"Circular swap: submarine succeeded, reverse claim pending/failed (known limitation)",
+			)
 		}
 	case <-time.After(120 * time.Second):
 		t.Fatalf("circular swap timed out waiting for reverse swap postProcess")

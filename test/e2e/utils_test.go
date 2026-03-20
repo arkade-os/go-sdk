@@ -362,7 +362,13 @@ func mineBlocks(t *testing.T, n int) {
 	}
 	addr, err := runCommand("nigiri", "rpc", "getnewaddress")
 	require.NoError(t, err)
-	_, err = runCommand("nigiri", "rpc", "generatetoaddress", fmt.Sprintf("%d", n), strings.TrimSpace(addr))
+	_, err = runCommand(
+		"nigiri",
+		"rpc",
+		"generatetoaddress",
+		fmt.Sprintf("%d", n),
+		strings.TrimSpace(addr),
+	)
 	require.NoError(t, err)
 }
 

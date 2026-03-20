@@ -448,7 +448,8 @@ func (s *Server) signCollaborativeRefundPSBT(raw string) (string, error) {
 		// Keep only one signature for our key+leaf pair.
 		filtered := make([]*psbt.TaprootScriptSpendSig, 0, len(in.TaprootScriptSpendSig)+1)
 		for _, existing := range in.TaprootScriptSpendSig {
-			if bytes.Equal(existing.XOnlyPubKey, xOnly) && bytes.Equal(existing.LeafHash, leafHash[:]) {
+			if bytes.Equal(existing.XOnlyPubKey, xOnly) &&
+				bytes.Equal(existing.LeafHash, leafHash[:]) {
 				continue
 			}
 			filtered = append(filtered, existing)
@@ -611,7 +612,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) createSwap(req boltz.CreateChainSwapRequest) (*boltz.CreateChainSwapResponse, *swapState, error) {
+func (s *Server) createSwap(
+	req boltz.CreateChainSwapRequest,
+) (*boltz.CreateChainSwapResponse, *swapState, error) {
 	if req.From == "" || req.To == "" {
 		return nil, nil, fmt.Errorf("from and to are required")
 	}
@@ -687,7 +690,12 @@ func (s *Server) createSwap(req boltz.CreateChainSwapRequest) (*boltz.CreateChai
 		clientKeyForLockup = refundPubKey
 	}
 
-	swapTree, err := buildSwapTree(preimageHash160, claimScriptKey, refundScriptKey, rt.BtcLockupTimeoutBlocks)
+	swapTree, err := buildSwapTree(
+		preimageHash160,
+		claimScriptKey,
+		refundScriptKey,
+		rt.BtcLockupTimeoutBlocks,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -711,7 +719,14 @@ func (s *Server) createSwap(req boltz.CreateChainSwapRequest) (*boltz.CreateChai
 		UnilateralRefundWithoutReceiver: int(rt.UnilateralRefundNoRecvDelay),
 	}
 
-	arkAddress, err := s.buildARKLockup(isArkToBTC, claimPubKey, refundPubKey, preimageHash160, refundAt, rt)
+	arkAddress, err := s.buildARKLockup(
+		isArkToBTC,
+		claimPubKey,
+		refundPubKey,
+		preimageHash160,
+		refundAt,
+		rt,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -809,7 +824,10 @@ func (s *Server) buildARKLockup(
 	return addr, nil
 }
 
-func (s *Server) buildBTCLockup(clientPubKey *btcec.PublicKey, swapTree boltz.SwapTree) (string, []byte, error) {
+func (s *Server) buildBTCLockup(
+	clientPubKey *btcec.PublicKey,
+	swapTree boltz.SwapTree,
+) (string, []byte, error) {
 	merkleRoot, err := swapTreeMerkleRoot(swapTree)
 	if err != nil {
 		return "", nil, err
@@ -834,7 +852,10 @@ func (s *Server) buildBTCLockup(clientPubKey *btcec.PublicKey, swapTree boltz.Sw
 	return addr.EncodeAddress(), pkScript, nil
 }
 
-func (s *Server) makeServerPartialSignature(st *swapState, req boltz.ChainSwapClaimRequest) (string, string, error) {
+func (s *Server) makeServerPartialSignature(
+	st *swapState,
+	req boltz.ChainSwapClaimRequest,
+) (string, string, error) {
 	if req.ToSign.ClaimTx == "" {
 		return "", "", fmt.Errorf("missing toSign.transaction")
 	}
@@ -867,9 +888,17 @@ func (s *Server) makeServerPartialSignature(st *swapState, req boltz.ChainSwapCl
 
 	prevOut := &wire.TxOut{Value: int64(st.ServerLockAmount), PkScript: st.BTCLockupScript}
 	prevOutPoint := claimTx.TxIn[req.ToSign.Index].PreviousOutPoint
-	prevFetcher := txscript.NewMultiPrevOutFetcher(map[wire.OutPoint]*wire.TxOut{prevOutPoint: prevOut})
+	prevFetcher := txscript.NewMultiPrevOutFetcher(
+		map[wire.OutPoint]*wire.TxOut{prevOutPoint: prevOut},
+	)
 	sigHashes := txscript.NewTxSigHashes(claimTx, prevFetcher)
-	msg, err := txscript.CalcTaprootSignatureHash(sigHashes, txscript.SigHashDefault, claimTx, req.ToSign.Index, prevFetcher)
+	msg, err := txscript.CalcTaprootSignatureHash(
+		sigHashes,
+		txscript.SigHashDefault,
+		claimTx,
+		req.ToSign.Index,
+		prevFetcher,
+	)
 	if err != nil {
 		return "", "", fmt.Errorf("taproot message: %w", err)
 	}
@@ -1039,7 +1068,10 @@ func splitPath(path string) []string {
 	return strings.Split(trimmed, "/")
 }
 
-func buildSwapTree(preimageHash160, claimKeyXOnly, refundKeyXOnly []byte, timeout uint32) (boltz.SwapTree, error) {
+func buildSwapTree(
+	preimageHash160, claimKeyXOnly, refundKeyXOnly []byte,
+	timeout uint32,
+) (boltz.SwapTree, error) {
 	claimScript, err := txscript.NewScriptBuilder().
 		AddOp(txscript.OP_SIZE).
 		AddData([]byte{0x20}).
@@ -1065,8 +1097,14 @@ func buildSwapTree(preimageHash160, claimKeyXOnly, refundKeyXOnly []byte, timeou
 	}
 
 	return boltz.SwapTree{
-		ClaimLeaf:  boltz.SwapTreeLeaf{Version: uint8(txscript.BaseLeafVersion), Output: hex.EncodeToString(claimScript)},
-		RefundLeaf: boltz.SwapTreeLeaf{Version: uint8(txscript.BaseLeafVersion), Output: hex.EncodeToString(refundScript)},
+		ClaimLeaf: boltz.SwapTreeLeaf{
+			Version: uint8(txscript.BaseLeafVersion),
+			Output:  hex.EncodeToString(claimScript),
+		},
+		RefundLeaf: boltz.SwapTreeLeaf{
+			Version: uint8(txscript.BaseLeafVersion),
+			Output:  hex.EncodeToString(refundScript),
+		},
 	}, nil
 }
 
@@ -1246,18 +1284,24 @@ func main() {
 	log.SetLevel(level)
 
 	cfg := Config{
-		ListenAddr:                  envOrDefault("MOCK_BOLTZ_LISTEN_ADDR", ":9001"),
-		ArkdURL:                     envOrDefault("MOCK_BOLTZ_ARKD_URL", "http://arkd:7070"),
-		ArkHRP:                      envOrDefault("MOCK_BOLTZ_ARK_HRP", "tark"),
-		Network:                     parseNetwork(envOrDefault("MOCK_BOLTZ_NETWORK", "regtest")),
-		AutoSwapCreatedDelay:        parseDuration("MOCK_BOLTZ_AUTO_SWAP_CREATED_DELAY", 50*time.Millisecond),
-		ArkRefundLocktimeSeconds:    parseInt64("MOCK_BOLTZ_ARK_REFUND_LOCKTIME_SECONDS", 60),
-		BtcLockupTimeoutBlocks:      parseUint32("MOCK_BOLTZ_BTC_LOCKUP_TIMEOUT_BLOCKS", 720),
-		UnilateralClaimDelay:        parseUint32("MOCK_BOLTZ_UNILATERAL_CLAIM_DELAY", 512),
-		UnilateralRefundDelay:       parseUint32("MOCK_BOLTZ_UNILATERAL_REFUND_DELAY", 512),
-		UnilateralRefundNoRecvDelay: parseUint32("MOCK_BOLTZ_UNILATERAL_REFUND_NO_RECV_DELAY", 1024),
-		ServiceFeePPM:               parseUint64("MOCK_BOLTZ_SERVICE_FEE_PPM", 20000),
-		MinerFeeSat:                 parseUint64("MOCK_BOLTZ_MINER_FEE_SAT", 200),
+		ListenAddr: envOrDefault("MOCK_BOLTZ_LISTEN_ADDR", ":9001"),
+		ArkdURL:    envOrDefault("MOCK_BOLTZ_ARKD_URL", "http://arkd:7070"),
+		ArkHRP:     envOrDefault("MOCK_BOLTZ_ARK_HRP", "tark"),
+		Network:    parseNetwork(envOrDefault("MOCK_BOLTZ_NETWORK", "regtest")),
+		AutoSwapCreatedDelay: parseDuration(
+			"MOCK_BOLTZ_AUTO_SWAP_CREATED_DELAY",
+			50*time.Millisecond,
+		),
+		ArkRefundLocktimeSeconds: parseInt64("MOCK_BOLTZ_ARK_REFUND_LOCKTIME_SECONDS", 60),
+		BtcLockupTimeoutBlocks:   parseUint32("MOCK_BOLTZ_BTC_LOCKUP_TIMEOUT_BLOCKS", 720),
+		UnilateralClaimDelay:     parseUint32("MOCK_BOLTZ_UNILATERAL_CLAIM_DELAY", 512),
+		UnilateralRefundDelay:    parseUint32("MOCK_BOLTZ_UNILATERAL_REFUND_DELAY", 512),
+		UnilateralRefundNoRecvDelay: parseUint32(
+			"MOCK_BOLTZ_UNILATERAL_REFUND_NO_RECV_DELAY",
+			1024,
+		),
+		ServiceFeePPM: parseUint64("MOCK_BOLTZ_SERVICE_FEE_PPM", 20000),
+		MinerFeeSat:   parseUint64("MOCK_BOLTZ_MINER_FEE_SAT", 200),
 	}
 
 	srv, err := New(cfg)
