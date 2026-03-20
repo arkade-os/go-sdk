@@ -84,7 +84,7 @@ func (h *arkToBtcHandler) HandleServerLockedMempool(
 }
 
 func (h *arkToBtcHandler) HandleServerLocked(ctx context.Context, update boltz.SwapUpdate) error {
-	return nil
+	return h.handleArkToBtcServerLocked(ctx, update)
 }
 
 func (h *arkToBtcHandler) HandleSwapExpired(ctx context.Context, update boltz.SwapUpdate) error {
@@ -141,12 +141,25 @@ func (h *arkToBtcHandler) handleArkToBtcServerLocked(
 	ctx context.Context,
 	update boltz.SwapUpdate,
 ) error {
+	if h.chainSwapState.Swap.GetStatus() == ChainSwapClaimed {
+		return nil
+	}
+
+	serverLockupTxID := update.Transaction.Id
+	if existing := h.chainSwapState.Swap.GetServerLockTxid(); existing != "" && existing == serverLockupTxID {
+		log.Infof(
+			"Server lock for swap %s already processed for tx %s",
+			h.chainSwapState.SwapID,
+			serverLockupTxID,
+		)
+		return nil
+	}
+
 	log.Infof(
 		"Boltz locked BTC for swap %s (confirmed), proceeding with claim",
 		h.chainSwapState.SwapID,
 	)
 
-	serverLockupTxID := update.Transaction.Id
 	serverLockupTxHex := update.Transaction.Hex
 
 	h.chainSwapState.Swap.ServerLock(serverLockupTxID)

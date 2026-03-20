@@ -69,7 +69,7 @@ func (b *btcToArkHandler) HandleServerLockedMempool(
 }
 
 func (b *btcToArkHandler) HandleServerLocked(ctx context.Context, update boltz.SwapUpdate) error {
-	return nil
+	return b.handleBtcToArkServerLocked(ctx, update)
 }
 
 func (b *btcToArkHandler) HandleSwapExpired(ctx context.Context, update boltz.SwapUpdate) error {
@@ -117,9 +117,22 @@ func (b *btcToArkHandler) handleBtcToArkServerLocked(
 	ctx context.Context,
 	update boltz.SwapUpdate,
 ) error {
-	log.Infof("Boltz sent Ark VTXOs for swap %s (mempool), claiming now", b.chainSwapState.SwapID)
+	if b.chainSwapState.Swap.GetStatus() == ChainSwapClaimed {
+		return nil
+	}
 
 	serverLockupTxID := update.Transaction.Id
+	if existing := b.chainSwapState.Swap.GetServerLockTxid(); existing != "" && existing == serverLockupTxID {
+		log.Infof(
+			"Server lock for swap %s already processed for tx %s",
+			b.chainSwapState.SwapID,
+			serverLockupTxID,
+		)
+		return nil
+	}
+
+	log.Infof("Boltz sent Ark VTXOs for swap %s (mempool), claiming now", b.chainSwapState.SwapID)
+
 	b.chainSwapState.Swap.ServerLock(serverLockupTxID)
 
 	// Claim Ark VTXOs lockup
