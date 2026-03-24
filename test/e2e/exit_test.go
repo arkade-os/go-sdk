@@ -185,7 +185,7 @@ func TestUnilateralExit(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t)
 
-		aliceVtxoCh:= alice.GetVtxoEventChannel(ctx)
+		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
 
 		vtxoToUnroll := faucetOffchain(t, alice, 0.00021)

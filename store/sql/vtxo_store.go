@@ -154,7 +154,10 @@ func (v *vtxoRepository) SpendVtxos(
 	return len(spentVtxos), nil
 }
 
-func (v *vtxoRepository) SweepVtxos(ctx context.Context, vtxosToSweep []clientTypes.Vtxo) (int, error) {
+func (v *vtxoRepository) SweepVtxos(
+	ctx context.Context,
+	vtxosToSweep []clientTypes.Vtxo,
+) (int, error) {
 	sweptVtxos := make([]clientTypes.Vtxo, 0)
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, v := range vtxosToSweep {
@@ -185,7 +188,10 @@ func (v *vtxoRepository) SweepVtxos(ctx context.Context, vtxosToSweep []clientTy
 	return len(sweptVtxos), nil
 }
 
-func (v *vtxoRepository) UnrollVtxos(ctx context.Context, vtxosToUnroll []clientTypes.Vtxo) (int, error) {
+func (v *vtxoRepository) UnrollVtxos(
+	ctx context.Context,
+	vtxosToUnroll []clientTypes.Vtxo,
+) (int, error) {
 	unrolledVtxos := make([]clientTypes.Vtxo, 0)
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, v := range vtxosToUnroll {
@@ -279,7 +285,7 @@ func (v *vtxoRepository) GetAllVtxos(
 	}
 	for _, group := range byOutpoint {
 		vtxo := assetVtxoVwGroupToVtxo(group)
-		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept{
+		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)
@@ -322,7 +328,7 @@ func (v *vtxoRepository) GetSpendableVtxos(
 	allVtxos := assetVtxoVwRowsToVtxos(rows)
 	spendable = make([]clientTypes.Vtxo, 0, len(allVtxos))
 	for _, vtxo := range allVtxos {
-		if vtxo.Unrolled || vtxo.Spent{
+		if vtxo.Unrolled || vtxo.Spent {
 			continue
 		}
 		spendable = append(spendable, vtxo)

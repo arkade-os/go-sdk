@@ -127,7 +127,10 @@ func (s *vtxoStore) SweepVtxos(ctx context.Context, vtxosToSweep []clientTypes.V
 	return len(sweptVtxos), nil
 }
 
-func (s *vtxoStore) UnrollVtxos(ctx context.Context, vtxosToUnroll []clientTypes.Vtxo) (int, error) {
+func (s *vtxoStore) UnrollVtxos(
+	ctx context.Context,
+	vtxosToUnroll []clientTypes.Vtxo,
+) (int, error) {
 	unrolledVtxos := make([]clientTypes.Vtxo, 0, len(vtxosToUnroll))
 	for _, v := range vtxosToUnroll {
 		v.Unrolled = true
