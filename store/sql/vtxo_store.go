@@ -213,7 +213,7 @@ func (v *vtxoRepository) UnrollVtxos(
 	if len(unrolledVtxos) > 0 {
 		v.wg.Go(func() {
 			v.sendEvent(types.VtxoEvent{
-				Type:  types.VtxosSwept,
+				Type:  types.VtxosUnrolled,
 				Vtxos: unrolledVtxos,
 			})
 		})
