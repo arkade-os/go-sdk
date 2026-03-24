@@ -593,14 +593,7 @@ func (a *arkClient) refreshVtxoDb(
 		}
 	}
 
-	// Spent vtxos include swept and redeemed, let's make sure to update any vtxo that was
-	// previously spendable.
-	vtxosToUpdate := make([]clientTypes.Vtxo, 0, len(spentVtxos))
-	for _, vtxo := range spentVtxos {
-		if _, ok := oldSpendableVtxoMap[vtxo.Outpoint]; ok {
-			vtxosToUpdate = append(vtxosToUpdate, vtxo)
-		}
-	}
+	vtxosToSpend, vtxosToSettle := groupSpentVtxosByTx(spentVtxos, oldSpendableVtxoMap)
 
 	if len(vtxosToAdd) > 0 {
 		count, err := a.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
@@ -611,17 +604,65 @@ func (a *arkClient) refreshVtxoDb(
 			log.Debugf("added %d new vtxo(s)", count)
 		}
 	}
-	if len(vtxosToUpdate) > 0 {
-		count, err := a.store.VtxoStore().UpdateVtxos(ctx, vtxosToUpdate)
+	totalSpent := 0
+	for arkTxid, spent := range vtxosToSpend {
+		count, err := a.store.VtxoStore().SpendVtxos(ctx, spent, arkTxid)
 		if err != nil {
 			return err
 		}
-		if count > 0 {
-			log.Debugf("updated %d vtxo(s)", count)
+		totalSpent += count
+	}
+	if totalSpent > 0 {
+		log.Debugf("updated %d spent vtxo(s)", totalSpent)
+	}
+
+	totalSettled := 0
+	for settledBy, spent := range vtxosToSettle {
+		count, err := a.store.VtxoStore().SettleVtxos(ctx, spent, settledBy)
+		if err != nil {
+			return err
 		}
+		totalSettled += count
+	}
+	if totalSettled > 0 {
+		log.Debugf("updated %d settled vtxo(s)", totalSettled)
 	}
 
 	return nil
+}
+
+func groupSpentVtxosByTx(
+	spentVtxos []clientTypes.Vtxo,
+	oldSpendableVtxoMap map[clientTypes.Outpoint]clientTypes.Vtxo,
+) (
+	map[string]map[clientTypes.Outpoint]string,
+	map[string]map[clientTypes.Outpoint]string,
+) {
+	// Spent vtxos include swept and redeemed, let's make sure to update only vtxos
+	// that were previously spendable.
+	vtxosToSpend := make(map[string]map[clientTypes.Outpoint]string)
+	vtxosToSettle := make(map[string]map[clientTypes.Outpoint]string)
+
+	for _, vtxo := range spentVtxos {
+		if _, ok := oldSpendableVtxoMap[vtxo.Outpoint]; !ok {
+			continue
+		}
+
+		if vtxo.SettledBy != "" {
+			if _, ok := vtxosToSettle[vtxo.SettledBy]; !ok {
+				vtxosToSettle[vtxo.SettledBy] = make(map[clientTypes.Outpoint]string)
+			}
+			vtxosToSettle[vtxo.SettledBy][vtxo.Outpoint] = vtxo.SpentBy
+			continue
+		}
+
+		if _, ok := vtxosToSpend[vtxo.ArkTxid]; !ok {
+			vtxosToSpend[vtxo.ArkTxid] = make(map[clientTypes.Outpoint]string)
+		}
+		vtxosToSpend[vtxo.ArkTxid][vtxo.Outpoint] = vtxo.SpentBy
+	}
+
+	return vtxosToSpend, vtxosToSettle
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
@@ -689,6 +730,13 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			if event.ArkTx != nil {
 				if err := a.handleArkTx(ctx, myPubkeys, event.ArkTx); err != nil {
 					log.WithError(err).Error("failed to process ark tx")
+					continue
+				}
+			}
+
+			if event.SweepTx != nil {
+				if err := a.handleSweepTx(ctx, event.SweepTx); err != nil {
+					log.WithError(err).Error("failed to process sweep tx")
 					continue
 				}
 			}
@@ -1381,6 +1429,42 @@ func (a *arkClient) handleArkTx(
 	return nil
 }
 
+func (a *arkClient) handleSweepTx(ctx context.Context, sweepTx *transport.TxNotification) error {
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+
+	if len(sweepTx.SweptVtxos) == 0 {
+		return nil
+	}
+
+	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, sweepTx.SweptVtxos)
+	if err != nil {
+		return err
+	}
+
+	vtxosToSweep := make([]clientTypes.Vtxo, 0, len(myVtxos))
+	for _, vtxo := range myVtxos {
+		if vtxo.Swept {
+			continue
+		}
+		vtxosToSweep = append(vtxosToSweep, vtxo)
+	}
+
+	if len(vtxosToSweep) == 0 {
+		return nil
+	}
+
+	count, err := a.store.VtxoStore().SweepVtxos(ctx, vtxosToSweep)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		log.Debugf("marked %d vtxo(s) as swept", count)
+	}
+
+	return nil
+}
+
 func (a *arkClient) safeCheck() error {
 	if a.Wallet() == nil {
 		return fmt.Errorf("wallet not initialized")
@@ -1593,10 +1677,9 @@ func (i *arkClient) vtxosToTxs(
 		vtxo := getVtxo(resultedVtxos, vtxosBySpentBy[sb])
 		if resultedAmount == 0 {
 			// send all: fetch the created vtxo to source creation and expiration timestamps
-			opts := &indexer.GetVtxosRequestOption{}
-			// nolint
-			opts.WithOutpoints([]clientTypes.Outpoint{{Txid: sb, VOut: 0}})
-			resp, err := indexerSvc.GetVtxos(ctx, *opts)
+			resp, err := indexerSvc.GetVtxos(
+				ctx, indexer.WithOutpoints([]clientTypes.Outpoint{{Txid: sb, VOut: 0}}),
+			)
 			if err != nil {
 				return nil, err
 			}

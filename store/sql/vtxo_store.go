@@ -126,7 +126,7 @@ func (v *vtxoRepository) SpendVtxos(
 			vtxo.Spent = true
 			vtxo.SpentBy = spentVtxosMap[vtxo.Outpoint]
 			vtxo.ArkTxid = arkTxid
-			if err := querierWithTx.UpdateVtxo(ctx, queries.UpdateVtxoParams{
+			if err := querierWithTx.SpendVtxo(ctx, queries.SpendVtxoParams{
 				SpentBy: sql.NullString{String: vtxo.SpentBy, Valid: true},
 				ArkTxid: sql.NullString{String: vtxo.ArkTxid, Valid: true},
 				Txid:    vtxo.Txid,
@@ -154,6 +154,68 @@ func (v *vtxoRepository) SpendVtxos(
 	return len(spentVtxos), nil
 }
 
+func (v *vtxoRepository) SweepVtxos(ctx context.Context, vtxosToSweep []clientTypes.Vtxo) (int, error) {
+	sweptVtxos := make([]clientTypes.Vtxo, 0)
+	txBody := func(querierWithTx *queries.Queries) error {
+		for _, v := range vtxosToSweep {
+			v.Swept = true
+			if err := querierWithTx.SweepVtxo(ctx, queries.SweepVtxoParams{
+				Txid: v.Txid,
+				Vout: int64(v.VOut),
+			}); err != nil {
+				return err
+			}
+			sweptVtxos = append(sweptVtxos, v)
+		}
+		return nil
+	}
+	if err := execTx(ctx, v.db, txBody); err != nil {
+		return -1, err
+	}
+
+	if len(sweptVtxos) > 0 {
+		v.wg.Go(func() {
+			v.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSwept,
+				Vtxos: sweptVtxos,
+			})
+		})
+	}
+
+	return len(sweptVtxos), nil
+}
+
+func (v *vtxoRepository) UnrollVtxos(ctx context.Context, vtxosToUnroll []clientTypes.Vtxo) (int, error) {
+	unrolledVtxos := make([]clientTypes.Vtxo, 0)
+	txBody := func(querierWithTx *queries.Queries) error {
+		for _, v := range vtxosToUnroll {
+			v.Unrolled = true
+			if err := querierWithTx.UnrollVtxo(ctx, queries.UnrollVtxoParams{
+				Txid: v.Txid,
+				Vout: int64(v.VOut),
+			}); err != nil {
+				return err
+			}
+			unrolledVtxos = append(unrolledVtxos, v)
+		}
+		return nil
+	}
+	if err := execTx(ctx, v.db, txBody); err != nil {
+		return -1, err
+	}
+
+	if len(unrolledVtxos) > 0 {
+		v.wg.Go(func() {
+			v.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSwept,
+				Vtxos: unrolledVtxos,
+			})
+		})
+	}
+
+	return len(unrolledVtxos), nil
+}
+
 func (v *vtxoRepository) SettleVtxos(
 	ctx context.Context, spentVtxosMap map[clientTypes.Outpoint]string, settledBy string,
 ) (int, error) {
@@ -169,13 +231,13 @@ func (v *vtxoRepository) SettleVtxos(
 	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
-			if vtxo.Spent {
+			if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
 				continue
 			}
 			vtxo.Spent = true
 			vtxo.SpentBy = spentVtxosMap[vtxo.Outpoint]
 			vtxo.SettledBy = settledBy
-			if err := querierWithTx.UpdateVtxo(ctx, queries.UpdateVtxoParams{
+			if err := querierWithTx.SpendVtxo(ctx, queries.SpendVtxoParams{
 				SpentBy:   sql.NullString{String: vtxo.SpentBy, Valid: true},
 				SettledBy: sql.NullString{String: vtxo.SettledBy, Valid: true},
 				Txid:      vtxo.Txid,
@@ -194,44 +256,13 @@ func (v *vtxoRepository) SettleVtxos(
 	if len(spentVtxos) > 0 {
 		v.wg.Go(func() {
 			v.sendEvent(types.VtxoEvent{
-				Type:  types.VtxosSpent,
+				Type:  types.VtxoSettled,
 				Vtxos: spentVtxos,
 			})
 		})
 	}
 
 	return len(spentVtxos), nil
-}
-
-func (v *vtxoRepository) UpdateVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
-	updatedVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
-	txBody := func(querierWithTx *queries.Queries) error {
-		for _, vtxo := range vtxos {
-			if err := querierWithTx.UpdateVtxo(ctx, queries.UpdateVtxoParams{
-				SpentBy:   sql.NullString{String: vtxo.SpentBy, Valid: true},
-				SettledBy: sql.NullString{String: vtxo.SettledBy, Valid: true},
-				ArkTxid:   sql.NullString{String: vtxo.ArkTxid, Valid: true},
-				Txid:      vtxo.Txid,
-				Vout:      int64(vtxo.VOut),
-			}); err != nil {
-				return err
-			}
-			updatedVtxos = append(updatedVtxos, vtxo)
-		}
-		return nil
-	}
-	if err := execTx(ctx, v.db, txBody); err != nil {
-		return -1, err
-	}
-
-	v.wg.Go(func() {
-		v.sendEvent(types.VtxoEvent{
-			Type:  types.VtxosUpdated,
-			Vtxos: updatedVtxos,
-		})
-	})
-
-	return len(updatedVtxos), nil
 }
 
 func (v *vtxoRepository) GetAllVtxos(
@@ -248,7 +279,7 @@ func (v *vtxoRepository) GetAllVtxos(
 	}
 	for _, group := range byOutpoint {
 		vtxo := assetVtxoVwGroupToVtxo(group)
-		if vtxo.Spent {
+		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept{
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)
@@ -288,7 +319,16 @@ func (v *vtxoRepository) GetSpendableVtxos(
 		return nil, err
 	}
 
-	return assetVtxoVwRowsToVtxos(rows), nil
+	allVtxos := assetVtxoVwRowsToVtxos(rows)
+	spendable = make([]clientTypes.Vtxo, 0, len(allVtxos))
+	for _, vtxo := range allVtxos {
+		if vtxo.Unrolled || vtxo.Spent{
+			continue
+		}
+		spendable = append(spendable, vtxo)
+	}
+
+	return spendable, nil
 }
 
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {

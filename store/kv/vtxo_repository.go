@@ -105,6 +105,50 @@ func (s *vtxoStore) SpendVtxos(
 	return len(spentVtxos), nil
 }
 
+func (s *vtxoStore) SweepVtxos(ctx context.Context, vtxosToSweep []clientTypes.Vtxo) (int, error) {
+	sweptVtxos := make([]clientTypes.Vtxo, 0, len(vtxosToSweep))
+	for _, v := range vtxosToSweep {
+		v.Swept = true
+		if err := s.db.Update(v.Outpoint.String(), &v); err != nil {
+			return -1, err
+		}
+		sweptVtxos = append(sweptVtxos, v)
+	}
+
+	if len(sweptVtxos) > 0 {
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosSwept,
+				Vtxos: sweptVtxos,
+			})
+		})
+	}
+
+	return len(sweptVtxos), nil
+}
+
+func (s *vtxoStore) UnrollVtxos(ctx context.Context, vtxosToUnroll []clientTypes.Vtxo) (int, error) {
+	unrolledVtxos := make([]clientTypes.Vtxo, 0, len(vtxosToUnroll))
+	for _, v := range vtxosToUnroll {
+		v.Unrolled = true
+		if err := s.db.Update(v.Outpoint.String(), &v); err != nil {
+			return -1, err
+		}
+		unrolledVtxos = append(unrolledVtxos, v)
+	}
+
+	if len(unrolledVtxos) > 0 {
+		s.wg.Go(func() {
+			s.sendEvent(types.VtxoEvent{
+				Type:  types.VtxosUnrolled,
+				Vtxos: unrolledVtxos,
+			})
+		})
+	}
+
+	return len(unrolledVtxos), nil
+}
+
 func (s *vtxoStore) SettleVtxos(
 	ctx context.Context, spentVtxoMap map[clientTypes.Outpoint]string, settledBy string,
 ) (int, error) {
@@ -119,7 +163,7 @@ func (s *vtxoStore) SettleVtxos(
 
 	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		if vtxo.Spent {
+		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
 			continue
 		}
 		vtxo.Spent = true
@@ -135,28 +179,13 @@ func (s *vtxoStore) SettleVtxos(
 	if len(spentVtxos) > 0 {
 		s.wg.Go(func() {
 			s.sendEvent(types.VtxoEvent{
-				Type:  types.VtxosSpent,
+				Type:  types.VtxoSettled,
 				Vtxos: spentVtxos,
 			})
 		})
 	}
 
 	return len(spentVtxos), nil
-}
-
-func (s *vtxoStore) UpdateVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
-	for _, vtxo := range vtxos {
-		if err := s.db.Upsert(vtxo.Outpoint.String(), &vtxo); err != nil {
-			return -1, err
-		}
-	}
-	s.wg.Go(func() {
-		s.sendEvent(types.VtxoEvent{
-			Type:  types.VtxosUpdated,
-			Vtxos: vtxos,
-		})
-	})
-	return len(vtxos), nil
 }
 
 func (s *vtxoStore) GetAllVtxos(
@@ -169,7 +198,7 @@ func (s *vtxoStore) GetAllVtxos(
 	}
 
 	for _, vtxo := range allVtxos {
-		if vtxo.Spent || vtxo.Unrolled {
+		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)

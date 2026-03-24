@@ -152,8 +152,8 @@ func TestBatchSession(t *testing.T) {
 		// the event channel should he notified about the spent vtxos
 		aliceVtxoEvent = <-aliceVtxoCh
 		bobVtxoEvent = <-bobVtxoCh
-		require.Equal(t, types.VtxosSpent, aliceVtxoEvent.Type)
-		require.Equal(t, types.VtxosSpent, bobVtxoEvent.Type)
+		require.Equal(t, types.VtxoSettled, aliceVtxoEvent.Type)
+		require.Equal(t, types.VtxoSettled, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		require.Equal(t, aliceVtxoEvent.Vtxos[0].Outpoint, aliceVtxo.Outpoint)
@@ -254,8 +254,7 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, outScript)
 
-		opts := indexer.GetVtxosRequestOption{}
-		err = opts.WithScripts([]string{hex.EncodeToString(outScript)})
+		opts := indexer.WithScripts([]string{hex.EncodeToString(outScript)})
 		require.NoError(t, err)
 
 		res, err := alice.Indexer().GetVtxos(t.Context(), opts)
@@ -268,8 +267,8 @@ func TestBatchSession(t *testing.T) {
 		err = generateBlocks(21)
 		require.NoError(t, err)
 
-		// Give the time to the server to sweep the funds
-		time.Sleep(10 * time.Second)
+		vtxoEvent = <-vtxoCh
+		require.Equal(t, types.VtxosSwept, vtxoEvent.Type)
 
 		res, err = alice.Indexer().GetVtxos(t.Context(), opts)
 		require.NoError(t, err)

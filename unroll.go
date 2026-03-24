@@ -50,7 +50,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 				vtxosToUpdate = append(vtxosToUpdate, vtxo)
 			}
 		}
-		count, err := a.store.VtxoStore().UpdateVtxos(ctx, vtxosToUpdate)
+		count, err := a.store.VtxoStore().UnrollVtxos(ctx, vtxosToUpdate)
 		if err != nil {
 			return fmt.Errorf("failed to update vtxos: %w", err)
 		}

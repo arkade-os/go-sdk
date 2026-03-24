@@ -3,13 +3,23 @@ INSERT INTO vtxo (
     txid, vout, script, amount, commitment_txids, spent_by, spent, preconfirmed, expires_at, created_at, swept, unrolled, settled_by, ark_txid
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
--- name: UpdateVtxo :exec
+-- name: SpendVtxo :exec
 UPDATE vtxo
 SET
     spent = true,
     spent_by = :spent_by,
     settled_by = COALESCE(sqlc.narg(settled_by), settled_by),
     ark_txid = COALESCE(sqlc.narg(ark_txid), ark_txid)
+WHERE txid = :txid AND vout = :vout;
+
+-- name: SweepVtxo :exec
+UPDATE vtxo
+SET swept = true
+WHERE txid = :txid AND vout = :vout;
+
+-- name: UnrollVtxo :exec
+UPDATE vtxo
+SET unrolled = true
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SelectAllVtxos :many

@@ -185,13 +185,16 @@ func TestUnilateralExit(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t)
 
+		aliceVtxoCh:= alice.GetVtxoEventChannel(ctx)
+		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
+
 		vtxoToUnroll := faucetOffchain(t, alice, 0.00021)
+		aliceVtxoEvent := <-aliceVtxoCh
+		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 
 		aliceOnchainAddr, err := alice.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, aliceOnchainAddr)
-
-		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
 
 		// Faucet onchain addr to cover network fees for the unroll.
 		faucetOnchain(t, aliceOnchainAddr, 0.0001)
