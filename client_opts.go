@@ -20,7 +20,7 @@ func ApplyClientOptions(opts ...ClientOption) error {
 }
 
 // WithRefreshDbInterval sets the interval at which the local database is
-// periodically refreshed from the server. Must be positive. Can only be set once.
+// periodically refreshed from the server. Must be at least 30s. Can only be set once.
 // If no ClientOption is passed, refreshDbInterval defaults to zero, which
 // disables periodic refresh entirely.
 func WithRefreshDbInterval(d time.Duration) ClientOption {
