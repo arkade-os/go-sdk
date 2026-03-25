@@ -39,14 +39,18 @@ type VtxoEventType int
 const (
 	VtxosAdded VtxoEventType = iota
 	VtxosSpent
-	VtxosUpdated
+	VtxoSettled
+	VtxosSwept
+	VtxosUnrolled
 )
 
 func (e VtxoEventType) String() string {
 	return map[VtxoEventType]string{
-		VtxosAdded:   "VTXOS_ADDED",
-		VtxosSpent:   "VTXOS_SPENT",
-		VtxosUpdated: "VTXOS_UPDATED",
+		VtxosAdded:    "VTXOS_ADDED",
+		VtxosSpent:    "VTXOS_SPENT",
+		VtxoSettled:   "VTXOS_SETTLED",
+		VtxosSwept:    "VTXOS_SWEPT",
+		VtxosUnrolled: "VTXOS_UNROLLED",
 	}[e]
 }
 

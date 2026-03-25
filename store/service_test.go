@@ -501,8 +501,8 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 				log.Infof("%s store - vtxos added: %d", storeType, len(event.Vtxos))
 			case types.VtxosSpent:
 				log.Infof("%s store - vtxos spent: %d", storeType, len(event.Vtxos))
-			case types.VtxosUpdated:
-				log.Infof("%s store - vtxos updated: %d", storeType, len(event.Vtxos))
+			case types.VtxosSwept:
+				log.Infof("%s store - vtxos swept: %d", storeType, len(event.Vtxos))
 			}
 			for _, vtxo := range event.Vtxos {
 				log.Infof("%v", vtxo)

@@ -31,10 +31,53 @@ const (
 	explorerUrl = "http://127.0.0.1:3000"
 )
 
-func setupClient(t *testing.T) sdk.ArkClient {
+type testStoreBackend struct {
+	name string
+}
+
+func (b testStoreBackend) datadir(t *testing.T) string {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient("", false)
+	if b.name == "sql" {
+		return t.TempDir()
+	}
+
+	return ""
+}
+
+func (b testStoreBackend) setupClient(t *testing.T) sdk.ArkClient {
+	t.Helper()
+
+	return setupClientWithDatadir(t, b.datadir(t))
+}
+
+func (b testStoreBackend) setupClientWithWallet(
+	t *testing.T, prvkey string,
+) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
+	t.Helper()
+
+	return setupClientWithWalletAndDatadir(t, b.datadir(t), prvkey)
+}
+
+func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStoreBackend)) {
+	t.Helper()
+
+	backends := []testStoreBackend{
+		{name: "kv"},
+		{name: "sql"},
+	}
+
+	for _, backend := range backends {
+		t.Run(backend.name, func(t *testing.T) {
+			fn(t, backend)
+		})
+	}
+}
+
+func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
+	t.Helper()
+
+	arkClient, err := sdk.NewArkClient(datadir, false)
 	require.NoError(t, err)
 
 	privkey, err := btcec.NewPrivateKey()
@@ -57,12 +100,12 @@ func setupClient(t *testing.T) sdk.ArkClient {
 	return arkClient
 }
 
-func setupClientWithWallet(
-	t *testing.T, prvkey string,
+func setupClientWithWalletAndDatadir(
+	t *testing.T, datadir, prvkey string,
 ) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient("", false)
+	arkClient, err := sdk.NewArkClient(datadir, false)
 	require.NoError(t, err)
 	require.NotNil(t, arkClient)
 
