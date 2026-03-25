@@ -192,7 +192,7 @@ func (s *vtxoStore) SettleVtxos(
 
 	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	for _, vtxo := range vtxos {
-		if vtxo.Spent{
+		if vtxo.Spent {
 			continue
 		}
 		vtxo.Spent = true
