@@ -260,10 +260,10 @@ func (v *vtxoRepository) SettleVtxos(
 		return -1, err
 	}
 
-	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
+	settledVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
-			if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
+			if vtxo.Spent {
 				continue
 			}
 			vtxo.Spent = true
@@ -277,7 +277,7 @@ func (v *vtxoRepository) SettleVtxos(
 			}); err != nil {
 				return err
 			}
-			spentVtxos = append(spentVtxos, vtxo)
+			settledVtxos = append(settledVtxos, vtxo)
 		}
 		return nil
 	}
@@ -285,16 +285,16 @@ func (v *vtxoRepository) SettleVtxos(
 		return -1, err
 	}
 
-	if len(spentVtxos) > 0 {
+	if len(settledVtxos) > 0 {
 		v.wg.Go(func() {
 			v.sendEvent(types.VtxoEvent{
 				Type:  types.VtxoSettled,
-				Vtxos: spentVtxos,
+				Vtxos: settledVtxos,
 			})
 		})
 	}
 
-	return len(spentVtxos), nil
+	return len(settledVtxos), nil
 }
 
 func (v *vtxoRepository) GetAllVtxos(
