@@ -552,28 +552,51 @@ func (q *Queries) SelectVtxo(ctx context.Context, arg SelectVtxoParams) ([]Asset
 	return items, nil
 }
 
+const settleVtxo = `-- name: SettleVtxo :exec
+UPDATE vtxo
+SET
+    spent = true,
+    spent_by = ?1,
+    settled_by = COALESCE(?2, settled_by)
+WHERE txid = ?3 AND vout = ?4
+`
+
+type SettleVtxoParams struct {
+	SpentBy   sql.NullString
+	SettledBy sql.NullString
+	Txid      string
+	Vout      int64
+}
+
+func (q *Queries) SettleVtxo(ctx context.Context, arg SettleVtxoParams) error {
+	_, err := q.db.ExecContext(ctx, settleVtxo,
+		arg.SpentBy,
+		arg.SettledBy,
+		arg.Txid,
+		arg.Vout,
+	)
+	return err
+}
+
 const spendVtxo = `-- name: SpendVtxo :exec
 UPDATE vtxo
 SET
     spent = true,
     spent_by = ?1,
-    settled_by = COALESCE(?2, settled_by),
-    ark_txid = COALESCE(?3, ark_txid)
-WHERE txid = ?4 AND vout = ?5
+    ark_txid = COALESCE(?2, ark_txid)
+WHERE txid = ?3 AND vout = ?4
 `
 
 type SpendVtxoParams struct {
-	SpentBy   sql.NullString
-	SettledBy sql.NullString
-	ArkTxid   sql.NullString
-	Txid      string
-	Vout      int64
+	SpentBy sql.NullString
+	ArkTxid sql.NullString
+	Txid    string
+	Vout    int64
 }
 
 func (q *Queries) SpendVtxo(ctx context.Context, arg SpendVtxoParams) error {
 	_, err := q.db.ExecContext(ctx, spendVtxo,
 		arg.SpentBy,
-		arg.SettledBy,
 		arg.ArkTxid,
 		arg.Txid,
 		arg.Vout,

@@ -106,8 +106,21 @@ func (s *vtxoStore) SpendVtxos(
 }
 
 func (s *vtxoStore) SweepVtxos(ctx context.Context, vtxosToSweep []clientTypes.Vtxo) (int, error) {
+	outpoints := make([]clientTypes.Outpoint, 0, len(vtxosToSweep))
+	for _, vtxo := range vtxosToSweep {
+		outpoints = append(outpoints, vtxo.Outpoint)
+	}
+	vtxos, err := s.GetVtxos(ctx, outpoints)
+	if err != nil {
+		return -1, err
+	}
+
 	sweptVtxos := make([]clientTypes.Vtxo, 0, len(vtxosToSweep))
-	for _, v := range vtxosToSweep {
+	for _, v := range vtxos {
+		if v.Swept {
+			continue
+		}
+
 		v.Swept = true
 		if err := s.db.Update(v.Outpoint.String(), &v); err != nil {
 			return -1, err
@@ -131,8 +144,21 @@ func (s *vtxoStore) UnrollVtxos(
 	ctx context.Context,
 	vtxosToUnroll []clientTypes.Vtxo,
 ) (int, error) {
+	outpoints := make([]clientTypes.Outpoint, 0, len(vtxosToUnroll))
+	for _, vtxo := range vtxosToUnroll {
+		outpoints = append(outpoints, vtxo.Outpoint)
+	}
+	vtxos, err := s.GetVtxos(ctx, outpoints)
+	if err != nil {
+		return -1, err
+	}
+
 	unrolledVtxos := make([]clientTypes.Vtxo, 0, len(vtxosToUnroll))
-	for _, v := range vtxosToUnroll {
+	for _, v := range vtxos {
+		if v.Unrolled {
+			continue
+		}
+
 		v.Unrolled = true
 		if err := s.db.Update(v.Outpoint.String(), &v); err != nil {
 			return -1, err
@@ -201,7 +227,7 @@ func (s *vtxoStore) GetAllVtxos(
 	}
 
 	for _, vtxo := range allVtxos {
-		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
+		if vtxo.Spent || vtxo.Unrolled {
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)

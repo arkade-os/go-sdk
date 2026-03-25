@@ -158,9 +158,22 @@ func (v *vtxoRepository) SweepVtxos(
 	ctx context.Context,
 	vtxosToSweep []clientTypes.Vtxo,
 ) (int, error) {
+	outpoints := make([]clientTypes.Outpoint, 0, len(vtxosToSweep))
+	for _, vtxo := range vtxosToSweep {
+		outpoints = append(outpoints, vtxo.Outpoint)
+	}
+	vtxos, err := v.GetVtxos(ctx, outpoints)
+	if err != nil {
+		return -1, err
+	}
+
 	sweptVtxos := make([]clientTypes.Vtxo, 0)
 	txBody := func(querierWithTx *queries.Queries) error {
-		for _, v := range vtxosToSweep {
+		for _, v := range vtxos {
+			if v.Swept {
+				continue
+			}
+
 			v.Swept = true
 			if err := querierWithTx.SweepVtxo(ctx, queries.SweepVtxoParams{
 				Txid: v.Txid,
@@ -192,9 +205,22 @@ func (v *vtxoRepository) UnrollVtxos(
 	ctx context.Context,
 	vtxosToUnroll []clientTypes.Vtxo,
 ) (int, error) {
+	outpoints := make([]clientTypes.Outpoint, 0, len(vtxosToUnroll))
+	for _, vtxo := range vtxosToUnroll {
+		outpoints = append(outpoints, vtxo.Outpoint)
+	}
+	vtxos, err := v.GetVtxos(ctx, outpoints)
+	if err != nil {
+		return -1, err
+	}
+
 	unrolledVtxos := make([]clientTypes.Vtxo, 0)
 	txBody := func(querierWithTx *queries.Queries) error {
-		for _, v := range vtxosToUnroll {
+		for _, v := range vtxos {
+			if v.Unrolled {
+				continue
+			}
+
 			v.Unrolled = true
 			if err := querierWithTx.UnrollVtxo(ctx, queries.UnrollVtxoParams{
 				Txid: v.Txid,
@@ -243,7 +269,7 @@ func (v *vtxoRepository) SettleVtxos(
 			vtxo.Spent = true
 			vtxo.SpentBy = spentVtxosMap[vtxo.Outpoint]
 			vtxo.SettledBy = settledBy
-			if err := querierWithTx.SpendVtxo(ctx, queries.SpendVtxoParams{
+			if err := querierWithTx.SettleVtxo(ctx, queries.SettleVtxoParams{
 				SpentBy:   sql.NullString{String: vtxo.SpentBy, Valid: true},
 				SettledBy: sql.NullString{String: vtxo.SettledBy, Valid: true},
 				Txid:      vtxo.Txid,
@@ -285,7 +311,7 @@ func (v *vtxoRepository) GetAllVtxos(
 	}
 	for _, group := range byOutpoint {
 		vtxo := assetVtxoVwGroupToVtxo(group)
-		if vtxo.Spent || vtxo.Unrolled || vtxo.Swept {
+		if vtxo.Spent || vtxo.Unrolled {
 			spent = append(spent, vtxo)
 		} else {
 			spendable = append(spendable, vtxo)
@@ -325,16 +351,7 @@ func (v *vtxoRepository) GetSpendableVtxos(
 		return nil, err
 	}
 
-	allVtxos := assetVtxoVwRowsToVtxos(rows)
-	spendable = make([]clientTypes.Vtxo, 0, len(allVtxos))
-	for _, vtxo := range allVtxos {
-		if vtxo.Unrolled || vtxo.Spent {
-			continue
-		}
-		spendable = append(spendable, vtxo)
-	}
-
-	return spendable, nil
+	return assetVtxoVwRowsToVtxos(rows), nil
 }
 
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {

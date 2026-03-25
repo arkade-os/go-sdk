@@ -8,8 +8,15 @@ UPDATE vtxo
 SET
     spent = true,
     spent_by = :spent_by,
-    settled_by = COALESCE(sqlc.narg(settled_by), settled_by),
     ark_txid = COALESCE(sqlc.narg(ark_txid), ark_txid)
+WHERE txid = :txid AND vout = :vout;
+
+-- name: SettleVtxo :exec
+UPDATE vtxo
+SET
+    spent = true,
+    spent_by = :spent_by,
+    settled_by = COALESCE(sqlc.narg(settled_by), settled_by)
 WHERE txid = :txid AND vout = :vout;
 
 -- name: SweepVtxo :exec
