@@ -161,7 +161,12 @@ func TestAssetIssuance(t *testing.T) {
 
 			vtxoStream := alice.GetVtxoEventChannel(ctx)
 
-			txid, assetIds, err := alice.IssueAsset(ctx, 1, clientTypes.NewControlAsset{Amount: 1}, nil)
+			txid, assetIds, err := alice.IssueAsset(
+				ctx,
+				1,
+				clientTypes.NewControlAsset{Amount: 1},
+				nil,
+			)
 			require.NoError(t, err)
 			require.Len(t, assetIds, 2)
 
@@ -248,7 +253,12 @@ func TestAssetReissuance(t *testing.T) {
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
 
 		// issue an asset with a control asset
-		txid1, assetIds, err := alice.IssueAsset(ctx, 1, clientTypes.NewControlAsset{Amount: 1}, nil)
+		txid1, assetIds, err := alice.IssueAsset(
+			ctx,
+			1,
+			clientTypes.NewControlAsset{Amount: 1},
+			nil,
+		)
 		require.NoError(t, err)
 		require.Len(t, assetIds, 2)
 
