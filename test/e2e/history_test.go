@@ -10,222 +10,226 @@ import (
 )
 
 func TestTransactionHistory(t *testing.T) {
-	ctx := t.Context()
-	alice := setupClient(t)
+	runForEachStoreBackend(t, func(t *testing.T, backend testStoreBackend) {
+		setupClient := backend.setupClient
 
-	history, err := alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Empty(t, history)
+		ctx := t.Context()
+		alice := setupClient(t)
 
-	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, aliceOffchainAddr)
+		history, err := alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Empty(t, history)
 
-	aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, aliceBoardingAddr)
+		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, aliceOffchainAddr)
 
-	aliceTxChan := alice.GetTransactionEventChannel(ctx)
-	utxoCh := alice.GetUtxoEventChannel(ctx)
+		aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, aliceBoardingAddr)
 
-	// Alice sends fund to boarding address
-	faucetOnchain(t, aliceBoardingAddr, 0.00021)
+		aliceTxChan := alice.GetTransactionEventChannel(ctx)
+		utxoCh := alice.GetUtxoEventChannel(ctx)
 
-	// should receive the utxo added event
-	utxoEvent := <-utxoCh
-	require.Equal(t, types.UtxosAdded, utxoEvent.Type)
-	require.Len(t, utxoEvent.Utxos, 1)
-	require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
+		// Alice sends fund to boarding address
+		faucetOnchain(t, aliceBoardingAddr, 0.00021)
 
-	// should receive the boarding tx event
-	event := <-aliceTxChan
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	boardingTx := event.Txs[0]
-	require.Equal(t, clientTypes.TxReceived, boardingTx.Type)
-	require.Equal(t, 21000, int(boardingTx.Amount))
-	require.Empty(t, boardingTx.Hex)
-	require.NotEmpty(t, boardingTx.BoardingTxid)
-	require.Empty(t, boardingTx.CommitmentTxid)
-	require.Empty(t, boardingTx.ArkTxid)
-	require.Empty(t, boardingTx.SettledBy)
+		// should receive the utxo added event
+		utxoEvent := <-utxoCh
+		require.Equal(t, types.UtxosAdded, utxoEvent.Type)
+		require.Len(t, utxoEvent.Utxos, 1)
+		require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
 
-	// verify history contains the boarding tx
-	history, err = alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 1)
-	requireTxEqual(t, boardingTx, history[0], "")
-
-	// Alice completes the boarding in a commitment tx
-	commitmentTxid, err := alice.Settle(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, commitmentTxid)
-
-	// Verify the boarding tx is marked as settled in history.
-	// This check is done independently of the event channel to catch cases where
-	// the settlement is not persisted even if no event fires.
-	require.Eventually(t, func() bool {
-		h, err := alice.GetTransactionHistory(ctx)
-		if err != nil || len(h) != 1 {
-			return false
-		}
-		return h[0].SettledBy == commitmentTxid
-	}, 30*time.Second, time.Second, "boarding tx should be marked as settled in history after Settle")
-
-	// should receive the boarding settled tx event
-	var settledBoardingTx clientTypes.Transaction
-	select {
-	case event = <-aliceTxChan:
-		require.Equal(t, types.TxsSettled, event.Type)
+		// should receive the boarding tx event
+		event := <-aliceTxChan
+		require.Equal(t, types.TxsAdded, event.Type)
 		require.Len(t, event.Txs, 1)
-		settledBoardingTx = event.Txs[0]
-		require.NotEmpty(t, settledBoardingTx.SettledBy)
-		require.Equal(t, clientTypes.TxReceived, settledBoardingTx.Type)
-		require.Equal(t, 21000, int(settledBoardingTx.Amount))
-		require.NotEmpty(t, settledBoardingTx.BoardingTxid)
-		require.Empty(t, settledBoardingTx.CommitmentTxid)
-		require.Empty(t, settledBoardingTx.ArkTxid)
-		require.Equal(t, boardingTx.BoardingTxid, settledBoardingTx.BoardingTxid)
-		require.Equal(t, settledBoardingTx.SettledBy, commitmentTxid)
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for TxsSettled event after Settle")
-	}
+		boardingTx := event.Txs[0]
+		require.Equal(t, clientTypes.TxReceived, boardingTx.Type)
+		require.Equal(t, 21000, int(boardingTx.Amount))
+		require.Empty(t, boardingTx.Hex)
+		require.NotEmpty(t, boardingTx.BoardingTxid)
+		require.Empty(t, boardingTx.CommitmentTxid)
+		require.Empty(t, boardingTx.ArkTxid)
+		require.Empty(t, boardingTx.SettledBy)
 
-	history, err = alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 1)
-	requireTxEqual(t, settledBoardingTx, history[0], commitmentTxid)
+		// verify history contains the boarding tx
+		history, err = alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 1)
+		requireTxEqual(t, boardingTx, history[0], "")
 
-	// wait for the utxo to be detected as spent and settle again
-	utxoEvent = <-utxoCh
-	require.Equal(t, types.UtxosSpent, utxoEvent.Type)
-	require.Len(t, utxoEvent.Utxos, 1)
-	require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
-	require.True(t, utxoEvent.Utxos[0].Spent)
+		// Alice completes the boarding in a commitment tx
+		commitmentTxid, err := alice.Settle(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, commitmentTxid)
 
-	// alice refresh its vtxo
-	commitmentRefreshTxid, err := alice.Settle(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, commitmentRefreshTxid)
+		// Verify the boarding tx is marked as settled in history.
+		// This check is done independently of the event channel to catch cases where
+		// the settlement is not persisted even if no event fires.
+		require.Eventually(t, func() bool {
+			h, err := alice.GetTransactionHistory(ctx)
+			if err != nil || len(h) != 1 {
+				return false
+			}
+			return h[0].SettledBy == commitmentTxid
+		}, 30*time.Second, time.Second, "boarding tx should be marked as settled in history after Settle")
 
-	// check history didn't change, we should not see commitment refresh tx in history
-	history, err = alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 1)
-	requireTxEqual(t, settledBoardingTx, history[0], "")
+		// should receive the boarding settled tx event
+		var settledBoardingTx clientTypes.Transaction
+		select {
+		case event = <-aliceTxChan:
+			require.Equal(t, types.TxsSettled, event.Type)
+			require.Len(t, event.Txs, 1)
+			settledBoardingTx = event.Txs[0]
+			require.NotEmpty(t, settledBoardingTx.SettledBy)
+			require.Equal(t, clientTypes.TxReceived, settledBoardingTx.Type)
+			require.Equal(t, 21000, int(settledBoardingTx.Amount))
+			require.NotEmpty(t, settledBoardingTx.BoardingTxid)
+			require.Empty(t, settledBoardingTx.CommitmentTxid)
+			require.Empty(t, settledBoardingTx.ArkTxid)
+			require.Equal(t, boardingTx.BoardingTxid, settledBoardingTx.BoardingTxid)
+			require.Equal(t, settledBoardingTx.SettledBy, commitmentTxid)
+		case <-time.After(30 * time.Second):
+			t.Fatal("timed out waiting for TxsSettled event after Settle")
+		}
 
-	// alice sends funds to bob
-	bob := setupClient(t)
-	bobTxChan := bob.GetTransactionEventChannel(ctx)
+		history, err = alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 1)
+		requireTxEqual(t, settledBoardingTx, history[0], commitmentTxid)
 
-	bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, bobOnchainAddr)
+		// wait for the utxo to be detected as spent and settle again
+		utxoEvent = <-utxoCh
+		require.Equal(t, types.UtxosSpent, utxoEvent.Type)
+		require.Len(t, utxoEvent.Utxos, 1)
+		require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
+		require.True(t, utxoEvent.Utxos[0].Spent)
 
-	bobAddress, err := bob.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, bobAddress)
+		// alice refresh its vtxo
+		commitmentRefreshTxid, err := alice.Settle(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, commitmentRefreshTxid)
 
-	arkTxid, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
-		To:     bobAddress,
-		Amount: 10000,
-	}})
-	require.NoError(t, err)
+		// check history didn't change, we should not see commitment refresh tx in history
+		history, err = alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 1)
+		requireTxEqual(t, settledBoardingTx, history[0], "")
 
-	time.Sleep(10 * time.Second)
+		// alice sends funds to bob
+		bob := setupClient(t)
+		bobTxChan := bob.GetTransactionEventChannel(ctx)
 
-	// should receive the ark tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	offchainTx := event.Txs[0]
-	require.Equal(t, clientTypes.TxSent, offchainTx.Type)
-	require.Equal(t, arkTxid, offchainTx.ArkTxid)
-	require.Empty(t, offchainTx.BoardingTxid)
-	require.Empty(t, offchainTx.CommitmentTxid)
-	require.Equal(t, 10000, int(offchainTx.Amount))
-	require.NotEmpty(t, offchainTx.Hex)
+		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, bobOnchainAddr)
 
-	history, err = alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 2)
-	requireTxEqual(t, offchainTx, history[0], "")
-	requireTxEqual(t, settledBoardingTx, history[1], "")
+		bobAddress, err := bob.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, bobAddress)
 
-	event = <-bobTxChan
+		arkTxid, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
+			To:     bobAddress,
+			Amount: 10000,
+		}})
+		require.NoError(t, err)
 
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	offchainReceivedTx := event.Txs[0]
-	require.Equal(t, clientTypes.TxReceived, offchainReceivedTx.Type)
-	require.Equal(t, 10000, int(offchainReceivedTx.Amount))
-	require.NotEmpty(t, offchainReceivedTx.Hex)
-	require.Empty(t, offchainReceivedTx.BoardingTxid)
-	require.Empty(t, offchainReceivedTx.CommitmentTxid)
-	require.NotEmpty(t, offchainReceivedTx.ArkTxid)
-	require.Empty(t, offchainReceivedTx.SettledBy)
+		time.Sleep(10 * time.Second)
 
-	// verify history contains the offchain tx
-	history, err = bob.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 1)
-	requireTxEqual(t, offchainReceivedTx, history[0], "")
+		// should receive the ark tx event
+		event = <-aliceTxChan
+		require.Equal(t, types.TxsAdded, event.Type)
+		require.Len(t, event.Txs, 1)
+		offchainTx := event.Txs[0]
+		require.Equal(t, clientTypes.TxSent, offchainTx.Type)
+		require.Equal(t, arkTxid, offchainTx.ArkTxid)
+		require.Empty(t, offchainTx.BoardingTxid)
+		require.Empty(t, offchainTx.CommitmentTxid)
+		require.Equal(t, 10000, int(offchainTx.Amount))
+		require.NotEmpty(t, offchainTx.Hex)
 
-	// bob sends funds to alice
-	arkTxid, err = bob.SendOffChain(ctx, []clientTypes.Receiver{{
-		To:     aliceOffchainAddr,
-		Amount: 10000,
-	}})
-	require.NoError(t, err)
+		history, err = alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 2)
+		requireTxEqual(t, offchainTx, history[0], "")
+		requireTxEqual(t, settledBoardingTx, history[1], "")
 
-	// should receive the ark tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	offchainReceivedTx = event.Txs[0]
-	require.Equal(t, clientTypes.TxReceived, offchainReceivedTx.Type)
-	require.Equal(t, arkTxid, offchainReceivedTx.ArkTxid)
-	require.Empty(t, offchainReceivedTx.BoardingTxid)
-	require.Empty(t, offchainReceivedTx.CommitmentTxid)
-	require.Equal(t, 10000, int(offchainReceivedTx.Amount))
-	require.NotEmpty(t, offchainReceivedTx.Hex)
+		event = <-bobTxChan
 
-	// check history matches
-	history, err = alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 3)
-	requireTxEqual(t, offchainReceivedTx, history[0], "")
-	requireTxEqual(t, offchainTx, history[1], "")
-	requireTxEqual(t, settledBoardingTx, history[2], "")
+		require.Equal(t, types.TxsAdded, event.Type)
+		require.Len(t, event.Txs, 1)
+		offchainReceivedTx := event.Txs[0]
+		require.Equal(t, clientTypes.TxReceived, offchainReceivedTx.Type)
+		require.Equal(t, 10000, int(offchainReceivedTx.Amount))
+		require.NotEmpty(t, offchainReceivedTx.Hex)
+		require.Empty(t, offchainReceivedTx.BoardingTxid)
+		require.Empty(t, offchainReceivedTx.CommitmentTxid)
+		require.NotEmpty(t, offchainReceivedTx.ArkTxid)
+		require.Empty(t, offchainReceivedTx.SettledBy)
 
-	time.Sleep(5 * time.Second)
+		// verify history contains the offchain tx
+		history, err = bob.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 1)
+		requireTxEqual(t, offchainReceivedTx, history[0], "")
 
-	commitmentTxid, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 12000)
-	require.NoError(t, err)
-	require.NotEmpty(t, commitmentTxid)
+		// bob sends funds to alice
+		arkTxid, err = bob.SendOffChain(ctx, []clientTypes.Receiver{{
+			To:     aliceOffchainAddr,
+			Amount: 10000,
+		}})
+		require.NoError(t, err)
 
-	// should receive the offchain settled tx event
-	event = <-aliceTxChan
-	require.Equal(t, types.TxsAdded, event.Type)
-	require.Len(t, event.Txs, 1)
-	collabExitTx := event.Txs[0]
-	require.Equal(t, clientTypes.TxSent, collabExitTx.Type)
-	require.Equal(t, 12000, int(collabExitTx.Amount))
-	require.Empty(t, collabExitTx.BoardingTxid)
-	require.NotEmpty(t, collabExitTx.CommitmentTxid)
-	require.Empty(t, collabExitTx.ArkTxid)
+		// should receive the ark tx event
+		event = <-aliceTxChan
+		require.Equal(t, types.TxsAdded, event.Type)
+		require.Len(t, event.Txs, 1)
+		offchainReceivedTx = event.Txs[0]
+		require.Equal(t, clientTypes.TxReceived, offchainReceivedTx.Type)
+		require.Equal(t, arkTxid, offchainReceivedTx.ArkTxid)
+		require.Empty(t, offchainReceivedTx.BoardingTxid)
+		require.Empty(t, offchainReceivedTx.CommitmentTxid)
+		require.Equal(t, 10000, int(offchainReceivedTx.Amount))
+		require.NotEmpty(t, offchainReceivedTx.Hex)
 
-	// Give time to update also the other records
-	time.Sleep(5 * time.Second)
+		// check history matches
+		history, err = alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 3)
+		requireTxEqual(t, offchainReceivedTx, history[0], "")
+		requireTxEqual(t, offchainTx, history[1], "")
+		requireTxEqual(t, settledBoardingTx, history[2], "")
 
-	history, err = alice.GetTransactionHistory(ctx)
-	require.NoError(t, err)
-	require.Len(t, history, 4)
+		time.Sleep(5 * time.Second)
 
-	requireTxEqual(t, collabExitTx, history[0], "")
-	requireTxEqual(t, offchainReceivedTx, history[1], commitmentTxid)
-	requireTxEqual(t, offchainTx, history[2], commitmentTxid)
-	requireTxEqual(t, settledBoardingTx, history[3], "")
+		commitmentTxid, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 12000)
+		require.NoError(t, err)
+		require.NotEmpty(t, commitmentTxid)
+
+		// should receive the offchain settled tx event
+		event = <-aliceTxChan
+		require.Equal(t, types.TxsAdded, event.Type)
+		require.Len(t, event.Txs, 1)
+		collabExitTx := event.Txs[0]
+		require.Equal(t, clientTypes.TxSent, collabExitTx.Type)
+		require.Equal(t, 12000, int(collabExitTx.Amount))
+		require.Empty(t, collabExitTx.BoardingTxid)
+		require.NotEmpty(t, collabExitTx.CommitmentTxid)
+		require.Empty(t, collabExitTx.ArkTxid)
+
+		// Give time to update also the other records
+		time.Sleep(5 * time.Second)
+
+		history, err = alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.Len(t, history, 4)
+
+		requireTxEqual(t, collabExitTx, history[0], "")
+		requireTxEqual(t, offchainReceivedTx, history[1], commitmentTxid)
+		requireTxEqual(t, offchainTx, history[2], commitmentTxid)
+		requireTxEqual(t, settledBoardingTx, history[3], "")
+	})
 }
 
 func requireTxEqual(t *testing.T, expected, actual clientTypes.Transaction, settledBy string) {

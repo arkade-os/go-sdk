@@ -4,6 +4,20 @@ GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
 )
 
+COMMIT ?= $(word 2,$(MAKECMDGOALS))
+
+ifneq ($(words $(MAKECMDGOALS)),1)
+$(eval $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS)):;@:)
+endif
+
+define require_commit
+	@if [ -z "$(COMMIT)" ]; then \
+		echo "usage: make $@ COMMIT=<git-sha-or-tag>"; \
+		echo "   or: make $@ <git-sha-or-tag>"; \
+		exit 1; \
+	fi
+endef
+
 proto:
 	@echo "Compiling stubs..."
 	@docker build -q -t buf -f buf.Dockerfile . &> /dev/null
@@ -17,7 +31,7 @@ test:
 ## vet: code analysis
 vet:
 	@echo "Running code analysis..."
-	@go vet ./...
+	@go vet $$(go list ./... | grep -v '/\.worktrees/')
 
 ## lint: lint codebase
 lint:
@@ -45,3 +59,24 @@ regtestdown:
 
 integrationtest:
 	@go test -v -count=1 -race ./test/e2e
+
+## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
+bump-client-lib:
+	$(call require_commit)
+	@echo "Bumping client-lib to $(COMMIT)..."
+	@go get github.com/arkade-os/arkd/pkg/client-lib@$(COMMIT)
+	@go mod tidy
+
+## bump-ark-lib: update ark-lib to a specific commit/tag and tidy modules
+bump-ark-lib:
+	$(call require_commit)
+	@echo "Bumping ark-lib to $(COMMIT)..."
+	@go get github.com/arkade-os/arkd/pkg/ark-lib@$(COMMIT)
+	@go mod tidy
+
+## bump-ark-spec: update api-spec to a specific commit/tag and tidy modules
+bump-ark-spec:
+	$(call require_commit)
+	@echo "Bumping api-spec to $(COMMIT)..."
+	@go get github.com/arkade-os/arkd/api-spec@$(COMMIT)
+	@go mod tidy

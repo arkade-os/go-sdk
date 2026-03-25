@@ -49,7 +49,8 @@ type VtxoStore interface {
 	SettleVtxos(
 		ctx context.Context, spentVtxos map[types.Outpoint]string, settledBy string,
 	) (int, error)
-	UpdateVtxos(ctx context.Context, vtxos []types.Vtxo) (int, error)
+	SweepVtxos(ctx context.Context, vtxosToSweep []types.Vtxo) (int, error)
+	UnrollVtxos(ctx context.Context, vtxosToUnroll []types.Vtxo) (int, error)
 	GetAllVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)
 	GetSpendableVtxos(ctx context.Context) ([]types.Vtxo, error)
 	GetVtxos(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
