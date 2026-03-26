@@ -49,13 +49,19 @@ type arkClient struct {
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
 	logMu             *sync.Mutex
+	lastUpdate        time.Time
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 }
 
-func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
+func NewArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient, error) {
+	o, err := applyClientOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	datadir = strings.TrimSpace(datadir)
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
@@ -95,15 +101,16 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	}
 
 	client := &arkClient{
-		ArkClient:     cli,
-		verbose:       verbose,
-		store:         db,
-		clientStore:   clientDb,
-		syncMu:        &sync.Mutex{},
-		syncListeners: newReadyListeners(),
-		syncCh:        make(chan error),
-		dbMu:          &sync.Mutex{},
-		logMu:         &sync.Mutex{},
+		ArkClient:         cli,
+		verbose:           verbose,
+		store:             db,
+		clientStore:       clientDb,
+		syncMu:            &sync.Mutex{},
+		syncListeners:     newReadyListeners(),
+		syncCh:            make(chan error),
+		dbMu:              &sync.Mutex{},
+		logMu:             &sync.Mutex{},
+		refreshDbInterval: o.refreshDbInterval,
 	}
 
 	syncListeners := newReadyListeners()
@@ -113,7 +120,12 @@ func NewArkClient(datadir string, verbose bool) (ArkClient, error) {
 	return client, nil
 }
 
-func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
+func LoadArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient, error) {
+	o, err := applyClientOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	datadir = strings.TrimSpace(datadir)
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
@@ -179,15 +191,16 @@ func LoadArkClient(datadir string, verbose bool) (ArkClient, error) {
 	}
 
 	client := &arkClient{
-		ArkClient:     cli,
-		verbose:       verbose,
-		store:         db,
-		clientStore:   clientDb,
-		syncMu:        &sync.Mutex{},
-		syncListeners: newReadyListeners(),
-		syncCh:        make(chan error),
-		dbMu:          &sync.Mutex{},
-		logMu:         &sync.Mutex{},
+		ArkClient:         cli,
+		verbose:           verbose,
+		store:             db,
+		clientStore:       clientDb,
+		syncMu:            &sync.Mutex{},
+		syncListeners:     newReadyListeners(),
+		syncCh:            make(chan error),
+		dbMu:              &sync.Mutex{},
+		logMu:             &sync.Mutex{},
+		refreshDbInterval: o.refreshDbInterval,
 	}
 
 	syncListeners := newReadyListeners()
@@ -256,6 +269,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 	if a.store != nil {
 		a.store.Clean(ctx)
 	}
+	a.lastUpdate = time.Time{}
 }
 
 func (a *arkClient) Stop() {
@@ -339,8 +353,13 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
+	updateTime := time.Now()
+	opts := []client.ListVtxosOption{}
+	if !a.lastUpdate.IsZero() {
+		opts = append(opts, client.WithTimeRange(updateTime.Unix(), a.lastUpdate.Unix()))
+	}
 	// Fetch new and spent vtxos.
-	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx)
+	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx, opts...)
 	if err != nil {
 		return err
 	}
@@ -430,7 +449,13 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	}
 
 	// Update vtxos in db.
-	return a.refreshVtxoDb(ctx, spendableVtxos, spentVtxos)
+	if err := a.refreshVtxoDb(ctx, spendableVtxos, spentVtxos); err != nil {
+		return err
+	}
+
+	a.lastUpdate = updateTime
+
+	return nil
 }
 
 func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transaction) error {
@@ -1118,8 +1143,10 @@ func (a *arkClient) periodicRefreshDb(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			log.Debugf("refreshing db (last update %s)...", a.lastUpdate.Format(time.RFC3339))
 			if err := a.refreshDb(ctx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
+				continue
 			}
 		}
 	}
