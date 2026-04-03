@@ -322,19 +322,19 @@ txid, err := arkClient.Settle(ctx)
 if err != nil {
     log.Fatal(err)
 }
-log.Infof("commmitment tx: %s", txid)
+log.Infof("commitment tx: %s", txid)
 
 // Settle with automatic retries on failure (max 5)
 txid, err = arkClient.Settle(ctx, arksdk.WithRetries(3))
 if err != nil {
     log.Fatal(err)
 }
-log.Infof("commmitment tx: %s", txid)
+log.Infof("commitment tx: %s", txid)
 ```
 
 #### Cooperative Exit
 
-To move funds from offchain to onchain:
+To redeem offchain funds to onchain:
 
 ```go
 // Basic collaborative exit
@@ -342,7 +342,7 @@ txid, err := arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount)
 if err != nil {
     log.Fatal(err)
 }
-log.Infof("commmitment tx: %s", txid)
+log.Infof("commitment tx: %s", txid)
 
 // Collaborative exit with automatic retries on failure (max 5)
 txid, err = arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount, arksdk.WithRetries(3))
