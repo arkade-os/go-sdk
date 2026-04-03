@@ -16,12 +16,14 @@ Here's a comprehensive guide on how to use the Arkade Go SDK:
 
 ### 1. Setting up the Ark Client
 
-`NewArkClient(datadir string, verbose bool)` accepts two parameters:
+`NewArkClient(datadir string, verbose bool, opts ...ClientOption)` accepts two required parameters plus optional client options:
 
 - `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing).
 - `verbose` — when `true`, debug-level logs are printed after the wallet is unlocked.
+- `opts` — optional `ClientOption` values:
+  - `WithRefreshDbInterval(d time.Duration)` — enable periodic background refresh of the local database from the server. Must be at least 30s. Disabled by default (zero value).
 
-This gives four combinations:
+This gives four basic combinations, plus optional client options:
 
 ```go
 import arksdk "github.com/arkade-os/go-sdk"
@@ -37,6 +39,11 @@ client, err := arksdk.NewArkClient("/path/to/data/dir", false)
 
 // Persistent storage, verbose logs (production with debug output)
 client, err := arksdk.NewArkClient("/path/to/data/dir", true)
+
+// Persistent storage with periodic DB refresh every 5 minutes
+client, err := arksdk.NewArkClient(
+    "/path/to/data/dir", false, arksdk.WithRefreshDbInterval(5 * time.Minute),
+)
 ```
 
 Once you have a client, call `Init` to connect it to an Ark server and set up the wallet:
@@ -305,12 +312,40 @@ receivers := []clientTypes.Receiver{
 txid, err = arkClient.SendOffChain(ctx, receivers)
 ```
 
-#### Cooperative Exit
+#### Settle
 
-To move funds from offchain to onchain:
+Finalize pending boarding or preconfirmed funds into a commitment transaction:
 
 ```go
+// Basic settle
+txid, err := arkClient.Settle(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("commitment tx: %s", txid)
+
+// Settle with automatic retries on failure (max 5)
+txid, err = arkClient.Settle(ctx, arksdk.WithRetries(3))
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("commitment tx: %s", txid)
+```
+
+#### Cooperative Exit
+
+To redeem offchain funds to onchain:
+
+```go
+// Basic collaborative exit
 txid, err := arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount)
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("commitment tx: %s", txid)
+
+// Collaborative exit with automatic retries on failure (max 5)
+txid, err = arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount, arksdk.WithRetries(3))
 if err != nil {
     log.Fatal(err)
 }
@@ -335,9 +370,9 @@ basic workflow shown above. Here is a quick overview:
 - `GetAddresses(ctx)` - return all known onchain, offchain, boarding and redemption addresses.
 - `NewOnchainAddress(ctx)` / `NewBoardingAddress(ctx)` / `NewOffchainAddress(ctx)` - derive a fresh address of the respective type.
 - `SendOffChain(ctx, receivers)` - send funds offchain. Each `clientTypes.Receiver` can carry an `Assets []clientTypes.Asset` slice to transfer assets alongside sats.
-- `Settle(ctx) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction.
+- `Settle(ctx, opts ...BatchSessionOption) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction. Accepts `WithRetries(n)` to retry on failure (max 5 retries).
 - `RegisterIntent(...)` / `DeleteIntent(...)` - manage spend intents for collaborative transactions.
-- `CollaborativeExit(ctx, addr, amount) (string, error)` - redeem offchain funds onchain.
+- `CollaborativeExit(ctx, addr, amount, opts ...BatchSessionOption) (string, error)` - redeem offchain funds onchain. Accepts `WithRetries(n)` to retry on failure (max 5 retries).
 - `Unroll(ctx) error` - broadcast unroll transactions when ready.
 - `CompleteUnroll(ctx, to string) (string, error)` - finalize an unroll and sweep to an onchain address.
 - `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
