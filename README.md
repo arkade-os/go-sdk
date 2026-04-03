@@ -25,14 +25,19 @@ Both accept one required parameter plus optional client options:
   - `WithVerbose()` — enables verbose logging.
 
 ```go
-import arksdk "github.com/arkade-os/go-sdk"
+import arksdk (
+    "errors"
+    "log"
+
+    "github.com/arkade-os/go-sdk"
+)
 
 // In-memory storage
 client, err := arksdk.NewArkClient("")
 
 // Persistent storage
 var client arksdk.ArkClient
-var error error
+var err error
 // Try to load the client (with default options).
 client, err = arksdk.LoadArkClient("/path/to/data/dir")
 if err != nil {
@@ -48,7 +53,7 @@ if err != nil {
 
 // Client with periodic DB refresh every 5 minutes and verbose logs
 client, err := arksdk.NewArkClient(
-    "/path/to/data/dir", false, arksdk.WithRefreshDbInterval(5 * time.Minute), arksdk.WithVerbose(),
+    "/path/to/data/dir", arksdk.WithRefreshDbInterval(5 * time.Minute), arksdk.WithVerbose(),
 )
 ```
 
