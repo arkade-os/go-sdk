@@ -25,6 +25,10 @@ func TestClientOptions(t *testing.T) {
 				name: "WithRefreshDbInterval typical",
 				opts: []arksdk.ClientOption{arksdk.WithRefreshDbInterval(60 * time.Second)},
 			},
+			{
+				name: "WithVerbose",
+				opts: []arksdk.ClientOption{arksdk.WithVerbose()},
+			},
 		}
 
 		for _, f := range fixtures {

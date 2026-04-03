@@ -16,37 +16,48 @@ Here's a comprehensive guide on how to use the Arkade Go SDK:
 
 ### 1. Setting up the Ark Client
 
-`NewArkClient(datadir string, verbose bool, opts ...ClientOption)` accepts two required parameters plus optional client options:
-
-- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing).
-- `verbose` — when `true`, debug-level logs are printed after the wallet is unlocked.
+`NewArkClient(datadir string, opts ...ClientOption)` creates a brand new client and can't be used to load an existing one.  
+`LoadArkClient(datadir string, opts ...ClientOption)` loads an existing client and can't be used to create a new one.  
+Both accept one required parameter plus optional client options:
+- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing, loading an existing client won't work for obvious reasons).
 - `opts` — optional `ClientOption` values:
   - `WithRefreshDbInterval(d time.Duration)` — enable periodic background refresh of the local database from the server. Must be at least 30s. Disabled by default (zero value).
-
-This gives four basic combinations, plus optional client options:
+  - `WithVerbose()` — enables verbose logging.
 
 ```go
-import arksdk "github.com/arkade-os/go-sdk"
+import arksdk (
+    "errors"
+    "log"
 
-// In-memory storage, no logs (testing)
-client, err := arksdk.NewArkClient("", false)
+    "github.com/arkade-os/go-sdk"
+)
 
-// In-memory storage, verbose logs (testing with debug output)
-client, err := arksdk.NewArkClient("", true)
+// In-memory storage
+client, err := arksdk.NewArkClient("")
 
-// Persistent storage, no logs (production)
-client, err := arksdk.NewArkClient("/path/to/data/dir", false)
+// Persistent storage
+var client arksdk.ArkClient
+var err error
+// Try to load the client (with default options).
+client, err = arksdk.LoadArkClient("/path/to/data/dir")
+if err != nil {
+    if !errors.Is(err, arksdk.ErrNotInitialized) {
+        return err
+    }
+    // If not initialized, create a new one (with default options).
+    client, err = arksdk.NewArkClient("/path/to/data/dir")
+    if err != nil {
+        log.Fatal(err)
+    }
+}
 
-// Persistent storage, verbose logs (production with debug output)
-client, err := arksdk.NewArkClient("/path/to/data/dir", true)
-
-// Persistent storage with periodic DB refresh every 5 minutes
+// Client with periodic DB refresh every 5 minutes and verbose logs
 client, err := arksdk.NewArkClient(
-    "/path/to/data/dir", false, arksdk.WithRefreshDbInterval(5 * time.Minute),
+    "/path/to/data/dir", arksdk.WithRefreshDbInterval(5 * time.Minute), arksdk.WithVerbose(),
 )
 ```
 
-Once you have a client, call `Init` to connect it to an Ark server and set up the wallet:
+Once you have a client, call `Init` to connect it to an Arkade server and set up the wallet:
 
 ```go
 // Minimal — single-key wallet, default explorer URL for the network.
@@ -84,7 +95,7 @@ if err := client.Init(
 Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) error
 ```
 
-- `serverUrl` — address of the Ark server (e.g. `"localhost:7070"`).
+- `serverUrl` — address of the Arkade server (e.g. `"localhost:7070"`).
 - `seed` — hex-encoded private key for wallet initialization or restoration.
 - `password` — password used to encrypt and protect the wallet.
 - `opts` — optional functional options:
@@ -358,7 +369,7 @@ The `ArkClient` interface exposes a number of utility methods beyond the
 basic workflow shown above. Here is a quick overview:
 
 - `GetVersion()` - return the SDK version.
-- `GetConfigData(ctx)` - retrieve Ark server configuration details.
+- `GetConfigData(ctx)` - retrieve Arkade server configuration details.
 - `Init(ctx, serverUrl, seed, password, opts...)` - create or restore a wallet and connect to the server. See §2 for available options.
 - `IsLocked(ctx)` - check if the wallet is currently locked.
 - `Unlock(ctx, password)` / `Lock(ctx)` - unlock or lock the wallet.
@@ -383,7 +394,7 @@ basic workflow shown above. Here is a quick overview:
 - `GetTransactionHistory(ctx)` - fetch past transactions.
 - `GetTransactionEventChannel(ctx)`, `GetVtxoEventChannel(ctx)` and `GetUtxoEventChannel(ctx)` - subscribe to wallet events.
 - `FinalizePendingTxs(ctx, createdAfter *time.Time) ([]string, error)` - finalize any pending transactions, optionally filtered by creation time.
-- `RedeemNotes(ctx, notes)` - redeem Ark notes back to your wallet.
+- `RedeemNotes(ctx, notes)` - redeem Arkade notes back to your wallet.
 - `SignTransaction(ctx, tx)` - sign an arbitrary transaction.
 - `NotifyIncomingFunds(ctx, address)` - wait until a specific offchain address receives funds.
 - `Stop()` - stop any running listeners.
@@ -437,7 +448,7 @@ func main() {
 	serverUrl := "localhost:7070"
 
     // Create a persistent client with debug logs enabled.
-    client, err := arksdk.NewArkClient("/path/to/data/dir", true)
+    client, err := arksdk.NewArkClient("/path/to/data/dir")
     if err != nil {
         log.Fatal(err)
     }
@@ -489,5 +500,3 @@ func main() {
 ## Support
 
 If you encounter any issues or have questions, please file an issue on our [GitHub repository](https://github.com/arkade-os/go-sdk/issues).
-
-Happy coding with Ark and Go! 🚀
