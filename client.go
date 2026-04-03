@@ -31,6 +31,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var (
+	ErrNotInitialized = fmt.Errorf("wallet not initialized")
+	ErrIsLocked       = fmt.Errorf("wallet is locked")
+	ErrIsSyncing      = fmt.Errorf("wallet is still syncing")
+)
+
 type arkClient struct {
 	client.ArkClient
 
@@ -56,7 +62,7 @@ type arkClient struct {
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 }
 
-func NewArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient, error) {
+func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	o, err := applyClientOptions(opts...)
 	if err != nil {
 		return nil, err
@@ -91,7 +97,7 @@ func NewArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient
 	}
 
 	clientOpts := make([]client.ServiceOption, 0)
-	if verbose {
+	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
 
@@ -102,7 +108,7 @@ func NewArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient
 
 	client := &arkClient{
 		ArkClient:         cli,
-		verbose:           verbose,
+		verbose:           o.verbose,
 		store:             db,
 		clientStore:       clientDb,
 		syncMu:            &sync.Mutex{},
@@ -120,7 +126,7 @@ func NewArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient
 	return client, nil
 }
 
-func LoadArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClient, error) {
+func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	o, err := applyClientOptions(opts...)
 	if err != nil {
 		return nil, err
@@ -155,7 +161,7 @@ func LoadArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClien
 	}
 
 	clientOpts := make([]client.ServiceOption, 0)
-	if verbose {
+	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
 
@@ -192,7 +198,7 @@ func LoadArkClient(datadir string, verbose bool, opts ...ClientOption) (ArkClien
 
 	client := &arkClient{
 		ArkClient:         cli,
-		verbose:           verbose,
+		verbose:           o.verbose,
 		store:             db,
 		clientStore:       clientDb,
 		syncMu:            &sync.Mutex{},
@@ -1494,10 +1500,10 @@ func (a *arkClient) handleSweepTx(ctx context.Context, sweepTx *transport.TxNoti
 
 func (a *arkClient) safeCheck() error {
 	if a.Wallet() == nil {
-		return fmt.Errorf("wallet not initialized")
+		return ErrNotInitialized
 	}
 	if a.Wallet().IsLocked() {
-		return fmt.Errorf("wallet is locked")
+		return ErrIsLocked
 	}
 
 	a.syncMu.Lock()
@@ -1508,7 +1514,7 @@ func (a *arkClient) safeCheck() error {
 		if syncErr != nil {
 			return fmt.Errorf("failed to restore wallet: %s", syncErr)
 		}
-		return fmt.Errorf("wallet is still syncing")
+		return ErrIsSyncing
 	}
 	return nil
 }
@@ -1516,7 +1522,7 @@ func (a *arkClient) safeCheck() error {
 func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
 	wallet := a.Wallet()
 	if wallet == nil {
-		return nil, fmt.Errorf("wallet not initialized")
+		return nil, ErrNotInitialized
 	}
 	explorer := a.ArkClient.Explorer()
 	if explorer == nil {

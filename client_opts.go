@@ -36,6 +36,13 @@ func WithRefreshDbInterval(d time.Duration) ClientOption {
 	}
 }
 
+func WithVerbose() ClientOption {
+	return func(o *clientOptions) error {
+		o.verbose = true
+		return nil
+	}
+}
+
 func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 	o := newDefaultClientOptions()
 	for _, opt := range opts {
@@ -51,6 +58,7 @@ func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 
 type clientOptions struct {
 	refreshDbInterval time.Duration
+	verbose           bool
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.

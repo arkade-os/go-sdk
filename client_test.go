@@ -15,7 +15,7 @@ import (
 func seedConfigStore(t *testing.T, datadir string) {
 	t.Helper()
 
-	c, err := arksdk.NewArkClient(datadir, false)
+	c, err := arksdk.NewArkClient(datadir)
 	require.NoError(t, err)
 
 	privKey, err := btcec.NewPrivateKey()
@@ -37,7 +37,6 @@ func TestNewArkClient(t *testing.T) {
 		fixtures := []struct {
 			name    string
 			datadir string
-			verbose bool
 		}{
 			{
 				name:    "empty datadir uses in-memory stores",
@@ -48,11 +47,6 @@ func TestNewArkClient(t *testing.T) {
 				datadir: t.TempDir(),
 			},
 			{
-				name:    "verbose flag is accepted",
-				datadir: "",
-				verbose: true,
-			},
-			{
 				// whitespace is trimmed, so this behaves identically to empty datadir
 				name:    "whitespace-only datadir uses in-memory stores",
 				datadir: "   ",
@@ -61,7 +55,7 @@ func TestNewArkClient(t *testing.T) {
 
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
-				client, err := arksdk.NewArkClient(f.datadir, f.verbose)
+				client, err := arksdk.NewArkClient(f.datadir)
 				require.NoError(t, err)
 				require.NotNil(t, client)
 			})
@@ -85,7 +79,7 @@ func TestNewArkClient(t *testing.T) {
 
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
-				client, err := arksdk.NewArkClient(f.datadir, false)
+				client, err := arksdk.NewArkClient(f.datadir)
 				require.Error(t, err)
 				require.ErrorContains(t, err, f.wantErrContains)
 				require.Nil(t, client)
@@ -99,22 +93,16 @@ func TestLoadNewArkClient(t *testing.T) {
 		fixtures := []struct {
 			name    string
 			datadir string
-			verbose bool
 		}{
 			{
 				name:    "seeded datadir loads client successfully",
 				datadir: func() string { d := t.TempDir(); seedConfigStore(t, d); return d }(),
 			},
-			{
-				name:    "seeded datadir with verbose flag",
-				datadir: func() string { d := t.TempDir(); seedConfigStore(t, d); return d }(),
-				verbose: true,
-			},
 		}
 
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
-				c, err := arksdk.LoadArkClient(f.datadir, f.verbose)
+				c, err := arksdk.LoadArkClient(f.datadir)
 				require.NoError(t, err)
 				require.NotNil(t, c)
 
@@ -164,7 +152,7 @@ func TestLoadNewArkClient(t *testing.T) {
 
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
-				client, err := arksdk.LoadArkClient(f.datadir, false)
+				client, err := arksdk.LoadArkClient(f.datadir)
 				require.Error(t, err)
 				if f.wantErrContains != "" {
 					require.ErrorContains(t, err, f.wantErrContains)

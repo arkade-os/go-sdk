@@ -77,7 +77,7 @@ func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStor
 func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient(datadir, false)
+	arkClient, err := sdk.NewArkClient(datadir)
 	require.NoError(t, err)
 
 	privkey, err := btcec.NewPrivateKey()
@@ -105,7 +105,7 @@ func setupClientWithWalletAndDatadir(
 ) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient(datadir, false)
+	arkClient, err := sdk.NewArkClient(datadir)
 	require.NoError(t, err)
 	require.NotNil(t, arkClient)
 
