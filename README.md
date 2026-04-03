@@ -16,10 +16,13 @@ Here's a comprehensive guide on how to use the Arkade Go SDK:
 
 ### 1. Setting up the Ark Client
 
-`NewArkClient(datadir string)` creates a brand new client and can't be used to load an existing one.  
-`LoadArkClient(datadir string)` loads an existing client and can't be used to create a new one.  
-Both accept one parameter:
-- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing, loading an existing client won't work for obvious reasons).  
+`NewArkClient(datadir string, opts ...ClientOption)` creates a brand new client and can't be used to load an existing one.  
+`LoadArkClient(datadir string, opts ...ClientOption)` loads an existing client and can't be used to create a new one.  
+Both accept one required parameter plus optional client options:
+- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing, loading an existing client won't work for obvious reasons).
+- `opts` — optional `ClientOption` values:
+  - `WithRefreshDbInterval(d time.Duration)` — enable periodic background refresh of the local database from the server. Must be at least 30s. Disabled by default (zero value).
+  - `WithVerbose()` — enables verbose logging.
 
 ```go
 import arksdk "github.com/arkade-os/go-sdk"
@@ -30,23 +33,24 @@ client, err := arksdk.NewArkClient("")
 // Persistent storage
 var client arksdk.ArkClient
 var error error
-// Try to load the client.
+// Try to load the client (with default options).
 client, err = arksdk.LoadArkClient("/path/to/data/dir")
 if err != nil {
     if !errors.Is(err, arksdk.ErrNotInitialized) {
         return err
     }
-    // If not initialized, create a new one
+    // If not initialized, create a new one (with default options).
     client, err = arksdk.NewArkClient("/path/to/data/dir")
     if err != nil {
         log.Fatal(err)
     }
 }
-```
 
-Both functions accept the following options:
-- `arkdsdk.WithRefreshDbInterval(d time.Duration)` — sets the interval at which the local database is periodically refreshed from the server. Must be at least 30s. Can only be set once.
-- `arkdsdk.WithVerbose()` — enables verbose logging.
+// Client with periodic DB refresh every 5 minutes and verbose logs
+client, err := arksdk.NewArkClient(
+    "/path/to/data/dir", false, arksdk.WithRefreshDbInterval(5 * time.Minute), arksdk.WithVerbose(),
+)
+```
 
 Once you have a client, call `Init` to connect it to an Arkade server and set up the wallet:
 
@@ -314,12 +318,40 @@ receivers := []clientTypes.Receiver{
 txid, err = arkClient.SendOffChain(ctx, receivers)
 ```
 
-#### Cooperative Exit
+#### Settle
 
-To move funds from offchain to onchain:
+Finalize pending boarding or preconfirmed funds into a commitment transaction:
 
 ```go
+// Basic settle
+txid, err := arkClient.Settle(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("commitment tx: %s", txid)
+
+// Settle with automatic retries on failure (max 5)
+txid, err = arkClient.Settle(ctx, arksdk.WithRetries(3))
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("commitment tx: %s", txid)
+```
+
+#### Cooperative Exit
+
+To redeem offchain funds to onchain:
+
+```go
+// Basic collaborative exit
 txid, err := arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount)
+if err != nil {
+    log.Fatal(err)
+}
+log.Infof("commitment tx: %s", txid)
+
+// Collaborative exit with automatic retries on failure (max 5)
+txid, err = arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount, arksdk.WithRetries(3))
 if err != nil {
     log.Fatal(err)
 }
@@ -344,9 +376,9 @@ basic workflow shown above. Here is a quick overview:
 - `GetAddresses(ctx)` - return all known onchain, offchain, boarding and redemption addresses.
 - `NewOnchainAddress(ctx)` / `NewBoardingAddress(ctx)` / `NewOffchainAddress(ctx)` - derive a fresh address of the respective type.
 - `SendOffChain(ctx, receivers)` - send funds offchain. Each `clientTypes.Receiver` can carry an `Assets []clientTypes.Asset` slice to transfer assets alongside sats.
-- `Settle(ctx) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction.
+- `Settle(ctx, opts ...BatchSessionOption) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction. Accepts `WithRetries(n)` to retry on failure (max 5 retries).
 - `RegisterIntent(...)` / `DeleteIntent(...)` - manage spend intents for collaborative transactions.
-- `CollaborativeExit(ctx, addr, amount) (string, error)` - redeem offchain funds onchain.
+- `CollaborativeExit(ctx, addr, amount, opts ...BatchSessionOption) (string, error)` - redeem offchain funds onchain. Accepts `WithRetries(n)` to retry on failure (max 5 retries).
 - `Unroll(ctx) error` - broadcast unroll transactions when ready.
 - `CompleteUnroll(ctx, to string) (string, error)` - finalize an unroll and sweep to an onchain address.
 - `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
