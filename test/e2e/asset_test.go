@@ -141,12 +141,11 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 
 	bobAddr, err := bob.NewOffchainAddress(ctx)
 	require.NoError(t, err)
-	require.Len(t, assetIds, 1)
+	require.NotEmpty(t, bobAddr)
 
 	_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{
 		{
-			To:     bobAddr,
-			Amount: 1,
+			To: bobAddr,
 			Assets: []clientTypes.Asset{
 				{AssetId: assetId, Amount: 1},
 			},
@@ -156,9 +155,13 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	blc, err := bob.Balance(ctx)
+	balance, err := bob.Balance(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 330, int(blc.OffchainBalance.Total))
+	require.NotNil(t, balance)
+
+	cfg, err := bob.GetConfigData(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int(cfg.Dust), int(balance.OffchainBalance.Total))
 }
 
 func TestAssetIssuance(t *testing.T) {
