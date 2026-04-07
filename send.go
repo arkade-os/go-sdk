@@ -25,6 +25,7 @@ func (a *arkClient) SendOffChain(
 	}
 
 	// ensure asset-carrying receivers have at least dust sats as a carrier
+	receivers = append([]clientTypes.Receiver(nil), receivers...)
 	dust := cfg.Dust
 	for i, receiver := range receivers {
 		if len(receiver.Assets) > 0 && receiver.Amount < dust {
