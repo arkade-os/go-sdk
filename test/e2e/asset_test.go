@@ -124,6 +124,46 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	})
 }
 
+func TestProveDustAmountAddedByDefault(t *testing.T) {
+	setupClient := setupClientWithDatadir
+	ctx := t.Context()
+
+	alice := setupClient(t, "")
+	bob := setupClient(t, "")
+
+	faucetOffchain(t, alice, 0.002)
+
+	_, assetIds, err := alice.IssueAsset(ctx, 1, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, assetIds, 1)
+
+	assetId := assetIds[0].String()
+
+	bobAddr, err := bob.NewOffchainAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, bobAddr)
+
+	_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{
+		{
+			To: bobAddr,
+			Assets: []clientTypes.Asset{
+				{AssetId: assetId, Amount: 1},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+
+	balance, err := bob.Balance(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, balance)
+
+	cfg, err := bob.GetConfigData(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int(cfg.Dust), int(balance.OffchainBalance.Total))
+}
+
 func TestAssetIssuance(t *testing.T) {
 	runForEachStoreBackend(t, func(t *testing.T, backend testStoreBackend) {
 		setupClient := backend.setupClient
