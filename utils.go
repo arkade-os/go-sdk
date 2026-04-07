@@ -141,6 +141,31 @@ func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
 	return types.Vtxo{}
 }
 
+// ValidateAddress checks whether address is a valid Bitcoin onchain address or
+// a valid Ark offchain address. The network is inferred from the address prefix
+// so no client configuration is required.
+// Returns (true, false, nil) for a valid onchain address,
+// (false, true, nil) for a valid offchain address, or
+// (false, false, error) if the address is invalid.
+func ValidateAddress(address string) (isOnchain bool, isOffchain bool, err error) {
+	knownNetworks := []*chaincfg.Params{
+		&chaincfg.MainNetParams,
+		&chaincfg.TestNet3Params,
+		&chaincfg.SigNetParams,
+		&chaincfg.RegressionNetParams,
+		&arklib.MutinyNetSigNetParams,
+	}
+	for _, net := range knownNetworks {
+		if _, e := btcutil.DecodeAddress(address, net); e == nil {
+			return true, false, nil
+		}
+	}
+	if _, e := arklib.DecodeAddressV0(address); e == nil {
+		return false, true, nil
+	}
+	return false, false, fmt.Errorf("invalid address: %s", address)
+}
+
 func toOutputScript(onchainAddress string, network arklib.Network) ([]byte, error) {
 	netParams := toBitcoinNetwork(network)
 	rcvAddr, err := btcutil.DecodeAddress(onchainAddress, &netParams)
