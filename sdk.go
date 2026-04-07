@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
@@ -13,6 +14,8 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/types"
 )
+
+
 
 var Version string
 
@@ -47,7 +50,16 @@ type ArkClient interface {
 	BurnAsset(
 		ctx context.Context, assetID string, amount uint64,
 	) (string, error)
-	SendOffChain(ctx context.Context, receivers []clientTypes.Receiver) (string, error)
+	SendOffChain(
+		ctx context.Context, receivers []clientTypes.Receiver, opts ...SendOffChainOption,
+	) (string, error)
+	// GetAssetDetails returns the AssetInfo (id, control asset id, metadata)
+	// that was persisted to the local AssetStore at issuance time. It queries
+	// the local store only — it does NOT make an indexer round-trip. Callers
+	// that need supply or remote-only data should use the Indexer() directly.
+	//
+	// Returns an error if the asset is not present in the local store.
+	GetAssetDetails(ctx context.Context, assetId string) (*clientTypes.AssetInfo, error)
 	RegisterIntent(
 		ctx context.Context,
 		vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
@@ -94,4 +106,15 @@ type InitWithWalletArgs struct {
 	Seed        string
 	Password    string
 	ExplorerURL string
+}
+
+type SendOffChainOption = client.SendOption
+
+// WithExtension re-exports the client-lib option to append additional
+// extension.Packet values to the OP_RETURN extension blob written by
+// SendOffChain.
+//
+// 0x00 is reserved type for asset packet (auto-generated)
+func WithExtension(packets ...extension.Packet) SendOffChainOption {
+	return client.WithExtraCustomPacket(packets...)
 }

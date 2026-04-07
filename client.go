@@ -314,7 +314,56 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]clientTypes.Tr
 	sort.SliceStable(history, func(i, j int) bool {
 		return history[i].CreatedAt.IsZero() || history[i].CreatedAt.After(history[j].CreatedAt)
 	})
+	// Derive the per-asset breakdown from AssetPacket for transactions
+	// that carry one.
+	for i := range history {
+		history[i].Assets = deriveAssetsFromPacket(history[i].AssetPacket, history[i].TransactionKey.String())
+	}
 	return history, nil
+}
+
+// deriveAssetsFromPacket reduces an asset.Packet into a per-asset balance
+// summary (one clientTypes.Asset per unique asset id), summing amounts across
+// all outputs in each group.
+func deriveAssetsFromPacket(pkt asset.Packet, txid string) []clientTypes.Asset {
+	if len(pkt) == 0 {
+		return nil
+	}
+	sums := make(map[string]uint64)
+	order := make([]string, 0, len(pkt))
+	for groupIndex, group := range pkt {
+		assetId := group.AssetId
+		// issuance case 
+		if assetId == nil && txid != "" {
+			derived, err := asset.NewAssetId(txid, uint16(groupIndex))
+			if err == nil {
+				assetId = derived
+			}
+		}
+
+		if assetId == nil {
+			continue
+		}
+		id := assetId.String()
+		if _, seen := sums[id]; !seen {
+			order = append(order, id)
+		}
+		for _, out := range group.Outputs {
+			sums[id] += out.Amount
+		}
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	
+	result := make([]clientTypes.Asset, 0, len(order))
+	for _, id := range order {
+		result = append(result, clientTypes.Asset{
+			AssetId: id,
+			Amount:  sums[id],
+		})
+	}
+	return result
 }
 
 func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {

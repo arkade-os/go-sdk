@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,14 +14,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey"
 	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey/store/inmemory"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -180,6 +184,47 @@ func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTy
 	wg.Wait()
 
 	return vtxo
+}
+
+func faucetOffchainAndWait(t *testing.T, c sdk.ArkClient, txCh <-chan types.TransactionEvent, amount float64) {
+	t.Helper()
+
+	wg := &sync.WaitGroup{}
+	wg.Go(func() { faucetOffchain(t, c, amount) })
+	wg.Wait()
+	<-txCh
+}
+
+func fetchExtensionFromVirtualTx(t *testing.T, idxr indexer.Indexer, ctx context.Context, txid string) extension.Extension {
+	t.Helper()
+
+	time.Sleep(2 * time.Second) // give indexer time to ingest
+
+	virtualResp, err := idxr.GetVirtualTxs(ctx, []string{txid})
+	require.NoError(t, err)
+	require.NotNil(t, virtualResp)
+	require.Len(t, virtualResp.Txs, 1)
+
+	ptx, err := psbt.NewFromRawBytes(strings.NewReader(virtualResp.Txs[0]), true)
+	require.NoError(t, err)
+	require.NotNil(t, ptx.UnsignedTx)
+
+	ext, err := extension.NewExtensionFromTx(ptx.UnsignedTx)
+	require.NoError(t, err)
+	require.NotEmpty(t, ext)
+
+	return ext
+}
+
+func findTxByID(t *testing.T, history []clientTypes.Transaction, txid string) *clientTypes.Transaction {
+	t.Helper()
+
+	for i := range history {
+		if history[i].TransactionKey.String() == txid {
+			return &history[i]
+		}
+	}
+	return nil
 }
 
 func generateNote(t *testing.T, amount uint64) string {

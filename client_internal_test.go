@@ -3,7 +3,9 @@ package arksdk
 import (
 	"testing"
 
+	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -130,4 +132,140 @@ func TestGroupSpentVtxosByTx(t *testing.T) {
 			},
 		}, vtxosToSettle)
 	})
+}
+
+
+// TestDeriveAssetsFromPacket verifies that GetTransactionHistory's derived
+// Assets field aggregates AssetPacket outputs by asset id, in first-seen
+// order, deriving issuance ids from the txid + group index.
+func TestDeriveAssetsFromPacket(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil packet returns nil", func(t *testing.T) {
+		t.Parallel()
+		require.Nil(t, deriveAssetsFromPacket(nil, ""))
+	})
+
+	t.Run("empty packet returns nil", func(t *testing.T) {
+		t.Parallel()
+		require.Nil(t, deriveAssetsFromPacket(asset.Packet{}, ""))
+	})
+
+	t.Run("single group single output", func(t *testing.T) {
+		t.Parallel()
+		pkt := mustBuildPacket(t, []testGroup{
+			{id: testAssetId(t, 1), outs: []uint64{100}},
+		})
+		got := deriveAssetsFromPacket(pkt, "")
+		require.Len(t, got, 1)
+		require.Equal(t, testAssetId(t, 1).String(), got[0].AssetId)
+		require.Equal(t, uint64(100), got[0].Amount)
+	})
+
+	t.Run("multi-output group sums", func(t *testing.T) {
+		t.Parallel()
+		pkt := mustBuildPacket(t, []testGroup{
+			{id: testAssetId(t, 1), outs: []uint64{50, 75, 25}},
+		})
+		got := deriveAssetsFromPacket(pkt, "")
+		require.Len(t, got, 1)
+		require.Equal(t, uint64(150), got[0].Amount)
+	})
+
+	t.Run("multiple asset ids preserve first-seen order", func(t *testing.T) {
+		t.Parallel()
+		pkt := mustBuildPacket(t, []testGroup{
+			{id: testAssetId(t, 7), outs: []uint64{10}},
+			{id: testAssetId(t, 3), outs: []uint64{20}},
+			{id: testAssetId(t, 7), outs: []uint64{30}}, // same id as first group, should merge
+		})
+		got := deriveAssetsFromPacket(pkt, "")
+		require.Len(t, got, 2)
+		require.Equal(t, testAssetId(t, 7).String(), got[0].AssetId)
+		require.Equal(t, uint64(40), got[0].Amount) // 10 + 30
+		require.Equal(t, testAssetId(t, 3).String(), got[1].AssetId)
+		require.Equal(t, uint64(20), got[1].Amount)
+	})
+
+	t.Run("issuance group derives id from txid and group index", func(t *testing.T) {
+		t.Parallel()
+
+		txid := testTxid(t, 9)
+		pkt := mustBuildPacket(t, []testGroup{
+			{id: nil, outs: []uint64{12, 8}},
+		})
+
+		got := deriveAssetsFromPacket(pkt, txid)
+		require.Len(t, got, 1)
+		derived, err := asset.NewAssetId(txid, 0)
+		require.NoError(t, err)
+		require.Equal(t, derived.String(), got[0].AssetId)
+		require.Equal(t, uint64(20), got[0].Amount)
+	})
+}
+
+// testGroup is a minimal test shape for building asset.Packet instances.
+type testGroup struct {
+	id   *asset.AssetId
+	outs []uint64
+}
+
+// mustBuildPacket assembles an asset.Packet from simple group descriptions.
+// It constructs groups using a single fake non-nil AssetInput so that the
+// reissuance/burn invariants in asset.NewAssetGroup don't reject them.
+func mustBuildPacket(t *testing.T, groups []testGroup) asset.Packet {
+	t.Helper()
+	out := make([]asset.AssetGroup, 0, len(groups))
+	for i, g := range groups {
+		outputs := make([]asset.AssetOutput, 0, len(g.outs))
+		for j, amt := range g.outs {
+			o, err := asset.NewAssetOutput(uint16(j), amt)
+			require.NoError(t, err)
+			outputs = append(outputs, *o)
+		}
+		var inputs []asset.AssetInput
+		if g.id != nil {
+			// Build one matching input per output to satisfy input/output sum
+			// invariants enforced by asset.NewAssetGroup for non-issuance groups.
+			inputs = make([]asset.AssetInput, 0, len(g.outs))
+			for k, amt := range g.outs {
+				in, err := asset.NewAssetInput(uint16(100+i*10+k), amt)
+				require.NoError(t, err)
+				inputs = append(inputs, *in)
+			}
+		}
+		grp, err := asset.NewAssetGroup(g.id, nil, inputs, outputs, nil)
+		require.NoError(t, err)
+		out = append(out, *grp)
+	}
+	return asset.Packet(out)
+}
+
+// testAssetId fabricates a deterministic non-nil asset id from an index so
+// that tests can distinguish multiple ids without pulling chain state.
+func testAssetId(t *testing.T, index uint16) *asset.AssetId {
+	t.Helper()
+	h := chainhash.Hash{}
+	h[0] = byte(index)
+	id, err := asset.NewAssetId(h.String(), index)
+	require.NoError(t, err)
+	return id
+}
+
+func testTxid(t *testing.T, seed byte) string {
+	t.Helper()
+	h := chainhash.Hash{}
+	h[0] = seed
+	return h.String()
+}
+
+// TestPersistIssuedAssets_NilStore confirms that the convenience method
+// tolerates a nil store (no panic), which matters when tests inject a
+// minimal arkClient without a real store attached.
+func TestPersistIssuedAssets_NilStore(t *testing.T) {
+	t.Parallel()
+	c := &arkClient{}
+	// Should not panic.
+	c.persistIssuedAssets(t.Context(), nil, nil, nil)
+	c.persistIssuedAssets(t.Context(), []asset.AssetId{*testAssetId(t, 1)}, clientTypes.NewControlAsset{}, nil)
 }

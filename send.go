@@ -8,7 +8,7 @@ import (
 )
 
 func (a *arkClient) SendOffChain(
-	ctx context.Context, receivers []clientTypes.Receiver,
+	ctx context.Context, receivers []clientTypes.Receiver, opts ...SendOffChainOption,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -19,7 +19,12 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, receivers, client.WithVtxos(vtxos))
+	// Always supply our spendable vtxos; caller options follow.
+	res, err := a.ArkClient.SendOffChain(
+		ctx,
+		receivers,
+		append([]client.SendOption{client.WithVtxos(vtxos)}, opts...)...,
+	)
 	if err != nil {
 		return "", err
 	}
