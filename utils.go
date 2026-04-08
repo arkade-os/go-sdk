@@ -6,7 +6,6 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
@@ -14,16 +13,16 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 )
 
-func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []client.VtxoDetails) {
+func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []VtxoDetails) {
 	nextExpiration := int64(0)
-	details := make([]client.VtxoDetails, 0)
+	details := make([]VtxoDetails, 0)
 	for timestamp, amount := range amountByExpiration {
 		if nextExpiration == 0 || timestamp < nextExpiration {
 			nextExpiration = timestamp
 		}
 
 		fancyTime := time.Unix(timestamp, 0).Format(time.RFC3339)
-		details = append(details, client.VtxoDetails{
+		details = append(details, VtxoDetails{
 			ExpiryTime: fancyTime,
 			Amount:     amount,
 		})
