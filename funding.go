@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -44,35 +43,42 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	return onchainAddr, err
 }
 
-func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
+func (a *arkClient) Balance(ctx context.Context) (*Balance, error) {
 	if err := a.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	balance := &client.Balance{
-		OnchainBalance: client.OnchainBalance{
+	balance := &Balance{
+		OnchainBalance: OnchainBalance{
+			Confirmed:       0,
+			Unconfirmed:     0,
+			Total:           0,
 			SpendableAmount: 0,
-			LockedAmount:    make([]client.LockedOnchainBalance, 0),
+			LockedAmount:    make([]LockedOnchainBalance, 0),
 		},
-		OffchainBalance: client.OffchainBalance{
+		OffchainBalance: OffchainBalance{
 			Total:          0,
 			NextExpiration: "",
-			Details:        make([]client.VtxoDetails, 0),
+			Details:        make([]VtxoDetails, 0),
 		},
 		AssetBalances: make(map[string]uint64, 0),
 	}
 
 	// offchain balance
-	offchainBalance, amountByExpiration, assetBalances, err := a.getOffchainBalance(ctx)
+	offchainBal, err := a.getOffchainBalance(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	nextExpiration, details := getOffchainBalanceDetails(amountByExpiration)
-	balance.OffchainBalance.Total = offchainBalance
+	nextExpiration, details := getOffchainBalanceDetails(offchainBal.amountByExpiration)
+	balance.OffchainBalance.Total = offchainBal.total
 	balance.OffchainBalance.NextExpiration = getFancyTimeExpiration(nextExpiration)
 	balance.OffchainBalance.Details = details
-	balance.AssetBalances = assetBalances
+	balance.OffchainBalance.Available = offchainBal.settled + offchainBal.preconfirmed
+	balance.OffchainBalance.Preconfirmed = offchainBal.preconfirmed
+	balance.OffchainBalance.Recoverable = offchainBal.recoverable
+	balance.OffchainBalance.Settled = offchainBal.settled
+	balance.AssetBalances = offchainBal.assetBalances
 
 	// onchain balance
 	utxoStore := a.store.UtxoStore()
@@ -84,8 +90,13 @@ func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
 
 	for _, utxo := range utxos {
 		if !utxo.IsConfirmed() {
-			continue // TODO handle unconfirmed balance ? (not spendable on ark)
+			balance.OnchainBalance.Unconfirmed += utxo.Amount
+			balance.OnchainBalance.Total += utxo.Amount
+			continue
 		}
+
+		balance.OnchainBalance.Confirmed += utxo.Amount
+		balance.OnchainBalance.Total += utxo.Amount
 
 		if now.After(utxo.SpendableAt) {
 			balance.OnchainBalance.SpendableAmount += utxo.Amount
@@ -94,12 +105,14 @@ func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
 
 		balance.OnchainBalance.LockedAmount = append(
 			balance.OnchainBalance.LockedAmount,
-			client.LockedOnchainBalance{
+			LockedOnchainBalance{
 				SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
 				Amount:      utxo.Amount,
 			},
 		)
 	}
+
+	balance.Total = balance.OnchainBalance.Total + balance.OffchainBalance.Total
 
 	return balance, nil
 }
@@ -124,16 +137,26 @@ func (a *arkClient) ListVtxos(
 	return a.store.VtxoStore().GetAllVtxos(ctx)
 }
 
+type offchainBalanceResult struct {
+	total              uint64
+	settled            uint64
+	preconfirmed       uint64
+	recoverable        uint64
+	amountByExpiration map[int64]uint64
+	assetBalances      map[string]uint64
+}
+
 func (a *arkClient) getOffchainBalance(ctx context.Context) (
-	balance uint64, amountByExpiration map[int64]uint64,
-	assetBalances map[string]uint64, err error,
+	offchainBalanceResult, error,
 ) {
-	assetBalances = make(map[string]uint64, 0)
-	amountByExpiration = make(map[int64]uint64, 0)
+	result := offchainBalanceResult{
+		amountByExpiration: make(map[int64]uint64),
+		assetBalances:      make(map[string]uint64),
+	}
 
 	vtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
 	if err != nil {
-		return
+		return result, err
 	}
 
 	for _, vtxo := range vtxos {
@@ -141,27 +164,37 @@ func (a *arkClient) getOffchainBalance(ctx context.Context) (
 			continue
 		}
 
-		balance += vtxo.Amount
+		result.total += vtxo.Amount
+
+		// Classify VTXO by state. Priority: Swept > Preconfirmed > default.
+		switch {
+		case vtxo.Swept:
+			result.recoverable += vtxo.Amount
+		case vtxo.Preconfirmed:
+			result.preconfirmed += vtxo.Amount
+		default:
+			result.settled += vtxo.Amount
+		}
 
 		if !vtxo.ExpiresAt.IsZero() {
 			expiration := vtxo.ExpiresAt.Unix()
 
-			if _, ok := amountByExpiration[expiration]; !ok {
-				amountByExpiration[expiration] = 0
+			if _, ok := result.amountByExpiration[expiration]; !ok {
+				result.amountByExpiration[expiration] = 0
 			}
 
-			amountByExpiration[expiration] += vtxo.Amount
+			result.amountByExpiration[expiration] += vtxo.Amount
 		}
 
 		for _, a := range vtxo.Assets {
-			if _, ok := assetBalances[a.AssetId]; !ok {
-				assetBalances[a.AssetId] = a.Amount
+			if _, ok := result.assetBalances[a.AssetId]; !ok {
+				result.assetBalances[a.AssetId] = a.Amount
 				continue
 			}
 
-			assetBalances[a.AssetId] += a.Amount
+			result.assetBalances[a.AssetId] += a.Amount
 		}
 	}
 
-	return
+	return result, nil
 }
