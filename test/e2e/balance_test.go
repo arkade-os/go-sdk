@@ -97,8 +97,12 @@ func TestBalanceBreakdown(t *testing.T) {
 				"Available must equal Settled + Preconfirmed")
 			require.GreaterOrEqual(t, int(total), 21000,
 				"Total offchain balance should be at least 21000 sats")
-			require.Equal(t, balance.Total, balance.OnchainBalance.Total+balance.OffchainBalance.Total,
-				"Wallet total must equal onchain total + offchain total")
+			require.Equal(
+				t,
+				balance.Total,
+				balance.OnchainBalance.Total+balance.OffchainBalance.Total,
+				"Wallet total must equal onchain total + offchain total",
+			)
 
 			// After the commitment is confirmed, Available should be > 0 and
 			// Preconfirmed should be 0.
@@ -151,52 +155,55 @@ func TestBalanceBreakdown(t *testing.T) {
 			)
 		})
 
-		t.Run("wallet can have settled and preconfirmed funds at the same time", func(t *testing.T) {
-			ctx := t.Context()
-			alice := setupClient(t)
-			bob := setupClient(t)
+		t.Run(
+			"wallet can have settled and preconfirmed funds at the same time",
+			func(t *testing.T) {
+				ctx := t.Context()
+				alice := setupClient(t)
+				bob := setupClient(t)
 
-			faucetOffchain(t, bob, 0.0005)
-			initialBobBalance, err := bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, initialBobBalance)
-			require.Greater(t, int(initialBobBalance.OffchainBalance.Settled), 0)
-			require.Zero(t, initialBobBalance.OffchainBalance.Preconfirmed)
+				faucetOffchain(t, bob, 0.0005)
+				initialBobBalance, err := bob.Balance(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, initialBobBalance)
+				require.Greater(t, int(initialBobBalance.OffchainBalance.Settled), 0)
+				require.Zero(t, initialBobBalance.OffchainBalance.Preconfirmed)
 
-			faucetOffchain(t, alice, 0.001)
+				faucetOffchain(t, alice, 0.001)
 
-			bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bobOffchainAddr)
+				bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
+				require.NoError(t, err)
+				require.NotEmpty(t, bobOffchainAddr)
 
-			bobVtxoCh := bob.GetVtxoEventChannel(ctx)
-			_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
-				To:     bobOffchainAddr,
-				Amount: 21000,
-			}})
-			require.NoError(t, err)
+				bobVtxoCh := bob.GetVtxoEventChannel(ctx)
+				_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
+					To:     bobOffchainAddr,
+					Amount: 21000,
+				}})
+				require.NoError(t, err)
 
-			bobVtxoEvent := <-bobVtxoCh
-			require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
-			require.Len(t, bobVtxoEvent.Vtxos, 1)
+				bobVtxoEvent := <-bobVtxoCh
+				require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
+				require.Len(t, bobVtxoEvent.Vtxos, 1)
 
-			balance, err := bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, balance)
-			require.Greater(t, int(balance.OffchainBalance.Settled), 0)
-			require.Equal(t, uint64(21000), balance.OffchainBalance.Preconfirmed)
-			require.Zero(t, balance.OffchainBalance.Recoverable)
-			require.Equal(
-				t,
-				balance.OffchainBalance.Available,
-				balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed,
-			)
-			require.Equal(
-				t, balance.OffchainBalance.Total,
-				balance.OffchainBalance.Settled+
-					balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
-			)
-		})
+				balance, err := bob.Balance(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, balance)
+				require.Greater(t, int(balance.OffchainBalance.Settled), 0)
+				require.Equal(t, uint64(21000), balance.OffchainBalance.Preconfirmed)
+				require.Zero(t, balance.OffchainBalance.Recoverable)
+				require.Equal(
+					t,
+					balance.OffchainBalance.Available,
+					balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed,
+				)
+				require.Equal(
+					t, balance.OffchainBalance.Total,
+					balance.OffchainBalance.Settled+
+						balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
+				)
+			},
+		)
 
 		t.Run("subdust_offchain_funds_are_recoverable", func(t *testing.T) {
 			ctx := t.Context()

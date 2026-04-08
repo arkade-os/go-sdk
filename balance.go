@@ -30,10 +30,10 @@ type OffchainBalance struct {
 	Total          uint64        `json:"total"`
 	NextExpiration string        `json:"next_expiration,omitempty"`
 	Details        []VtxoDetails `json:"details"`
-	Available uint64 `json:"available"`
-	Preconfirmed uint64 `json:"preconfirmed"`
-	Recoverable uint64 `json:"recoverable"`
-	Settled uint64 `json:"settled"`
+	Available      uint64        `json:"available"`
+	Preconfirmed   uint64        `json:"preconfirmed"`
+	Recoverable    uint64        `json:"recoverable"`
+	Settled        uint64        `json:"settled"`
 }
 
 // VtxoDetails provides per-expiration balance breakdown.
