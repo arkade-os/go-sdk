@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
@@ -106,13 +105,3 @@ type InitWithWalletArgs struct {
 	ExplorerURL string
 }
 
-type SendOffChainOption = client.SendOption
-
-// WithExtension re-exports the client-lib option to append additional
-// extension.Packet values to the OP_RETURN extension blob written by
-// SendOffChain.
-//
-// 0x00 is reserved type for asset packet (auto-generated)
-func WithExtension(packets ...extension.Packet) SendOffChainOption {
-	return client.WithExtraCustomPacket(packets...)
-}

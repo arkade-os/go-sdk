@@ -14,17 +14,25 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	sdkOpts, err := applySendOffChainOptions(opts...)
+	if err != nil {
+		return "", err
+	}
+
 	vtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
 
-	// Always supply our spendable vtxos; caller options follow.
-	res, err := a.ArkClient.SendOffChain(
-		ctx,
-		receivers,
-		append([]client.SendOption{client.WithVtxos(vtxos)}, opts...)...,
-	)
+	// Always supply our spendable vtxos; SDK callers cannot override them.
+	clientOpts := []client.SendOption{client.WithVtxos(vtxos)}
+	if len(sdkOpts.extraExtensionPackets) > 0 {
+		clientOpts = append(
+			clientOpts, client.WithExtraCustomPacket(sdkOpts.extraExtensionPackets...),
+		)
+	}
+
+	res, err := a.ArkClient.SendOffChain(ctx, receivers, clientOpts...)
 	if err != nil {
 		return "", err
 	}

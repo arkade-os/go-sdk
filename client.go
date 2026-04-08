@@ -1457,7 +1457,6 @@ func (a *arkClient) handleArkTx(
 			})
 		}
 	} else {
-		// Otherwise, add a new spent tx to the history.
 		inAmount := uint64(0)
 		for _, vtxo := range myVtxos {
 			inAmount += vtxo.Amount
@@ -1466,12 +1465,23 @@ func (a *arkClient) handleArkTx(
 		for _, vtxo := range vtxosToAdd {
 			outAmount += vtxo.Amount
 		}
+
+		var amount uint64
+		txType := clientTypes.TxSent
+		switch {
+		case inAmount > outAmount:
+			amount = inAmount - outAmount
+		case outAmount > inAmount:
+			amount = outAmount - inAmount
+			txType = clientTypes.TxReceived
+		}
+
 		txsToAdd = append(txsToAdd, clientTypes.Transaction{
 			TransactionKey: clientTypes.TransactionKey{
 				ArkTxid: arkTx.Txid,
 			},
-			Amount:      inAmount - outAmount,
-			Type:        clientTypes.TxSent,
+			Amount:      amount,
+			Type:        txType,
 			CreatedAt:   time.Now(),
 			AssetPacket: assetPacket,
 			Hex:         arkTx.Tx,
