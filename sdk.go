@@ -15,8 +15,6 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-
-
 var Version string
 
 type ArkClient interface {

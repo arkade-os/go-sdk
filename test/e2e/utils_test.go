@@ -24,8 +24,8 @@ import (
 	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey/store/inmemory"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -186,7 +186,12 @@ func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTy
 	return vtxo
 }
 
-func faucetOffchainAndWait(t *testing.T, c sdk.ArkClient, txCh <-chan types.TransactionEvent, amount float64) {
+func faucetOffchainAndWait(
+	t *testing.T,
+	c sdk.ArkClient,
+	txCh <-chan types.TransactionEvent,
+	amount float64,
+) {
 	t.Helper()
 
 	wg := &sync.WaitGroup{}
@@ -195,7 +200,12 @@ func faucetOffchainAndWait(t *testing.T, c sdk.ArkClient, txCh <-chan types.Tran
 	<-txCh
 }
 
-func fetchExtensionFromVirtualTx(t *testing.T, idxr indexer.Indexer, ctx context.Context, txid string) extension.Extension {
+func fetchExtensionFromVirtualTx(
+	t *testing.T,
+	idxr indexer.Indexer,
+	ctx context.Context,
+	txid string,
+) extension.Extension {
 	t.Helper()
 
 	time.Sleep(2 * time.Second) // give indexer time to ingest
@@ -216,7 +226,11 @@ func fetchExtensionFromVirtualTx(t *testing.T, idxr indexer.Indexer, ctx context
 	return ext
 }
 
-func findTxByID(t *testing.T, history []clientTypes.Transaction, txid string) *clientTypes.Transaction {
+func findTxByID(
+	t *testing.T,
+	history []clientTypes.Transaction,
+	txid string,
+) *clientTypes.Transaction {
 	t.Helper()
 
 	for i := range history {

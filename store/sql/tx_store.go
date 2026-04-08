@@ -113,6 +113,15 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []clientTypes.Transac
 				}
 			}
 
+			var assetsJSON sql.NullString
+			if len(tx.Assets) > 0 {
+				buf, err := json.Marshal(tx.Assets)
+				if err != nil {
+					return err
+				}
+				assetsJSON = sql.NullString{String: string(buf), Valid: true}
+			}
+
 			if err := querierWithTx.InsertTx(
 				ctx, queries.InsertTxParams{
 					Txid:      tx.TransactionKey.String(),
@@ -127,6 +136,7 @@ func (v *txStore) AddTransactions(ctx context.Context, txs []clientTypes.Transac
 						String: hex.EncodeToString(serializedAssetPacket),
 						Valid:  len(serializedAssetPacket) > 0,
 					},
+					Assets: assetsJSON,
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -410,6 +420,12 @@ func rowToTx(row queries.Tx) (clientTypes.Transaction, error) {
 			return clientTypes.Transaction{}, fmt.Errorf("failed to parse asset packet: %w", err)
 		}
 	}
+	var assets []clientTypes.Asset
+	if row.Assets.Valid && row.Assets.String != "" {
+		if err := json.Unmarshal([]byte(row.Assets.String), &assets); err != nil {
+			return clientTypes.Transaction{}, fmt.Errorf("failed to parse assets: %w", err)
+		}
+	}
 	return clientTypes.Transaction{
 		TransactionKey: clientTypes.TransactionKey{
 			CommitmentTxid: commitmentTxid,
@@ -422,6 +438,7 @@ func rowToTx(row queries.Tx) (clientTypes.Transaction, error) {
 		CreatedAt:   createdAt,
 		Hex:         row.Hex.String,
 		AssetPacket: assetPacket,
+		Assets:      assets,
 	}, nil
 }
 

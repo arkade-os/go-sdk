@@ -94,8 +94,8 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 
 const insertTx = `-- name: InsertTx :exec
 INSERT INTO tx (
-    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    txid, txid_type, amount, type, created_at, hex, settled_by, settled, asset_packet, assets
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertTxParams struct {
@@ -108,6 +108,7 @@ type InsertTxParams struct {
 	SettledBy   sql.NullString
 	Settled     bool
 	AssetPacket sql.NullString
+	Assets      sql.NullString
 }
 
 func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
@@ -121,6 +122,7 @@ func (q *Queries) InsertTx(ctx context.Context, arg InsertTxParams) error {
 		arg.SettledBy,
 		arg.Settled,
 		arg.AssetPacket,
+		arg.Assets,
 	)
 	return err
 }
@@ -246,7 +248,7 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 }
 
 const selectAllTxs = `-- name: SelectAllTxs :many
-SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet FROM tx
+SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet, assets FROM tx
 `
 
 func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
@@ -268,6 +270,7 @@ func (q *Queries) SelectAllTxs(ctx context.Context) ([]Tx, error) {
 			&i.Hex,
 			&i.SettledBy,
 			&i.AssetPacket,
+			&i.Assets,
 		); err != nil {
 			return nil, err
 		}
@@ -423,7 +426,7 @@ func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]AssetVtxoVw, erro
 }
 
 const selectTxs = `-- name: SelectTxs :many
-SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet FROM tx
+SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet, assets FROM tx
 WHERE txid IN (/*SLICE:txids*/?)
 `
 
@@ -456,6 +459,7 @@ func (q *Queries) SelectTxs(ctx context.Context, txids []string) ([]Tx, error) {
 			&i.Hex,
 			&i.SettledBy,
 			&i.AssetPacket,
+			&i.Assets,
 		); err != nil {
 			return nil, err
 		}

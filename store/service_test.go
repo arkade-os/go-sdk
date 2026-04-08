@@ -282,6 +282,10 @@ var (
 			Amount:      12000,
 			Type:        clientTypes.TxReceived,
 			AssetPacket: asset.Packet(testAssetGroups),
+			Assets: []clientTypes.Asset{
+				{AssetId: "0000000000000000000000000000000000010000000a000000000000000000000000000000000000", Amount: 500},
+				{AssetId: "0000000000000000000000000000000000010000000a000000000000000000000000000000000001", Amount: 250},
+			},
 		},
 	}
 

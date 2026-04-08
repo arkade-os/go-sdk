@@ -314,10 +314,18 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]clientTypes.Tr
 	sort.SliceStable(history, func(i, j int) bool {
 		return history[i].CreatedAt.IsZero() || history[i].CreatedAt.After(history[j].CreatedAt)
 	})
-	// Derive the per-asset breakdown from AssetPacket for transactions
-	// that carry one.
+	// Prefer the per-asset breakdown persisted directly on the row (populated
+	// by vtxosToTxs from indexer-supplied vtxo.Assets). Fall back to deriving
+	// from AssetPacket for rows where only the packet is available (e.g.
+	// transactions persisted by wallet-side session/settlement handlers that
+	// had the signed PSBT in hand).
 	for i := range history {
-		history[i].Assets = deriveAssetsFromPacket(history[i].AssetPacket, history[i].TransactionKey.String())
+		if len(history[i].Assets) == 0 {
+			history[i].Assets = deriveAssetsFromPacket(
+				history[i].AssetPacket,
+				history[i].TransactionKey.String(),
+			)
+		}
 	}
 	return history, nil
 }
@@ -333,7 +341,7 @@ func deriveAssetsFromPacket(pkt asset.Packet, txid string) []clientTypes.Asset {
 	order := make([]string, 0, len(pkt))
 	for groupIndex, group := range pkt {
 		assetId := group.AssetId
-		// issuance case 
+		// issuance case
 		if assetId == nil && txid != "" {
 			derived, err := asset.NewAssetId(txid, uint16(groupIndex))
 			if err == nil {
@@ -355,7 +363,7 @@ func deriveAssetsFromPacket(pkt asset.Packet, txid string) []clientTypes.Asset {
 	if len(order) == 0 {
 		return nil
 	}
-	
+
 	result := make([]clientTypes.Asset, 0, len(order))
 	for _, id := range order {
 		result = append(result, clientTypes.Asset{
@@ -1698,6 +1706,7 @@ func (i *arkClient) vtxosToTxs(
 			Type:      clientTypes.TxReceived,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: settledBy,
+			Assets:    client.NetVtxoAssets([]clientTypes.Vtxo{vtxo}, append(settleVtxos, spentVtxos...)),
 		})
 	}
 
@@ -1745,6 +1754,7 @@ func (i *arkClient) vtxosToTxs(
 				Amount:    forfeitAmount - resultedAmount,
 				Type:      clientTypes.TxSent,
 				CreatedAt: vtxo.CreatedAt,
+				Assets:    client.NetVtxoAssets(vtxosBySettledBy[sb], resultedVtxos),
 			})
 		}
 	}
@@ -1789,6 +1799,7 @@ func (i *arkClient) vtxosToTxs(
 			Type:      clientTypes.TxSent,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: vtxo.SettledBy,
+			Assets:    client.NetVtxoAssets(vtxosBySpentBy[sb], resultedVtxos),
 		})
 	}
 
@@ -1965,6 +1976,7 @@ func (a *arkClient) saveSendTransaction(
 			CreatedAt:   createdAt,
 			Hex:         res.Tx,
 			AssetPacket: res.Extension.GetAssetPacket(),
+			Assets:      client.NetVtxoAssets(res.Inputs, newVtxos),
 		},
 	}); err != nil {
 		log.Warnf("failed to add transactions: %s, skipping adding sent transaction", err)
@@ -2000,6 +2012,7 @@ func (a *arkClient) saveBatchTransaction(
 					CreatedAt:   time.Now(),
 					Hex:         res.CommitmentTx,
 					AssetPacket: res.Extension.GetAssetPacket(),
+					Assets:      client.NetVtxoAssets(res.VtxoInputs, res.VtxoOutputs),
 				},
 			}); err != nil {
 				log.Warnf("failed to add sent transaction: %s, skipping", err)

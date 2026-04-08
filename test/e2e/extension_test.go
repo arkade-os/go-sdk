@@ -119,7 +119,10 @@ func TestGetAssetDetails(t *testing.T) {
 		require.Equal(t, "TTK", mdMap["ticker"])
 
 		// Negative case: a never-issued id should return a not-found error.
-		_, err = alice.GetAssetDetails(ctx, "0000000000000000000000000000000000000000000000000000000000000000deadbeef")
+		_, err = alice.GetAssetDetails(
+			ctx,
+			"0000000000000000000000000000000000000000000000000000000000000000deadbeef",
+		)
 		require.Error(t, err)
 
 		// Exercise control asset linkage via NewControlAsset.

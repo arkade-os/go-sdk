@@ -1,0 +1,1 @@
+ALTER TABLE tx ADD COLUMN assets TEXT;

@@ -134,7 +134,6 @@ func TestGroupSpentVtxosByTx(t *testing.T) {
 	})
 }
 
-
 // TestDeriveAssetsFromPacket verifies that GetTransactionHistory's derived
 // Assets field aggregates AssetPacket outputs by asset id, in first-seen
 // order, deriving issuance ids from the txid + group index.
@@ -267,5 +266,10 @@ func TestPersistIssuedAssets_NilStore(t *testing.T) {
 	c := &arkClient{}
 	// Should not panic.
 	c.persistIssuedAssets(t.Context(), nil, nil, nil)
-	c.persistIssuedAssets(t.Context(), []asset.AssetId{*testAssetId(t, 1)}, clientTypes.NewControlAsset{}, nil)
+	c.persistIssuedAssets(
+		t.Context(),
+		[]asset.AssetId{*testAssetId(t, 1)},
+		clientTypes.NewControlAsset{},
+		nil,
+	)
 }
