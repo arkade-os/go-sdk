@@ -314,7 +314,64 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]clientTypes.Tr
 	sort.SliceStable(history, func(i, j int) bool {
 		return history[i].CreatedAt.IsZero() || history[i].CreatedAt.After(history[j].CreatedAt)
 	})
+	// Prefer the per-asset breakdown persisted directly on the row (populated
+	// by vtxosToTxs from indexer-supplied vtxo.Assets). Fall back to deriving
+	// from AssetPacket for rows where only the packet is available (e.g.
+	// transactions persisted by wallet-side session/settlement handlers that
+	// had the signed PSBT in hand).
+	for i := range history {
+		if len(history[i].Assets) == 0 {
+			history[i].Assets = deriveAssetsFromPacket(
+				history[i].AssetPacket,
+				history[i].TransactionKey.String(),
+			)
+		}
+	}
 	return history, nil
+}
+
+// deriveAssetsFromPacket reduces an asset.Packet into a per-asset balance
+// summary (one clientTypes.Asset per unique asset id), summing amounts across
+// all outputs in each group.
+func deriveAssetsFromPacket(pkt asset.Packet, txid string) []clientTypes.Asset {
+	if len(pkt) == 0 {
+		return nil
+	}
+	sums := make(map[string]uint64)
+	order := make([]string, 0, len(pkt))
+	for groupIndex, group := range pkt {
+		assetId := group.AssetId
+		// issuance case
+		if assetId == nil && txid != "" {
+			derived, err := asset.NewAssetId(txid, uint16(groupIndex))
+			if err == nil {
+				assetId = derived
+			}
+		}
+
+		if assetId == nil {
+			continue
+		}
+		id := assetId.String()
+		if _, seen := sums[id]; !seen {
+			order = append(order, id)
+		}
+		for _, out := range group.Outputs {
+			sums[id] += out.Amount
+		}
+	}
+	if len(order) == 0 {
+		return nil
+	}
+
+	result := make([]clientTypes.Asset, 0, len(order))
+	for _, id := range order {
+		result = append(result, clientTypes.Asset{
+			AssetId: id,
+			Amount:  sums[id],
+		})
+	}
+	return result
 }
 
 func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
@@ -1400,7 +1457,6 @@ func (a *arkClient) handleArkTx(
 			})
 		}
 	} else {
-		// Otherwise, add a new spent tx to the history.
 		inAmount := uint64(0)
 		for _, vtxo := range myVtxos {
 			inAmount += vtxo.Amount
@@ -1409,12 +1465,23 @@ func (a *arkClient) handleArkTx(
 		for _, vtxo := range vtxosToAdd {
 			outAmount += vtxo.Amount
 		}
+
+		var amount uint64
+		txType := clientTypes.TxSent
+		switch {
+		case inAmount > outAmount:
+			amount = inAmount - outAmount
+		case outAmount > inAmount:
+			amount = outAmount - inAmount
+			txType = clientTypes.TxReceived
+		}
+
 		txsToAdd = append(txsToAdd, clientTypes.Transaction{
 			TransactionKey: clientTypes.TransactionKey{
 				ArkTxid: arkTx.Txid,
 			},
-			Amount:      inAmount - outAmount,
-			Type:        clientTypes.TxSent,
+			Amount:      amount,
+			Type:        txType,
 			CreatedAt:   time.Now(),
 			AssetPacket: assetPacket,
 			Hex:         arkTx.Tx,
@@ -1649,6 +1716,10 @@ func (i *arkClient) vtxosToTxs(
 			Type:      clientTypes.TxReceived,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: settledBy,
+			Assets: client.NetVtxoAssets(
+				[]clientTypes.Vtxo{vtxo},
+				append(settleVtxos, spentVtxos...),
+			),
 		})
 	}
 
@@ -1696,6 +1767,7 @@ func (i *arkClient) vtxosToTxs(
 				Amount:    forfeitAmount - resultedAmount,
 				Type:      clientTypes.TxSent,
 				CreatedAt: vtxo.CreatedAt,
+				Assets:    client.NetVtxoAssets(vtxosBySettledBy[sb], resultedVtxos),
 			})
 		}
 	}
@@ -1740,6 +1812,7 @@ func (i *arkClient) vtxosToTxs(
 			Type:      clientTypes.TxSent,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: vtxo.SettledBy,
+			Assets:    client.NetVtxoAssets(vtxosBySpentBy[sb], resultedVtxos),
 		})
 	}
 
@@ -1916,6 +1989,7 @@ func (a *arkClient) saveSendTransaction(
 			CreatedAt:   createdAt,
 			Hex:         res.Tx,
 			AssetPacket: res.Extension.GetAssetPacket(),
+			Assets:      client.NetVtxoAssets(res.Inputs, newVtxos),
 		},
 	}); err != nil {
 		log.Warnf("failed to add transactions: %s, skipping adding sent transaction", err)
@@ -1951,6 +2025,7 @@ func (a *arkClient) saveBatchTransaction(
 					CreatedAt:   time.Now(),
 					Hex:         res.CommitmentTx,
 					AssetPacket: res.Extension.GetAssetPacket(),
+					Assets:      client.NetVtxoAssets(res.VtxoInputs, res.VtxoOutputs),
 				},
 			}); err != nil {
 				log.Warnf("failed to add sent transaction: %s, skipping", err)

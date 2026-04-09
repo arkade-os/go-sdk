@@ -8,9 +8,14 @@ import (
 )
 
 func (a *arkClient) SendOffChain(
-	ctx context.Context, receivers []clientTypes.Receiver,
+	ctx context.Context, receivers []clientTypes.Receiver, opts ...SendOffChainOption,
 ) (string, error) {
 	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+
+	sdkOpts, err := applySendOffChainOptions(opts...)
+	if err != nil {
 		return "", err
 	}
 
@@ -19,6 +24,7 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	// Always supply our spendable vtxos; SDK callers cannot override them.
 	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
 		return "", err
@@ -34,7 +40,14 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, clone, client.WithVtxos(vtxos))
+	clientOpts := []client.SendOption{client.WithVtxos(vtxos)}
+	if len(sdkOpts.extraExtensionPackets) > 0 {
+		clientOpts = append(
+			clientOpts, client.WithExtraCustomPacket(sdkOpts.extraExtensionPackets...),
+		)
+	}
+
+	res, err := a.ArkClient.SendOffChain(ctx, clone, clientOpts...)
 	if err != nil {
 		return "", err
 	}
