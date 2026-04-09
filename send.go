@@ -25,6 +25,21 @@ func (a *arkClient) SendOffChain(
 	}
 
 	// Always supply our spendable vtxos; SDK callers cannot override them.
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// ensure asset-carrying receivers have at least dust sats as a carrier
+	clone := make([]clientTypes.Receiver, len(receivers))
+	copy(clone, receivers)
+	dust := cfg.Dust
+	for i, receiver := range clone {
+		if len(receiver.Assets) > 0 && receiver.Amount < dust {
+			clone[i].Amount = dust
+		}
+	}
+
 	clientOpts := []client.SendOption{client.WithVtxos(vtxos)}
 	if len(sdkOpts.extraExtensionPackets) > 0 {
 		clientOpts = append(
@@ -32,7 +47,7 @@ func (a *arkClient) SendOffChain(
 		)
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, receivers, clientOpts...)
+	res, err := a.ArkClient.SendOffChain(ctx, clone, clientOpts...)
 	if err != nil {
 		return "", err
 	}
