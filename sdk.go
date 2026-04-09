@@ -104,4 +104,3 @@ type InitWithWalletArgs struct {
 	Password    string
 	ExplorerURL string
 }
-

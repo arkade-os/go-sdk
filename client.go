@@ -1716,7 +1716,10 @@ func (i *arkClient) vtxosToTxs(
 			Type:      clientTypes.TxReceived,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: settledBy,
-			Assets:    client.NetVtxoAssets([]clientTypes.Vtxo{vtxo}, append(settleVtxos, spentVtxos...)),
+			Assets: client.NetVtxoAssets(
+				[]clientTypes.Vtxo{vtxo},
+				append(settleVtxos, spentVtxos...),
+			),
 		})
 	}
 
