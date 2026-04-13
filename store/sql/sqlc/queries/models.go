@@ -50,6 +50,7 @@ type Tx struct {
 	Hex         sql.NullString
 	SettledBy   sql.NullString
 	AssetPacket sql.NullString
+	Assets      sql.NullString
 }
 
 type Utxo struct {

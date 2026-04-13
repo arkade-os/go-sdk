@@ -47,7 +47,16 @@ type ArkClient interface {
 	BurnAsset(
 		ctx context.Context, assetID string, amount uint64,
 	) (string, error)
-	SendOffChain(ctx context.Context, receivers []clientTypes.Receiver) (string, error)
+	SendOffChain(
+		ctx context.Context, receivers []clientTypes.Receiver, opts ...SendOffChainOption,
+	) (string, error)
+	// GetAssetDetails returns the AssetInfo (id, control asset id, metadata)
+	// that was persisted to the local AssetStore at issuance time. It queries
+	// the local store only — it does NOT make an indexer round-trip. Callers
+	// that need supply or remote-only data should use the Indexer() directly.
+	//
+	// Returns an error if the asset is not present in the local store.
+	GetAssetDetails(ctx context.Context, assetId string) (*clientTypes.AssetInfo, error)
 	RegisterIntent(
 		ctx context.Context,
 		vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,

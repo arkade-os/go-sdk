@@ -1,0 +1,1 @@
+ALTER TABLE tx DROP COLUMN assets;
