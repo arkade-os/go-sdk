@@ -111,8 +111,23 @@ func (a *arkClient) Init(
 }
 
 func (a *arkClient) Unlock(ctx context.Context, password string) error {
-	if err := a.ArkClient.Unlock(ctx, password); err != nil {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return ErrNotInitialized
+	}
+
+	if _, err := walletSvc.Unlock(ctx, password); err != nil {
 		return err
+	}
+
+	hasKeys, err := a.walletHasKeys(ctx)
+	if err != nil {
+		return err
+	}
+	if hasKeys {
+		if _, err := a.ArkClient.FinalizePendingTxs(ctx, nil); err != nil {
+			return err
+		}
 	}
 
 	a.logMu.Lock()

@@ -18,12 +18,13 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	grpcindexer "github.com/arkade-os/arkd/pkg/client-lib/indexer/grpc"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey"
-	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey/store/inmemory"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
@@ -38,117 +39,81 @@ const (
 	explorerUrl = "http://127.0.0.1:3000"
 )
 
-type testStoreBackend struct {
-	name string
+type testHDWallet struct {
+	sdk.ArkClient
+	WalletSvc    wallet.WalletService
+	TransportSvc transport.TransportClient
 }
 
-func (b testStoreBackend) datadir(t *testing.T) string {
+func setupHDWallet(t *testing.T, seed string, opts ...sdk.ClientOption) *testHDWallet {
 	t.Helper()
 
-	if b.name == "sql" {
-		return t.TempDir()
-	}
-
-	return ""
-}
-
-func (b testStoreBackend) setupClient(t *testing.T) sdk.ArkClient {
-	t.Helper()
-
-	return setupClientWithDatadir(t, b.datadir(t))
-}
-
-func (b testStoreBackend) setupClientWithWallet(
-	t *testing.T, prvkey string,
-) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
-	t.Helper()
-
-	return setupClientWithWalletAndDatadir(t, b.datadir(t), prvkey)
-}
-
-func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStoreBackend)) {
-	t.Helper()
-
-	backends := []testStoreBackend{
-		//{name: "kv"},
-		{name: "sql"},
-	}
-
-	for _, backend := range backends {
-		t.Run(backend.name, func(t *testing.T) {
-			fn(t, backend)
-		})
-	}
-}
-
-func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
-	t.Helper()
-
-	arkClient, err := sdk.NewArkClient(datadir)
+	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
 	require.NoError(t, err)
-
-	privkey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	privkeyHex := hex.EncodeToString(privkey.Serialize())
-
-	err = arkClient.Init(t.Context(), serverUrl, privkeyHex, password)
-	require.NoError(t, err)
-
-	err = arkClient.Unlock(t.Context(), password)
-	require.NoError(t, err)
-
-	synced := <-arkClient.IsSynced(t.Context())
-	require.True(t, synced.Synced)
-	require.Nil(t, synced.Err)
-
-	t.Cleanup(arkClient.Stop)
-
-	return arkClient
-}
-
-func setupClientWithWalletAndDatadir(
-	t *testing.T, datadir, prvkey string,
-) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
-	t.Helper()
-
-	arkClient, err := sdk.NewArkClient(datadir)
-	require.NoError(t, err)
-	require.NotNil(t, arkClient)
-
-	walletStore, err := inmemorystore.NewWalletStore()
-	require.NoError(t, err)
-	require.NotNil(t, walletStore)
-
-	configStore := arkClient.GetConfigStore()
-	require.NotNil(t, configStore)
-
-	wallet, err := singlekeywallet.NewBitcoinWallet(configStore, walletStore)
-	require.NoError(t, err)
-
-	if len(prvkey) <= 0 {
-		key, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		prvkey = hex.EncodeToString(key.Serialize())
-	}
-
-	err = arkClient.Init(t.Context(), serverUrl, prvkey, password, sdk.WithWallet(wallet))
-	require.NoError(t, err)
-
-	err = arkClient.Unlock(t.Context(), password)
-	require.NoError(t, err)
-
-	synced := <-arkClient.IsSynced(t.Context())
-	require.True(t, synced.Synced)
-	require.Nil(t, synced.Err)
-
-	t.Cleanup(arkClient.Stop)
 
 	grpcClient, err := grpcclient.NewClient(serverUrl)
 	require.NoError(t, err)
 
-	return arkClient, wallet, grpcClient
+	info, err := grpcClient.GetInfo(t.Context())
+	require.NoError(t, err)
+
+	explorerSvc, err := mempool_explorer.NewExplorer(
+		explorerUrl,
+		arklib.BitcoinRegTest,
+		mempool_explorer.WithTracker(true),
+		mempool_explorer.WithPollInterval(2*time.Second),
+	)
+	require.NoError(t, err)
+
+	hdIndexer, err := grpcindexer.NewClient(serverUrl)
+	require.NoError(t, err)
+
+	signerKeyBytes, err := hex.DecodeString(info.SignerPubKey)
+	require.NoError(t, err)
+
+	parsedSignerPubKey, err := btcec.ParsePubKey(signerKeyBytes)
+	require.NoError(t, err)
+
+	walletSvc, err := hdwallet.NewService(hdwallet.Args{
+		Store:               hdwallet.NewStore(arkClient.GetConfigStore()),
+		Indexer:             hdIndexer,
+		Explorer:            explorerSvc,
+		ArkNetwork:          arklib.BitcoinRegTest,
+		SignerPubKey:        parsedSignerPubKey,
+		BoardingExitDelay:   relativeLocktimeFromValue(uint32(info.BoardingExitDelay)),
+		UnilateralExitDelay: relativeLocktimeFromValue(uint32(info.UnilateralExitDelay)),
+	})
+	require.NoError(t, err)
+
+	err = arkClient.Init(t.Context(), serverUrl, seed, password, sdk.WithWallet(walletSvc))
+	require.NoError(t, err)
+
+	err = arkClient.Unlock(t.Context(), password)
+	require.NoError(t, err)
+
+	synced := <-arkClient.IsSynced(t.Context())
+	require.True(t, synced.Synced)
+	require.Nil(t, synced.Err)
+
+	t.Cleanup(arkClient.Stop)
+
+	return &testHDWallet{
+		ArkClient:    arkClient,
+		WalletSvc:    walletSvc,
+		TransportSvc: grpcClient,
+	}
+}
+
+func relativeLocktimeFromValue(value uint32) arklib.RelativeLocktime {
+	locktimeType := arklib.LocktimeTypeBlock
+	if value >= 512 {
+		locktimeType = arklib.LocktimeTypeSecond
+	}
+
+	return arklib.RelativeLocktime{
+		Type:  locktimeType,
+		Value: value,
+	}
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
@@ -156,10 +121,10 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 	require.NoError(t, err)
 }
 
-func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTypes.Vtxo {
+func faucetOffchain(
+	t *testing.T, client sdk.ArkClient, offchainAddr string, amount float64,
+) clientTypes.Vtxo {
 	ctx := t.Context()
-	offchainAddr, err := client.NewOffchainAddress(ctx)
-	require.NoError(t, err)
 	require.NotEmpty(t, offchainAddr)
 
 	note := generateNote(t, uint64(amount*1e8))
@@ -277,6 +242,27 @@ func deriveWalletAddresses(
 	}
 
 	return onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs
+}
+
+func findOffchainAddressByScript(
+	t *testing.T, addrs []clientTypes.Address, scriptHex string,
+) clientTypes.Address {
+	t.Helper()
+
+	for _, addr := range addrs {
+		decodedAddr, err := arklib.DecodeAddressV0(addr.Address)
+		require.NoError(t, err)
+
+		pkScript, err := decodedAddr.GetPkScript()
+		require.NoError(t, err)
+
+		if hex.EncodeToString(pkScript) == scriptHex {
+			return addr
+		}
+	}
+
+	t.Fatalf("offchain address with script %s not found", scriptHex)
+	return clientTypes.Address{}
 }
 
 func generateNote(t *testing.T, amount uint64) string {

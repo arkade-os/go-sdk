@@ -8,21 +8,13 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	"github.com/stretchr/testify/require"
 )
 
 func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	ctx := t.Context()
 
-	singleKey := setupClientWithDatadir(t, t.TempDir())
-	hdWallet := setupClientWithHDWallet(t, t.TempDir(), "")
-
-	singleOffchain1, err := singleKey.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	singleOffchain2, err := singleKey.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	require.Equal(t, singleOffchain1, singleOffchain2)
+	hdWallet := setupHDWallet(t, "")
 
 	hdOffchain1, err := hdWallet.NewOffchainAddress(ctx)
 	require.NoError(t, err)
@@ -30,39 +22,17 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, hdOffchain1, hdOffchain2)
 
-	singleBoarding1, err := singleKey.NewBoardingAddress(ctx)
-	require.NoError(t, err)
-	singleBoarding2, err := singleKey.NewBoardingAddress(ctx)
-	require.NoError(t, err)
-	require.Equal(t, singleBoarding1, singleBoarding2)
-
 	hdBoarding1, err := hdWallet.NewBoardingAddress(ctx)
 	require.NoError(t, err)
 	hdBoarding2, err := hdWallet.NewBoardingAddress(ctx)
 	require.NoError(t, err)
 	require.NotEqual(t, hdBoarding1, hdBoarding2)
 
-	singleOnchain1, err := singleKey.NewOnchainAddress(ctx)
-	require.NoError(t, err)
-	singleOnchain2, err := singleKey.NewOnchainAddress(ctx)
-	require.NoError(t, err)
-	require.Equal(t, singleOnchain1, singleOnchain2)
-
 	hdOnchain1, err := hdWallet.NewOnchainAddress(ctx)
 	require.NoError(t, err)
 	hdOnchain2, err := hdWallet.NewOnchainAddress(ctx)
 	require.NoError(t, err)
 	require.NotEqual(t, hdOnchain1, hdOnchain2)
-
-	singleOnchainAddrs, singleOffchainAddrs, singleBoardingAddrs, singleRedemptionAddrs, err := singleKey.GetAddresses(ctx)
-	require.NoError(t, err)
-	require.Len(t, singleOnchainAddrs, 1)
-	require.Len(t, singleOffchainAddrs, 1)
-	require.Len(t, singleBoardingAddrs, 1)
-	require.Len(t, singleRedemptionAddrs, 1)
-	require.Equal(t, singleOffchain1, singleOffchainAddrs[0])
-	require.Equal(t, singleBoarding1, singleBoardingAddrs[0])
-	require.Equal(t, singleOnchain1, singleOnchainAddrs[0])
 
 	hdOnchainAddrs, hdOffchainAddrs, hdBoardingAddrs, hdRedemptionAddrs, err := hdWallet.GetAddresses(ctx)
 	require.NoError(t, err)
@@ -81,8 +51,8 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupClientWithHDWallet(t, t.TempDir(), "")
-	bobClientSingleKey := setupClientWithDatadir(t, t.TempDir())
+	aliceClientHD := setupHDWallet(t, "")
+	bobClientHD := setupHDWallet(t, "")
 
 	addresses := make([]string, 0, 22)
 	for range 22 {
@@ -91,10 +61,12 @@ func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
 		addresses = append(addresses, addr)
 	}
 
-	faucetOffchain(t, bobClientSingleKey, 0.001)
+	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
+	require.NoError(t, err)
+	faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
 
 	// Scenario 1: Alice is online and receives on a known HD address.
-	_, err := bobClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[0],
 		Amount: 15_000,
 	}})
@@ -115,14 +87,14 @@ func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
 	aliceClientHD.Stop()
 	aliceClientHD = nil
 
-	_, err = bobClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[21],
 		Amount: 16_000,
 	}})
 	require.NoError(t, err)
 
 	// Scenario 3: Alice restores from seed and discovers all used keys on startup.
-	aliceClientHD = setupClientWithHDWallet(t, t.TempDir(), seed)
+	aliceClientHD = setupHDWallet(t, seed)
 
 	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
 	require.NoError(t, err)
@@ -139,10 +111,10 @@ func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
 	require.NotEmpty(t, nextAddr)
 	require.NotContains(t, addresses, nextAddr)
 
-	bobAddr, err := bobClientSingleKey.NewOffchainAddress(ctx)
+	bobAddr, err := bobClientHD.NewOffchainAddress(ctx)
 	require.NoError(t, err)
 
-	bobBalanceBefore, err := bobClientSingleKey.Balance(ctx)
+	bobBalanceBefore, err := bobClientHD.Balance(ctx)
 	require.NoError(t, err)
 
 	_, err = aliceClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
@@ -152,7 +124,7 @@ func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		bobBalanceAfter, err := bobClientSingleKey.Balance(ctx)
+		bobBalanceAfter, err := bobClientHD.Balance(ctx)
 		if err != nil {
 			return false
 		}
@@ -166,8 +138,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 
 	const gapLimit = uint32(5)
 
-	aliceClientHD := setupClientWithHDWallet(t, t.TempDir(), "", sdk.WithGapLimit(gapLimit))
-	bobClientSingleKey := setupClientWithDatadir(t, t.TempDir())
+	aliceClientHD := setupHDWallet(t, "", sdk.WithGapLimit(gapLimit))
+	bobClientHD := setupHDWallet(t, "")
 
 	addresses := make([]string, 0, 11)
 	for range 11 {
@@ -176,9 +148,11 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 		addresses = append(addresses, addr)
 	}
 
-	faucetOffchain(t, bobClientSingleKey, 0.001)
+	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
+	require.NoError(t, err)
+	faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
 
-	_, err := bobClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[0],
 		Amount: 15_000,
 	}})
@@ -193,13 +167,13 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 	aliceClientHD.Stop()
 	aliceClientHD = nil
 
-	_, err = bobClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[10],
 		Amount: 16_000,
 	}})
 	require.NoError(t, err)
 
-	aliceClientHD = setupClientWithHDWallet(t, t.TempDir(), seed, sdk.WithGapLimit(gapLimit))
+	aliceClientHD = setupHDWallet(t, seed, sdk.WithGapLimit(gapLimit))
 
 	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
 	require.NoError(t, err)
@@ -215,8 +189,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupClientWithHDWallet(t, t.TempDir(), "")
-	bobClientSingleKey := setupClientWithDatadir(t, t.TempDir())
+	aliceClientHD := setupHDWallet(t, "")
+	bobClientHD := setupHDWallet(t, "")
 
 	offchainAddrs := make([]string, 0, 2)
 	for range 2 {
@@ -250,13 +224,15 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	aliceClientHD.Stop()
 	aliceClientHD = nil
 
+	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
+	require.NoError(t, err)
 	for range 4 {
-		faucetOffchain(t, bobClientSingleKey, 0.001)
+		faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
 	}
 
 	offchainAmounts := []uint64{11_000, 12_000, 13_000, 14_000}
 	for i, amount := range offchainAmounts {
-		_, err := bobClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+		_, err := bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     offchainAddrs[i/2],
 			Amount: amount,
 		}})
@@ -282,7 +258,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	require.NoError(t, generateBlocks(1))
 	time.Sleep(5 * time.Second)
 
-	aliceClientHD = setupClientWithHDWallet(t, t.TempDir(), seed)
+	aliceClientHD = setupHDWallet(t, seed)
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
@@ -312,17 +288,19 @@ func TestHDWalletEventStreams(t *testing.T) {
 	t.Run("offchain transfer and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
-		aliceClientSingleKey := setupClientWithDatadir(t, t.TempDir())
-		bobClientHD := setupClientWithHDWallet(t, t.TempDir(), "")
+		aliceClientHD := setupHDWallet(t, "")
+		bobClientHD := setupHDWallet(t, "")
 
-		faucetOffchain(t, aliceClientSingleKey, 0.001)
+		aliceFaucetAddr, err := aliceClientHD.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+		faucetOffchain(t, aliceClientHD, aliceFaucetAddr, 0.001)
 
 		bobOffchainAddr, err := bobClientHD.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 
 		bobVtxoCh := bobClientHD.GetVtxoEventChannel(ctx)
 
-		_, err = aliceClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+		_, err = aliceClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 100,
 		}})
@@ -335,7 +313,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 		})
 		require.EqualValues(t, 100, firstReceived.Vtxos[0].Amount)
 
-		_, err = aliceClientSingleKey.SendOffChain(ctx, []clientTypes.Receiver{{
+		_, err = aliceClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 1000,
 		}})
@@ -362,7 +340,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 	t.Run("boarding receive and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
-		aliceClientHD := setupClientWithHDWallet(t, t.TempDir(), "")
+		aliceClientHD := setupHDWallet(t, "")
 
 		boardingAddr, err := aliceClientHD.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -524,28 +502,4 @@ func sumLockedAmounts(locked []client.LockedOnchainBalance) uint64 {
 	}
 
 	return total
-}
-
-func setupClientWithHDWallet(
-	t *testing.T, datadir, seed string, opts ...sdk.ClientOption,
-) sdk.ArkClient {
-	t.Helper()
-
-	arkClient, err := sdk.NewArkClient(datadir, opts...)
-	require.NoError(t, err)
-
-	hdStore := hdwallet.NewStore(arkClient.GetConfigStore())
-	err = arkClient.Init(t.Context(), serverUrl, seed, password, sdk.WithHDWallet(hdStore))
-	require.NoError(t, err)
-
-	err = arkClient.Unlock(t.Context(), password)
-	require.NoError(t, err)
-
-	synced := <-arkClient.IsSynced(t.Context())
-	require.True(t, synced.Synced)
-	require.Nil(t, synced.Err)
-
-	t.Cleanup(arkClient.Stop)
-
-	return arkClient
 }

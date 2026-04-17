@@ -383,6 +383,20 @@ func (a *arkClient) setRestored(err error) {
 	a.syncListeners.clear()
 }
 
+func (a *arkClient) walletHasKeys(ctx context.Context) (bool, error) {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return false, ErrNotInitialized
+	}
+
+	keys, err := walletSvc.ListKeys(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return len(keys) > 0, nil
+}
+
 func (a *arkClient) refreshDb(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -399,10 +413,18 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		opts = append(opts, client.WithTimeRange(updateTime.Unix(), a.lastUpdate.Unix()))
 	}
 
-	// Fetch new and spent vtxos.
-	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx, opts...)
+	spendableVtxos := make([]clientTypes.Vtxo, 0)
+	spentVtxos := make([]clientTypes.Vtxo, 0)
+	hasKeys, err := a.walletHasKeys(ctx)
 	if err != nil {
 		return err
+	}
+	if hasKeys {
+		// Fetch new and spent vtxos.
+		spendableVtxos, spentVtxos, err = a.ArkClient.ListVtxos(ctx, opts...)
+		if err != nil {
+			return err
+		}
 	}
 
 	select {
