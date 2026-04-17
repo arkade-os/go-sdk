@@ -23,6 +23,8 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
+	_ "github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -60,6 +62,8 @@ type arkClient struct {
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
+
+	contractManager contract.Manager
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
@@ -214,6 +218,10 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	client.syncListeners = syncListeners
 
 	return client, nil
+}
+
+func (a *arkClient) ContractManager() contract.Manager {
+	return a.contractManager
 }
 
 func (a *arkClient) Explorer() explorer.Explorer {
@@ -737,18 +745,20 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
-			_, offchainAddrs, _, _, err := wallet.GetAddresses(ctx)
+			contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
 			if err != nil {
-				log.WithError(err).Error("failed to get offchain addresses")
+				log.WithError(err).Error("failed to get contracts for ark tx listener")
 				continue
 			}
 
 			myPubkeys := make(map[string]struct{})
-			for _, addr := range offchainAddrs {
+			for _, c := range contracts {
 				// nolint
-				decoded, _ := arklib.DecodeAddressV0(addr.Address)
-				pubkey := hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))
-				myPubkeys[pubkey] = struct{}{}
+				decoded, _ := arklib.DecodeAddressV0(c.Address)
+				if decoded != nil {
+					pubkey := hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))
+					myPubkeys[pubkey] = struct{}{}
+				}
 			}
 
 			if event.CommitmentTx != nil {
@@ -797,70 +807,61 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		return
 	}
 
-	onchainAddrs, offchainAddrs, boardingAddrs, _, err := wallet.GetAddresses(ctx)
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
 	if err != nil {
-		log.WithError(err).Error("failed to get boarding addresses")
+		log.WithError(err).Error("failed to get contracts for onchain listener")
 		return
 	}
 
-	addresses := make([]string, 0, len(boardingAddrs)+len(onchainAddrs)+len(offchainAddrs))
 	type addressInfo struct {
 		tapscripts []string
 		delay      arklib.RelativeLocktime
 	}
+	addresses := make([]string, 0)
 	addressByScript := make(map[string]addressInfo, 0)
 
-	// we listen for boarding addresses to catch "boarding" events
-	for _, addr := range boardingAddrs {
-		addresses = append(addresses, addr.Address)
-
-		script, err := toOutputScript(addr.Address, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for boarding address")
-			continue
+	for _, c := range contracts {
+		// boarding address (P2TR, BoardingExitDelay)
+		if c.Boarding != "" {
+			addresses = append(addresses, c.Boarding)
+			if sc, err := toOutputScript(c.Boarding, cfg.Network); err == nil {
+				addressByScript[hex.EncodeToString(sc)] = addressInfo{
+					tapscripts: c.BoardingTapscripts,
+					delay:      c.BoardingDelay,
+				}
+			} else {
+				log.WithError(err).Error("failed to get pk script for boarding address")
+			}
 		}
 
-		addressByScript[hex.EncodeToString(script)] = addressInfo{
-			tapscripts: addr.Tapscripts,
-			delay:      cfg.BoardingExitDelay, // TODO: ideally computed from tapscripts
-		}
-	}
-
-	// we listen for classic P2TR addresses to catch onchain send/receive events
-	for _, addr := range onchainAddrs {
-		addresses = append(addresses, addr)
-
-		script, err := toOutputScript(addr, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for onchain address")
-			continue
+		// onchain address (bare key P2TR, no delay)
+		if c.Onchain != "" {
+			addresses = append(addresses, c.Onchain)
+			if sc, err := toOutputScript(c.Onchain, cfg.Network); err == nil {
+				addressByScript[hex.EncodeToString(sc)] = addressInfo{
+					tapscripts: []string{},
+					delay:      arklib.RelativeLocktime{},
+				}
+			} else {
+				log.WithError(err).Error("failed to get pk script for onchain address")
+			}
 		}
 
-		addressByScript[hex.EncodeToString(script)] = addressInfo{
-			tapscripts: []string{},                // no tapscripts for onchain address
-			delay:      arklib.RelativeLocktime{}, // no delay for classic onchain address
-		}
-	}
-
-	// we listen for offchain addresses to catch unrolling events
-	for _, offchainAddr := range offchainAddrs {
-		addr, err := toOnchainAddress(offchainAddr.Address, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get onchain address for offchain address")
-			continue
-		}
-
-		addresses = append(addresses, addr)
-
-		script, err := toOutputScript(addr, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for offchain address")
-			continue
-		}
-
-		addressByScript[hex.EncodeToString(script)] = addressInfo{
-			tapscripts: offchainAddr.Tapscripts,
-			delay:      cfg.UnilateralExitDelay, // TODO: ideally computed from tapscripts
+		// offchain/unrolling address (P2TR derived from the Arkade taproot key)
+		if c.Address != "" {
+			if onchainEquiv, err := toOnchainAddress(c.Address, cfg.Network); err == nil {
+				addresses = append(addresses, onchainEquiv)
+				if sc, err := toOutputScript(onchainEquiv, cfg.Network); err == nil {
+					addressByScript[hex.EncodeToString(sc)] = addressInfo{
+						tapscripts: c.Tapscripts,
+						delay:      c.Delay,
+					}
+				} else {
+					log.WithError(err).Error("failed to get pk script for offchain address")
+				}
+			} else {
+				log.WithError(err).Error("failed to convert ark address to onchain address")
+			}
 		}
 	}
 
@@ -1520,8 +1521,7 @@ func (a *arkClient) safeCheck() error {
 }
 
 func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
-	wallet := a.Wallet()
-	if wallet == nil {
+	if a.contractManager == nil {
 		return nil, ErrNotInitialized
 	}
 	explorer := a.ArkClient.Explorer()
@@ -1534,20 +1534,34 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 		return nil, err
 	}
 
-	_, _, boardingAddrs, _, err := wallet.GetAddresses(ctx)
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
 	if err != nil {
 		return nil, err
 	}
 
+	type boardingAddr struct {
+		address    string
+		tapscripts []string
+	}
+	var boardingAddrs []boardingAddr
+	for _, c := range contracts {
+		if c.Boarding != "" {
+			boardingAddrs = append(boardingAddrs, boardingAddr{
+				address:    c.Boarding,
+				tapscripts: c.BoardingTapscripts,
+			})
+		}
+	}
+
 	utxos := []clientTypes.Utxo{}
 	for _, addr := range boardingAddrs {
-		txs, err := explorer.GetTxs(addr.Address)
+		txs, err := explorer.GetTxs(addr.address)
 		if err != nil {
 			return nil, err
 		}
 		for _, tx := range txs {
 			for i, vout := range tx.Vout {
-				if vout.Address == addr.Address {
+				if vout.Address == addr.address {
 					createdAt := time.Time{}
 					utxoTime := time.Now()
 					if tx.Status.Confirmed {
@@ -1584,7 +1598,7 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 							time.Duration(cfg.BoardingExitDelay.Seconds()) * time.Second,
 						),
 						CreatedAt:  createdAt,
-						Tapscripts: addr.Tapscripts,
+						Tapscripts: addr.tapscripts,
 						Spent:      spent,
 						SpentBy:    spentBy,
 						Tx:         txHex,
@@ -1757,13 +1771,13 @@ func (a *arkClient) saveSendTransaction(
 		return err
 	}
 
-	_, offchainAddrs, _, _, err := a.Wallet().GetAddresses(ctx)
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
 	if err != nil {
 		return err
 	}
-	myPubkeys := make(map[string]struct{}, len(offchainAddrs))
-	for _, addr := range offchainAddrs {
-		decoded, err := arklib.DecodeAddressV0(addr.Address)
+	myPubkeys := make(map[string]struct{}, len(contracts))
+	for _, c := range contracts {
+		decoded, err := arklib.DecodeAddressV0(c.Address)
 		if err != nil {
 			continue
 		}

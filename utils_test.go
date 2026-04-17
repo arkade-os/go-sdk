@@ -5,7 +5,6 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
-	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 )
 
@@ -28,20 +27,14 @@ func (m *mockWallet) Unlock(_ context.Context, _ string) (bool, error) {
 func (m *mockWallet) IsLocked() bool {
 	return false
 }
-func (m *mockWallet) GetAddresses(_ context.Context) (
-	[]string, []clienttypes.Address, []clienttypes.Address, []clienttypes.Address, error,
-) {
-	return nil, nil, nil, nil, nil
+func (m *mockWallet) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+	return nil, nil
 }
-func (m *mockWallet) NewAddress(_ context.Context, _ bool) (
-	string, *clienttypes.Address, *clienttypes.Address, error,
-) {
-	return "", nil, nil, nil
+func (m *mockWallet) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+	return nil, nil
 }
-func (m *mockWallet) NewAddresses(_ context.Context, _ bool, _ int) (
-	[]string, []clienttypes.Address, []clienttypes.Address, error,
-) {
-	return nil, nil, nil, nil
+func (m *mockWallet) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
+	return nil, nil
 }
 func (m *mockWallet) SignTransaction(
 	_ context.Context, _ explorer.Explorer, _ string,

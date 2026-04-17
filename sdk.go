@@ -11,6 +11,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 )
 
@@ -31,7 +32,8 @@ type ArkClient interface {
 	IsSynced(ctx context.Context) <-chan types.SyncEvent
 	Balance(ctx context.Context) (*client.Balance, error)
 	GetAddresses(ctx context.Context) (
-		onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
+		onchainAddresses []string,
+		offchainAddresses, boardingAddresses, redemptionAddresses []clientTypes.Address,
 		err error,
 	)
 	NewOffchainAddress(ctx context.Context) (string, error)
@@ -78,6 +80,8 @@ type ArkClient interface {
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
+	// ContractManager returns the active contract manager (nil when wallet is locked).
+	ContractManager() contract.Manager
 }
 
 type InitArgs struct {

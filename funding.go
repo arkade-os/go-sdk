@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
@@ -9,39 +10,53 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var errContractManagerNotReady = fmt.Errorf("contract manager not ready")
+
 func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-
-	_, offchainAddr, _, err := a.Receive(ctx)
-	return offchainAddr.Address, err
+	if a.contractManager == nil {
+		return "", errContractManagerNotReady
+	}
+	c, err := a.contractManager.NewDefault(ctx)
+	if err != nil {
+		return "", err
+	}
+	return c.Address, nil
 }
 
 func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-
-	_, _, boardingAddr, err := a.Receive(ctx)
+	if a.contractManager == nil {
+		return "", errContractManagerNotReady
+	}
+	c, err := a.contractManager.NewDefault(ctx)
 	if err != nil {
 		return "", err
 	}
 	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
+		if err := a.Explorer().SubscribeForAddresses([]string{c.Boarding}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
 		}
 	}()
-	return boardingAddr.Address, nil
+	return c.Boarding, nil
 }
 
 func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-
-	onchainAddr, _, _, err := a.Receive(ctx)
-	return onchainAddr, err
+	if a.contractManager == nil {
+		return "", errContractManagerNotReady
+	}
+	c, err := a.contractManager.NewDefault(ctx)
+	if err != nil {
+		return "", err
+	}
+	return c.Onchain, nil
 }
 
 func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
@@ -165,3 +180,4 @@ func (a *arkClient) getOffchainBalance(ctx context.Context) (
 
 	return
 }
+

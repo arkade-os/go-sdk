@@ -5,6 +5,7 @@ import (
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
 )
 
 func (a *arkClient) SendOffChain(
@@ -56,33 +57,37 @@ func (a *arkClient) getSpendableVtxos(
 	if err != nil {
 		return nil, err
 	}
-	_, offchainAddrs, _, _, err := a.Wallet().GetAddresses(ctx)
-	if err != nil {
-		return nil, err
-	}
 	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
+	if err != nil {
+		return nil, err
+	}
+
+	addrToTapscripts := make(map[string][]string, len(contracts))
+	for _, c := range contracts {
+		addrToTapscripts[c.Address] = c.Tapscripts
+	}
+
 	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(spendableVtxos))
-	for _, offchainAddr := range offchainAddrs {
-		for _, v := range spendableVtxos {
-			if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
-				continue
-			}
+	for _, v := range spendableVtxos {
+		if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
+			continue
+		}
 
-			vtxoAddr, err := v.Address(cfg.SignerPubKey, cfg.Network)
-			if err != nil {
-				return nil, err
-			}
+		vtxoAddr, err := v.Address(cfg.SignerPubKey, cfg.Network)
+		if err != nil {
+			return nil, err
+		}
 
-			if vtxoAddr == offchainAddr.Address {
-				vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
-					Vtxo:       v,
-					Tapscripts: offchainAddr.Tapscripts,
-				})
-			}
+		if tapscripts, ok := addrToTapscripts[vtxoAddr]; ok {
+			vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
+				Vtxo:       v,
+				Tapscripts: tapscripts,
+			})
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -86,6 +87,16 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}
 	a.logMu.Unlock()
 
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return fmt.Errorf("unlock: get config: %w", err)
+	}
+	mgr := contract.NewManager(a.Wallet(), cfg, contract.DefaultRegistry)
+	if err := mgr.Bootstrap(ctx); err != nil {
+		return fmt.Errorf("unlock: bootstrap contracts: %w", err)
+	}
+	a.contractManager = mgr
+
 	a.syncDone = false
 	a.syncErr = nil
 	a.syncCh = make(chan error)
@@ -128,6 +139,13 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	}
 
 	a.Explorer().Stop()
+
+	if a.contractManager != nil {
+		if err := a.contractManager.Close(); err != nil {
+			log.WithError(err).Warn("failed to close contract manager on lock")
+		}
+		a.contractManager = nil
+	}
 
 	a.syncMu.Lock()
 	a.syncDone = false
