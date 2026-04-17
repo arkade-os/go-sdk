@@ -56,7 +56,7 @@ func (a *arkClient) getSpendableVtxos(
 	if err != nil {
 		return nil, err
 	}
-	_, offchainAddrs, _, _, err := a.Wallet().GetAddresses(ctx)
+	_, offchainAddrs, _, _, err := a.ArkClient.GetAddresses(ctx)
 	if err != nil {
 		return nil, err
 	}

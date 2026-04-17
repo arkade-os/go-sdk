@@ -4,10 +4,37 @@ import (
 	"context"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	log "github.com/sirupsen/logrus"
 )
+
+func (a *arkClient) GetAddresses(ctx context.Context) (
+	onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
+	err error,
+) {
+	if err := a.safeCheck(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.ArkClient.GetAddresses(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	onchainAddresses = append(onchainAddresses, onchainAddrs...)
+	for _, addr := range offchainAddrs {
+		offchainAddresses = append(offchainAddresses, addr.Address)
+	}
+	for _, addr := range boardingAddrs {
+		boardingAddresses = append(boardingAddresses, addr.Address)
+	}
+	for _, addr := range redemptionAddrs {
+		redemptionAddresses = append(redemptionAddresses, addr.Address)
+	}
+
+	return onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses, nil
+}
 
 func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
@@ -15,7 +42,28 @@ func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	}
 
 	_, offchainAddr, _, err := a.Receive(ctx)
-	return offchainAddr.Address, err
+	if err != nil {
+		return "", err
+	}
+
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	onchainAddr, err := toOnchainAddress(offchainAddr.Address, cfg.Network)
+	if err != nil {
+		return "", err
+	}
+
+	if err := a.registerTrackedOnchainAddress(onchainAddr, trackedAddressInfo{
+		tapscripts: offchainAddr.Tapscripts,
+		delay:      cfg.UnilateralExitDelay,
+	}, true, cfg.Network); err != nil {
+		return "", err
+	}
+
+	return offchainAddr.Address, nil
 }
 
 func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
@@ -27,11 +75,18 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{boardingAddr.Address}); err != nil {
-			log.WithError(err).Error("failed to subscribe for boarding address")
-		}
-	}()
+
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if err := a.registerTrackedOnchainAddress(boardingAddr.Address, trackedAddressInfo{
+		tapscripts: boardingAddr.Tapscripts,
+		delay:      cfg.BoardingExitDelay,
+	}, true, cfg.Network); err != nil {
+		return "", err
+	}
 	return boardingAddr.Address, nil
 }
 
@@ -41,7 +96,23 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	}
 
 	onchainAddr, _, _, err := a.Receive(ctx)
-	return onchainAddr, err
+	if err != nil {
+		return "", err
+	}
+
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if err := a.registerTrackedOnchainAddress(onchainAddr, trackedAddressInfo{
+		tapscripts: []string{},
+		delay:      arklib.RelativeLocktime{},
+	}, true, cfg.Network); err != nil {
+		return "", err
+	}
+
+	return onchainAddr, nil
 }
 
 func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
