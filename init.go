@@ -109,10 +109,10 @@ func (a *arkClient) applyConfigWorkarounds(
 		return err
 	}
 
-	if transport := a.ArkClient.Transport(); transport != nil {
+	if transport := a.Transport(); transport != nil {
 		transport.Close()
 	}
-	if indexer := a.ArkClient.Indexer(); indexer != nil {
+	if indexer := a.Indexer(); indexer != nil {
 		indexer.Close()
 	}
 

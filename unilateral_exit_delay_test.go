@@ -227,7 +227,6 @@ func TestInitWithWalletNormalizesMainnetUnilateralExitDelay(t *testing.T) {
 	require.Equal(t, mainnetUnilateralExitDelay, storedCfg.UnilateralExitDelay)
 }
 
-
 type testArkServiceServer struct {
 	arkv1.UnimplementedArkServiceServer
 	info *arkv1.GetInfoResponse
@@ -243,16 +242,30 @@ func (w *testWalletService) Lock(context.Context) error                   { retu
 func (w *testWalletService) Unlock(context.Context, string) (bool, error) { return false, nil }
 func (w *testWalletService) IsLocked() bool                               { return false }
 func (w *testWalletService) Dump(context.Context) (string, error)         { return "", nil }
-func (w *testWalletService) GetAddresses(context.Context) ([]string, []clientTypes.Address, []clientTypes.Address, []clientTypes.Address, error) {
+func (w *testWalletService) GetAddresses(
+	context.Context,
+) ([]string, []clientTypes.Address, []clientTypes.Address, []clientTypes.Address, error) {
 	return nil, nil, nil, nil, nil
 }
-func (w *testWalletService) NewAddress(context.Context, bool) (string, *clientTypes.Address, *clientTypes.Address, error) {
+func (w *testWalletService) NewAddress(
+	context.Context,
+	bool,
+) (string, *clientTypes.Address, *clientTypes.Address, error) {
 	return "", nil, nil, nil
 }
-func (w *testWalletService) NewAddresses(context.Context, bool, int) ([]string, []clientTypes.Address, []clientTypes.Address, error) {
+func (w *testWalletService) NewAddresses(
+	context.Context,
+	bool,
+	int,
+) ([]string, []clientTypes.Address, []clientTypes.Address, error) {
 	return nil, nil, nil, nil
 }
-func (w *testWalletService) SignTransaction(context.Context, explorer.Explorer, string) (string, error) {
+
+func (w *testWalletService) SignTransaction(
+	context.Context,
+	explorer.Explorer,
+	string,
+) (string, error) {
 	return "", nil
 }
 func (w *testWalletService) SignMessage(context.Context, []byte) (string, error) {
