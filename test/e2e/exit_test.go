@@ -259,13 +259,17 @@ func TestUnilateralExit(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, txid)
 
-			bobUtxoEvent := <-bobUtxoCh
-			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
-			require.Len(t, bobUtxoEvent.Utxos, 1)
+			select {
+			case bobUtxoEvent := <-bobUtxoCh:
+				require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
+				require.Len(t, bobUtxoEvent.Utxos, 1)
+				require.GreaterOrEqual(t, int(bobUtxoEvent.Utxos[0].Amount), 21000-onchainFee)
 
-			bobUtxo := bobUtxoEvent.Utxos[0]
-			require.GreaterOrEqual(t, int(bobUtxo.Amount), 21000-onchainFee)
-
+				bobUtxo := bobUtxoEvent.Utxos[0]
+				require.GreaterOrEqual(t, int(bobUtxo.Amount), 21000-onchainFee)
+			case <-time.After(15 * time.Second):
+				t.Fatal("timed out waiting for UtxosAdded on onchain address")
+			}
 		})
 
 		// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
@@ -361,12 +365,16 @@ func TestUnilateralExit(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, txid)
 
-			carolUtxoEvent := <-carolUtxoCh
-			require.Equal(t, types.UtxosAdded, carolUtxoEvent.Type)
-			require.Len(t, carolUtxoEvent.Utxos, 1)
+			select {
+			case carolUtxoEvent := <-carolUtxoCh:
+				require.Equal(t, types.UtxosAdded, carolUtxoEvent.Type)
+				require.Len(t, carolUtxoEvent.Utxos, 1)
 
-			carolUtxo := carolUtxoEvent.Utxos[0]
-			require.GreaterOrEqual(t, int(carolUtxo.Amount), 21000-onchainFee)
+				carolUtxo := carolUtxoEvent.Utxos[0]
+				require.GreaterOrEqual(t, int(carolUtxo.Amount), 21000-onchainFee)
+			case <-time.After(15 * time.Second):
+				t.Fatal("timed out waiting for UtxosAdded on onchain address")
+			}
 		})
 	})
 }
