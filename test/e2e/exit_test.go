@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const onchainFee = 300
+
 func TestCollaborativeExit(t *testing.T) {
 	runForEachStoreBackend(t, func(t *testing.T, backend testStoreBackend) {
 		setupClient := backend.setupClient
@@ -238,6 +240,32 @@ func TestUnilateralExit(t *testing.T) {
 			require.Len(t, spent, 1)
 			require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 			require.True(t, spent[0].Unrolled)
+
+			err = generateBlocks(10)
+			require.NoError(t, err)
+
+			time.Sleep(15 * time.Second)
+
+			// Make use of another client to complete the unroll to make it easy getting notified
+			// when the onchain funds are received
+			bob := setupClient(t)
+			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
+
+			bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
+			require.NoError(t, err)
+			require.NotEmpty(t, bobOnchainAddr)
+
+			txid, err := alice.CompleteUnroll(ctx, bobOnchainAddr)
+			require.NoError(t, err)
+			require.NotEmpty(t, txid)
+
+			bobUtxoEvent := <-bobUtxoCh
+			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
+			require.Len(t, bobUtxoEvent.Utxos, 1)
+
+			bobUtxo := bobUtxoEvent.Utxos[0]
+			require.GreaterOrEqual(t, int(bobUtxo.Amount), 21000-onchainFee)
+
 		})
 
 		// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
@@ -314,6 +342,31 @@ func TestUnilateralExit(t *testing.T) {
 			require.Len(t, spent, 1)
 			require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 			require.True(t, spent[0].Unrolled)
+
+			err = generateBlocks(10)
+			require.NoError(t, err)
+
+			time.Sleep(15 * time.Second)
+
+			// Make use of another client to complete the unroll to make it easy getting notified
+			// when the onchain funds are received
+			carol := setupClient(t)
+			carolUtxoCh := carol.GetUtxoEventChannel(ctx)
+
+			carolOnchainAddr, err := carol.NewBoardingAddress(ctx)
+			require.NoError(t, err)
+			require.NotEmpty(t, carolOnchainAddr)
+
+			txid, err := bob.CompleteUnroll(ctx, carolOnchainAddr)
+			require.NoError(t, err)
+			require.NotEmpty(t, txid)
+
+			carolUtxoEvent := <-carolUtxoCh
+			require.Equal(t, types.UtxosAdded, carolUtxoEvent.Type)
+			require.Len(t, carolUtxoEvent.Utxos, 1)
+
+			carolUtxo := carolUtxoEvent.Utxos[0]
+			require.GreaterOrEqual(t, int(carolUtxo.Amount), 21000-onchainFee)
 		})
 	})
 }
