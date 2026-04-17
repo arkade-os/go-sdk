@@ -8,6 +8,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -56,22 +57,67 @@ func (a *arkClient) Init(
 	}
 
 	if initOpts.wallet != nil {
-		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
+		err := a.InitWithWallet(ctx, client.InitWithWalletArgs{
 			ServerUrl: serverUrl,
 			Seed:      seed,
 			Password:  password,
 			Wallet:    initOpts.wallet,
 			Explorer:  explorer,
 		})
+		if err != nil {
+			return err
+		}
+
+		return a.applyConfigWorkarounds(ctx, explorer)
 	}
 
-	return a.ArkClient.Init(ctx, client.InitArgs{
+	err = a.ArkClient.Init(ctx, client.InitArgs{
 		ServerUrl:  serverUrl,
 		Seed:       seed,
 		Password:   password,
 		WalletType: client.SingleKeyWallet,
 		Explorer:   explorer,
 	})
+	if err != nil {
+		return err
+	}
+
+	return a.applyConfigWorkarounds(ctx, explorer)
+}
+
+func (a *arkClient) applyConfigWorkarounds(
+	ctx context.Context,
+	explorerSvc explorer.Explorer,
+) error {
+	_, changed, err := normalizePersistedUnilateralExitDelay(ctx, a.clientStore.ConfigStore())
+	if err != nil || !changed {
+		return err
+	}
+
+	currentWallet := a.Wallet()
+	if currentWallet == nil {
+		return nil
+	}
+
+	clientOpts := []client.ServiceOption{client.WithExplorer(explorerSvc)}
+	if a.verbose {
+		clientOpts = append(clientOpts, client.WithVerbose())
+	}
+
+	reloaded, err := client.LoadArkClientWithWallet(a.clientStore, currentWallet, clientOpts...)
+	if err != nil {
+		return err
+	}
+
+	if transport := a.Transport(); transport != nil {
+		transport.Close()
+	}
+	if indexer := a.Indexer(); indexer != nil {
+		indexer.Close()
+	}
+
+	a.ArkClient = reloaded
+	return nil
 }
 
 func (a *arkClient) Unlock(ctx context.Context, password string) error {
