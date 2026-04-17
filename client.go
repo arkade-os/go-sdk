@@ -169,7 +169,10 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	// listeners field nil. When listenForOnchainTxs calls GetAddressesEvents() it
 	// dereferences that nil field and panics. Pre-create a tracking-enabled explorer
 	// from the stored config and inject it so the underlying call skips creating its own.
-	cfgData, err := clientDb.ConfigStore().GetData(context.Background())
+	cfgData, _, err := normalizePersistedUnilateralExitDelay(
+		context.Background(),
+		clientDb.ConfigStore(),
+	)
 	if err != nil {
 		return nil, err
 	}
