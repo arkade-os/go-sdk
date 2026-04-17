@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
@@ -29,7 +28,7 @@ type ArkClient interface {
 	Unlock(ctx context.Context, password string) error
 	Lock(ctx context.Context) error
 	IsSynced(ctx context.Context) <-chan types.SyncEvent
-	Balance(ctx context.Context) (*client.Balance, error)
+	Balance(ctx context.Context) (*Balance, error)
 	GetAddresses(ctx context.Context) (
 		onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
 		err error,

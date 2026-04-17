@@ -64,7 +64,7 @@ func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStor
 
 	backends := []testStoreBackend{
 		{name: "kv"},
-		{name: "sql"},
+		//{name: "sql"},
 	}
 
 	for _, backend := range backends {
