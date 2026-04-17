@@ -21,10 +21,12 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
+	grpcindexer "github.com/arkade-os/arkd/pkg/client-lib/indexer/grpc"
 	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
@@ -56,6 +58,8 @@ type arkClient struct {
 	dbMu              *sync.Mutex
 	logMu             *sync.Mutex
 	lastUpdate        time.Time
+	hdGapLimit        uint32
+	onchainRegistry   *onchainAddressRegistry
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -117,6 +121,8 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		dbMu:              &sync.Mutex{},
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
+		hdGapLimit:        o.hdGapLimit,
+		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
 	syncListeners := newReadyListeners()
@@ -161,6 +167,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	}
 
 	clientOpts := make([]client.ServiceOption, 0)
+	var explorerSvc explorer.Explorer
 	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
@@ -182,7 +189,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
 			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
 		}
-		explorerSvc, err := mempool_explorer.NewExplorer(
+		explorerSvc, err = mempool_explorer.NewExplorer(
 			explorerUrl, cfgData.Network, explorerOpts...,
 		)
 		if err != nil {
@@ -191,9 +198,34 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		clientOpts = append(clientOpts, client.WithExplorer(explorerSvc))
 	}
 
-	cli, err := client.LoadArkClient(clientDb, clientOpts...)
-	if err != nil {
-		return nil, err
+	var cli client.ArkClient
+	if cfgData != nil && cfgData.WalletType == hdwallet.Type {
+		hdIndexer, err := grpcindexer.NewClient(cfgData.ServerUrl)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init hd wallet indexer: %v", err)
+		}
+		hdWallet, err := hdwallet.NewService(hdwallet.Args{
+			Store:               hdwallet.NewStore(clientDb.ConfigStore()),
+			Indexer:             hdIndexer,
+			Explorer:            explorerSvc,
+			ArkNetwork:          cfgData.Network,
+			SignerPubKey:        cfgData.SignerPubKey,
+			BoardingExitDelay:   cfgData.BoardingExitDelay,
+			UnilateralExitDelay: cfgData.UnilateralExitDelay,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		cli, err = client.LoadArkClientWithWallet(clientDb, hdWallet, clientOpts...)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		cli, err = client.LoadArkClient(clientDb, clientOpts...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	client := &arkClient{
@@ -207,6 +239,8 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		dbMu:              &sync.Mutex{},
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
+		hdGapLimit:        o.hdGapLimit,
+		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
 	syncListeners := newReadyListeners()
@@ -364,6 +398,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	if !a.lastUpdate.IsZero() {
 		opts = append(opts, client.WithTimeRange(updateTime.Unix(), a.lastUpdate.Unix()))
 	}
+
 	// Fetch new and spent vtxos.
 	spendableVtxos, spentVtxos, err := a.ArkClient.ListVtxos(ctx, opts...)
 	if err != nil {
@@ -376,7 +411,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	default:
 	}
 	// Fetch new and spent utxos.
-	allUtxos, err := a.getAllBoardingUtxos(ctx)
+	allUtxos, err := a.getTrackedOnchainUtxos(ctx)
 	if err != nil {
 		return err
 	}
@@ -737,7 +772,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
-			_, offchainAddrs, _, _, err := wallet.GetAddresses(ctx)
+			_, offchainAddrs, _, _, err := a.ArkClient.GetAddresses(ctx)
 			if err != nil {
 				log.WithError(err).Error("failed to get offchain addresses")
 				continue
@@ -797,48 +832,33 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		return
 	}
 
-	onchainAddrs, offchainAddrs, boardingAddrs, _, err := wallet.GetAddresses(ctx)
+	onchainAddrs, offchainAddrs, boardingAddrs, _, err := a.ArkClient.GetAddresses(ctx)
 	if err != nil {
 		log.WithError(err).Error("failed to get boarding addresses")
 		return
 	}
 
 	addresses := make([]string, 0, len(boardingAddrs)+len(onchainAddrs)+len(offchainAddrs))
-	type addressInfo struct {
-		tapscripts []string
-		delay      arklib.RelativeLocktime
-	}
-	addressByScript := make(map[string]addressInfo, 0)
 
 	// we listen for boarding addresses to catch "boarding" events
 	for _, addr := range boardingAddrs {
 		addresses = append(addresses, addr.Address)
-
-		script, err := toOutputScript(addr.Address, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for boarding address")
-			continue
-		}
-
-		addressByScript[hex.EncodeToString(script)] = addressInfo{
+		if err := a.registerTrackedOnchainAddress(addr.Address, trackedAddressInfo{
 			tapscripts: addr.Tapscripts,
 			delay:      cfg.BoardingExitDelay, // TODO: ideally computed from tapscripts
+		}, false, cfg.Network); err != nil {
+			log.WithError(err).Error("failed to register boarding address")
 		}
 	}
 
 	// we listen for classic P2TR addresses to catch onchain send/receive events
 	for _, addr := range onchainAddrs {
 		addresses = append(addresses, addr)
-
-		script, err := toOutputScript(addr, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for onchain address")
-			continue
-		}
-
-		addressByScript[hex.EncodeToString(script)] = addressInfo{
+		if err := a.registerTrackedOnchainAddress(addr, trackedAddressInfo{
 			tapscripts: []string{},                // no tapscripts for onchain address
 			delay:      arklib.RelativeLocktime{}, // no delay for classic onchain address
+		}, false, cfg.Network); err != nil {
+			log.WithError(err).Error("failed to register onchain address")
 		}
 	}
 
@@ -851,16 +871,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		}
 
 		addresses = append(addresses, addr)
-
-		script, err := toOutputScript(addr, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for offchain address")
-			continue
-		}
-
-		addressByScript[hex.EncodeToString(script)] = addressInfo{
+		if err := a.registerTrackedOnchainAddress(addr, trackedAddressInfo{
 			tapscripts: offchainAddr.Tapscripts,
 			delay:      cfg.UnilateralExitDelay, // TODO: ideally computed from tapscripts
+		}, false, cfg.Network); err != nil {
+			log.WithError(err).Error("failed to register offchain address")
 		}
 	}
 
@@ -876,7 +891,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.Debug("stopping onchain transaction listener")
-			if err := explorer.UnsubscribeForAddresses(addresses); err != nil {
+			if err := explorer.UnsubscribeForAddresses(a.trackedOnchainAddresses()); err != nil {
 				log.WithError(err).Error("failed to unsubscribe for onchain addresses")
 			}
 			return
@@ -892,13 +907,19 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			utxosToSpend := make(map[clientTypes.Outpoint]string)
 			if len(update.NewUtxos) > 0 {
 				for _, u := range update.NewUtxos {
+					_, ok := a.lookupTrackedAddressByScript(u.Script)
+					if !ok {
+						log.WithField("script", u.Script).
+							WithField("outpoint", u.Outpoint).
+							Error("failed to find address for new tx")
+						continue
+					}
+
 					txsToAdd = append(txsToAdd, clientTypes.Transaction{
-						TransactionKey: clientTypes.TransactionKey{
-							BoardingTxid: u.Txid,
-						},
-						Amount:    u.Amount,
-						Type:      clientTypes.TxReceived,
-						CreatedAt: u.CreatedAt,
+						TransactionKey: clientTypes.TransactionKey{BoardingTxid: u.Txid},
+						Amount:         u.Amount,
+						Type:           clientTypes.TxReceived,
+						CreatedAt:      u.CreatedAt,
 					})
 				}
 			}
@@ -1003,7 +1024,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			if len(update.NewUtxos) > 0 {
 				utxosToAdd := make([]clientTypes.Utxo, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
-					address, ok := addressByScript[u.Script]
+					address, ok := a.lookupTrackedAddressByScript(u.Script)
 					if !ok {
 						log.WithField("script", u.Script).
 							WithField("outpoint", u.Outpoint).
@@ -1519,7 +1540,7 @@ func (a *arkClient) safeCheck() error {
 	return nil
 }
 
-func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
+func (a *arkClient) getTrackedOnchainUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
 	wallet := a.Wallet()
 	if wallet == nil {
 		return nil, ErrNotInitialized
@@ -1534,63 +1555,91 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 		return nil, err
 	}
 
-	_, _, boardingAddrs, _, err := wallet.GetAddresses(ctx)
+	onchainAddrs, _, boardingAddrs, redemptionAddrs, err := a.ArkClient.GetAddresses(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	utxos := []clientTypes.Utxo{}
-	for _, addr := range boardingAddrs {
-		txs, err := explorer.GetTxs(addr.Address)
+	for _, addr := range onchainAddrs {
+		onchainUtxos, err := a.addressTxHistoryToUtxos(
+			addr, nil, arklib.RelativeLocktime{}, explorer,
+		)
 		if err != nil {
 			return nil, err
 		}
-		for _, tx := range txs {
-			for i, vout := range tx.Vout {
-				if vout.Address == addr.Address {
-					createdAt := time.Time{}
-					utxoTime := time.Now()
-					if tx.Status.Confirmed {
-						createdAt = time.Unix(tx.Status.BlockTime, 0)
-						utxoTime = time.Unix(tx.Status.BlockTime, 0)
-					}
+		utxos = append(utxos, onchainUtxos...)
+	}
 
-					txHex, err := explorer.GetTxHex(tx.Txid)
-					if err != nil {
-						return nil, err
-					}
-					spentStatuses, err := explorer.GetTxOutspends(tx.Txid)
-					if err != nil {
-						return nil, err
-					}
-					spent := false
-					spentBy := ""
-					if len(spentStatuses) > i {
-						if spentStatuses[i].Spent {
-							spent = true
-							spentBy = spentStatuses[i].SpentBy
-						}
-					}
+	for _, addr := range boardingAddrs {
+		boardingUtxos, err := a.addressTxHistoryToUtxos(
+			addr.Address, addr.Tapscripts, cfg.BoardingExitDelay, explorer,
+		)
+		if err != nil {
+			return nil, err
+		}
+		utxos = append(utxos, boardingUtxos...)
+	}
 
-					utxos = append(utxos, clientTypes.Utxo{
-						Outpoint: clientTypes.Outpoint{
-							Txid: tx.Txid,
-							VOut: uint32(i),
-						},
-						Amount: vout.Amount,
-						Script: vout.Script,
-						Delay:  cfg.BoardingExitDelay,
-						SpendableAt: utxoTime.Add(
-							time.Duration(cfg.BoardingExitDelay.Seconds()) * time.Second,
-						),
-						CreatedAt:  createdAt,
-						Tapscripts: addr.Tapscripts,
-						Spent:      spent,
-						SpentBy:    spentBy,
-						Tx:         txHex,
-					})
-				}
+	for _, addr := range redemptionAddrs {
+		redemptionUtxos, err := a.addressTxHistoryToUtxos(
+			addr.Address, addr.Tapscripts, cfg.UnilateralExitDelay, explorer,
+		)
+		if err != nil {
+			return nil, err
+		}
+		utxos = append(utxos, redemptionUtxos...)
+	}
+
+	return utxos, nil
+}
+
+func (a *arkClient) addressTxHistoryToUtxos(
+	address string,
+	tapscripts []string,
+	delay arklib.RelativeLocktime,
+	explorerSvc explorer.Explorer,
+) ([]clientTypes.Utxo, error) {
+	txs, err := explorerSvc.GetTxs(address)
+	if err != nil {
+		return nil, err
+	}
+
+	utxos := make([]clientTypes.Utxo, 0)
+	for _, tx := range txs {
+		txHex, err := explorerSvc.GetTxHex(tx.Txid)
+		if err != nil {
+			return nil, err
+		}
+
+		spentStatuses, err := explorerSvc.GetTxOutspends(tx.Txid)
+		if err != nil {
+			return nil, err
+		}
+
+		for i, vout := range tx.Vout {
+			if vout.Address != address {
+				continue
 			}
+
+			explorerUtxo := explorer.Utxo{
+				Txid:   tx.Txid,
+				Vout:   uint32(i),
+				Amount: vout.Amount,
+				Script: vout.Script,
+				Status: tx.Status,
+			}
+
+			utxo := explorerUtxo.ToUtxo(delay, tapscripts)
+			utxo.Script = vout.Script
+			utxo.Tx = txHex
+
+			if len(spentStatuses) > i {
+				utxo.Spent = spentStatuses[i].Spent
+				utxo.SpentBy = spentStatuses[i].SpentBy
+			}
+
+			utxos = append(utxos, utxo)
 		}
 	}
 
@@ -1757,7 +1806,7 @@ func (a *arkClient) saveSendTransaction(
 		return err
 	}
 
-	_, offchainAddrs, _, _, err := a.Wallet().GetAddresses(ctx)
+	_, offchainAddrs, _, _, err := a.ArkClient.GetAddresses(ctx)
 	if err != nil {
 		return err
 	}
@@ -2027,4 +2076,86 @@ func (a *arkClient) saveBatchTransaction(
 	}
 
 	return nil
+}
+
+func (a *arkClient) discoverHDWalletKeys(ctx context.Context) (bool, error) {
+	wallet := a.Wallet()
+	if wallet == nil {
+		return false, nil
+	}
+	hdWallet, ok := wallet.(*hdwallet.Service)
+	if !ok {
+		return false, nil
+	}
+
+	expanded, err := hdWallet.DiscoverKeys(ctx, a.hdGapLimit)
+	if err != nil {
+		return false, err
+	}
+	return expanded, nil
+}
+
+type trackedAddressInfo struct {
+	tapscripts []string
+	delay      arklib.RelativeLocktime
+}
+
+type onchainAddressRegistry struct {
+	mu              sync.RWMutex
+	addresses       map[string]struct{}
+	addressByScript map[string]trackedAddressInfo
+}
+
+func newOnchainAddressRegistry() *onchainAddressRegistry {
+	return &onchainAddressRegistry{
+		addresses:       make(map[string]struct{}),
+		addressByScript: make(map[string]trackedAddressInfo),
+	}
+}
+
+func (a *arkClient) registerTrackedOnchainAddress(
+	address string,
+	info trackedAddressInfo,
+	subscribe bool,
+	network arklib.Network,
+) error {
+	script, err := toOutputScript(address, network)
+	if err != nil {
+		return err
+	}
+
+	scriptHex := hex.EncodeToString(script)
+
+	a.onchainRegistry.mu.Lock()
+	_, alreadyTracked := a.onchainRegistry.addresses[address]
+	a.onchainRegistry.addresses[address] = struct{}{}
+	a.onchainRegistry.addressByScript[scriptHex] = info
+	a.onchainRegistry.mu.Unlock()
+
+	if subscribe && !alreadyTracked {
+		if err := a.Explorer().SubscribeForAddresses([]string{address}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *arkClient) trackedOnchainAddresses() []string {
+	a.onchainRegistry.mu.RLock()
+	defer a.onchainRegistry.mu.RUnlock()
+
+	addresses := make([]string, 0, len(a.onchainRegistry.addresses))
+	for address := range a.onchainRegistry.addresses {
+		addresses = append(addresses, address)
+	}
+	return addresses
+}
+
+func (a *arkClient) lookupTrackedAddressByScript(script string) (trackedAddressInfo, bool) {
+	a.onchainRegistry.mu.RLock()
+	defer a.onchainRegistry.mu.RUnlock()
+
+	info, ok := a.onchainRegistry.addressByScript[script]
+	return info, ok
 }

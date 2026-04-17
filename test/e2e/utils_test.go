@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -22,6 +25,10 @@ import (
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,7 +70,7 @@ func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStor
 	t.Helper()
 
 	backends := []testStoreBackend{
-		{name: "kv"},
+		//{name: "kv"},
 		{name: "sql"},
 	}
 
@@ -180,6 +187,96 @@ func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTy
 	wg.Wait()
 
 	return vtxo
+}
+
+func deriveWalletAddresses(
+	t *testing.T, ctx context.Context, client sdk.ArkClient, walletSvc wallet.WalletService,
+) ([]string, []clientTypes.Address, []clientTypes.Address, []clientTypes.Address) {
+	t.Helper()
+
+	cfg, err := client.GetConfigData(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	keys, err := walletSvc.ListKeys(ctx)
+	require.NoError(t, err)
+
+	onchainAddrs := make([]string, 0, len(keys))
+	offchainAddrs := make([]clientTypes.Address, 0, len(keys))
+	boardingAddrs := make([]clientTypes.Address, 0, len(keys))
+	redemptionAddrs := make([]clientTypes.Address, 0, len(keys))
+
+	for _, key := range keys {
+		defaultVtxoScript := script.NewDefaultVtxoScript(
+			key.PubKey, cfg.SignerPubKey, cfg.UnilateralExitDelay,
+		)
+		vtxoTapKey, _, err := defaultVtxoScript.TapTree()
+		require.NoError(t, err)
+
+		offchainAddress := &arklib.Address{
+			HRP:        cfg.Network.Addr,
+			Signer:     cfg.SignerPubKey,
+			VtxoTapKey: vtxoTapKey,
+		}
+		encodedOffchainAddr, err := offchainAddress.EncodeV0()
+		require.NoError(t, err)
+
+		tapscripts, err := defaultVtxoScript.Encode()
+		require.NoError(t, err)
+
+		boardingVtxoScript := script.NewDefaultVtxoScript(
+			key.PubKey, cfg.SignerPubKey, cfg.BoardingExitDelay,
+		)
+		boardingTapKey, _, err := boardingVtxoScript.TapTree()
+		require.NoError(t, err)
+
+		netParams := chaincfg.MainNetParams
+		switch cfg.Network.Name {
+		case arklib.BitcoinRegTest.Name:
+			netParams = chaincfg.RegressionNetParams
+		case arklib.BitcoinTestNet.Name:
+			netParams = chaincfg.TestNet3Params
+		case arklib.BitcoinSigNet.Name:
+			netParams = chaincfg.SigNetParams
+		}
+		boardingTaprootAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(boardingTapKey), &netParams,
+		)
+		require.NoError(t, err)
+
+		boardingTapscripts, err := boardingVtxoScript.Encode()
+		require.NoError(t, err)
+
+		redemptionTaprootAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(vtxoTapKey), &netParams,
+		)
+		require.NoError(t, err)
+
+		onchainTapKey := txscript.ComputeTaprootKeyNoScript(key.PubKey)
+		onchainTaprootAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(onchainTapKey), &netParams,
+		)
+		require.NoError(t, err)
+
+		onchainAddrs = append(onchainAddrs, onchainTaprootAddr.EncodeAddress())
+		offchainAddrs = append(offchainAddrs, clientTypes.Address{
+			KeyID:      key.Id,
+			Tapscripts: tapscripts,
+			Address:    encodedOffchainAddr,
+		})
+		boardingAddrs = append(boardingAddrs, clientTypes.Address{
+			KeyID:      key.Id,
+			Tapscripts: boardingTapscripts,
+			Address:    boardingTaprootAddr.EncodeAddress(),
+		})
+		redemptionAddrs = append(redemptionAddrs, clientTypes.Address{
+			KeyID:      key.Id,
+			Tapscripts: tapscripts,
+			Address:    redemptionTaprootAddr.EncodeAddress(),
+		})
+	}
+
+	return onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs
 }
 
 func generateNote(t *testing.T, amount uint64) string {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 )
 
 type InitOption func(options *initOptions) error
@@ -18,13 +19,28 @@ func ApplyInitOptions(opts ...InitOption) error {
 
 func WithWallet(wallet wallet.WalletService) InitOption {
 	return func(o *initOptions) error {
-		if o.wallet != nil {
+		if o.wallet != nil || o.hdStore != nil {
 			return fmt.Errorf("wallet already set")
 		}
 		if wallet == nil {
 			return fmt.Errorf("wallet cannot be nil")
 		}
 		o.wallet = wallet
+		return nil
+	}
+}
+
+// WithHDWallet creates an HD wallet service backed by the given store
+// and asks the client to build it with runtime dependencies during Init.
+func WithHDWallet(hdStore hdwallet.Store) InitOption {
+	return func(o *initOptions) error {
+		if o.wallet != nil || o.hdStore != nil {
+			return fmt.Errorf("wallet already set")
+		}
+		if hdStore == nil {
+			return fmt.Errorf("hd wallet store cannot be nil")
+		}
+		o.hdStore = hdStore
 		return nil
 	}
 }
@@ -57,6 +73,7 @@ func applyInitOptions(opts ...InitOption) (*initOptions, error) {
 
 type initOptions struct {
 	wallet      wallet.WalletService
+	hdStore     hdwallet.Store
 	explorerUrl string
 }
 

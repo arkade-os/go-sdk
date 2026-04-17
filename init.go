@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -9,7 +10,10 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	grpcindexer "github.com/arkade-os/arkd/pkg/client-lib/indexer/grpc"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
+	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -65,6 +69,38 @@ func (a *arkClient) Init(
 		})
 	}
 
+	if initOpts.hdStore != nil {
+		hdIndexer, err := grpcindexer.NewClient(serverUrl)
+		if err != nil {
+			return fmt.Errorf("failed to setup hd wallet indexer: %v", err)
+		}
+		signerPubKey, err := parseServerPubKey(info.SignerPubKey)
+		if err != nil {
+			return fmt.Errorf("failed to parse signer pubkey: %v", err)
+		}
+
+		hdWallet, err := hdwallet.NewService(hdwallet.Args{
+			Store:               initOpts.hdStore,
+			Indexer:             hdIndexer,
+			Explorer:            explorer,
+			ArkNetwork:          networkFromString(info.Network),
+			SignerPubKey:        signerPubKey,
+			BoardingExitDelay:   relativeLocktimeFromValue(uint32(info.BoardingExitDelay)),
+			UnilateralExitDelay: relativeLocktimeFromValue(uint32(info.UnilateralExitDelay)),
+		})
+		if err != nil {
+			return err
+		}
+
+		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
+			ServerUrl: serverUrl,
+			Seed:      seed,
+			Password:  password,
+			Wallet:    hdWallet,
+			Explorer:  explorer,
+		})
+	}
+
 	return a.ArkClient.Init(ctx, client.InitArgs{
 		ServerUrl:  serverUrl,
 		Seed:       seed,
@@ -106,7 +142,10 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
-		err := a.refreshDb(ctx)
+		_, err := a.discoverHDWalletKeys(ctx)
+		if err == nil {
+			err = a.refreshDb(ctx)
+		}
 		a.syncCh <- err
 		close(a.syncCh)
 
@@ -120,6 +159,22 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}()
 
 	return nil
+}
+
+func parseServerPubKey(pubkey string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(pubkey)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.ParsePubKey(buf)
+}
+
+func relativeLocktimeFromValue(value uint32) arklib.RelativeLocktime {
+	locktimeType := arklib.LocktimeTypeBlock
+	if value >= 512 {
+		locktimeType = arklib.LocktimeTypeSecond
+	}
+	return arklib.RelativeLocktime{Type: locktimeType, Value: value}
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {

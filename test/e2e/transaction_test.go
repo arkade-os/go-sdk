@@ -277,8 +277,7 @@ func TestOffchainTx(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, finalizedPendingTxs)
 
-			_, offchainAddresses, _, _, err := aliceWallet.GetAddresses(ctx)
-			require.NoError(t, err)
+			_, offchainAddresses, _, _ := deriveWalletAddresses(t, ctx, alice, aliceWallet)
 			require.NotEmpty(t, offchainAddresses)
 			offchainAddress := offchainAddresses[0]
 
@@ -407,16 +406,18 @@ func TestOffchainTx(t *testing.T) {
 
 			alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
 
-			_, bobWallet, _ := setupClientWithWallet(t, "")
+			bob, bobWallet, _ := setupClientWithWallet(t, "")
 
 			vtxo := faucetOffchain(t, alice, 0.00021)
 
-			_, aliceOffchainAddr, _, err := aliceWallet.NewAddress(ctx, false)
-			require.NoError(t, err)
+			_, aliceOffchainAddrs, _, _ := deriveWalletAddresses(t, ctx, alice, aliceWallet)
+			require.NotEmpty(t, aliceOffchainAddrs)
+			aliceOffchainAddr := &aliceOffchainAddrs[0]
 			require.NotEmpty(t, aliceOffchainAddr)
 
-			_, bobOffchainAddr, _, err := bobWallet.NewAddress(ctx, false)
-			require.NoError(t, err)
+			_, bobOffchainAddrs, _, _ := deriveWalletAddresses(t, ctx, bob, bobWallet)
+			require.NotEmpty(t, bobOffchainAddrs)
+			bobOffchainAddr := &bobOffchainAddrs[0]
 			require.NotEmpty(t, bobOffchainAddr)
 
 			serverParams, err := arkClient.GetInfo(ctx)
