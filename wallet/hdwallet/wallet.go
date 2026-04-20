@@ -44,9 +44,9 @@ var _ wallet.WalletService = (*Service)(nil)
 
 // Service implements wallet.WalletService using HD key derivation.
 type Service struct {
-	keyProvider *KeyService
-	store       Store
-	indexer     indexer.Indexer
+	keyProvider         *KeyService
+	store               Store
+	indexer             indexer.Indexer
 	explorer            explorer.Explorer
 	arkNetwork          arklib.Network
 	signerPubKey        *btcec.PublicKey
@@ -59,8 +59,8 @@ type Service struct {
 
 // Args defines the dependencies needed to construct an HD wallet service.
 type Args struct {
-	Store   Store
-	Indexer indexer.Indexer
+	Store               Store
+	Indexer             indexer.Indexer
 	Explorer            explorer.Explorer
 	ArkNetwork          arklib.Network
 	SignerPubKey        *btcec.PublicKey
@@ -164,7 +164,11 @@ func (w *Service) Create(
 		return "", fmt.Errorf("failed to save wallet state: %w", err)
 	}
 
-	w.keyProvider = NewHDKeyProvider(masterKey)
+	w.keyProvider, err = NewHDKeyProvider(masterKey)
+	if err != nil {
+		return "", err
+	}
+
 	w.mnemonic = mnemonic
 	w.locked = false
 
@@ -223,7 +227,10 @@ func (w *Service) Unlock(ctx context.Context, password string) (bool, error) {
 		return false, fmt.Errorf("failed to parse master key: %w", err)
 	}
 
-	w.keyProvider = NewHDKeyProvider(masterKey)
+	w.keyProvider, err = NewHDKeyProvider(masterKey)
+	if err != nil {
+		return false, err
+	}
 
 	restored := state.OffchainNextIndex > 0
 	if restored {

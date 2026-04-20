@@ -53,17 +53,17 @@ func (p *KeyService) DefaultKeyPath(index uint32) string {
 }
 
 // NewHDKeyProvider creates a new key provider from a BIP32 master extended key.
-func NewHDKeyProvider(masterKey *hdkeychain.ExtendedKey) *KeyService {
+func NewHDKeyProvider(masterKey *hdkeychain.ExtendedKey) (*KeyService, error) {
 	keyBasePath, err := parseKeyPathPrefix(defaultKeyPathPrefix)
 	if err != nil {
-		panic(fmt.Sprintf("invalid default HD key path prefix %q: %v", defaultKeyPathPrefix, err))
+		return nil, fmt.Errorf("invalid default HD key path prefix %q: %v", defaultKeyPathPrefix, err)
 	}
 
 	return &KeyService{
 		masterKey:       masterKey,
 		keyBasePath:     keyBasePath,
 		derivedKeyCache: make(map[uint32]*cachedKey),
-	}
+	}, nil
 }
 
 // DeriveKeyAtIndex derives the shared Ark wallet private key at the given child

@@ -22,12 +22,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/stretchr/testify/require"
 	"github.com/tyler-smith/go-bip39"
 )
 
 func TestKeyDerivationDeterministic(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey)
+	require.NoError(t, err)
 
 	// Derive index 0 twice — must be identical
 	priv1, err := provider.DeriveKeyAtIndex(0)
@@ -114,7 +116,8 @@ func TestParseKeyPathPrefix(t *testing.T) {
 
 func TestGetNextKeyAllocatesSequentialIndices(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey)
+	require.NoError(t, err)
 
 	// Successive allocations should give indices 0, 1, 2.
 	_, _, idx0, _ := provider.GetNextKey()
@@ -133,7 +136,8 @@ func TestGetNextKeyAllocatesSequentialIndices(t *testing.T) {
 
 func TestStateRoundTrip(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey)
+	require.NoError(t, err)
 
 	// Derive indices 0, 1, 2
 	_, _, _, _ = provider.GetNextKey()
@@ -144,7 +148,9 @@ func TestStateRoundTrip(t *testing.T) {
 	state := provider.ExportState()
 
 	// Create new provider with same master key
-	provider2 := NewHDKeyProvider(masterKey)
+	provider2, err := NewHDKeyProvider(masterKey)
+	require.NoError(t, err)
+
 	if err := provider2.LoadState(state); err != nil {
 		t.Fatalf("LoadState failed: %v", err)
 	}
@@ -165,7 +171,8 @@ func TestStateRoundTrip(t *testing.T) {
 
 func TestConcurrentKeyGeneration(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey)
+	require.NoError(t, err)
 
 	var wg sync.WaitGroup
 	count := 100
@@ -190,7 +197,8 @@ func TestConcurrentKeyGeneration(t *testing.T) {
 
 func TestGetPrivKeyForPubKey(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey)
+	require.NoError(t, err)
 
 	// Derive a key and cache it
 	_, pub, _, err := provider.GetNextKey()
