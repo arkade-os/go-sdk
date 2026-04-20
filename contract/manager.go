@@ -21,6 +21,9 @@ type Manager interface {
 	CreateContract(ctx context.Context, p CreateParams) (*Contract, error)
 	// OnContractEvent registers a callback; returns an unsubscribe func.
 	OnContractEvent(cb func(Event)) func()
+	// EmitEvent broadcasts an event to all registered callbacks.
+	// Used by the Watcher to surface vtxo_received / vtxo_spent events.
+	EmitEvent(e Event)
 	// Close releases resources and clears the in-memory contract map.
 	Close() error
 }
@@ -171,6 +174,8 @@ func (m *managerImpl) OnContractEvent(cb func(Event)) func() {
 		m.cbMu.Unlock()
 	}
 }
+
+func (m *managerImpl) EmitEvent(e Event) { m.emit(e) }
 
 func (m *managerImpl) Close() error {
 	m.mu.Lock()

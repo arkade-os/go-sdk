@@ -64,6 +64,7 @@ type arkClient struct {
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 
 	contractManager contract.Manager
+	watcher         *contract.Watcher
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {

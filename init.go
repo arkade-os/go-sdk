@@ -96,6 +96,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		return fmt.Errorf("unlock: bootstrap contracts: %w", err)
 	}
 	a.contractManager = mgr
+	a.watcher = contract.NewWatcher(a.Indexer(), mgr)
 
 	a.syncDone = false
 	a.syncErr = nil
@@ -126,6 +127,11 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		go a.listenForOnchainTxs(ctx)
 		go a.listenDbEvents(ctx)
 
+		// start contract watcher
+		if err := a.watcher.Start(ctx); err != nil {
+			log.WithError(err).Warn("failed to start contract watcher")
+		}
+
 		// start periodic refresh db
 		go a.periodicRefreshDb(ctx)
 	}()
@@ -139,6 +145,11 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	}
 
 	a.Explorer().Stop()
+
+	if a.watcher != nil {
+		a.watcher.Stop()
+		a.watcher = nil
+	}
 
 	if a.contractManager != nil {
 		if err := a.contractManager.Close(); err != nil {

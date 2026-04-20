@@ -4,6 +4,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/txscript"
 )
 
@@ -53,6 +54,7 @@ type CreateParams struct {
 type Event struct {
 	Type     string
 	Contract Contract
+	Vtxos    []clientTypes.Vtxo // non-nil for vtxo_received / vtxo_spent events
 }
 
 // PathContext carries the spend-time state needed to select a tapscript path.
