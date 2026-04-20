@@ -26,11 +26,13 @@ type DefaultHandler struct{}
 func (h *DefaultHandler) Type() string { return TypeDefault }
 
 func (h *DefaultHandler) DeriveContract(
-	_ context.Context, key wallet.KeyRef, cfg *clientTypes.Config,
+	_ context.Context,
+	key wallet.KeyRef,
+	cfg *clientTypes.Config,
+	_ map[string]string, // unused for the default handler
 ) (*contract.Contract, error) {
 	netParams := toBitcoinNetwork(cfg.Network)
 
-	// Offchain script uses UnilateralExitDelay.
 	offchainScript := script.NewDefaultVtxoScript(
 		key.PubKey, cfg.SignerPubKey, cfg.UnilateralExitDelay,
 	)
@@ -59,7 +61,6 @@ func (h *DefaultHandler) DeriveContract(
 		return nil, fmt.Errorf("pkScript: %w", err)
 	}
 
-	// Boarding script uses BoardingExitDelay.
 	boardingScript := script.NewDefaultVtxoScript(
 		key.PubKey, cfg.SignerPubKey, cfg.BoardingExitDelay,
 	)
@@ -80,7 +81,6 @@ func (h *DefaultHandler) DeriveContract(
 		return nil, fmt.Errorf("encode boarding tapscripts: %w", err)
 	}
 
-	// Onchain address: bare key-path P2TR (no script tree).
 	onchainTapKey := txscript.ComputeTaprootKeyNoScript(key.PubKey)
 	onchainAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(onchainTapKey), &netParams,
@@ -105,16 +105,73 @@ func (h *DefaultHandler) DeriveContract(
 	}, nil
 }
 
-func (h *DefaultHandler) SerializeParams(params any) (map[string]string, error) {
-	p, ok := params.(map[string]string)
-	if !ok {
-		return nil, fmt.Errorf("DefaultHandler: params must be map[string]string")
+// SelectPath returns the appropriate tapscript leaf for the given spend context.
+// Default tapscript order: [0]=exit (CSV), [1]=forfeit (multisig).
+func (h *DefaultHandler) SelectPath(
+	_ context.Context, c *contract.Contract, pctx contract.PathContext,
+) (*contract.PathSelection, error) {
+	if len(c.Tapscripts) < 2 {
+		return nil, fmt.Errorf("default contract requires at least 2 tapscripts, got %d", len(c.Tapscripts))
 	}
-	return p, nil
+	if pctx.Collaborative {
+		return tapLeafSelection(c.Tapscripts[1], nil, nil)
+	}
+	seq, err := arklib.BIP68Sequence(c.Delay)
+	if err != nil {
+		return nil, fmt.Errorf("BIP68 sequence: %w", err)
+	}
+	s := uint32(seq)
+	return tapLeafSelection(c.Tapscripts[0], &s, nil)
 }
 
-func (h *DefaultHandler) DeserializeParams(params map[string]string) (any, error) {
-	return params, nil
+// GetSpendablePaths returns all leaves that can be used given the current context.
+func (h *DefaultHandler) GetSpendablePaths(
+	_ context.Context, c *contract.Contract, pctx contract.PathContext,
+) ([]contract.PathSelection, error) {
+	if len(c.Tapscripts) < 2 {
+		return nil, fmt.Errorf("default contract requires at least 2 tapscripts, got %d", len(c.Tapscripts))
+	}
+	seq, err := arklib.BIP68Sequence(c.Delay)
+	if err != nil {
+		return nil, fmt.Errorf("BIP68 sequence: %w", err)
+	}
+	s := uint32(seq)
+
+	exit, err := tapLeafSelection(c.Tapscripts[0], &s, nil)
+	if err != nil {
+		return nil, err
+	}
+	paths := []contract.PathSelection{*exit}
+
+	if pctx.Collaborative {
+		forfeit, err := tapLeafSelection(c.Tapscripts[1], nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, *forfeit)
+	}
+	return paths, nil
+}
+
+func (h *DefaultHandler) SerializeParams(_ any) (map[string]string, error) {
+	return nil, nil
+}
+
+func (h *DefaultHandler) DeserializeParams(_ map[string]string) (any, error) {
+	return nil, nil
+}
+
+// tapLeafSelection decodes a hex-encoded tapscript and builds a PathSelection.
+func tapLeafSelection(hexScript string, sequence, locktime *uint32) (*contract.PathSelection, error) {
+	scriptBytes, err := hex.DecodeString(hexScript)
+	if err != nil {
+		return nil, fmt.Errorf("decode tapscript hex: %w", err)
+	}
+	return &contract.PathSelection{
+		Leaf:     txscript.NewBaseTapLeaf(scriptBytes),
+		Sequence: sequence,
+		Locktime: locktime,
+	}, nil
 }
 
 func toBitcoinNetwork(net arklib.Network) chaincfg.Params {

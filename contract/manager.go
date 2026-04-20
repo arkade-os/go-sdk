@@ -25,13 +25,15 @@ type Manager interface {
 	Close() error
 }
 
-// NewManager returns a Manager that keeps contracts in memory.
+// NewManager returns a Manager that keeps contracts in memory and optionally
+// persists them via store (pass nil to use in-memory only).
 // Call Bootstrap after unlocking the wallet to populate from existing keys.
-func NewManager(ks Keystore, cfg *clientTypes.Config, r *Registry) Manager {
+func NewManager(ks Keystore, cfg *clientTypes.Config, r *Registry, store ContractStore) Manager {
 	return &managerImpl{
 		ks:        ks,
 		cfg:       cfg,
 		registry:  r,
+		store:     store,
 		contracts: make(map[string]Contract),
 	}
 }
@@ -40,44 +42,67 @@ type managerImpl struct {
 	ks       Keystore
 	cfg      *clientTypes.Config
 	registry *Registry
+	store    ContractStore // nil = in-memory only
 
 	mu        sync.RWMutex
-	contracts map[string]Contract // scriptHex → Contract
+	contracts map[string]Contract // scriptHex → Contract (write-through cache)
 
 	cbMu sync.RWMutex
 	cbs  []func(Event)
 }
 
 func (m *managerImpl) Bootstrap(ctx context.Context) error {
-	keys, err := m.ks.ListKeys(ctx)
-	if err != nil {
-		return err
+	// Seed in-memory cache from the persistent store.
+	if m.store != nil {
+		stored, err := m.store.ListContracts(ctx, Filter{})
+		if err != nil {
+			return fmt.Errorf("bootstrap: load contracts from store: %w", err)
+		}
+		m.mu.Lock()
+		for _, c := range stored {
+			m.contracts[c.Script] = c
+		}
+		m.mu.Unlock()
 	}
+
+	// Derive contracts for any wallet keys that don't already have one.
 	h, ok := m.registry.Get("default")
 	if !ok {
 		return nil
 	}
+	keys, err := m.ks.ListKeys(ctx)
+	if err != nil {
+		return err
+	}
 	for _, key := range keys {
-		c, err := h.DeriveContract(ctx, key, m.cfg)
+		c, err := h.DeriveContract(ctx, key, m.cfg, nil)
 		if err != nil {
 			return fmt.Errorf("bootstrap: derive contract for key %s: %w", key.Id, err)
 		}
-		m.mu.Lock()
-		m.contracts[c.Script] = *c
-		m.mu.Unlock()
+		m.mu.RLock()
+		_, exists := m.contracts[c.Script]
+		m.mu.RUnlock()
+		if exists {
+			continue
+		}
+		if err := m.persistAndCache(ctx, *c); err != nil {
+			return fmt.Errorf("bootstrap: persist contract for key %s: %w", key.Id, err)
+		}
 	}
 	return nil
 }
 
 func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
-	return m.createWithHandler(ctx, "default", "")
+	return m.createWithHandler(ctx, "default", "", nil)
 }
 
 func (m *managerImpl) CreateContract(ctx context.Context, p CreateParams) (*Contract, error) {
-	return m.createWithHandler(ctx, p.Type, p.Label)
+	return m.createWithHandler(ctx, p.Type, p.Label, p.Params)
 }
 
-func (m *managerImpl) createWithHandler(ctx context.Context, typ, label string) (*Contract, error) {
+func (m *managerImpl) createWithHandler(
+	ctx context.Context, typ, label string, rawParams map[string]string,
+) (*Contract, error) {
 	h, ok := m.registry.Get(typ)
 	if !ok {
 		return nil, fmt.Errorf("no contract handler registered for type %q", typ)
@@ -86,20 +111,35 @@ func (m *managerImpl) createWithHandler(ctx context.Context, typ, label string) 
 	if err != nil {
 		return nil, err
 	}
-	c, err := h.DeriveContract(ctx, *key, m.cfg)
+	c, err := h.DeriveContract(ctx, *key, m.cfg, rawParams)
 	if err != nil {
 		return nil, err
 	}
 	c.Label = label
 	c.CreatedAt = time.Now()
-	m.mu.Lock()
-	m.contracts[c.Script] = *c
-	m.mu.Unlock()
+	if err := m.persistAndCache(ctx, *c); err != nil {
+		return nil, err
+	}
 	m.emit(Event{Type: "contract_created", Contract: *c})
 	return c, nil
 }
 
-func (m *managerImpl) GetContracts(_ context.Context, f Filter) ([]Contract, error) {
+func (m *managerImpl) persistAndCache(ctx context.Context, c Contract) error {
+	if m.store != nil {
+		if err := m.store.UpsertContract(ctx, c); err != nil {
+			return fmt.Errorf("persist contract: %w", err)
+		}
+	}
+	m.mu.Lock()
+	m.contracts[c.Script] = c
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *managerImpl) GetContracts(ctx context.Context, f Filter) ([]Contract, error) {
+	if m.store != nil {
+		return m.store.ListContracts(ctx, f)
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []Contract

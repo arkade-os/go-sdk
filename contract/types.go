@@ -4,6 +4,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/btcsuite/btcd/txscript"
 )
 
 type State string
@@ -52,4 +53,21 @@ type CreateParams struct {
 type Event struct {
 	Type     string
 	Contract Contract
+}
+
+// PathContext carries the spend-time state needed to select a tapscript path.
+type PathContext struct {
+	Collaborative bool
+	CurrentTime   time.Time
+	BlockHeight   *uint32
+	WalletPubKey  []byte
+	Preimage      []byte // preimage for HTLC-style claim paths
+}
+
+// PathSelection describes which tapscript leaf to use and any extra witness data.
+type PathSelection struct {
+	Leaf         txscript.TapLeaf
+	ExtraWitness [][]byte // e.g. preimage pushed before signatures
+	Sequence     *uint32  // non-nil when the input must set nSequence (CSV)
+	Locktime     *uint32  // non-nil when the tx must set nLocktime (CLTV)
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
 )
 
 type Store interface {
@@ -12,6 +13,9 @@ type Store interface {
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
 	AssetStore() AssetStore
+	// ContractStore returns the contract persistence layer.
+	// Returns nil for store backends that do not persist contracts (e.g. kv, in-memory).
+	ContractStore() contract.ContractStore
 	Clean(ctx context.Context)
 	Close()
 }

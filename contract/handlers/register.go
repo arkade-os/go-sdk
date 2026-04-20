@@ -3,7 +3,12 @@ package handlers
 import "github.com/arkade-os/go-sdk/contract"
 
 func init() {
-	if err := contract.DefaultRegistry.Register(&DefaultHandler{}); err != nil {
-		panic(err)
+	for _, h := range []contract.Handler{
+		&DefaultHandler{},
+		&DelegateHandler{},
+	} {
+		if err := contract.DefaultRegistry.Register(h); err != nil {
+			panic(err)
+		}
 	}
 }

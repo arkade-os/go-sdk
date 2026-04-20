@@ -91,7 +91,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	if err != nil {
 		return fmt.Errorf("unlock: get config: %w", err)
 	}
-	mgr := contract.NewManager(a.Wallet(), cfg, contract.DefaultRegistry)
+	mgr := contract.NewManager(a.Wallet(), cfg, contract.DefaultRegistry, a.store.ContractStore())
 	if err := mgr.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("unlock: bootstrap contracts: %w", err)
 	}

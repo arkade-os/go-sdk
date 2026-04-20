@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/arkade-os/go-sdk/contract"
 	kvstore "github.com/arkade-os/go-sdk/store/kv"
 	sqlstore "github.com/arkade-os/go-sdk/store/sql"
 	"github.com/arkade-os/go-sdk/types"
@@ -24,10 +25,11 @@ const (
 )
 
 type service struct {
-	utxoStore  types.UtxoStore
-	vtxoStore  types.VtxoStore
-	txStore    types.TransactionStore
-	assetStore types.AssetStore
+	utxoStore     types.UtxoStore
+	vtxoStore     types.VtxoStore
+	txStore       types.TransactionStore
+	assetStore    types.AssetStore
+	contractStore contract.ContractStore
 }
 
 type Config struct {
@@ -37,11 +39,12 @@ type Config struct {
 
 func NewStore(storeConfig Config) (types.Store, error) {
 	var (
-		utxoStore  types.UtxoStore
-		vtxoStore  types.VtxoStore
-		txStore    types.TransactionStore
-		assetStore types.AssetStore
-		err        error
+		utxoStore     types.UtxoStore
+		vtxoStore     types.VtxoStore
+		txStore       types.TransactionStore
+		assetStore    types.AssetStore
+		contractStore contract.ContractStore
+		err           error
 
 		dir = storeConfig.BaseDir
 	)
@@ -90,6 +93,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			vtxoStore = sqlstore.NewVtxoStore(db)
 			txStore = sqlstore.NewTransactionStore(db)
 			assetStore = sqlstore.NewAssetStore(db)
+			contractStore = sqlstore.NewContractStore(db)
 		default:
 			err = fmt.Errorf("unknown appdata store type")
 		}
@@ -98,7 +102,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		}
 	}
 
-	return &service{utxoStore, vtxoStore, txStore, assetStore}, nil
+	return &service{utxoStore, vtxoStore, txStore, assetStore, contractStore}, nil
 }
 
 func (s *service) UtxoStore() types.UtxoStore {
@@ -115,6 +119,10 @@ func (s *service) TransactionStore() types.TransactionStore {
 
 func (s *service) AssetStore() types.AssetStore {
 	return s.assetStore
+}
+
+func (s *service) ContractStore() contract.ContractStore {
+	return s.contractStore
 }
 
 func (s *service) Clean(ctx context.Context) {

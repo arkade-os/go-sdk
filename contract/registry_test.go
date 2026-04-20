@@ -16,8 +16,20 @@ type registryStub struct{ name string }
 func (s *registryStub) Type() string { return s.name }
 
 func (s *registryStub) DeriveContract(
-	_ context.Context, _ wallet.KeyRef, _ *clientTypes.Config,
+	_ context.Context, _ wallet.KeyRef, _ *clientTypes.Config, _ map[string]string,
 ) (*contract.Contract, error) {
+	return nil, nil
+}
+
+func (s *registryStub) SelectPath(
+	_ context.Context, _ *contract.Contract, _ contract.PathContext,
+) (*contract.PathSelection, error) {
+	return nil, nil
+}
+
+func (s *registryStub) GetSpendablePaths(
+	_ context.Context, _ *contract.Contract, _ contract.PathContext,
+) ([]contract.PathSelection, error) {
 	return nil, nil
 }
 
