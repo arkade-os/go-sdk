@@ -6,6 +6,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	log "github.com/sirupsen/logrus"
 )
 
 func (a *arkClient) SendOffChain(
@@ -88,6 +89,8 @@ func (a *arkClient) getSpendableVtxos(
 				Vtxo:       v,
 				Tapscripts: tapscripts,
 			})
+		} else {
+			log.Debugf("skipping vtxo %s:%d: no contract for address %s", v.Txid, v.VOut, vtxoAddr)
 		}
 	}
 

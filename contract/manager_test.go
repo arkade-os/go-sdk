@@ -160,11 +160,13 @@ func TestManager_OnContractEvent(t *testing.T) {
 	require.Len(t, received, 1)
 	require.Equal(t, "contract_created", received[0].Type)
 
-	// Unsubscribe stops delivery.
+	// Unsubscribe stops delivery. Close clears the cache so the next NewDefault
+	// must create a new contract and would emit if still subscribed.
 	unsub()
+	require.NoError(t, mgr.Close())
 	_, err = mgr.NewDefault(context.Background())
 	require.NoError(t, err)
-	require.Len(t, received, 1) // still 1
+	require.Len(t, received, 1) // still 1, event fired but callback was removed
 }
 
 func TestManager_Close(t *testing.T) {

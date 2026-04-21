@@ -435,6 +435,7 @@ func TestOffchainTx(t *testing.T) {
 					break
 				}
 			}
+			require.NotEmpty(t, bobOffchainAddr.Address)
 
 			serverParams, err := arkClient.GetInfo(ctx)
 			require.NoError(t, err)

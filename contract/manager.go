@@ -38,16 +38,16 @@ func NewManager(ks Keystore, cfg *clientTypes.Config, store ContractStore) Manag
 }
 
 type managerImpl struct {
-	ks    Keystore
-	cfg   *clientTypes.Config
-	store ContractStore // nil = in-memory only
+	ks    Keystore            // wallet key operations (new / get / list)
+	cfg   *clientTypes.Config // server config used by the default handler
+	store ContractStore       // nil = in-memory only
 
 	mu        sync.RWMutex
 	contracts map[string]Contract // scriptHex → Contract (write-through cache)
 
 	cbMu   sync.RWMutex
-	cbs    map[int]func(Event)
-	cbNext int
+	cbs    map[int]func(Event) // event subscribers, keyed by monotonic ID
+	cbNext int                 // next subscriber ID
 }
 
 func (m *managerImpl) Bootstrap(ctx context.Context) error {
@@ -177,8 +177,12 @@ func (m *managerImpl) Close() error {
 
 func (m *managerImpl) emit(e Event) {
 	m.cbMu.RLock()
-	defer m.cbMu.RUnlock()
+	cbs := make([]func(Event), 0, len(m.cbs))
 	for _, cb := range m.cbs {
+		cbs = append(cbs, cb)
+	}
+	m.cbMu.RUnlock()
+	for _, cb := range cbs {
 		cb(e)
 	}
 }
