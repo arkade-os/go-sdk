@@ -819,10 +819,10 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 	addresses := make([]string, 0)
 	addressByScript := make(map[string]addressInfo, 0)
 
-	for _, c := range contracts {
-		// boarding address (P2TR, BoardingExitDelay)
+	populateContract := func(c contract.Contract) []string {
+		newAddrs := make([]string, 0, 3)
 		if c.Boarding != "" {
-			addresses = append(addresses, c.Boarding)
+			newAddrs = append(newAddrs, c.Boarding)
 			if sc, err := toOutputScript(c.Boarding, cfg.Network); err == nil {
 				addressByScript[hex.EncodeToString(sc)] = addressInfo{
 					tapscripts: c.BoardingTapscripts,
@@ -832,10 +832,8 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(err).Error("failed to get pk script for boarding address")
 			}
 		}
-
-		// onchain address (bare key P2TR, no delay)
 		if c.Onchain != "" {
-			addresses = append(addresses, c.Onchain)
+			newAddrs = append(newAddrs, c.Onchain)
 			if sc, err := toOutputScript(c.Onchain, cfg.Network); err == nil {
 				addressByScript[hex.EncodeToString(sc)] = addressInfo{
 					tapscripts: []string{},
@@ -845,11 +843,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(err).Error("failed to get pk script for onchain address")
 			}
 		}
-
-		// offchain/unrolling address (P2TR derived from the Arkade taproot key)
 		if c.Address != "" {
 			if onchainEquiv, err := toOnchainAddress(c.Address, cfg.Network); err == nil {
-				addresses = append(addresses, onchainEquiv)
+				newAddrs = append(newAddrs, onchainEquiv)
 				if sc, err := toOutputScript(onchainEquiv, cfg.Network); err == nil {
 					addressByScript[hex.EncodeToString(sc)] = addressInfo{
 						tapscripts: c.Tapscripts,
@@ -862,7 +858,23 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(err).Error("failed to convert ark address to onchain address")
 			}
 		}
+		return newAddrs
 	}
+
+	for _, c := range contracts {
+		addresses = append(addresses, populateContract(c)...)
+	}
+
+	newContractCh := make(chan contract.Contract, 8)
+	unsub := a.contractManager.OnContractEvent(func(e contract.Event) {
+		if e.Type == "contract_created" {
+			select {
+			case newContractCh <- e.Contract:
+			default:
+			}
+		}
+	})
+	defer unsub()
 
 	if err := explorer.SubscribeForAddresses(addresses); err != nil {
 		log.WithError(err).Error("failed to subscribe for onchain addresses")
@@ -880,6 +892,15 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(err).Error("failed to unsubscribe for onchain addresses")
 			}
 			return
+		case c := <-newContractCh:
+			newAddrs := populateContract(c)
+			if len(newAddrs) > 0 {
+				if err := explorer.SubscribeForAddresses(newAddrs); err != nil {
+					log.WithError(err).Error("failed to subscribe for new contract addresses")
+				} else {
+					addresses = append(addresses, newAddrs...)
+				}
+			}
 		case update := <-ch:
 			// TODO: we may want to forward this error so the user can try to reconnect.
 			if update.Error != nil {
@@ -1504,6 +1525,9 @@ func (a *arkClient) safeCheck() error {
 	}
 	if a.Wallet().IsLocked() {
 		return ErrIsLocked
+	}
+	if a.contractManager == nil {
+		return ErrNotInitialized
 	}
 
 	a.syncMu.Lock()

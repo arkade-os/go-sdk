@@ -137,9 +137,6 @@ func (m *managerImpl) persistAndCache(ctx context.Context, c Contract) error {
 }
 
 func (m *managerImpl) GetContracts(ctx context.Context, f Filter) ([]Contract, error) {
-	if m.store != nil {
-		return m.store.ListContracts(ctx, f)
-	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []Contract

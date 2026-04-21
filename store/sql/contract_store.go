@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -12,7 +13,8 @@ import (
 )
 
 type contractRepository struct {
-	db *sql.DB
+	db   *sql.DB
+	lock sync.Mutex
 }
 
 // NewContractStore returns a ContractStore backed by the given SQLite database.
@@ -128,6 +130,8 @@ func (r *contractRepository) UpdateContractState(
 }
 
 func (r *contractRepository) Clean(ctx context.Context) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
 	_, err := r.db.ExecContext(ctx, `DELETE FROM contract`)
 	return err
 }
