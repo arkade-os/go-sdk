@@ -24,7 +24,6 @@ import (
 	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
-	_ "github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -64,7 +63,6 @@ type arkClient struct {
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 
 	contractManager contract.Manager
-	watcher         *contract.Watcher
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {

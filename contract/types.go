@@ -45,12 +45,6 @@ type Filter struct {
 	Script *string
 }
 
-type CreateParams struct {
-	Type   string
-	Params map[string]string
-	Label  string
-}
-
 type Event struct {
 	Type     string
 	Contract Contract

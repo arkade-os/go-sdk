@@ -18,13 +18,8 @@ type Manager interface {
 	NewDefault(ctx context.Context) (*Contract, error)
 	// GetContracts returns all contracts matching the given filter.
 	GetContracts(ctx context.Context, f Filter) ([]Contract, error)
-	// CreateContract creates a contract of any registered type with a fresh key.
-	CreateContract(ctx context.Context, p CreateParams) (*Contract, error)
 	// OnContractEvent registers a callback; returns an unsubscribe func.
 	OnContractEvent(cb func(Event)) func()
-	// EmitEvent broadcasts an event to all registered callbacks.
-	// Used by the Watcher to surface vtxo_received / vtxo_spent events.
-	EmitEvent(e Event)
 	// Close releases resources and clears the in-memory contract map.
 	Close() error
 }
@@ -32,11 +27,10 @@ type Manager interface {
 // NewManager returns a Manager that keeps contracts in memory and optionally
 // persists them via store (pass nil to use in-memory only).
 // Call Bootstrap after unlocking the wallet to populate from existing keys.
-func NewManager(ks Keystore, cfg *clientTypes.Config, r *Registry, store ContractStore) Manager {
+func NewManager(ks Keystore, cfg *clientTypes.Config, store ContractStore) Manager {
 	return &managerImpl{
 		ks:        ks,
 		cfg:       cfg,
-		registry:  r,
 		store:     store,
 		contracts: make(map[string]Contract),
 		cbs:       make(map[int]func(Event)),
@@ -44,10 +38,9 @@ func NewManager(ks Keystore, cfg *clientTypes.Config, r *Registry, store Contrac
 }
 
 type managerImpl struct {
-	ks       Keystore
-	cfg      *clientTypes.Config
-	registry *Registry
-	store    ContractStore // nil = in-memory only
+	ks    Keystore
+	cfg   *clientTypes.Config
+	store ContractStore // nil = in-memory only
 
 	mu        sync.RWMutex
 	contracts map[string]Contract // scriptHex → Contract (write-through cache)
@@ -72,16 +65,13 @@ func (m *managerImpl) Bootstrap(ctx context.Context) error {
 	}
 
 	// Derive contracts for any wallet keys that don't already have one.
-	h, ok := m.registry.Get("default")
-	if !ok {
-		return nil
-	}
+	h := &DefaultHandler{}
 	keys, err := m.ks.ListKeys(ctx)
 	if err != nil {
 		return err
 	}
 	for _, key := range keys {
-		c, err := h.DeriveContract(ctx, key, m.cfg, nil)
+		c, err := h.DeriveContract(ctx, key, m.cfg)
 		if err != nil {
 			return fmt.Errorf("bootstrap: derive contract for key %s: %w", key.Id, err)
 		}
@@ -99,7 +89,7 @@ func (m *managerImpl) Bootstrap(ctx context.Context) error {
 }
 
 func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
-	typ := "default"
+	typ := TypeDefault
 	active := string(StateActive)
 	existing, err := m.GetContracts(ctx, Filter{Type: &typ, State: &active})
 	if err != nil {
@@ -114,29 +104,15 @@ func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
 		}
 		return &latest, nil
 	}
-	return m.createWithHandler(ctx, "default", "", nil)
-}
 
-func (m *managerImpl) CreateContract(ctx context.Context, p CreateParams) (*Contract, error) {
-	return m.createWithHandler(ctx, p.Type, p.Label, p.Params)
-}
-
-func (m *managerImpl) createWithHandler(
-	ctx context.Context, typ, label string, rawParams map[string]string,
-) (*Contract, error) {
-	h, ok := m.registry.Get(typ)
-	if !ok {
-		return nil, fmt.Errorf("no contract handler registered for type %q", typ)
-	}
 	key, err := m.ks.NewKey(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c, err := h.DeriveContract(ctx, *key, m.cfg, rawParams)
+	c, err := (&DefaultHandler{}).DeriveContract(ctx, *key, m.cfg)
 	if err != nil {
 		return nil, err
 	}
-	c.Label = label
 	c.CreatedAt = time.Now()
 	if err := m.persistAndCache(ctx, *c); err != nil {
 		return nil, err
@@ -191,8 +167,6 @@ func (m *managerImpl) OnContractEvent(cb func(Event)) func() {
 		m.cbMu.Unlock()
 	}
 }
-
-func (m *managerImpl) EmitEvent(e Event) { m.emit(e) }
 
 func (m *managerImpl) Close() error {
 	m.mu.Lock()

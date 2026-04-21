@@ -38,40 +38,6 @@ func (m *mockKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	return []wallet.KeyRef{*m.key}, nil
 }
 
-// fixedHandler records calls and returns a canned contract.
-type fixedHandler struct {
-	calls int
-}
-
-func (f *fixedHandler) Type() string { return "default" }
-
-func (f *fixedHandler) DeriveContract(
-	_ context.Context, key wallet.KeyRef, _ *clientTypes.Config, _ map[string]string,
-) (*contract.Contract, error) {
-	f.calls++
-	return &contract.Contract{
-		Type:    "default",
-		Script:  "deadbeef" + key.Id,
-		Address: "ark1" + key.Id,
-		State:   contract.StateActive,
-	}, nil
-}
-
-func (f *fixedHandler) SelectPath(
-	_ context.Context, _ *contract.Contract, _ contract.PathContext,
-) (*contract.PathSelection, error) {
-	return nil, nil
-}
-
-func (f *fixedHandler) GetSpendablePaths(
-	_ context.Context, _ *contract.Contract, _ contract.PathContext,
-) ([]contract.PathSelection, error) {
-	return nil, nil
-}
-
-func (f *fixedHandler) SerializeParams(_ any) (map[string]string, error)   { return nil, nil }
-func (f *fixedHandler) DeserializeParams(_ map[string]string) (any, error) { return nil, nil }
-
 func testConfig(t *testing.T) *clientTypes.Config {
 	t.Helper()
 	priv, err := btcec.NewPrivateKey()
@@ -95,26 +61,19 @@ func TestManager_Bootstrap(t *testing.T) {
 
 	t.Run("Bootstrap populates contracts for existing keys", func(t *testing.T) {
 		t.Parallel()
-		reg := contract.NewRegistry()
-		h := &fixedHandler{}
-		require.NoError(t, reg.Register(h))
-
 		ks := newMockKeystore(t)
-		mgr := contract.NewManager(ks, testConfig(t), reg, nil)
+		mgr := contract.NewManager(ks, testConfig(t), nil)
 		require.NoError(t, mgr.Bootstrap(context.Background()))
 
 		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
 		require.NoError(t, err)
 		require.Len(t, contracts, 1)
-		require.Equal(t, "default", contracts[0].Type)
-		require.Equal(t, 1, h.calls)
+		require.Equal(t, contract.TypeDefault, contracts[0].Type)
 	})
 
-	t.Run("Bootstrap with no default handler is a no-op", func(t *testing.T) {
+	t.Run("Bootstrap with no keys is a no-op", func(t *testing.T) {
 		t.Parallel()
-		reg := contract.NewRegistry()
-		ks := newMockKeystore(t)
-		mgr := contract.NewManager(ks, testConfig(t), reg, nil)
+		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
 		require.NoError(t, mgr.Bootstrap(context.Background()))
 
 		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
@@ -128,15 +87,12 @@ func TestManager_NewDefault(t *testing.T) {
 
 	t.Run("NewDefault creates contract and persists it", func(t *testing.T) {
 		t.Parallel()
-		reg := contract.NewRegistry()
-		require.NoError(t, reg.Register(&fixedHandler{}))
-
 		ks := newMockKeystore(t)
-		mgr := contract.NewManager(ks, testConfig(t), reg, nil)
+		mgr := contract.NewManager(ks, testConfig(t), nil)
 
 		c, err := mgr.NewDefault(context.Background())
 		require.NoError(t, err)
-		require.Equal(t, "default", c.Type)
+		require.Equal(t, contract.TypeDefault, c.Type)
 		require.Equal(t, contract.StateActive, c.State)
 
 		all, err := mgr.GetContracts(context.Background(), contract.Filter{})
@@ -145,29 +101,30 @@ func TestManager_NewDefault(t *testing.T) {
 		require.Equal(t, c.Script, all[0].Script)
 	})
 
-	t.Run("NewDefault returns error when no default handler registered", func(t *testing.T) {
+	t.Run("NewDefault reuses existing active contract", func(t *testing.T) {
 		t.Parallel()
-		reg := contract.NewRegistry()
-		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), reg, nil)
-		_, err := mgr.NewDefault(context.Background())
-		require.Error(t, err)
+		ks := newMockKeystore(t)
+		mgr := contract.NewManager(ks, testConfig(t), nil)
+
+		c1, err := mgr.NewDefault(context.Background())
+		require.NoError(t, err)
+		c2, err := mgr.NewDefault(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, c1.Script, c2.Script)
 	})
 }
 
 func TestManager_GetContracts_Filter(t *testing.T) {
 	t.Parallel()
 
-	reg := contract.NewRegistry()
-	require.NoError(t, reg.Register(&fixedHandler{}))
-
 	ks := newMockKeystore(t)
-	mgr := contract.NewManager(ks, testConfig(t), reg, nil)
+	mgr := contract.NewManager(ks, testConfig(t), nil)
 
 	c, err := mgr.NewDefault(context.Background())
 	require.NoError(t, err)
 
 	t.Run("filter by type matches", func(t *testing.T) {
-		typ := "default"
+		typ := contract.TypeDefault
 		got, err := mgr.GetContracts(context.Background(), contract.Filter{Type: &typ})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
@@ -191,10 +148,7 @@ func TestManager_GetContracts_Filter(t *testing.T) {
 func TestManager_OnContractEvent(t *testing.T) {
 	t.Parallel()
 
-	reg := contract.NewRegistry()
-	require.NoError(t, reg.Register(&fixedHandler{}))
-
-	mgr := contract.NewManager(newMockKeystore(t), testConfig(t), reg, nil)
+	mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
 
 	var received []contract.Event
 	unsub := mgr.OnContractEvent(func(e contract.Event) {
@@ -216,10 +170,7 @@ func TestManager_OnContractEvent(t *testing.T) {
 func TestManager_Close(t *testing.T) {
 	t.Parallel()
 
-	reg := contract.NewRegistry()
-	require.NoError(t, reg.Register(&fixedHandler{}))
-
-	mgr := contract.NewManager(newMockKeystore(t), testConfig(t), reg, nil)
+	mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
 	_, err := mgr.NewDefault(context.Background())
 	require.NoError(t, err)
 
@@ -228,4 +179,17 @@ func TestManager_Close(t *testing.T) {
 	all, err := mgr.GetContracts(context.Background(), contract.Filter{})
 	require.NoError(t, err)
 	require.Empty(t, all)
+}
+
+// emptyKeystore returns no keys.
+type emptyKeystore struct{}
+
+func (e *emptyKeystore) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+	return nil, nil
+}
+func (e *emptyKeystore) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+	return nil, nil
+}
+func (e *emptyKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
+	return nil, nil
 }

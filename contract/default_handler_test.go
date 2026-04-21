@@ -1,4 +1,4 @@
-package handlers_test
+package contract_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/contract"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
@@ -43,25 +43,19 @@ func testCfg(t *testing.T) *clientTypes.Config {
 	}
 }
 
-func TestDefaultHandler_Type(t *testing.T) {
-	t.Parallel()
-	h := &handlers.DefaultHandler{}
-	require.Equal(t, handlers.TypeDefault, h.Type())
-}
-
 func TestDefaultHandler_DeriveContract(t *testing.T) {
 	t.Parallel()
 
-	h := &handlers.DefaultHandler{}
+	h := &contract.DefaultHandler{}
 	key := testKey(t)
 	cfg := testCfg(t)
 	ctx := context.Background()
 
-	c, err := h.DeriveContract(ctx, key, cfg, nil)
+	c, err := h.DeriveContract(ctx, key, cfg)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
-	require.Equal(t, handlers.TypeDefault, c.Type)
+	require.Equal(t, contract.TypeDefault, c.Type)
 	require.Equal(t, "test-key", c.Params["keyId"])
 	require.Equal(t, arklib.LocktimeTypeBlock, c.Delay.Type)
 
@@ -114,14 +108,14 @@ func TestDefaultHandler_DeriveContract(t *testing.T) {
 func TestDefaultHandler_DeterministicOutput(t *testing.T) {
 	t.Parallel()
 
-	h := &handlers.DefaultHandler{}
+	h := &contract.DefaultHandler{}
 	key := testKey(t)
 	cfg := testCfg(t)
 	ctx := context.Background()
 
-	c1, err := h.DeriveContract(ctx, key, cfg, nil)
+	c1, err := h.DeriveContract(ctx, key, cfg)
 	require.NoError(t, err)
-	c2, err := h.DeriveContract(ctx, key, cfg, nil)
+	c2, err := h.DeriveContract(ctx, key, cfg)
 	require.NoError(t, err)
 
 	require.Equal(t, c1.Script, c2.Script)
@@ -133,13 +127,13 @@ func TestDefaultHandler_DeterministicOutput(t *testing.T) {
 func TestDefaultHandler_DifferentKeysDifferentContracts(t *testing.T) {
 	t.Parallel()
 
-	h := &handlers.DefaultHandler{}
+	h := &contract.DefaultHandler{}
 	cfg := testCfg(t)
 	ctx := context.Background()
 
-	c1, err := h.DeriveContract(ctx, testKey(t), cfg, nil)
+	c1, err := h.DeriveContract(ctx, testKey(t), cfg)
 	require.NoError(t, err)
-	c2, err := h.DeriveContract(ctx, testKey(t), cfg, nil)
+	c2, err := h.DeriveContract(ctx, testKey(t), cfg)
 	require.NoError(t, err)
 
 	require.NotEqual(t, c1.Script, c2.Script)

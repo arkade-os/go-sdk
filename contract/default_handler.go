@@ -1,4 +1,4 @@
-package handlers
+package contract
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	"github.com/arkade-os/go-sdk/contract"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -23,14 +22,11 @@ const TypeDefault = "default"
 // offchain (Arkade address) + boarding (P2TR, BoardingExitDelay) + onchain (bare key P2TR).
 type DefaultHandler struct{}
 
-func (h *DefaultHandler) Type() string { return TypeDefault }
-
 func (h *DefaultHandler) DeriveContract(
 	_ context.Context,
 	key wallet.KeyRef,
 	cfg *clientTypes.Config,
-	_ map[string]string, // unused for the default handler
-) (*contract.Contract, error) {
+) (*Contract, error) {
 	netParams, err := toBitcoinNetwork(cfg.Network)
 	if err != nil {
 		return nil, err
@@ -92,14 +88,14 @@ func (h *DefaultHandler) DeriveContract(
 		return nil, fmt.Errorf("onchain address: %w", err)
 	}
 
-	return &contract.Contract{
+	return &Contract{
 		Type:               TypeDefault,
 		Params:             map[string]string{"keyId": key.Id},
 		Script:             hex.EncodeToString(pkScript),
 		Address:            encodedArkAddr,
 		Boarding:           boardingAddr.EncodeAddress(),
 		Onchain:            onchainAddr.EncodeAddress(),
-		State:              contract.StateActive,
+		State:              StateActive,
 		CreatedAt:          time.Now(),
 		Tapscripts:         tapscripts,
 		BoardingTapscripts: boardingTapscripts,
@@ -111,8 +107,8 @@ func (h *DefaultHandler) DeriveContract(
 // SelectPath returns the appropriate tapscript leaf for the given spend context.
 // Default tapscript order: [0]=exit (CSV), [1]=forfeit (multisig).
 func (h *DefaultHandler) SelectPath(
-	_ context.Context, c *contract.Contract, pctx contract.PathContext,
-) (*contract.PathSelection, error) {
+	_ context.Context, c *Contract, pctx PathContext,
+) (*PathSelection, error) {
 	if len(c.Tapscripts) < 2 {
 		return nil, fmt.Errorf(
 			"default contract requires at least 2 tapscripts, got %d",
@@ -132,8 +128,8 @@ func (h *DefaultHandler) SelectPath(
 
 // GetSpendablePaths returns all leaves that can be used given the current context.
 func (h *DefaultHandler) GetSpendablePaths(
-	_ context.Context, c *contract.Contract, pctx contract.PathContext,
-) ([]contract.PathSelection, error) {
+	_ context.Context, c *Contract, pctx PathContext,
+) ([]PathSelection, error) {
 	if len(c.Tapscripts) < 2 {
 		return nil, fmt.Errorf(
 			"default contract requires at least 2 tapscripts, got %d",
@@ -150,7 +146,7 @@ func (h *DefaultHandler) GetSpendablePaths(
 	if err != nil {
 		return nil, err
 	}
-	paths := []contract.PathSelection{*exit}
+	paths := []PathSelection{*exit}
 
 	if pctx.Collaborative {
 		forfeit, err := tapLeafSelection(c.Tapscripts[1], nil, nil)
@@ -162,24 +158,16 @@ func (h *DefaultHandler) GetSpendablePaths(
 	return paths, nil
 }
 
-func (h *DefaultHandler) SerializeParams(_ any) (map[string]string, error) {
-	return nil, nil
-}
-
-func (h *DefaultHandler) DeserializeParams(_ map[string]string) (any, error) {
-	return nil, nil
-}
-
 // tapLeafSelection decodes a hex-encoded tapscript and builds a PathSelection.
 func tapLeafSelection(
 	hexScript string,
 	sequence, locktime *uint32,
-) (*contract.PathSelection, error) {
+) (*PathSelection, error) {
 	scriptBytes, err := hex.DecodeString(hexScript)
 	if err != nil {
 		return nil, fmt.Errorf("decode tapscript hex: %w", err)
 	}
-	return &contract.PathSelection{
+	return &PathSelection{
 		Leaf:     txscript.NewBaseTapLeaf(scriptBytes),
 		Sequence: sequence,
 		Locktime: locktime,
