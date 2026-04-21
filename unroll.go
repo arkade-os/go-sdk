@@ -26,12 +26,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return fmt.Errorf("no vtxos to unroll")
 	}
 
-	vtxos := make([]clientTypes.Vtxo, 0, len(allVtxos))
-	for _, vtxo := range allVtxos {
-		vtxos = append(vtxos, vtxo.Vtxo)
-	}
-
-	res, err := a.ArkClient.Unroll(ctx, client.WithVtxosToUnroll(vtxos))
+	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos))
 	if err != nil {
 		return err
 	}
@@ -43,11 +38,12 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		}
 
 		parentTxid := parentTx.TxID()
-		vtxosToUpdate := make([]clientTypes.Vtxo, 0, len(vtxos))
-		for _, vtxo := range vtxos {
+		vtxosToUpdate := make([]clientTypes.Vtxo, 0, len(allVtxos))
+		for _, vtxo := range allVtxos {
 			if vtxo.Txid == parentTxid {
-				vtxo.Unrolled = true
-				vtxosToUpdate = append(vtxosToUpdate, vtxo)
+				v := vtxo.Vtxo
+				v.Unrolled = true
+				vtxosToUpdate = append(vtxosToUpdate, v)
 			}
 		}
 		count, err := a.store.VtxoStore().UnrollVtxos(ctx, vtxosToUpdate)
@@ -59,4 +55,19 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (a *arkClient) CompleteUnroll(ctx context.Context, to string) (string, error) {
+	return a.ArkClient.CompleteUnroll(ctx, to)
+}
+
+func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error) {
+	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx)
+}
+
+func (a *arkClient) WithdrawFromAllExpiredBoardings(
+	ctx context.Context,
+	to string,
+) (string, error) {
+	return a.ArkClient.WithdrawFromAllExpiredBoardings(ctx, to)
 }

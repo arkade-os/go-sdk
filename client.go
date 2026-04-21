@@ -345,6 +345,17 @@ func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEven
 	return nil
 }
 
+func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, error) {
+	return a.ArkClient.SignTransaction(ctx, tx)
+}
+
+func (a *arkClient) FinalizePendingTxs(
+	ctx context.Context,
+	createdAfter *time.Time,
+) ([]string, error) {
+	return a.ArkClient.FinalizePendingTxs(ctx, createdAfter)
+}
+
 func (a *arkClient) setRestored(err error) {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()

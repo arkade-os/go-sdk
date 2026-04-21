@@ -37,7 +37,7 @@ func (m *mockWallet) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	return nil, nil
 }
 func (m *mockWallet) SignTransaction(
-	_ context.Context, _ explorer.Explorer, _ string,
+	_ context.Context, _ explorer.Explorer, _ string, _ map[string]string,
 ) (string, error) {
 	return "", nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
 func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
@@ -86,6 +87,28 @@ func (a *arkClient) CollaborativeExit(
 	}
 
 	return res.CommitmentTxid, nil
+}
+
+func (a *arkClient) RegisterIntent(
+	ctx context.Context,
+	vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
+	outputs []clientTypes.Receiver, cosignersPublicKeys []string,
+) (string, error) {
+	return a.ArkClient.RegisterIntent(
+		ctx,
+		vtxos,
+		boardingUtxos,
+		notes,
+		outputs,
+		cosignersPublicKeys,
+	)
+}
+
+func (a *arkClient) DeleteIntent(
+	ctx context.Context,
+	vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
+) error {
+	return a.ArkClient.DeleteIntent(ctx, vtxos, boardingUtxos, notes)
 }
 
 func (a *arkClient) RedeemNotes(

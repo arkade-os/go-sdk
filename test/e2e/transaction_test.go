@@ -353,7 +353,7 @@ func TestOffchainTx(t *testing.T) {
 			// sign the ark transaction
 			encodedArkTx, err := ptx.B64Encode()
 			require.NoError(t, err)
-			signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx)
+			signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx, nil)
 			require.NoError(t, err)
 
 			txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
@@ -508,7 +508,7 @@ func TestOffchainTx(t *testing.T) {
 			// sign the ark transaction
 			encodedArkTx, err := ptx.B64Encode()
 			require.NoError(t, err)
-			signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx)
+			signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx, nil)
 			require.NoError(t, err)
 
 			txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
