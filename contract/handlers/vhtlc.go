@@ -334,6 +334,14 @@ func parseVHTLCParams(raw map[string]string, serverPubKey *btcec.PublicKey) (*vh
 		return nil, err
 	}
 
+	server := serverPubKey
+	if server == nil {
+		server, err = parsePubKey(raw, "server")
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	hashHex, ok := raw["hash"]
 	if !ok || hashHex == "" {
 		return nil, fmt.Errorf("vhtlc handler: missing required param \"hash\"")
@@ -366,7 +374,7 @@ func parseVHTLCParams(raw map[string]string, serverPubKey *btcec.PublicKey) (*vh
 	return &vhtlcParams{
 		sender:                sender,
 		receiver:              receiver,
-		server:                serverPubKey,
+		server:                server,
 		hash:                  hash,
 		refundLocktime:        refundLT,
 		claimDelay:            claimDelay,
@@ -376,7 +384,7 @@ func parseVHTLCParams(raw map[string]string, serverPubKey *btcec.PublicKey) (*vh
 }
 
 func parseVHTLCParamsFromSerialized(m map[string]string) (*vhtlcParams, error) {
-	return parseVHTLCParams(m, nil) // server reconstructed from serialized "server" key
+	return parseVHTLCParams(m, nil)
 }
 
 func parsePubKey(raw map[string]string, key string) (*btcec.PublicKey, error) {

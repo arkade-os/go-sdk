@@ -123,6 +123,11 @@ func (r *contractRepository) UpdateContractState(
 	return err
 }
 
+func (r *contractRepository) Clean(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM contract`)
+	return err
+}
+
 // rowScanner is implemented by both *sql.Row and *sql.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error

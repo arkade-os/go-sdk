@@ -9,4 +9,5 @@ type ContractStore interface {
 	GetContractByScript(ctx context.Context, script string) (*Contract, error)
 	ListContracts(ctx context.Context, f Filter) ([]Contract, error)
 	UpdateContractState(ctx context.Context, script string, state State) error
+	Clean(ctx context.Context) error
 }

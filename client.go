@@ -1530,11 +1530,6 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 		return nil, fmt.Errorf("explorer not initialized")
 	}
 
-	cfg, err := a.GetConfigData(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
 	if err != nil {
 		return nil, err
@@ -1543,6 +1538,7 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 	type boardingAddr struct {
 		address    string
 		tapscripts []string
+		delay      arklib.RelativeLocktime
 	}
 	var boardingAddrs []boardingAddr
 	for _, c := range contracts {
@@ -1550,6 +1546,7 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 			boardingAddrs = append(boardingAddrs, boardingAddr{
 				address:    c.Boarding,
 				tapscripts: c.BoardingTapscripts,
+				delay:      c.BoardingDelay,
 			})
 		}
 	}
@@ -1594,9 +1591,9 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 						},
 						Amount: vout.Amount,
 						Script: vout.Script,
-						Delay:  cfg.BoardingExitDelay,
+						Delay:  addr.delay,
 						SpendableAt: utxoTime.Add(
-							time.Duration(cfg.BoardingExitDelay.Seconds()) * time.Second,
+							time.Duration(addr.delay.Seconds()) * time.Second,
 						),
 						CreatedAt:  createdAt,
 						Tapscripts: addr.tapscripts,

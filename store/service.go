@@ -142,6 +142,10 @@ func (s *service) Clean(ctx context.Context) {
 		//nolint
 		s.assetStore.Clean(ctx)
 	}
+	if s.contractStore != nil {
+		//nolint
+		s.contractStore.Clean(ctx)
+	}
 }
 
 func (s *service) Close() {

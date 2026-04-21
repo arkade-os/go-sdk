@@ -262,8 +262,22 @@ func (w *Watcher) pollOnce(ctx context.Context) {
 	if len(scripts) == 0 {
 		return
 	}
-	if _, err := w.idx.GetVtxos(ctx, indexer.WithScripts(scripts)); err != nil {
+	resp, err := w.idx.GetVtxos(ctx, indexer.WithScripts(scripts))
+	if err != nil {
 		log.WithError(err).Warn("watcher: failsafe poll failed")
+		return
+	}
+	data := &indexer.ScriptEventData{Scripts: scripts}
+	for _, vtxo := range resp.Vtxos {
+		v := vtxo
+		if v.Spent {
+			data.SpentVtxos = append(data.SpentVtxos, v)
+		} else {
+			data.NewVtxos = append(data.NewVtxos, v)
+		}
+	}
+	if len(data.NewVtxos) > 0 || len(data.SpentVtxos) > 0 {
+		w.handleData(ctx, data)
 	}
 }
 
