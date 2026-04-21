@@ -32,9 +32,9 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	settleOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
-		client.WithKeys(scriptToKeyID),
+	settleOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
+	if len(scriptToKeyID) > 0 {
+		settleOpts = append(settleOpts, client.WithKeys(scriptToKeyID))
 	}
 	if batchSessionOpts.retryNum > 0 {
 		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
@@ -75,9 +75,9 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	exitOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
-		client.WithKeys(scriptToKeyID),
+	exitOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
+	if len(scriptToKeyID) > 0 {
+		exitOpts = append(exitOpts, client.WithKeys(scriptToKeyID))
 	}
 	if batchSessionOpts.retryNum > 0 {
 		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))

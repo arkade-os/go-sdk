@@ -36,12 +36,11 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	res, err := a.ArkClient.SendOffChain(
-		ctx,
-		clone,
-		client.WithVtxos(vtxos),
-		client.WithKeys(scriptToKeyID),
-	)
+	sendOpts := []client.SendOption{client.WithVtxos(vtxos)}
+	if len(scriptToKeyID) > 0 {
+		sendOpts = append(sendOpts, client.WithKeys(scriptToKeyID))
+	}
+	res, err := a.ArkClient.SendOffChain(ctx, clone, sendOpts...)
 	if err != nil {
 		return "", err
 	}

@@ -26,7 +26,11 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return fmt.Errorf("no vtxos to unroll")
 	}
 
-	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos), client.WithKeys(scriptToKeyID))
+	unrollOpts := []client.UnrollOption{client.WithVtxos(allVtxos)}
+	if len(scriptToKeyID) > 0 {
+		unrollOpts = append(unrollOpts, client.WithKeys(scriptToKeyID))
+	}
+	res, err := a.ArkClient.Unroll(ctx, unrollOpts...)
 	if err != nil {
 		return err
 	}

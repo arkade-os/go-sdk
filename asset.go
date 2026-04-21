@@ -21,14 +21,11 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	res, err := a.ArkClient.IssueAsset(
-		ctx,
-		amount,
-		controlAsset,
-		metadata,
-		client.WithVtxos(vtxos),
-		client.WithKeys(scriptToKeyID),
-	)
+	issueOpts := []client.SendOption{client.WithVtxos(vtxos)}
+	if len(scriptToKeyID) > 0 {
+		issueOpts = append(issueOpts, client.WithKeys(scriptToKeyID))
+	}
+	res, err := a.ArkClient.IssueAsset(ctx, amount, controlAsset, metadata, issueOpts...)
 	if err != nil {
 		return "", nil, err
 	}
@@ -53,13 +50,11 @@ func (a *arkClient) ReissueAsset(
 		return "", err
 	}
 
-	res, err := a.ArkClient.ReissueAsset(
-		ctx,
-		assetId,
-		amount,
-		client.WithVtxos(vtxos),
-		client.WithKeys(scriptToKeyID),
-	)
+	reissueOpts := []client.SendOption{client.WithVtxos(vtxos)}
+	if len(scriptToKeyID) > 0 {
+		reissueOpts = append(reissueOpts, client.WithKeys(scriptToKeyID))
+	}
+	res, err := a.ArkClient.ReissueAsset(ctx, assetId, amount, reissueOpts...)
 	if err != nil {
 		return "", err
 	}
@@ -84,13 +79,11 @@ func (a *arkClient) BurnAsset(
 		return "", err
 	}
 
-	res, err := a.ArkClient.BurnAsset(
-		ctx,
-		assetId,
-		amount,
-		client.WithVtxos(vtxos),
-		client.WithKeys(scriptToKeyID),
-	)
+	burnOpts := []client.SendOption{client.WithVtxos(vtxos)}
+	if len(scriptToKeyID) > 0 {
+		burnOpts = append(burnOpts, client.WithKeys(scriptToKeyID))
+	}
+	res, err := a.ArkClient.BurnAsset(ctx, assetId, amount, burnOpts...)
 	if err != nil {
 		return "", err
 	}
