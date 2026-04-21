@@ -373,15 +373,32 @@ func TestVHTLCHandler_GetSpendablePaths(t *testing.T) {
 		require.NotEmpty(t, paths[0].ExtraWitness)
 	})
 
-	t.Run("sender collaborative → 1 path (refundWithoutReceiver)", func(t *testing.T) {
+	t.Run(
+		"sender collaborative CLTV satisfied → 1 path (refundWithoutReceiver)",
+		func(t *testing.T) {
+			t.Parallel()
+			bh := uint32(2000) // > refundLocktime(1000)
+			paths, err := h.GetSpendablePaths(context.Background(), c, contract.PathContext{
+				Collaborative: true,
+				WalletPubKey:  senderPubKey,
+				BlockHeight:   &bh,
+			})
+			require.NoError(t, err)
+			require.Len(t, paths, 1)
+			require.Nil(t, paths[0].Sequence)
+		},
+	)
+
+	t.Run("sender collaborative CLTV not satisfied → 0 paths", func(t *testing.T) {
 		t.Parallel()
+		bh := uint32(500) // < refundLocktime(1000)
 		paths, err := h.GetSpendablePaths(context.Background(), c, contract.PathContext{
 			Collaborative: true,
 			WalletPubKey:  senderPubKey,
+			BlockHeight:   &bh,
 		})
 		require.NoError(t, err)
-		require.Len(t, paths, 1)
-		require.Nil(t, paths[0].Sequence)
+		require.Empty(t, paths)
 	})
 
 	t.Run("receiver unilateral with preimage → 1 path (unilateralClaim)", func(t *testing.T) {

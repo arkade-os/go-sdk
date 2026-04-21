@@ -13,7 +13,8 @@ import (
 type Manager interface {
 	// Bootstrap loads contracts for all existing keys; call after wallet unlock.
 	Bootstrap(ctx context.Context) error
-	// NewDefault creates a new default contract by generating a fresh wallet key.
+	// NewDefault returns the most recently created active default contract, or
+	// creates one with a fresh wallet key if none exists.
 	NewDefault(ctx context.Context) (*Contract, error)
 	// GetContracts returns all contracts matching the given filter.
 	GetContracts(ctx context.Context, f Filter) ([]Contract, error)
@@ -38,6 +39,7 @@ func NewManager(ks Keystore, cfg *clientTypes.Config, r *Registry, store Contrac
 		registry:  r,
 		store:     store,
 		contracts: make(map[string]Contract),
+		cbs:       make(map[int]func(Event)),
 	}
 }
 
@@ -50,8 +52,9 @@ type managerImpl struct {
 	mu        sync.RWMutex
 	contracts map[string]Contract // scriptHex → Contract (write-through cache)
 
-	cbMu sync.RWMutex
-	cbs  []func(Event)
+	cbMu   sync.RWMutex
+	cbs    map[int]func(Event)
+	cbNext int
 }
 
 func (m *managerImpl) Bootstrap(ctx context.Context) error {
@@ -96,6 +99,21 @@ func (m *managerImpl) Bootstrap(ctx context.Context) error {
 }
 
 func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
+	typ := "default"
+	active := string(StateActive)
+	existing, err := m.GetContracts(ctx, Filter{Type: &typ, State: &active})
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) > 0 {
+		latest := existing[0]
+		for _, c := range existing[1:] {
+			if c.CreatedAt.After(latest.CreatedAt) {
+				latest = c
+			}
+		}
+		return &latest, nil
+	}
 	return m.createWithHandler(ctx, "default", "", nil)
 }
 
@@ -163,14 +181,13 @@ func (m *managerImpl) GetContracts(ctx context.Context, f Filter) ([]Contract, e
 
 func (m *managerImpl) OnContractEvent(cb func(Event)) func() {
 	m.cbMu.Lock()
-	idx := len(m.cbs)
-	m.cbs = append(m.cbs, cb)
+	idx := m.cbNext
+	m.cbNext++
+	m.cbs[idx] = cb
 	m.cbMu.Unlock()
 	return func() {
 		m.cbMu.Lock()
-		if idx < len(m.cbs) {
-			m.cbs[idx] = nil
-		}
+		delete(m.cbs, idx)
 		m.cbMu.Unlock()
 	}
 }
@@ -188,8 +205,6 @@ func (m *managerImpl) emit(e Event) {
 	m.cbMu.RLock()
 	defer m.cbMu.RUnlock()
 	for _, cb := range m.cbs {
-		if cb != nil {
-			cb(e)
-		}
+		cb(e)
 	}
 }

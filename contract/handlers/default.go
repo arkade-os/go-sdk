@@ -31,7 +31,10 @@ func (h *DefaultHandler) DeriveContract(
 	cfg *clientTypes.Config,
 	_ map[string]string, // unused for the default handler
 ) (*contract.Contract, error) {
-	netParams := toBitcoinNetwork(cfg.Network)
+	netParams, err := toBitcoinNetwork(cfg.Network)
+	if err != nil {
+		return nil, err
+	}
 
 	offchainScript := script.NewDefaultVtxoScript(
 		key.PubKey, cfg.SignerPubKey, cfg.UnilateralExitDelay,
@@ -183,19 +186,19 @@ func tapLeafSelection(
 	}, nil
 }
 
-func toBitcoinNetwork(net arklib.Network) chaincfg.Params {
+func toBitcoinNetwork(net arklib.Network) (chaincfg.Params, error) {
 	switch net.Name {
 	case arklib.Bitcoin.Name:
-		return chaincfg.MainNetParams
+		return chaincfg.MainNetParams, nil
 	case arklib.BitcoinTestNet.Name:
-		return chaincfg.TestNet3Params
+		return chaincfg.TestNet3Params, nil
 	case arklib.BitcoinSigNet.Name:
-		return chaincfg.SigNetParams
+		return chaincfg.SigNetParams, nil
 	case arklib.BitcoinMutinyNet.Name:
-		return arklib.MutinyNetSigNetParams
+		return arklib.MutinyNetSigNetParams, nil
 	case arklib.BitcoinRegTest.Name:
-		return chaincfg.RegressionNetParams
+		return chaincfg.RegressionNetParams, nil
 	default:
-		return chaincfg.MainNetParams
+		return chaincfg.Params{}, fmt.Errorf("unknown network %q", net.Name)
 	}
 }

@@ -235,7 +235,7 @@ func (h *VHTLCHandler) GetSpendablePaths(
 			sel.ExtraWitness = [][]byte{pctx.Preimage}
 			paths = append(paths, *sel)
 		}
-		if role == "sender" {
+		if role == "sender" && isCltvSatisfied(c.Params, pctx) {
 			sel, err := tapLeafSelection(c.Tapscripts[2], nil, nil)
 			if err != nil {
 				return nil, err
