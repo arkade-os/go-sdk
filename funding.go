@@ -180,4 +180,3 @@ func (a *arkClient) getOffchainBalance(ctx context.Context) (
 
 	return
 }
-

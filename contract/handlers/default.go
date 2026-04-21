@@ -111,7 +111,10 @@ func (h *DefaultHandler) SelectPath(
 	_ context.Context, c *contract.Contract, pctx contract.PathContext,
 ) (*contract.PathSelection, error) {
 	if len(c.Tapscripts) < 2 {
-		return nil, fmt.Errorf("default contract requires at least 2 tapscripts, got %d", len(c.Tapscripts))
+		return nil, fmt.Errorf(
+			"default contract requires at least 2 tapscripts, got %d",
+			len(c.Tapscripts),
+		)
 	}
 	if pctx.Collaborative {
 		return tapLeafSelection(c.Tapscripts[1], nil, nil)
@@ -129,7 +132,10 @@ func (h *DefaultHandler) GetSpendablePaths(
 	_ context.Context, c *contract.Contract, pctx contract.PathContext,
 ) ([]contract.PathSelection, error) {
 	if len(c.Tapscripts) < 2 {
-		return nil, fmt.Errorf("default contract requires at least 2 tapscripts, got %d", len(c.Tapscripts))
+		return nil, fmt.Errorf(
+			"default contract requires at least 2 tapscripts, got %d",
+			len(c.Tapscripts),
+		)
 	}
 	seq, err := arklib.BIP68Sequence(c.Delay)
 	if err != nil {
@@ -162,7 +168,10 @@ func (h *DefaultHandler) DeserializeParams(_ map[string]string) (any, error) {
 }
 
 // tapLeafSelection decodes a hex-encoded tapscript and builds a PathSelection.
-func tapLeafSelection(hexScript string, sequence, locktime *uint32) (*contract.PathSelection, error) {
+func tapLeafSelection(
+	hexScript string,
+	sequence, locktime *uint32,
+) (*contract.PathSelection, error) {
 	scriptBytes, err := hex.DecodeString(hexScript)
 	if err != nil {
 		return nil, fmt.Errorf("decode tapscript hex: %w", err)

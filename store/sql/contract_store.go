@@ -102,7 +102,11 @@ func (r *contractRepository) ListContracts(
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	var contracts []contract.Contract
 	for rows.Next() {
@@ -139,15 +143,15 @@ func scanContract(row *sql.Row) (*contract.Contract, error) {
 
 func scanContractRow(row rowScanner) (*contract.Contract, error) {
 	var (
-		scriptHex, typ, label    string
-		paramsJSON, metaJSON     string
-		address, boarding, onchain string
-		stateStr                 string
-		createdAtUnix            int64
-		expiresAtUnix            sql.NullInt64
-		tapscriptsJSON           string
-		boardingTapscriptsJSON   string
-		delayType, delayValue    int64
+		scriptHex, typ, label           string
+		paramsJSON, metaJSON            string
+		address, boarding, onchain      string
+		stateStr                        string
+		createdAtUnix                   int64
+		expiresAtUnix                   sql.NullInt64
+		tapscriptsJSON                  string
+		boardingTapscriptsJSON          string
+		delayType, delayValue           int64
 		boardDelayType, boardDelayValue int64
 	)
 

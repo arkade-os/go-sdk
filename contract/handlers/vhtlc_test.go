@@ -3,7 +3,6 @@ package handlers_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
 	"testing"
@@ -15,18 +14,10 @@ import (
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
-	"golang.org/x/crypto/ripemd160"
 	"github.com/stretchr/testify/require"
 )
-
-// hash160 computes RIPEMD160(SHA256(b)).
-func hash160(b []byte) []byte {
-	h := sha256.Sum256(b)
-	r := ripemd160.New()
-	r.Write(h[:])
-	return r.Sum(nil)
-}
 
 func vhtlcParams(t *testing.T, cfg *clientTypes.Config) (
 	sender, receiver *btcec.PrivateKey,
@@ -42,7 +33,7 @@ func vhtlcParams(t *testing.T, cfg *clientTypes.Config) (
 	require.NoError(t, err)
 
 	preimage = []byte("test-preimage-secret")
-	hash := hash160(preimage)
+	hash := btcutil.Hash160(preimage)
 
 	// claimDelay: 144 blocks
 	claimLocktime := arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 144}
@@ -101,7 +92,7 @@ func TestVHTLCHandler_DeriveContract(t *testing.T) {
 	require.Empty(t, c.Onchain)
 
 	// Address matches manual derivation with the same 6-leaf tree.
-	hash := hash160([]byte("test-preimage-secret"))
+	hash := btcutil.Hash160([]byte("test-preimage-secret"))
 	condScript, err := txscript.NewScriptBuilder().
 		AddOp(txscript.OP_HASH160).
 		AddData(hash).
@@ -129,7 +120,11 @@ func TestVHTLCHandler_DeriveContract(t *testing.T) {
 				Condition: condScript,
 			},
 			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{senderPriv.PubKey(), receiverPriv.PubKey(), cfg.SignerPubKey},
+				PubKeys: []*btcec.PublicKey{
+					senderPriv.PubKey(),
+					receiverPriv.PubKey(),
+					cfg.SignerPubKey,
+				},
 			},
 			&script.CLTVMultisigClosure{
 				MultisigClosure: script.MultisigClosure{

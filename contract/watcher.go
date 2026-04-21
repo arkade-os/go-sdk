@@ -77,7 +77,11 @@ func (w *Watcher) Start(ctx context.Context) error {
 		if already || subId == "" {
 			return
 		}
-		if _, err := w.idx.SubscribeForScripts(watchCtx, subId, []string{e.Contract.Script}); err != nil {
+		if _, err := w.idx.SubscribeForScripts(
+			watchCtx,
+			subId,
+			[]string{e.Contract.Script},
+		); err != nil {
 			log.WithError(err).Warn("watcher: failed to add new contract script to subscription")
 		}
 	})

@@ -21,13 +21,13 @@ const (
 //   - Boarding: P2TR boarding address (longer exit delay)
 //   - Onchain:  plain P2TR key-path address
 type Contract struct {
-	Type    string
-	Label   string
-	Params  map[string]string
-	Script  string // hex pkScript of the Arkade taproot output (primary key)
-	Address string // Arkade bech32m address
-	Boarding string // P2TR boarding address
-	Onchain  string // plain P2TR address (key-path only)
+	Type      string
+	Label     string
+	Params    map[string]string
+	Script    string // hex pkScript of the Arkade taproot output (primary key)
+	Address   string // Arkade bech32m address
+	Boarding  string // P2TR boarding address
+	Onchain   string // plain P2TR address (key-path only)
 	State     State
 	CreatedAt time.Time
 	ExpiresAt *time.Time

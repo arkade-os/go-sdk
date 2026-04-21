@@ -166,7 +166,11 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 
 	t.Run("unilateral returns exit leaf with sequence", func(t *testing.T) {
 		t.Parallel()
-		sel, err := h.SelectPath(context.Background(), c, contract.PathContext{Collaborative: false})
+		sel, err := h.SelectPath(
+			context.Background(),
+			c,
+			contract.PathContext{Collaborative: false},
+		)
 		require.NoError(t, err)
 		require.NotNil(t, sel)
 		require.NotNil(t, sel.Sequence)
@@ -187,7 +191,11 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 
 	t.Run("unilateral returns only exit", func(t *testing.T) {
 		t.Parallel()
-		paths, err := h.GetSpendablePaths(context.Background(), c, contract.PathContext{Collaborative: false})
+		paths, err := h.GetSpendablePaths(
+			context.Background(),
+			c,
+			contract.PathContext{Collaborative: false},
+		)
 		require.NoError(t, err)
 		require.Len(t, paths, 1)
 		require.NotNil(t, paths[0].Sequence)
@@ -195,7 +203,11 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 
 	t.Run("collaborative returns exit + forfeit + delegate", func(t *testing.T) {
 		t.Parallel()
-		paths, err := h.GetSpendablePaths(context.Background(), c, contract.PathContext{Collaborative: true})
+		paths, err := h.GetSpendablePaths(
+			context.Background(),
+			c,
+			contract.PathContext{Collaborative: true},
+		)
 		require.NoError(t, err)
 		require.Len(t, paths, 3)
 		// First path is exit (has sequence), remaining are collaborative (no sequence).

@@ -292,13 +292,13 @@ func (h *VHTLCHandler) SerializeParams(params any) (map[string]string, error) {
 	}
 
 	return map[string]string{
-		"sender":               hex.EncodeToString(schnorr.SerializePubKey(p.sender)),
-		"receiver":             hex.EncodeToString(schnorr.SerializePubKey(p.receiver)),
-		"server":               hex.EncodeToString(schnorr.SerializePubKey(p.server)),
-		"hash":                 hex.EncodeToString(p.hash),
-		"refundLocktime":       strconv.FormatUint(uint64(p.refundLocktime), 10),
-		"claimDelay":           strconv.FormatUint(uint64(claimSeq), 10),
-		"refundDelay":          strconv.FormatUint(uint64(refundSeq), 10),
+		"sender":                hex.EncodeToString(schnorr.SerializePubKey(p.sender)),
+		"receiver":              hex.EncodeToString(schnorr.SerializePubKey(p.receiver)),
+		"server":                hex.EncodeToString(schnorr.SerializePubKey(p.server)),
+		"hash":                  hex.EncodeToString(p.hash),
+		"refundLocktime":        strconv.FormatUint(uint64(p.refundLocktime), 10),
+		"claimDelay":            strconv.FormatUint(uint64(claimSeq), 10),
+		"refundDelay":           strconv.FormatUint(uint64(refundSeq), 10),
 		"refundNoReceiverDelay": strconv.FormatUint(uint64(noRcvrSeq), 10),
 	}, nil
 }
@@ -420,7 +420,10 @@ func parseAbsoluteLocktime(raw map[string]string, key string) (arklib.AbsoluteLo
 func parseBIP68Delay(raw map[string]string, key string) (arklib.RelativeLocktime, error) {
 	s, ok := raw[key]
 	if !ok || s == "" {
-		return arklib.RelativeLocktime{}, fmt.Errorf("vhtlc handler: missing required param %q", key)
+		return arklib.RelativeLocktime{}, fmt.Errorf(
+			"vhtlc handler: missing required param %q",
+			key,
+		)
 	}
 	return bip68DecodeString(s)
 }
@@ -442,15 +445,18 @@ func bip68DecodeString(s string) (arklib.RelativeLocktime, error) {
 	}
 	seq := uint32(v)
 	const (
-		seqLocktimeTypeFlagBit  = uint32(1 << 22)
-		seqLocktimeMask         = uint32(0x0000ffff)
-		seqLocktimeGranularity  = 9
+		seqLocktimeTypeFlagBit = uint32(1 << 22)
+		seqLocktimeMask        = uint32(0x0000ffff)
+		seqLocktimeGranularity = 9
 	)
 	if seq&seqLocktimeTypeFlagBit != 0 {
 		value := (seq & seqLocktimeMask) << seqLocktimeGranularity
 		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: value}, nil
 	}
-	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: seq & seqLocktimeMask}, nil
+	return arklib.RelativeLocktime{
+		Type:  arklib.LocktimeTypeBlock,
+		Value: seq & seqLocktimeMask,
+	}, nil
 }
 
 // resolveVHTLCRole matches walletPubKey (32-byte Schnorr) against the stored
