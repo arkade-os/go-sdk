@@ -16,7 +16,7 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	vtxos, err := a.getSpendableVtxos(ctx, false)
+	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
@@ -36,7 +36,12 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, clone, client.WithVtxos(vtxos))
+	res, err := a.ArkClient.SendOffChain(
+		ctx,
+		clone,
+		client.WithVtxos(vtxos),
+		client.WithKeys(scriptToKeyID),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -51,48 +56,49 @@ func (a *arkClient) SendOffChain(
 
 func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
-) ([]clientTypes.VtxoWithTapTree, error) {
+) ([]clientTypes.VtxoWithTapTree, map[string]string, error) {
 	a.dbMu.Lock()
 	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
 	a.dbMu.Unlock()
 	if err != nil {
-		return nil, err
-	}
-	cfg, err := a.GetConfigData(ctx)
-	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
-	if err != nil {
-		return nil, err
-	}
-
-	addrToTapscripts := make(map[string][]string, len(contracts))
-	for _, c := range contracts {
-		addrToTapscripts[c.Address] = c.Tapscripts
-	}
-
-	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(spendableVtxos))
+	scripts := make([]string, 0, len(spendableVtxos))
 	for _, v := range spendableVtxos {
 		if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
 			continue
 		}
-
-		vtxoAddr, err := v.Address(cfg.SignerPubKey, cfg.Network)
-		if err != nil {
-			return nil, err
-		}
-
-		if tapscripts, ok := addrToTapscripts[vtxoAddr]; ok {
-			vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
-				Vtxo:       v,
-				Tapscripts: tapscripts,
-			})
-		} else {
-			log.Debugf("skipping vtxo %s:%d: no contract for address %s", v.Txid, v.VOut, vtxoAddr)
-		}
+		scripts = append(scripts, v.Script)
 	}
 
-	return vtxos, nil
+	contracts, err := a.contractManager.GetContractsForVtxos(ctx, scripts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	contractsByScript := make(map[string]contract.Contract, len(contracts))
+	for _, c := range contracts {
+		contractsByScript[c.Script] = c
+	}
+
+	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(scripts))
+	scriptToKeyID := make(map[string]string, len(contracts))
+	for _, v := range spendableVtxos {
+		if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
+			continue
+		}
+		c, ok := contractsByScript[v.Script]
+		if !ok {
+			log.Debugf("skipping vtxo %s:%d: no contract for script %s", v.Txid, v.VOut, v.Script)
+			continue
+		}
+		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
+			Vtxo:       v,
+			Tapscripts: c.Tapscripts,
+		})
+		scriptToKeyID[c.Script] = c.Params["keyId"]
+	}
+
+	return vtxos, scriptToKeyID, nil
 }

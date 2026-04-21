@@ -17,7 +17,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	allVtxos, err := a.getSpendableVtxos(ctx, false)
+	allVtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -26,7 +26,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return fmt.Errorf("no vtxos to unroll")
 	}
 
-	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos))
+	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos), client.WithKeys(scriptToKeyID))
 	if err != nil {
 		return err
 	}

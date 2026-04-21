@@ -18,6 +18,9 @@ type Manager interface {
 	NewDefault(ctx context.Context) (*Contract, error)
 	// GetContracts returns all contracts matching the given filter.
 	GetContracts(ctx context.Context, f Filter) ([]Contract, error)
+	// GetContractsForVtxos returns the contracts whose Script matches any of the
+	// provided vtxo script hex strings. Unknown scripts are silently omitted.
+	GetContractsForVtxos(ctx context.Context, scripts []string) ([]Contract, error)
 	// OnContractEvent registers a callback; returns an unsubscribe func.
 	OnContractEvent(cb func(Event)) func()
 	// Close releases resources and clears the in-memory contract map.
@@ -151,6 +154,25 @@ func (m *managerImpl) GetContracts(ctx context.Context, f Filter) ([]Contract, e
 			continue
 		}
 		result = append(result, c)
+	}
+	return result, nil
+}
+
+func (m *managerImpl) GetContractsForVtxos(
+	ctx context.Context,
+	scripts []string,
+) ([]Contract, error) {
+	lookup := make(map[string]struct{}, len(scripts))
+	for _, s := range scripts {
+		lookup[s] = struct{}{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []Contract
+	for _, c := range m.contracts {
+		if _, ok := lookup[c.Script]; ok {
+			result = append(result, c)
+		}
 	}
 	return result, nil
 }

@@ -210,6 +210,46 @@ func TestManager_GetContracts_StateFilter(t *testing.T) {
 	})
 }
 
+func TestManager_GetContractsForVtxos(t *testing.T) {
+	t.Parallel()
+
+	ks := newMockKeystore(t)
+	mgr := contract.NewManager(ks, testConfig(t), nil)
+
+	c, err := mgr.NewDefault(context.Background())
+	require.NoError(t, err)
+
+	t.Run("returns matching contract", func(t *testing.T) {
+		t.Parallel()
+		got, err := mgr.GetContractsForVtxos(context.Background(), []string{c.Script})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, c.Script, got[0].Script)
+	})
+
+	t.Run("empty scripts returns nothing", func(t *testing.T) {
+		t.Parallel()
+		got, err := mgr.GetContractsForVtxos(context.Background(), nil)
+		require.NoError(t, err)
+		require.Empty(t, got)
+	})
+
+	t.Run("unknown script is silently omitted", func(t *testing.T) {
+		t.Parallel()
+		got, err := mgr.GetContractsForVtxos(context.Background(), []string{"deadbeef"})
+		require.NoError(t, err)
+		require.Empty(t, got)
+	})
+
+	t.Run("mix of known and unknown scripts", func(t *testing.T) {
+		t.Parallel()
+		got, err := mgr.GetContractsForVtxos(context.Background(), []string{c.Script, "deadbeef"})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, c.Script, got[0].Script)
+	})
+}
+
 func TestManager_NewDefault_KeystoreError(t *testing.T) {
 	t.Parallel()
 
