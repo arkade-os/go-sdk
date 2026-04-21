@@ -109,6 +109,9 @@ func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
 	if err != nil {
 		return nil, err
 	}
+	if key == nil {
+		return nil, fmt.Errorf("keystore returned nil key")
+	}
 	c, err := (&DefaultHandler{}).DeriveContract(ctx, *key, m.cfg)
 	if err != nil {
 		return nil, err

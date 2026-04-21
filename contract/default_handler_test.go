@@ -141,3 +141,85 @@ func TestDefaultHandler_DifferentKeysDifferentContracts(t *testing.T) {
 	require.NotEqual(t, c1.Boarding, c2.Boarding)
 	require.NotEqual(t, c1.Onchain, c2.Onchain)
 }
+
+func TestDefaultHandler_SelectPath(t *testing.T) {
+	t.Parallel()
+
+	h := &contract.DefaultHandler{}
+	cfg := testCfg(t)
+	ctx := context.Background()
+
+	c, err := h.DeriveContract(ctx, testKey(t), cfg)
+	require.NoError(t, err)
+
+	t.Run("unilateral path has BIP68 sequence set", func(t *testing.T) {
+		t.Parallel()
+		sel, err := h.SelectPath(ctx, c, contract.PathContext{Collaborative: false})
+		require.NoError(t, err)
+		require.NotNil(t, sel.Sequence)
+		require.Nil(t, sel.Locktime)
+		require.NotEmpty(t, sel.Leaf.Script)
+	})
+
+	t.Run("collaborative path has no sequence", func(t *testing.T) {
+		t.Parallel()
+		sel, err := h.SelectPath(ctx, c, contract.PathContext{Collaborative: true})
+		require.NoError(t, err)
+		require.Nil(t, sel.Sequence)
+		require.NotEmpty(t, sel.Leaf.Script)
+	})
+
+	t.Run("fewer than 2 tapscripts returns error", func(t *testing.T) {
+		t.Parallel()
+		bad := &contract.Contract{Tapscripts: []string{"aabb"}}
+		_, err := h.SelectPath(ctx, bad, contract.PathContext{})
+		require.Error(t, err)
+	})
+}
+
+func TestDefaultHandler_GetSpendablePaths(t *testing.T) {
+	t.Parallel()
+
+	h := &contract.DefaultHandler{}
+	cfg := testCfg(t)
+	ctx := context.Background()
+
+	c, err := h.DeriveContract(ctx, testKey(t), cfg)
+	require.NoError(t, err)
+
+	t.Run("unilateral context returns exit path only", func(t *testing.T) {
+		t.Parallel()
+		paths, err := h.GetSpendablePaths(ctx, c, contract.PathContext{Collaborative: false})
+		require.NoError(t, err)
+		require.Len(t, paths, 1)
+		require.NotNil(t, paths[0].Sequence)
+	})
+
+	t.Run("collaborative context returns exit and forfeit paths", func(t *testing.T) {
+		t.Parallel()
+		paths, err := h.GetSpendablePaths(ctx, c, contract.PathContext{Collaborative: true})
+		require.NoError(t, err)
+		require.Len(t, paths, 2)
+		require.NotNil(t, paths[0].Sequence) // exit path carries CSV sequence
+		require.Nil(t, paths[1].Sequence)    // forfeit path has no sequence
+	})
+
+	t.Run("fewer than 2 tapscripts returns error", func(t *testing.T) {
+		t.Parallel()
+		bad := &contract.Contract{Tapscripts: []string{"aabb"}}
+		_, err := h.GetSpendablePaths(ctx, bad, contract.PathContext{})
+		require.Error(t, err)
+	})
+}
+
+func TestDefaultHandler_UnknownNetwork(t *testing.T) {
+	t.Parallel()
+
+	h := &contract.DefaultHandler{}
+	cfg := testCfg(t)
+	cfg.Network = arklib.Network{Name: "does-not-exist"}
+
+	_, err := h.DeriveContract(context.Background(), testKey(t), cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does-not-exist")
+}

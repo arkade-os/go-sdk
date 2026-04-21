@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -183,6 +184,52 @@ func TestManager_Close(t *testing.T) {
 	require.Empty(t, all)
 }
 
+func TestManager_GetContracts_StateFilter(t *testing.T) {
+	t.Parallel()
+
+	ks := newMockKeystore(t)
+	mgr := contract.NewManager(ks, testConfig(t), nil)
+
+	_, err := mgr.NewDefault(context.Background())
+	require.NoError(t, err)
+
+	t.Run("active state filter matches", func(t *testing.T) {
+		t.Parallel()
+		active := string(contract.StateActive)
+		got, err := mgr.GetContracts(context.Background(), contract.Filter{State: &active})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+	})
+
+	t.Run("inactive state filter misses active contracts", func(t *testing.T) {
+		t.Parallel()
+		inactive := string(contract.StateInactive)
+		got, err := mgr.GetContracts(context.Background(), contract.Filter{State: &inactive})
+		require.NoError(t, err)
+		require.Empty(t, got)
+	})
+}
+
+func TestManager_NewDefault_KeystoreError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NewKey error is propagated", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(&errKeystore{}, testConfig(t), nil)
+		_, err := mgr.NewDefault(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "keystore unavailable")
+	})
+
+	t.Run("nil key from NewKey returns error", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
+		_, err := mgr.NewDefault(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "keystore returned nil key")
+	})
+}
+
 // emptyKeystore returns no keys.
 type emptyKeystore struct{}
 
@@ -193,5 +240,18 @@ func (e *emptyKeystore) GetKey(_ context.Context, _ ...wallet.KeyOption) (*walle
 	return nil, nil
 }
 func (e *emptyKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
+	return nil, nil
+}
+
+// errKeystore returns an error from NewKey.
+type errKeystore struct{}
+
+func (e *errKeystore) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+	return nil, fmt.Errorf("keystore unavailable")
+}
+func (e *errKeystore) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+	return nil, nil
+}
+func (e *errKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	return nil, nil
 }
