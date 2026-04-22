@@ -88,7 +88,7 @@ func (a *arkClient) getSpendableVtxos(
 	for _, v := range eligible {
 		c, ok := contractsByScript[v.Script]
 		if !ok {
-			log.Debugf("skipping vtxo %s:%d: no contract for script %s", v.Txid, v.VOut, v.Script)
+			log.Warnf("skipping vtxo %s:%d: no contract for script %s", v.Txid, v.VOut, v.Script)
 			continue
 		}
 		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{

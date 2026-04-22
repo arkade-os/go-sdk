@@ -37,7 +37,7 @@ type Watcher struct {
 	mgr     Manager
 	network arklib.Network
 
-	mu              sync.Mutex
+	mu              sync.RWMutex
 	addresses       []string
 	addressByScript map[string]AddressInfo
 
@@ -119,8 +119,8 @@ func (w *Watcher) Events() <-chan clientTypes.OnchainAddressEvent {
 
 // LookupAddress returns the AddressInfo for a script hex, if known.
 func (w *Watcher) LookupAddress(scriptHex string) (AddressInfo, bool) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.mu.RLock()
+	defer w.mu.RUnlock()
 	info, ok := w.addressByScript[scriptHex]
 	return info, ok
 }

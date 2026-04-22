@@ -289,6 +289,16 @@ func (a *arkClient) Reset(ctx context.Context) {
 		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
 		a.syncListeners.clear()
 	}
+	if a.watcher != nil {
+		a.watcher.Stop()
+		a.watcher = nil
+	}
+	if a.contractManager != nil {
+		if err := a.contractManager.Close(); err != nil {
+			log.WithError(err).Warn("failed to close contract manager on reset")
+		}
+		a.contractManager = nil
+	}
 	if a.store != nil {
 		a.store.Clean(ctx)
 	}
@@ -311,6 +321,16 @@ func (a *arkClient) Stop() {
 		if a.syncListeners != nil {
 			a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
 			a.syncListeners.clear()
+		}
+		if a.watcher != nil {
+			a.watcher.Stop()
+			a.watcher = nil
+		}
+		if a.contractManager != nil {
+			if err := a.contractManager.Close(); err != nil {
+				log.WithError(err).Warn("failed to close contract manager on stop")
+			}
+			a.contractManager = nil
 		}
 
 		a.store.Close()

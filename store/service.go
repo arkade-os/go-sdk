@@ -52,6 +52,10 @@ func NewStore(storeConfig Config) (types.Store, error) {
 	if len(storeConfig.AppDataStoreType) > 0 {
 		switch storeConfig.AppDataStoreType {
 		case types.KVStore:
+			// KV store has no SQL backend, so contractStore is left nil.
+			// NewManager accepts nil and falls back to in-memory only.
+			// Contracts are re-derived from wallet keys on every Unlock via Load(),
+			// so nothing is lost as long as the keystore is intact.
 			utxoStore, err = kvstore.NewUtxoStore(dir, nil)
 			if err != nil {
 				return nil, err
