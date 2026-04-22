@@ -41,8 +41,9 @@ type Watcher struct {
 	addresses       []string
 	addressByScript map[string]AddressInfo
 
-	events chan clientTypes.OnchainAddressEvent
-	cancel context.CancelFunc
+	events    chan clientTypes.OnchainAddressEvent
+	closeOnce sync.Once
+	cancel    context.CancelFunc
 }
 
 // NewWatcher creates a Watcher. Call Start to begin watching.
@@ -194,6 +195,7 @@ func (w *Watcher) subscribeWithBackoff(ctx context.Context) error {
 }
 
 func (w *Watcher) listen(ctx context.Context) {
+	defer w.closeOnce.Do(func() { close(w.events) })
 	ch := w.exp.GetAddressesEvents()
 	for {
 		select {

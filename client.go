@@ -835,6 +835,10 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
+	if a.watcher == nil {
+		log.Error("cannot listen for onchain txs: watcher is nil")
+		return
+	}
 	explorer := a.ArkClient.Explorer()
 	if explorer == nil {
 		log.Error("failed to listen for onchain txs, explorer is nil")
