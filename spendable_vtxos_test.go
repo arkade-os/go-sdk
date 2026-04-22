@@ -81,7 +81,7 @@ type fixContractManager struct {
 	contracts []contract.Contract
 }
 
-func (m *fixContractManager) Bootstrap(_ context.Context) error { return nil }
+func (m *fixContractManager) Load(_ context.Context) error { return nil }
 func (m *fixContractManager) NewDefault(_ context.Context) (*contract.Contract, error) {
 	return nil, nil
 }

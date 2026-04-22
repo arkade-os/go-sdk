@@ -11,8 +11,8 @@ import (
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
 type Manager interface {
-	// Bootstrap loads contracts for all existing keys; call after wallet unlock.
-	Bootstrap(ctx context.Context) error
+	// Load loads contracts for all existing keys; call after wallet unlock.
+	Load(ctx context.Context) error
 	// NewDefault returns the most recently created active default contract, or
 	// creates one with a fresh wallet key if none exists.
 	NewDefault(ctx context.Context) (*Contract, error)
@@ -29,7 +29,7 @@ type Manager interface {
 
 // NewManager returns a Manager that keeps contracts in memory and optionally
 // persists them via store (pass nil to use in-memory only).
-// Call Bootstrap after unlocking the wallet to populate from existing keys.
+// Call Load after unlocking the wallet to populate from existing keys.
 func NewManager(ks Keystore, cfg *clientTypes.Config, store ContractStore) Manager {
 	return &managerImpl{
 		ks:        ks,
@@ -55,7 +55,7 @@ type managerImpl struct {
 	cbNext int                 // next subscriber ID
 }
 
-func (m *managerImpl) Bootstrap(ctx context.Context) error {
+func (m *managerImpl) Load(ctx context.Context) error {
 	// Seed in-memory cache from the persistent store.
 	if m.store != nil {
 		stored, err := m.store.ListContracts(ctx, Filter{})

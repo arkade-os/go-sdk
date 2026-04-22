@@ -60,11 +60,11 @@ func testConfig(t *testing.T) *clientTypes.Config {
 func TestManager_Bootstrap(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Bootstrap populates contracts for existing keys", func(t *testing.T) {
+	t.Run("Load populates contracts for existing keys", func(t *testing.T) {
 		t.Parallel()
 		ks := newMockKeystore(t)
 		mgr := contract.NewManager(ks, testConfig(t), nil)
-		require.NoError(t, mgr.Bootstrap(context.Background()))
+		require.NoError(t, mgr.Load(context.Background()))
 
 		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
 		require.NoError(t, err)
@@ -72,10 +72,10 @@ func TestManager_Bootstrap(t *testing.T) {
 		require.Equal(t, contract.TypeDefault, contracts[0].Type)
 	})
 
-	t.Run("Bootstrap with no keys is a no-op", func(t *testing.T) {
+	t.Run("Load with no keys is a no-op", func(t *testing.T) {
 		t.Parallel()
 		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
-		require.NoError(t, mgr.Bootstrap(context.Background()))
+		require.NoError(t, mgr.Load(context.Background()))
 
 		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
 		require.NoError(t, err)
