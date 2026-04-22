@@ -89,11 +89,17 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
+		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: get config: %w (rollback lock failed: %v)", err, lockErr)
+		}
 		return fmt.Errorf("unlock: get config: %w", err)
 	}
 	mgr := contract.NewManager(a.Wallet(), cfg, a.store.ContractStore())
 	if err := mgr.Load(ctx); err != nil {
-		return fmt.Errorf("unlock: bootstrap contracts: %w", err)
+		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: load contracts: %w (rollback lock failed: %v)", err, lockErr)
+		}
+		return fmt.Errorf("unlock: load contracts: %w", err)
 	}
 	a.contractManager = mgr
 
