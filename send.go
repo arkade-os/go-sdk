@@ -2,7 +2,6 @@ package arksdk
 
 import (
 	"context"
-	"fmt"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -93,20 +92,13 @@ func (a *arkClient) getSpendableVtxos(
 			log.Debugf("skipping vtxo %s:%d: no contract for script %s", v.Txid, v.VOut, v.Script)
 			continue
 		}
-		keyID := c.Params["keyId"]
-		if keyID == "" {
-			return nil, nil, fmt.Errorf(
-				"contract for vtxo %s:%d (script %s) is missing keyId",
-				v.Txid,
-				v.VOut,
-				v.Script,
-			)
-		}
 		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
 			Vtxo:       v,
 			Tapscripts: c.Tapscripts,
 		})
-		scriptToKeyID[c.Script] = keyID
+		if keyID := c.Params["keyId"]; keyID != "" {
+			scriptToKeyID[c.Script] = keyID
+		}
 	}
 
 	return vtxos, scriptToKeyID, nil
