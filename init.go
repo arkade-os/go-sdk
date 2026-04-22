@@ -140,6 +140,10 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	a.Explorer().Stop()
 
+	if a.stopFn != nil {
+		a.stopFn()
+	}
+
 	if a.contractManager != nil {
 		if err := a.contractManager.Close(); err != nil {
 			log.WithError(err).Warn("failed to close contract manager on lock")
@@ -151,10 +155,6 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	a.syncDone = false
 	a.syncErr = nil
 	a.syncMu.Unlock()
-
-	if a.stopFn != nil {
-		a.stopFn()
-	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
 		a.syncListeners.clear()

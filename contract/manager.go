@@ -199,6 +199,11 @@ func (m *managerImpl) Close() error {
 	m.mu.Lock()
 	m.contracts = make(map[string]Contract)
 	m.mu.Unlock()
+
+	m.cbMu.Lock()
+	m.cbs = make(map[int]func(Event))
+	m.cbMu.Unlock()
+
 	return nil
 }
 
