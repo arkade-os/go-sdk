@@ -103,6 +103,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}
 	a.cmMu.Lock()
 	a.contractManager = mgr
+	a.watcher = contract.NewWatcher(a.Explorer(), mgr, cfg.Network)
 	a.cmMu.Unlock()
 
 	a.syncDone = false
@@ -131,6 +132,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		// start listening to stream events
 		go a.listenForArkTxs(ctx)
+		if err := a.watcher.Start(ctx); err != nil {
+			log.WithError(err).Error("failed to start contract watcher")
+		}
 		go a.listenForOnchainTxs(ctx)
 		go a.listenDbEvents(ctx)
 
@@ -150,6 +154,11 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	if a.stopFn != nil {
 		a.stopFn()
+	}
+
+	if a.watcher != nil {
+		a.watcher.Stop()
+		a.watcher = nil
 	}
 
 	a.cmMu.Lock()

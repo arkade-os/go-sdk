@@ -8,10 +8,6 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
 )
 
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []client.VtxoDetails) {
@@ -139,53 +135,6 @@ func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
 		return spentByVtxos[0]
 	}
 	return types.Vtxo{}
-}
-
-func toOutputScript(onchainAddress string, network arklib.Network) ([]byte, error) {
-	netParams := toBitcoinNetwork(network)
-	rcvAddr, err := btcutil.DecodeAddress(onchainAddress, &netParams)
-	if err != nil {
-		return nil, err
-	}
-
-	return txscript.PayToAddrScript(rcvAddr)
-}
-
-func toOnchainAddress(arkAddress string, network arklib.Network) (string, error) {
-	netParams := toBitcoinNetwork(network)
-
-	decodedAddr, err := arklib.DecodeAddressV0(arkAddress)
-	if err != nil {
-		return "", err
-	}
-
-	witnessProgram := schnorr.SerializePubKey(decodedAddr.VtxoTapKey)
-
-	addr, err := btcutil.NewAddressTaproot(witnessProgram, &netParams)
-	if err != nil {
-		return "", err
-	}
-
-	return addr.String(), nil
-}
-
-func toBitcoinNetwork(net arklib.Network) chaincfg.Params {
-	switch net.Name {
-	case arklib.Bitcoin.Name:
-		return chaincfg.MainNetParams
-	case arklib.BitcoinTestNet.Name:
-		return chaincfg.TestNet3Params
-	//case arklib.BitcoinTestNet4.Name: //TODO uncomment once supported
-	//	return chaincfg.TestNet4Params
-	case arklib.BitcoinSigNet.Name:
-		return chaincfg.SigNetParams
-	case arklib.BitcoinMutinyNet.Name:
-		return arklib.MutinyNetSigNetParams
-	case arklib.BitcoinRegTest.Name:
-		return chaincfg.RegressionNetParams
-	default:
-		return chaincfg.MainNetParams
-	}
 }
 
 func networkFromString(net string) arklib.Network {

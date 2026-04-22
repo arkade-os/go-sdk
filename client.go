@@ -64,6 +64,7 @@ type arkClient struct {
 
 	cmMu            sync.RWMutex
 	contractManager contract.Manager
+	watcher         *contract.Watcher
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
@@ -814,124 +815,20 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
-	wallet := a.Wallet()
-	if wallet == nil {
-		// Should be unreachable
-		log.Error("failed to listen for onchain txs, wallet is nil")
-		return
-	}
 	explorer := a.ArkClient.Explorer()
 	if explorer == nil {
-		// Should be unreachable
 		log.Error("failed to listen for onchain txs, explorer is nil")
 		return
 	}
-	cfg, err := a.GetConfigData(ctx)
-	if err != nil {
-		// Should be unreachable
-		log.WithError(err).Error("failed to get config data")
-		return
-	}
 
-	mgr := a.contractMgr()
-	if mgr == nil {
-		return
-	}
-	contracts, err := mgr.GetContracts(ctx)
-	if err != nil {
-		log.WithError(err).Error("failed to get contracts for onchain listener")
-		return
-	}
-
-	type addressInfo struct {
-		tapscripts []string
-		delay      arklib.RelativeLocktime
-	}
-	addresses := make([]string, 0)
-	addressByScript := make(map[string]addressInfo, 0)
-
-	populateContract := func(c contract.Contract) []string {
-		addr := c.Address
-		if !c.IsOnchain {
-			// Offchain (VTXO) contract: subscribe to the onchain equivalent for
-			// unroll detection — a spent VTXO appears as an onchain output.
-			onchainEquiv, err := toOnchainAddress(addr, cfg.Network)
-			if err != nil {
-				log.WithError(err).Error("failed to convert ark address to onchain address")
-				return nil
-			}
-			addr = onchainEquiv
-		}
-		sc, err := toOutputScript(addr, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for contract address")
-			return nil
-		}
-		delay, err := c.GetDelay()
-		if err != nil {
-			// Plain onchain contracts (e.g. TypeDefaultOnchain) have no CSV exit
-			// delay — they are immediately spendable. Boarding and VTXO contracts
-			// must have a delay, so skip those if the param is missing or malformed.
-			if c.IsOnchain && c.Type != contract.TypeDefaultBoarding {
-				delay = arklib.RelativeLocktime{}
-			} else {
-				log.WithError(err).Errorf("skipping contract %s: invalid exit delay", c.Script)
-				return nil
-			}
-		}
-		addressByScript[hex.EncodeToString(sc)] = addressInfo{
-			tapscripts: c.GetTapscripts(),
-			delay:      delay,
-		}
-		return []string{addr}
-	}
-
-	for _, c := range contracts {
-		addresses = append(addresses, populateContract(c)...)
-	}
-
-	newContractCh := make(chan contract.Contract, 8)
-	unsub := mgr.OnContractEvent(func(e contract.Event) {
-		if e.Type == "contract_created" {
-			select {
-			case newContractCh <- e.Contract:
-			default:
-				log.Warn(
-					"newContractCh full, address subscription dropped for contract ",
-					e.Contract.Script,
-				)
-			}
-		}
-	})
-	defer unsub()
-
-	if err := explorer.SubscribeForAddresses(addresses); err != nil {
-		log.WithError(err).Error("failed to subscribe for onchain addresses")
-		return
-	}
-
-	ch := explorer.GetAddressesEvents()
-
-	log.Debugf("subscribed for %d addresses", len(addresses))
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debug("stopping onchain transaction listener")
-			if err := explorer.UnsubscribeForAddresses(addresses); err != nil {
-				log.WithError(err).Error("failed to unsubscribe for onchain addresses")
-			}
 			return
-		case c := <-newContractCh:
-			newAddrs := populateContract(c)
-			if len(newAddrs) > 0 {
-				if err := explorer.SubscribeForAddresses(newAddrs); err != nil {
-					log.WithError(err).Error("failed to subscribe for new contract addresses")
-				} else {
-					addresses = append(addresses, newAddrs...)
-				}
+		case update, ok := <-a.watcher.Events():
+			if !ok {
+				return
 			}
-		case update := <-ch:
-			// TODO: we may want to forward this error so the user can try to reconnect.
 			if update.Error != nil {
 				log.WithError(update.Error).Error("received error from explorer")
 				continue
@@ -1053,7 +950,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			if len(update.NewUtxos) > 0 {
 				utxosToAdd := make([]clientTypes.Utxo, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
-					address, ok := addressByScript[u.Script]
+					addrInfo, ok := a.watcher.LookupAddress(u.Script)
 					if !ok {
 						log.WithField("script", u.Script).
 							WithField("outpoint", u.Outpoint).
@@ -1072,7 +969,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					var spendableAt time.Time
 					if !u.CreatedAt.IsZero() {
 						spendableAt = u.CreatedAt.Add(
-							time.Duration(address.delay.Seconds()) * time.Second,
+							time.Duration(addrInfo.Delay.Seconds()) * time.Second,
 						)
 					}
 
@@ -1080,11 +977,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						Outpoint:    u.Outpoint,
 						Amount:      u.Amount,
 						Script:      u.Script,
-						Delay:       address.delay,
+						Delay:       addrInfo.Delay,
 						Spent:       false,
 						SpentBy:     "",
 						Tx:          txHex,
-						Tapscripts:  address.tapscripts,
+						Tapscripts:  addrInfo.Tapscripts,
 						CreatedAt:   u.CreatedAt,
 						SpendableAt: spendableAt,
 					})

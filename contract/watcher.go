@@ -1,0 +1,255 @@
+package contract
+
+import (
+	"context"
+	"encoding/hex"
+	"fmt"
+	"sync"
+	"time"
+
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	log "github.com/sirupsen/logrus"
+)
+
+const (
+	watcherBackoffBase = 1 * time.Second
+	watcherBackoffCap  = 30 * time.Second
+	watcherEventBuf    = 32
+)
+
+// AddressInfo holds the spending metadata for an address derived from a Contract.
+// Clients use it to populate UTXOs when explorer events arrive.
+type AddressInfo struct {
+	Tapscripts []string
+	Delay      arklib.RelativeLocktime
+}
+
+// Watcher subscribes to the explorer for all addresses derived from active contracts
+// and surfaces OnchainAddressEvents for the client to process.
+// New contracts are subscribed dynamically via the Manager's OnContractEvent callback.
+type Watcher struct {
+	exp     explorer.Explorer
+	mgr     Manager
+	network arklib.Network
+
+	mu              sync.Mutex
+	addresses       []string
+	addressByScript map[string]AddressInfo
+
+	events chan clientTypes.OnchainAddressEvent
+	cancel context.CancelFunc
+}
+
+// NewWatcher creates a Watcher. Call Start to begin watching.
+func NewWatcher(exp explorer.Explorer, mgr Manager, network arklib.Network) *Watcher {
+	return &Watcher{
+		exp:             exp,
+		mgr:             mgr,
+		network:         network,
+		addressByScript: make(map[string]AddressInfo),
+		events:          make(chan clientTypes.OnchainAddressEvent, watcherEventBuf),
+	}
+}
+
+// Start loads all current contracts, subscribes their addresses to the explorer,
+// and launches the listener goroutine. Newly created contracts are subscribed
+// dynamically. Start returns an error only if the initial address load fails;
+// subscription failures are retried internally with exponential backoff.
+func (w *Watcher) Start(ctx context.Context) error {
+	contracts, err := w.mgr.GetContracts(ctx)
+	if err != nil {
+		return fmt.Errorf("watcher: load contracts: %w", err)
+	}
+
+	for _, c := range contracts {
+		w.addContractAddresses(c)
+	}
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	w.cancel = cancel
+
+	// Subscribe with backoff so a slow explorer start does not abort the watcher.
+	go func() {
+		if err := w.subscribeWithBackoff(watchCtx); err != nil {
+			// Context cancelled before we could subscribe — clean exit.
+			return
+		}
+
+		// Dynamic subscription: one goroutine per new contract so the
+		// OnContractEvent callback never blocks NewDefault → emit.
+		unsub := w.mgr.OnContractEvent(func(e Event) {
+			if e.Type != "contract_created" {
+				return
+			}
+			c := e.Contract
+			go func() {
+				newAddrs := w.addContractAddresses(c)
+				if len(newAddrs) == 0 {
+					return
+				}
+				if err := w.exp.SubscribeForAddresses(newAddrs); err != nil {
+					log.WithError(err).Warn("watcher: failed to subscribe new contract addresses")
+				}
+			}()
+		})
+
+		w.listen(watchCtx)
+		unsub()
+	}()
+
+	return nil
+}
+
+// Stop cancels the watcher context, shutting down the listener goroutine.
+func (w *Watcher) Stop() {
+	if w.cancel != nil {
+		w.cancel()
+	}
+}
+
+// Events returns the channel on which the watcher delivers OnchainAddressEvents.
+func (w *Watcher) Events() <-chan clientTypes.OnchainAddressEvent {
+	return w.events
+}
+
+// LookupAddress returns the AddressInfo for a script hex, if known.
+func (w *Watcher) LookupAddress(scriptHex string) (AddressInfo, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	info, ok := w.addressByScript[scriptHex]
+	return info, ok
+}
+
+// addContractAddresses derives and records the address for c under w.mu.
+// Returns the slice of new addresses added (for callers that need to subscribe them).
+func (w *Watcher) addContractAddresses(c Contract) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	var addr string
+	if c.IsOnchain {
+		addr = c.Address
+	} else {
+		onchain, err := watcherArkToOnchain(c.Address, w.network)
+		if err != nil {
+			log.WithError(err).Warn("watcher: failed to convert ark address to onchain")
+			return nil
+		}
+		addr = onchain
+	}
+
+	sc, err := watcherOutputScript(addr, w.network)
+	if err != nil {
+		log.WithError(err).Warn("watcher: failed to derive script for contract address")
+		return nil
+	}
+
+	delay, err := c.GetDelay()
+	if err != nil {
+		if c.IsOnchain && c.Type != TypeDefaultBoarding {
+			delay = arklib.RelativeLocktime{}
+		} else {
+			log.WithError(err).Warnf("watcher: skipping contract %s: invalid exit delay", c.Script)
+			return nil
+		}
+	}
+
+	w.addressByScript[hex.EncodeToString(sc)] = AddressInfo{
+		Tapscripts: c.GetTapscripts(),
+		Delay:      delay,
+	}
+	w.addresses = append(w.addresses, addr)
+	return []string{addr}
+}
+
+func (w *Watcher) subscribeWithBackoff(ctx context.Context) error {
+	backoff := watcherBackoffBase
+	for {
+		w.mu.Lock()
+		addrs := make([]string, len(w.addresses))
+		copy(addrs, w.addresses)
+		w.mu.Unlock()
+
+		if err := w.exp.SubscribeForAddresses(addrs); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			log.WithError(err).Warnf("watcher: subscribe failed, retrying in %s", backoff)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff = min(backoff*2, watcherBackoffCap)
+			continue
+		}
+		log.Debugf("watcher: subscribed to %d addresses", len(addrs))
+		return nil
+	}
+}
+
+func (w *Watcher) listen(ctx context.Context) {
+	ch := w.exp.GetAddressesEvents()
+	for {
+		select {
+		case <-ctx.Done():
+			w.mu.Lock()
+			addrs := make([]string, len(w.addresses))
+			copy(addrs, w.addresses)
+			w.mu.Unlock()
+			if err := w.exp.UnsubscribeForAddresses(addrs); err != nil {
+				log.WithError(err).Warn("watcher: failed to unsubscribe on stop")
+			}
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				log.Warn("watcher: explorer event channel closed, resubscribing")
+				if err := w.subscribeWithBackoff(ctx); err != nil {
+					return
+				}
+				ch = w.exp.GetAddressesEvents()
+				continue
+			}
+			select {
+			case w.events <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// watcherOutputScript converts a bitcoin address string to its output script bytes.
+func watcherOutputScript(addr string, network arklib.Network) ([]byte, error) {
+	params, err := toBitcoinNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := btcutil.DecodeAddress(addr, &params)
+	if err != nil {
+		return nil, err
+	}
+	return txscript.PayToAddrScript(decoded)
+}
+
+// watcherArkToOnchain converts an Ark offchain address to its onchain P2TR equivalent.
+func watcherArkToOnchain(arkAddr string, network arklib.Network) (string, error) {
+	params, err := toBitcoinNetwork(network)
+	if err != nil {
+		return "", err
+	}
+	decoded, err := arklib.DecodeAddressV0(arkAddr)
+	if err != nil {
+		return "", err
+	}
+	addr, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(decoded.VtxoTapKey), &params)
+	if err != nil {
+		return "", err
+	}
+	return addr.String(), nil
+}
