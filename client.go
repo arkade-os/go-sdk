@@ -882,6 +882,10 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			select {
 			case newContractCh <- e.Contract:
 			default:
+				log.Warn(
+					"newContractCh full, address subscription dropped for contract ",
+					e.Contract.Script,
+				)
 			}
 		}
 	})
