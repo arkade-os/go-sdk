@@ -100,6 +100,9 @@ func (a *arkClient) RegisterIntent(
 	vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
 	outputs []clientTypes.Receiver, cosignersPublicKeys []string,
 ) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
 	return a.ArkClient.RegisterIntent(
 		ctx,
 		vtxos,
@@ -114,6 +117,9 @@ func (a *arkClient) DeleteIntent(
 	ctx context.Context,
 	vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
 ) error {
+	if err := a.safeCheck(); err != nil {
+		return err
+	}
 	return a.ArkClient.DeleteIntent(ctx, vtxos, boardingUtxos, notes)
 }
 

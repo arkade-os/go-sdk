@@ -62,10 +62,16 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 }
 
 func (a *arkClient) CompleteUnroll(ctx context.Context, to string) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
 	return a.ArkClient.CompleteUnroll(ctx, to)
 }
 
 func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
 	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx)
 }
 
@@ -73,5 +79,8 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 	ctx context.Context,
 	to string,
 ) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
 	return a.ArkClient.WithdrawFromAllExpiredBoardings(ctx, to)
 }

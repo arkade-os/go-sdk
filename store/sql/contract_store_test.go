@@ -38,6 +38,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
 	_, err = db.Exec(createContractTable)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })

@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -13,8 +13,7 @@ import (
 )
 
 type contractRepository struct {
-	db   *sql.DB
-	lock sync.Mutex
+	db *sql.DB
 }
 
 // NewContractStore returns a ContractStore backed by the given SQLite database.
@@ -75,7 +74,7 @@ func (r *contractRepository) GetContractByScript(
 	const q = `SELECT * FROM contract WHERE script = ?`
 	row := r.db.QueryRowContext(ctx, q, scriptHex)
 	c, err := scanContract(row)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	return c, err
@@ -130,8 +129,6 @@ func (r *contractRepository) UpdateContractState(
 }
 
 func (r *contractRepository) Clean(ctx context.Context) error {
-	r.lock.Lock()
-	defer r.lock.Unlock()
 	_, err := r.db.ExecContext(ctx, `DELETE FROM contract`)
 	return err
 }

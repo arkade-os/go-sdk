@@ -48,6 +48,8 @@ type managerImpl struct {
 	mu        sync.RWMutex
 	contracts map[string]Contract // scriptHex → Contract (write-through cache)
 
+	defaultCreateMu sync.Mutex // serializes the check-mint-persist sequence in NewDefault
+
 	cbMu   sync.RWMutex
 	cbs    map[int]func(Event) // event subscribers, keyed by monotonic ID
 	cbNext int                 // next subscriber ID
@@ -92,6 +94,9 @@ func (m *managerImpl) Bootstrap(ctx context.Context) error {
 }
 
 func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
+	m.defaultCreateMu.Lock()
+	defer m.defaultCreateMu.Unlock()
+
 	typ := TypeDefault
 	active := string(StateActive)
 	existing, err := m.GetContracts(ctx, Filter{Type: &typ, State: &active})
