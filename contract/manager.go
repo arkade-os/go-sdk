@@ -24,8 +24,9 @@ type Manager interface {
 	// deposit UX. Per-payment key derivation (e.g. for HTLC-style contracts)
 	// will be introduced via the handler registry in a follow-up PR.
 	NewDefault(ctx context.Context) (*Contract, error)
-	// GetContracts returns all contracts matching the given filter.
-	GetContracts(ctx context.Context, f Filter) ([]Contract, error)
+	// GetContracts returns all contracts matching the given options.
+	// Pass no options to return all contracts.
+	GetContracts(ctx context.Context, opts ...FilterOption) ([]Contract, error)
 	// GetContractsForVtxos returns the contracts whose Script matches any of the
 	// provided vtxo script hex strings. Unknown scripts are silently omitted.
 	GetContractsForVtxos(ctx context.Context, scripts []string) ([]Contract, error)
@@ -85,12 +86,11 @@ func (m *managerImpl) Load(ctx context.Context) error {
 	}
 	for _, key := range keys {
 		// Check whether an offchain contract for this key already exists.
-		isOnchain := false
-		typ := TypeDefault
-		keyID := key.Id
 		existing, err := m.GetContracts(
 			ctx,
-			Filter{Type: &typ, IsOnchain: &isOnchain, KeyID: &keyID},
+			WithType(TypeDefault),
+			WithIsOnchain(false),
+			WithKeyID(key.Id),
 		)
 		if err != nil {
 			return err
@@ -115,10 +115,11 @@ func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
 	m.defaultCreateMu.Lock()
 	defer m.defaultCreateMu.Unlock()
 
-	typ := TypeDefault
-	active := string(StateActive)
-	isOnchain := false
-	existing, err := m.GetContracts(ctx, Filter{Type: &typ, State: &active, IsOnchain: &isOnchain})
+	existing, err := m.GetContracts(ctx,
+		WithType(TypeDefault),
+		WithState(StateActive),
+		WithIsOnchain(false),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +178,11 @@ func (m *managerImpl) persistAndCache(ctx context.Context, c Contract) error {
 	return nil
 }
 
-func (m *managerImpl) GetContracts(ctx context.Context, f Filter) ([]Contract, error) {
+func (m *managerImpl) GetContracts(ctx context.Context, opts ...FilterOption) ([]Contract, error) {
+	f := &Filter{}
+	for _, opt := range opts {
+		opt(f)
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []Contract

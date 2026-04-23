@@ -113,6 +113,30 @@ type Filter struct {
 	KeyID     *string // matches Params[ParamKeyID]
 }
 
+// FilterOption configures a Filter for Manager query methods.
+// Pass no options to return all contracts.
+type FilterOption func(*Filter)
+
+func WithType(t string) FilterOption {
+	return func(f *Filter) { f.Type = &t }
+}
+
+func WithState(s State) FilterOption {
+	return func(f *Filter) { st := string(s); f.State = &st }
+}
+
+func WithScript(s string) FilterOption {
+	return func(f *Filter) { f.Script = &s }
+}
+
+func WithIsOnchain(v bool) FilterOption {
+	return func(f *Filter) { f.IsOnchain = &v }
+}
+
+func WithKeyID(id string) FilterOption {
+	return func(f *Filter) { f.KeyID = &id }
+}
+
 type Event struct {
 	Type     string
 	Contract Contract

@@ -40,10 +40,10 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	}
 	keyID := primary.Params[contract.ParamKeyID]
 	boardingType := contract.TypeDefaultBoarding
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{
-		Type:  &boardingType,
-		KeyID: &keyID,
-	})
+	contracts, err := a.contractManager.GetContracts(ctx,
+		contract.WithType(boardingType),
+		contract.WithKeyID(keyID),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -72,10 +72,10 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	}
 	keyID := primary.Params[contract.ParamKeyID]
 	onchainType := contract.TypeDefaultOnchain
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{
-		Type:  &onchainType,
-		KeyID: &keyID,
-	})
+	contracts, err := a.contractManager.GetContracts(ctx,
+		contract.WithType(onchainType),
+		contract.WithKeyID(keyID),
+	)
 	if err != nil {
 		return "", err
 	}

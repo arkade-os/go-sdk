@@ -88,7 +88,7 @@ func (m *fixContractManager) NewDefault(_ context.Context) (*contract.Contract, 
 
 func (m *fixContractManager) GetContracts(
 	_ context.Context,
-	_ contract.Filter,
+	_ ...contract.FilterOption,
 ) ([]contract.Contract, error) {
 	return m.contracts, nil
 }

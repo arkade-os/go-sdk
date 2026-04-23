@@ -755,7 +755,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
-			contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
+			contracts, err := a.contractManager.GetContracts(ctx)
 			if err != nil {
 				log.WithError(err).Error("failed to get contracts for ark tx listener")
 				continue
@@ -820,7 +820,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		return
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
+	contracts, err := a.contractManager.GetContracts(ctx)
 	if err != nil {
 		log.WithError(err).Error("failed to get contracts for onchain listener")
 		return
@@ -1552,8 +1552,10 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 		return nil, fmt.Errorf("explorer not initialized")
 	}
 
-	boardingType := contract.TypeDefaultBoarding
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{Type: &boardingType})
+	contracts, err := a.contractManager.GetContracts(
+		ctx,
+		contract.WithType(contract.TypeDefaultBoarding),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1778,7 +1780,7 @@ func (a *arkClient) saveSendTransaction(
 		return err
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
+	contracts, err := a.contractManager.GetContracts(ctx)
 	if err != nil {
 		return err
 	}

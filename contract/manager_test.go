@@ -66,7 +66,7 @@ func TestManager_Bootstrap(t *testing.T) {
 		mgr := contract.NewManager(ks, testConfig(t), nil)
 		require.NoError(t, mgr.Load(context.Background()))
 
-		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
+		contracts, err := mgr.GetContracts(context.Background())
 		require.NoError(t, err)
 		// One key → three contracts: offchain, boarding, onchain.
 		require.Len(t, contracts, 3)
@@ -84,7 +84,7 @@ func TestManager_Bootstrap(t *testing.T) {
 		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
 		require.NoError(t, mgr.Load(context.Background()))
 
-		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
+		contracts, err := mgr.GetContracts(context.Background())
 		require.NoError(t, err)
 		require.Empty(t, contracts)
 	})
@@ -103,7 +103,7 @@ func TestManager_NewDefault(t *testing.T) {
 		require.Equal(t, contract.TypeDefault, c.Type)
 		require.Equal(t, contract.StateActive, c.State)
 
-		all, err := mgr.GetContracts(context.Background(), contract.Filter{})
+		all, err := mgr.GetContracts(context.Background())
 		require.NoError(t, err)
 		require.Len(t, all, 3)
 		scripts := make(map[string]bool, 3)
@@ -136,22 +136,20 @@ func TestManager_GetContracts_Filter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("filter by type matches", func(t *testing.T) {
-		typ := contract.TypeDefault
-		got, err := mgr.GetContracts(context.Background(), contract.Filter{Type: &typ})
+		got, err := mgr.GetContracts(context.Background(), contract.WithType(contract.TypeDefault))
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.Equal(t, c.Script, got[0].Script)
 	})
 
 	t.Run("filter by type misses", func(t *testing.T) {
-		typ := "other"
-		got, err := mgr.GetContracts(context.Background(), contract.Filter{Type: &typ})
+		got, err := mgr.GetContracts(context.Background(), contract.WithType("other"))
 		require.NoError(t, err)
 		require.Empty(t, got)
 	})
 
 	t.Run("filter by script matches", func(t *testing.T) {
-		got, err := mgr.GetContracts(context.Background(), contract.Filter{Script: &c.Script})
+		got, err := mgr.GetContracts(context.Background(), contract.WithScript(c.Script))
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 	})
@@ -192,7 +190,7 @@ func TestManager_Close(t *testing.T) {
 
 	require.NoError(t, mgr.Close())
 
-	all, err := mgr.GetContracts(context.Background(), contract.Filter{})
+	all, err := mgr.GetContracts(context.Background())
 	require.NoError(t, err)
 	require.Empty(t, all)
 }
@@ -208,16 +206,17 @@ func TestManager_GetContracts_StateFilter(t *testing.T) {
 
 	t.Run("active state filter matches", func(t *testing.T) {
 		t.Parallel()
-		active := string(contract.StateActive)
-		got, err := mgr.GetContracts(context.Background(), contract.Filter{State: &active})
+		got, err := mgr.GetContracts(context.Background(), contract.WithState(contract.StateActive))
 		require.NoError(t, err)
 		require.Len(t, got, 3)
 	})
 
 	t.Run("inactive state filter misses active contracts", func(t *testing.T) {
 		t.Parallel()
-		inactive := string(contract.StateInactive)
-		got, err := mgr.GetContracts(context.Background(), contract.Filter{State: &inactive})
+		got, err := mgr.GetContracts(
+			context.Background(),
+			contract.WithState(contract.StateInactive),
+		)
 		require.NoError(t, err)
 		require.Empty(t, got)
 	})
