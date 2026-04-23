@@ -13,8 +13,16 @@ import (
 type Manager interface {
 	// Load loads contracts for all existing keys; call after wallet unlock.
 	Load(ctx context.Context) error
-	// NewDefault returns the most recently created active default contract, or
-	// creates one with a fresh wallet key if none exists.
+	// NewDefault returns the most recently created active offchain (TypeDefault)
+	// contract, or creates one with a fresh wallet key if none exists. Boarding
+	// and onchain contracts for the same key are derived and persisted as a
+	// side effect; retrieve them via GetContracts with a KeyID filter.
+	//
+	// Address reuse is intentional here: the Ark server already knows all VTXOs
+	// and their scripts, so rotating keys per request does not improve privacy
+	// against the server. A stable boarding address is also preferable for
+	// deposit UX. Per-payment key derivation (e.g. for HTLC-style contracts)
+	// will be introduced via the handler registry in a follow-up PR.
 	NewDefault(ctx context.Context) (*Contract, error)
 	// GetContracts returns all contracts matching the given filter.
 	GetContracts(ctx context.Context, f Filter) ([]Contract, error)
@@ -76,18 +84,28 @@ func (m *managerImpl) Load(ctx context.Context) error {
 		return err
 	}
 	for _, key := range keys {
-		c, err := h.DeriveContract(ctx, key, m.cfg)
+		// Check whether an offchain contract for this key already exists.
+		isOnchain := false
+		typ := TypeDefault
+		keyID := key.Id
+		existing, err := m.GetContracts(
+			ctx,
+			Filter{Type: &typ, IsOnchain: &isOnchain, KeyID: &keyID},
+		)
 		if err != nil {
-			return fmt.Errorf("bootstrap: derive contract for key %s: %w", key.Id, err)
+			return err
 		}
-		m.mu.RLock()
-		_, exists := m.contracts[c.Script]
-		m.mu.RUnlock()
-		if exists {
+		if len(existing) > 0 {
 			continue
 		}
-		if err := m.persistAndCache(ctx, *c); err != nil {
-			return fmt.Errorf("bootstrap: persist contract for key %s: %w", key.Id, err)
+		contracts, err := h.DeriveContracts(ctx, key, m.cfg)
+		if err != nil {
+			return fmt.Errorf("bootstrap: derive contracts for key %s: %w", key.Id, err)
+		}
+		for _, c := range contracts {
+			if err := m.persistAndCache(ctx, *c); err != nil {
+				return fmt.Errorf("bootstrap: persist contract for key %s: %w", key.Id, err)
+			}
 		}
 	}
 	return nil
@@ -99,11 +117,16 @@ func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
 
 	typ := TypeDefault
 	active := string(StateActive)
-	existing, err := m.GetContracts(ctx, Filter{Type: &typ, State: &active})
+	isOnchain := false
+	existing, err := m.GetContracts(ctx, Filter{Type: &typ, State: &active, IsOnchain: &isOnchain})
 	if err != nil {
 		return nil, err
 	}
 	if len(existing) > 0 {
+		// Reuse the most recent active contract. All three address facets
+		// (offchain, boarding, onchain) come from the same key, so the caller
+		// receives the same addresses on every request. See the interface comment
+		// on NewDefault for why this is intentional.
 		latest := existing[0]
 		for _, c := range existing[1:] {
 			if c.CreatedAt.After(latest.CreatedAt) {
@@ -120,16 +143,26 @@ func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
 	if key == nil {
 		return nil, fmt.Errorf("keystore returned nil key")
 	}
-	c, err := (&DefaultHandler{}).DeriveContract(ctx, *key, m.cfg)
+	contracts, err := (&DefaultHandler{}).DeriveContracts(ctx, *key, m.cfg)
 	if err != nil {
 		return nil, err
 	}
-	c.CreatedAt = time.Now()
-	if err := m.persistAndCache(ctx, *c); err != nil {
-		return nil, err
+	now := time.Now()
+	var offchain *Contract
+	for _, c := range contracts {
+		c.CreatedAt = now
+		if err := m.persistAndCache(ctx, *c); err != nil {
+			return nil, err
+		}
+		m.emit(Event{Type: "contract_created", Contract: *c})
+		if c.Type == TypeDefault {
+			offchain = c
+		}
 	}
-	m.emit(Event{Type: "contract_created", Contract: *c})
-	return c, nil
+	if offchain == nil {
+		return nil, fmt.Errorf("DeriveContracts did not return an offchain contract")
+	}
+	return offchain, nil
 }
 
 func (m *managerImpl) persistAndCache(ctx context.Context, c Contract) error {
@@ -156,6 +189,12 @@ func (m *managerImpl) GetContracts(ctx context.Context, f Filter) ([]Contract, e
 			continue
 		}
 		if f.Script != nil && c.Script != *f.Script {
+			continue
+		}
+		if f.IsOnchain != nil && c.IsOnchain != *f.IsOnchain {
+			continue
+		}
+		if f.KeyID != nil && c.Params[ParamKeyID] != *f.KeyID {
 			continue
 		}
 		result = append(result, c)

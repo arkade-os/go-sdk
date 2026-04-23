@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/contract"
 	sqlstore "github.com/arkade-os/go-sdk/store/sql"
 	"github.com/stretchr/testify/require"
@@ -15,23 +14,15 @@ import (
 
 const createContractTable = `
 CREATE TABLE IF NOT EXISTS contract (
-    script               TEXT PRIMARY KEY,
-    type                 TEXT NOT NULL,
-    label                TEXT NOT NULL DEFAULT '',
-    params               TEXT NOT NULL DEFAULT '{}',
-    address              TEXT NOT NULL DEFAULT '',
-    boarding             TEXT NOT NULL DEFAULT '',
-    onchain              TEXT NOT NULL DEFAULT '',
-    state                TEXT NOT NULL DEFAULT 'active',
-    created_at           INTEGER NOT NULL,
-    expires_at           INTEGER,
-    metadata             TEXT NOT NULL DEFAULT '{}',
-    tapscripts           TEXT NOT NULL DEFAULT '[]',
-    boarding_tapscripts  TEXT NOT NULL DEFAULT '[]',
-    delay_type           INTEGER NOT NULL DEFAULT 0,
-    delay_value          INTEGER NOT NULL DEFAULT 0,
-    boarding_delay_type  INTEGER NOT NULL DEFAULT 0,
-    boarding_delay_value INTEGER NOT NULL DEFAULT 0
+    script      TEXT PRIMARY KEY,
+    type        TEXT NOT NULL,
+    label       TEXT NOT NULL DEFAULT '',
+    params      TEXT NOT NULL DEFAULT '{}',
+    address     TEXT NOT NULL DEFAULT '',
+    is_onchain  INTEGER NOT NULL DEFAULT 0,
+    state       TEXT NOT NULL DEFAULT 'active',
+    created_at  INTEGER NOT NULL,
+    metadata    TEXT NOT NULL DEFAULT '{}'
 )`
 
 func newTestDB(t *testing.T) *sql.DB {
@@ -48,26 +39,19 @@ func newTestDB(t *testing.T) *sql.DB {
 func newTestContract(script string) contract.Contract {
 	now := time.Now().Truncate(time.Second)
 	return contract.Contract{
-		Script:             script,
-		Type:               contract.TypeDefault,
-		Label:              "test-label",
-		Params:             map[string]string{"keyId": "key-" + script},
-		Address:            "ark1testaddr",
-		Boarding:           "tb1qboardingaddr",
-		Onchain:            "tb1qonchainaddr",
-		State:              contract.StateActive,
-		CreatedAt:          now,
-		Metadata:           map[string]any{},
-		Tapscripts:         []string{"deadbeef", "cafebabe"},
-		BoardingTapscripts: []string{"aabbccdd"},
-		Delay: arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeBlock,
-			Value: 144,
+		Script: script,
+		Type:   contract.TypeDefault,
+		Label:  "test-label",
+		Params: map[string]string{
+			contract.ParamKeyID:      "key-" + script,
+			contract.ParamTapscripts: `["deadbeef","cafebabe"]`,
+			contract.ParamExitDelay:  "block:144",
 		},
-		BoardingDelay: arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeBlock,
-			Value: 1008,
-		},
+		Address:   "ark1testaddr",
+		IsOnchain: false,
+		State:     contract.StateActive,
+		CreatedAt: now,
+		Metadata:  map[string]any{},
 	}
 }
 
@@ -89,15 +73,9 @@ func TestContractStore_UpsertAndGet(t *testing.T) {
 	require.Equal(t, c.Label, got.Label)
 	require.Equal(t, c.Params, got.Params)
 	require.Equal(t, c.Address, got.Address)
-	require.Equal(t, c.Boarding, got.Boarding)
-	require.Equal(t, c.Onchain, got.Onchain)
+	require.Equal(t, c.IsOnchain, got.IsOnchain)
 	require.Equal(t, c.State, got.State)
 	require.Equal(t, c.CreatedAt.Unix(), got.CreatedAt.Unix())
-	require.Equal(t, c.Tapscripts, got.Tapscripts)
-	require.Equal(t, c.BoardingTapscripts, got.BoardingTapscripts)
-	require.Equal(t, c.Delay, got.Delay)
-	require.Equal(t, c.BoardingDelay, got.BoardingDelay)
-	require.Nil(t, got.ExpiresAt)
 }
 
 func TestContractStore_GetNotFound(t *testing.T) {
@@ -130,23 +108,6 @@ func TestContractStore_UpsertUpdatesLabelAndState(t *testing.T) {
 	// Immutable fields should not change on conflict update.
 	require.Equal(t, c.Type, got.Type)
 	require.Equal(t, c.Address, got.Address)
-}
-
-func TestContractStore_ExpiresAt(t *testing.T) {
-	t.Parallel()
-
-	store := sqlstore.NewContractStore(newTestDB(t))
-	ctx := context.Background()
-
-	expiry := time.Now().Add(24 * time.Hour).Truncate(time.Second)
-	c := newTestContract("expiry_script")
-	c.ExpiresAt = &expiry
-	require.NoError(t, store.UpsertContract(ctx, c))
-
-	got, err := store.GetContractByScript(ctx, c.Script)
-	require.NoError(t, err)
-	require.NotNil(t, got.ExpiresAt)
-	require.Equal(t, expiry.Unix(), got.ExpiresAt.Unix())
 }
 
 func TestContractStore_ListContracts_NoFilter(t *testing.T) {
@@ -284,14 +245,12 @@ func TestContractStore_JSONRoundTrip_Tapscripts(t *testing.T) {
 	ctx := context.Background()
 
 	c := newTestContract("tap_script")
-	c.Tapscripts = []string{"deadbeef", "cafebabe", "f00d"}
-	c.BoardingTapscripts = []string{"11223344", "55667788"}
+	c.Params[contract.ParamTapscripts] = `["deadbeef","cafebabe","f00d"]`
 	require.NoError(t, store.UpsertContract(ctx, c))
 
 	got, err := store.GetContractByScript(ctx, c.Script)
 	require.NoError(t, err)
-	require.Equal(t, c.Tapscripts, got.Tapscripts)
-	require.Equal(t, c.BoardingTapscripts, got.BoardingTapscripts)
+	require.Equal(t, c.Params[contract.ParamTapscripts], got.Params[contract.ParamTapscripts])
 }
 
 func TestContractStore_JSONRoundTrip_Metadata(t *testing.T) {
@@ -317,12 +276,10 @@ func TestContractStore_DelayRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	c := newTestContract("delay_script")
-	c.Delay = arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 512}
-	c.BoardingDelay = arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 2016}
+	c.Params[contract.ParamExitDelay] = "block:512"
 	require.NoError(t, store.UpsertContract(ctx, c))
 
 	got, err := store.GetContractByScript(ctx, c.Script)
 	require.NoError(t, err)
-	require.Equal(t, c.Delay, got.Delay)
-	require.Equal(t, c.BoardingDelay, got.BoardingDelay)
+	require.Equal(t, "block:512", got.Params[contract.ParamExitDelay])
 }

@@ -16,22 +16,28 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 )
 
-const TypeDefault = "default"
-
-// DefaultHandler derives the standard Ark VTXO contract:
-// offchain (Arkade address) + boarding (P2TR, BoardingExitDelay) + onchain (bare key P2TR).
+// DefaultHandler derives the standard Ark VTXO contracts for a wallet key:
+// one offchain (Arkade address, IsOnchain=false), one boarding (P2TR with
+// boarding delay, IsOnchain=true), and one onchain (bare key P2TR, IsOnchain=true).
 type DefaultHandler struct{}
 
-func (h *DefaultHandler) DeriveContract(
+// DeriveContracts derives all three address-type contracts for the given key.
+// Each contract is self-contained: all params (tapscripts, delay, signer key)
+// live in Params so no external config is needed to interpret the contract later.
+func (h *DefaultHandler) DeriveContracts(
 	_ context.Context,
 	key wallet.KeyRef,
 	cfg *clientTypes.Config,
-) (*Contract, error) {
+) ([]*Contract, error) {
 	netParams, err := toBitcoinNetwork(cfg.Network)
 	if err != nil {
 		return nil, err
 	}
 
+	signerKeyHex := hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerPubKey))
+	now := time.Now()
+
+	// --- offchain VTXO contract (IsOnchain=false) ---
 	offchainScript := script.NewDefaultVtxoScript(
 		key.PubKey, cfg.SignerPubKey, cfg.UnilateralExitDelay,
 	)
@@ -39,7 +45,6 @@ func (h *DefaultHandler) DeriveContract(
 	if err != nil {
 		return nil, fmt.Errorf("offchain tap tree: %w", err)
 	}
-
 	arkAddr := &arklib.Address{
 		HRP:        cfg.Network.Addr,
 		Signer:     cfg.SignerPubKey,
@@ -49,17 +54,30 @@ func (h *DefaultHandler) DeriveContract(
 	if err != nil {
 		return nil, fmt.Errorf("encode ark address: %w", err)
 	}
-
 	tapscripts, err := offchainScript.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("encode offchain tapscripts: %w", err)
 	}
-
 	pkScript, err := txscript.PayToTaprootScript(vtxoTapKey)
 	if err != nil {
-		return nil, fmt.Errorf("pkScript: %w", err)
+		return nil, fmt.Errorf("offchain pkScript: %w", err)
+	}
+	offchain := &Contract{
+		Type: TypeDefault,
+		Params: map[string]string{
+			ParamKeyID:      key.Id,
+			ParamSignerKey:  signerKeyHex,
+			ParamTapscripts: serializeTapscripts(tapscripts),
+			ParamExitDelay:  serializeDelay(cfg.UnilateralExitDelay),
+		},
+		Script:    hex.EncodeToString(pkScript),
+		Address:   encodedArkAddr,
+		IsOnchain: false,
+		State:     StateActive,
+		CreatedAt: now,
 	}
 
+	// --- boarding contract (IsOnchain=true, has tapscripts and boarding delay) ---
 	boardingScript := script.NewDefaultVtxoScript(
 		key.PubKey, cfg.SignerPubKey, cfg.BoardingExitDelay,
 	)
@@ -67,19 +85,36 @@ func (h *DefaultHandler) DeriveContract(
 	if err != nil {
 		return nil, fmt.Errorf("boarding tap tree: %w", err)
 	}
-
 	boardingAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(boardingTapKey), &netParams,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("boarding address: %w", err)
 	}
-
 	boardingTapscripts, err := boardingScript.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("encode boarding tapscripts: %w", err)
 	}
+	boardingPkScript, err := txscript.PayToTaprootScript(boardingTapKey)
+	if err != nil {
+		return nil, fmt.Errorf("boarding pkScript: %w", err)
+	}
+	boarding := &Contract{
+		Type: TypeDefaultBoarding,
+		Params: map[string]string{
+			ParamKeyID:      key.Id,
+			ParamSignerKey:  signerKeyHex,
+			ParamTapscripts: serializeTapscripts(boardingTapscripts),
+			ParamExitDelay:  serializeDelay(cfg.BoardingExitDelay),
+		},
+		Script:    hex.EncodeToString(boardingPkScript),
+		Address:   boardingAddr.EncodeAddress(),
+		IsOnchain: true,
+		State:     StateActive,
+		CreatedAt: now,
+	}
 
+	// --- onchain contract (IsOnchain=true, bare key-path P2TR, no tapscripts or delay) ---
 	onchainTapKey := txscript.ComputeTaprootKeyNoScript(key.PubKey)
 	onchainAddr, err := btcutil.NewAddressTaproot(
 		schnorr.SerializePubKey(onchainTapKey), &netParams,
@@ -87,21 +122,24 @@ func (h *DefaultHandler) DeriveContract(
 	if err != nil {
 		return nil, fmt.Errorf("onchain address: %w", err)
 	}
+	onchainPkScript, err := txscript.PayToTaprootScript(onchainTapKey)
+	if err != nil {
+		return nil, fmt.Errorf("onchain pkScript: %w", err)
+	}
+	onchain := &Contract{
+		Type: TypeDefaultOnchain,
+		Params: map[string]string{
+			ParamKeyID:     key.Id,
+			ParamSignerKey: signerKeyHex,
+		},
+		Script:    hex.EncodeToString(onchainPkScript),
+		Address:   onchainAddr.EncodeAddress(),
+		IsOnchain: true,
+		State:     StateActive,
+		CreatedAt: now,
+	}
 
-	return &Contract{
-		Type:               TypeDefault,
-		Params:             map[string]string{"keyId": key.Id},
-		Script:             hex.EncodeToString(pkScript),
-		Address:            encodedArkAddr,
-		Boarding:           boardingAddr.EncodeAddress(),
-		Onchain:            onchainAddr.EncodeAddress(),
-		State:              StateActive,
-		CreatedAt:          time.Now(),
-		Tapscripts:         tapscripts,
-		BoardingTapscripts: boardingTapscripts,
-		Delay:              cfg.UnilateralExitDelay,
-		BoardingDelay:      cfg.BoardingExitDelay,
-	}, nil
+	return []*Contract{offchain, boarding, onchain}, nil
 }
 
 // SelectPath returns the appropriate tapscript leaf for the given spend context.
@@ -109,47 +147,49 @@ func (h *DefaultHandler) DeriveContract(
 func (h *DefaultHandler) SelectPath(
 	_ context.Context, c *Contract, pctx PathContext,
 ) (*PathSelection, error) {
-	if len(c.Tapscripts) < 2 {
+	tapscripts := c.GetTapscripts()
+	if len(tapscripts) < 2 {
 		return nil, fmt.Errorf(
 			"default contract requires at least 2 tapscripts, got %d",
-			len(c.Tapscripts),
+			len(tapscripts),
 		)
 	}
 	if pctx.Collaborative {
-		return tapLeafSelection(c.Tapscripts[1], nil, nil)
+		return tapLeafSelection(tapscripts[1], nil, nil)
 	}
-	seq, err := arklib.BIP68Sequence(c.Delay)
+	seq, err := arklib.BIP68Sequence(c.GetDelay())
 	if err != nil {
 		return nil, fmt.Errorf("BIP68 sequence: %w", err)
 	}
 	s := uint32(seq)
-	return tapLeafSelection(c.Tapscripts[0], &s, nil)
+	return tapLeafSelection(tapscripts[0], &s, nil)
 }
 
 // GetSpendablePaths returns all leaves that can be used given the current context.
 func (h *DefaultHandler) GetSpendablePaths(
 	_ context.Context, c *Contract, pctx PathContext,
 ) ([]PathSelection, error) {
-	if len(c.Tapscripts) < 2 {
+	tapscripts := c.GetTapscripts()
+	if len(tapscripts) < 2 {
 		return nil, fmt.Errorf(
 			"default contract requires at least 2 tapscripts, got %d",
-			len(c.Tapscripts),
+			len(tapscripts),
 		)
 	}
-	seq, err := arklib.BIP68Sequence(c.Delay)
+	seq, err := arklib.BIP68Sequence(c.GetDelay())
 	if err != nil {
 		return nil, fmt.Errorf("BIP68 sequence: %w", err)
 	}
 	s := uint32(seq)
 
-	exit, err := tapLeafSelection(c.Tapscripts[0], &s, nil)
+	exit, err := tapLeafSelection(tapscripts[0], &s, nil)
 	if err != nil {
 		return nil, err
 	}
 	paths := []PathSelection{*exit}
 
 	if pctx.Collaborative {
-		forfeit, err := tapLeafSelection(c.Tapscripts[1], nil, nil)
+		forfeit, err := tapLeafSelection(tapscripts[1], nil, nil)
 		if err != nil {
 			return nil, err
 		}

@@ -1,6 +1,9 @@
 package contract
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -15,34 +18,99 @@ const (
 	StateInactive State = "inactive"
 )
 
-// Contract holds all address facets derived from a single wallet key.
-// For the "default" type, one contract per key yields three address facets:
-//   - Address:  Arkade bech32m offchain address (canonical)
-//   - Boarding: P2TR boarding address (longer exit delay)
-//   - Onchain:  plain P2TR key-path address
+// Contract type constants for the default handler.
+const (
+	TypeDefault         = "default"          // offchain VTXO; IsOnchain=false
+	TypeDefaultBoarding = "default_boarding" // boarding P2TR; IsOnchain=true
+	TypeDefaultOnchain  = "default_onchain"  // bare key-path P2TR; IsOnchain=true
+)
+
+// Param key constants stored in Contract.Params.
+const (
+	ParamKeyID      = "keyId"      // wallet key ID
+	ParamSignerKey  = "signerKey"  // hex-encoded server signer public key
+	ParamTapscripts = "tapscripts" // JSON-encoded []string of hex tapscript leaves
+	ParamExitDelay  = "exitDelay"  // "block:N" or "second:N"; empty means no delay
+)
+
+// Contract holds the params and derived address for one address type (offchain
+// VTXO, boarding, or onchain) produced by a single wallet key. Script is the
+// primary key. All contract params (tapscripts, exit delay, key references) are
+// stored in Params so the struct remains generic across handler types.
 type Contract struct {
 	Type      string
 	Label     string
-	Params    map[string]string
-	Script    string // hex pkScript of the Arkade taproot output (primary key)
-	Address   string // Arkade bech32m address
-	Boarding  string // P2TR boarding address
-	Onchain   string // plain P2TR address (key-path only)
+	Params    map[string]string // all contract params; see Param* constants
+	Script    string            // hex pkScript (primary key)
+	Address   string            // ark bech32m when IsOnchain=false, bitcoin P2TR otherwise
+	IsOnchain bool              // false → ark address; true → bitcoin P2TR address
 	State     State
 	CreatedAt time.Time
-	ExpiresAt *time.Time
 	Metadata  map[string]any
+}
 
-	Tapscripts         []string                // offchain script leaves (for VTXO matching)
-	BoardingTapscripts []string                // boarding script leaves
-	Delay              arklib.RelativeLocktime // unilateral exit delay
-	BoardingDelay      arklib.RelativeLocktime // boarding exit delay
+// GetTapscripts decodes the tapscripts stored in Params.
+func (c *Contract) GetTapscripts() []string {
+	s := c.Params[ParamTapscripts]
+	if s == "" || s == "[]" || s == "null" {
+		return nil
+	}
+	var ts []string
+	if err := json.Unmarshal([]byte(s), &ts); err != nil {
+		return nil
+	}
+	return ts
+}
+
+// GetDelay decodes the exit delay stored in Params.
+func (c *Contract) GetDelay() arklib.RelativeLocktime {
+	return parseDelay(c.Params[ParamExitDelay])
+}
+
+func parseDelay(s string) arklib.RelativeLocktime {
+	if s == "" {
+		return arklib.RelativeLocktime{}
+	}
+	idx := strings.LastIndex(s, ":")
+	if idx < 0 {
+		return arklib.RelativeLocktime{}
+	}
+	var val uint32
+	if _, err := fmt.Sscanf(s[idx+1:], "%d", &val); err != nil {
+		return arklib.RelativeLocktime{}
+	}
+	t := arklib.LocktimeTypeBlock
+	if s[:idx] == "second" {
+		t = arklib.LocktimeTypeSecond
+	}
+	return arklib.RelativeLocktime{Type: t, Value: val}
+}
+
+func serializeDelay(d arklib.RelativeLocktime) string {
+	if d.Value == 0 {
+		return ""
+	}
+	typStr := "block"
+	if d.Type == arklib.LocktimeTypeSecond {
+		typStr = "second"
+	}
+	return fmt.Sprintf("%s:%d", typStr, d.Value)
+}
+
+func serializeTapscripts(ts []string) string {
+	if len(ts) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(ts)
+	return string(b)
 }
 
 type Filter struct {
-	Type   *string
-	State  *string
-	Script *string
+	Type      *string
+	State     *string
+	Script    *string
+	IsOnchain *bool
+	KeyID     *string // matches Params[ParamKeyID]
 }
 
 type Event struct {

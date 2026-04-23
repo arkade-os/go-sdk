@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/contract"
 )
 
@@ -30,40 +29,25 @@ func (r *contractRepository) UpsertContract(ctx context.Context, c contract.Cont
 	if err != nil {
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
-	tapscripts, err := json.Marshal(c.Tapscripts)
-	if err != nil {
-		return fmt.Errorf("marshal tapscripts: %w", err)
-	}
-	boardingTapscripts, err := json.Marshal(c.BoardingTapscripts)
-	if err != nil {
-		return fmt.Errorf("marshal boarding tapscripts: %w", err)
-	}
 
-	var expiresAt *int64
-	if c.ExpiresAt != nil {
-		ts := c.ExpiresAt.Unix()
-		expiresAt = &ts
+	isOnchain := 0
+	if c.IsOnchain {
+		isOnchain = 1
 	}
 
 	const q = `
-INSERT INTO contract (
-    script, type, label, params, address, boarding, onchain, state,
-    created_at, expires_at, metadata, tapscripts, boarding_tapscripts,
-    delay_type, delay_value, boarding_delay_type, boarding_delay_value
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (script, type, label, params, address, is_onchain, state, created_at, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (script) DO UPDATE SET
-    label               = EXCLUDED.label,
-    state               = EXCLUDED.state,
-    expires_at          = EXCLUDED.expires_at,
-    metadata            = EXCLUDED.metadata`
+    label      = EXCLUDED.label,
+    state      = EXCLUDED.state,
+    metadata   = EXCLUDED.metadata`
 
 	_, err = r.db.ExecContext(ctx, q,
 		c.Script, c.Type, c.Label, string(params),
-		c.Address, c.Boarding, c.Onchain, string(c.State),
-		c.CreatedAt.Unix(), expiresAt,
-		string(metadata), string(tapscripts), string(boardingTapscripts),
-		int(c.Delay.Type), c.Delay.Value,
-		int(c.BoardingDelay.Type), c.BoardingDelay.Value,
+		c.Address, isOnchain, string(c.State),
+		c.CreatedAt.Unix(),
+		string(metadata),
 	)
 	return err
 }
@@ -144,25 +128,17 @@ func scanContract(row *sql.Row) (*contract.Contract, error) {
 
 func scanContractRow(row rowScanner) (*contract.Contract, error) {
 	var (
-		scriptHex, typ, label           string
-		paramsJSON, metaJSON            string
-		address, boarding, onchain      string
-		stateStr                        string
-		createdAtUnix                   int64
-		expiresAtUnix                   sql.NullInt64
-		tapscriptsJSON                  string
-		boardingTapscriptsJSON          string
-		delayType, delayValue           int64
-		boardDelayType, boardDelayValue int64
+		scriptHex, typ, label string
+		paramsJSON, metaJSON  string
+		address, stateStr     string
+		isOnchain             int64
+		createdAtUnix         int64
 	)
 
 	if err := row.Scan(
 		&scriptHex, &typ, &label, &paramsJSON,
-		&address, &boarding, &onchain, &stateStr,
-		&createdAtUnix, &expiresAtUnix,
-		&metaJSON, &tapscriptsJSON, &boardingTapscriptsJSON,
-		&delayType, &delayValue,
-		&boardDelayType, &boardDelayValue,
+		&address, &isOnchain, &stateStr,
+		&createdAtUnix, &metaJSON,
 	); err != nil {
 		return nil, err
 	}
@@ -177,43 +153,15 @@ func scanContractRow(row rowScanner) (*contract.Contract, error) {
 		return nil, fmt.Errorf("unmarshal metadata: %w", err)
 	}
 
-	var tapscripts []string
-	if err := json.Unmarshal([]byte(tapscriptsJSON), &tapscripts); err != nil {
-		return nil, fmt.Errorf("unmarshal tapscripts: %w", err)
-	}
-
-	var boardingTapscripts []string
-	if err := json.Unmarshal([]byte(boardingTapscriptsJSON), &boardingTapscripts); err != nil {
-		return nil, fmt.Errorf("unmarshal boarding tapscripts: %w", err)
-	}
-
-	c := &contract.Contract{
-		Script:             scriptHex,
-		Type:               typ,
-		Label:              label,
-		Params:             params,
-		Address:            address,
-		Boarding:           boarding,
-		Onchain:            onchain,
-		State:              contract.State(stateStr),
-		CreatedAt:          time.Unix(createdAtUnix, 0),
-		Metadata:           metadata,
-		Tapscripts:         tapscripts,
-		BoardingTapscripts: boardingTapscripts,
-		Delay: arklib.RelativeLocktime{
-			Type:  arklib.RelativeLocktimeType(delayType),
-			Value: uint32(delayValue),
-		},
-		BoardingDelay: arklib.RelativeLocktime{
-			Type:  arklib.RelativeLocktimeType(boardDelayType),
-			Value: uint32(boardDelayValue),
-		},
-	}
-
-	if expiresAtUnix.Valid {
-		t := time.Unix(expiresAtUnix.Int64, 0)
-		c.ExpiresAt = &t
-	}
-
-	return c, nil
+	return &contract.Contract{
+		Script:    scriptHex,
+		Type:      typ,
+		Label:     label,
+		Params:    params,
+		Address:   address,
+		IsOnchain: isOnchain != 0,
+		State:     contract.State(stateStr),
+		CreatedAt: time.Unix(createdAtUnix, 0),
+		Metadata:  metadata,
+	}, nil
 }

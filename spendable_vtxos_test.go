@@ -130,12 +130,14 @@ func makeTestVtxo(script string) clientTypes.Vtxo {
 
 func makeTestContract(script, keyID string) contract.Contract {
 	return contract.Contract{
-		Script:     script,
-		Type:       contract.TypeDefault,
-		State:      contract.StateActive,
-		Params:     map[string]string{"keyId": keyID},
-		Tapscripts: []string{"leaf0", "leaf1"},
-		CreatedAt:  time.Now(),
+		Script: script,
+		Type:   contract.TypeDefault,
+		State:  contract.StateActive,
+		Params: map[string]string{
+			"keyId":                  keyID,
+			contract.ParamTapscripts: `["leaf0","leaf1"]`,
+		},
+		CreatedAt: time.Now(),
 	}
 }
 
@@ -244,7 +246,7 @@ func TestGetSpendableVtxos_TapscriptsFromContract(t *testing.T) {
 
 	vtxos := []clientTypes.Vtxo{makeTestVtxo("known-script")}
 	c := makeTestContract("known-script", "key-k")
-	c.Tapscripts = []string{"aa", "bb", "cc"}
+	c.Params[contract.ParamTapscripts] = `["aa","bb","cc"]`
 
 	a := newArkClientForTest(vtxos, []contract.Contract{c})
 	result, _, err := a.getSpendableVtxos(context.Background(), false)

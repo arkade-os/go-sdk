@@ -7,6 +7,7 @@ import (
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -33,16 +34,29 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	if a.contractManager == nil {
 		return "", errContractManagerNotReady
 	}
-	c, err := a.contractManager.NewDefault(ctx)
+	primary, err := a.contractManager.NewDefault(ctx)
 	if err != nil {
 		return "", err
 	}
+	keyID := primary.Params[contract.ParamKeyID]
+	boardingType := contract.TypeDefaultBoarding
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{
+		Type:  &boardingType,
+		KeyID: &keyID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(contracts) == 0 {
+		return "", fmt.Errorf("no boarding contract for key %s", keyID)
+	}
+	addr := contracts[0].Address
 	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{c.Boarding}); err != nil {
+		if err := a.Explorer().SubscribeForAddresses([]string{addr}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
 		}
 	}()
-	return c.Boarding, nil
+	return addr, nil
 }
 
 func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
@@ -52,11 +66,23 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	if a.contractManager == nil {
 		return "", errContractManagerNotReady
 	}
-	c, err := a.contractManager.NewDefault(ctx)
+	primary, err := a.contractManager.NewDefault(ctx)
 	if err != nil {
 		return "", err
 	}
-	return c.Onchain, nil
+	keyID := primary.Params[contract.ParamKeyID]
+	onchainType := contract.TypeDefaultOnchain
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{
+		Type:  &onchainType,
+		KeyID: &keyID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(contracts) == 0 {
+		return "", fmt.Errorf("no onchain contract for key %s", keyID)
+	}
+	return contracts[0].Address, nil
 }
 
 func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {

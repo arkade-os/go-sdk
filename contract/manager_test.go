@@ -68,8 +68,15 @@ func TestManager_Bootstrap(t *testing.T) {
 
 		contracts, err := mgr.GetContracts(context.Background(), contract.Filter{})
 		require.NoError(t, err)
-		require.Len(t, contracts, 1)
-		require.Equal(t, contract.TypeDefault, contracts[0].Type)
+		// One key → three contracts: offchain, boarding, onchain.
+		require.Len(t, contracts, 3)
+		types := make(map[string]bool, 3)
+		for _, c := range contracts {
+			types[c.Type] = true
+		}
+		require.True(t, types[contract.TypeDefault])
+		require.True(t, types[contract.TypeDefaultBoarding])
+		require.True(t, types[contract.TypeDefaultOnchain])
 	})
 
 	t.Run("Load with no keys is a no-op", func(t *testing.T) {
@@ -98,8 +105,12 @@ func TestManager_NewDefault(t *testing.T) {
 
 		all, err := mgr.GetContracts(context.Background(), contract.Filter{})
 		require.NoError(t, err)
-		require.Len(t, all, 1)
-		require.Equal(t, c.Script, all[0].Script)
+		require.Len(t, all, 3)
+		scripts := make(map[string]bool, 3)
+		for _, a := range all {
+			scripts[a.Script] = true
+		}
+		require.True(t, scripts[c.Script])
 	})
 
 	t.Run("NewDefault reuses existing active contract", func(t *testing.T) {
@@ -158,8 +169,10 @@ func TestManager_OnContractEvent(t *testing.T) {
 
 	_, err := mgr.NewDefault(context.Background())
 	require.NoError(t, err)
-	require.Len(t, received, 1)
-	require.Equal(t, "contract_created", received[0].Type)
+	require.Len(t, received, 3)
+	for _, e := range received {
+		require.Equal(t, "contract_created", e.Type)
+	}
 
 	// Unsubscribe stops delivery. Close clears the cache so the next NewDefault
 	// must create a new contract and would emit if still subscribed.
@@ -167,7 +180,7 @@ func TestManager_OnContractEvent(t *testing.T) {
 	require.NoError(t, mgr.Close())
 	_, err = mgr.NewDefault(context.Background())
 	require.NoError(t, err)
-	require.Len(t, received, 1) // still 1, event fired but callback was removed
+	require.Len(t, received, 3) // still 3, events would fire but callback was removed
 }
 
 func TestManager_Close(t *testing.T) {
@@ -198,7 +211,7 @@ func TestManager_GetContracts_StateFilter(t *testing.T) {
 		active := string(contract.StateActive)
 		got, err := mgr.GetContracts(context.Background(), contract.Filter{State: &active})
 		require.NoError(t, err)
-		require.Len(t, got, 1)
+		require.Len(t, got, 3)
 	})
 
 	t.Run("inactive state filter misses active contracts", func(t *testing.T) {

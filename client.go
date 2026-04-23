@@ -763,6 +763,9 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 
 			myPubkeys := make(map[string]struct{})
 			for _, c := range contracts {
+				if c.IsOnchain {
+					continue // only offchain contracts carry ark addresses
+				}
 				// nolint
 				decoded, _ := arklib.DecodeAddressV0(c.Address)
 				if decoded != nil {
@@ -831,45 +834,27 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 	addressByScript := make(map[string]addressInfo, 0)
 
 	populateContract := func(c contract.Contract) []string {
-		newAddrs := make([]string, 0, 3)
-		if c.Boarding != "" {
-			newAddrs = append(newAddrs, c.Boarding)
-			if sc, err := toOutputScript(c.Boarding, cfg.Network); err == nil {
-				addressByScript[hex.EncodeToString(sc)] = addressInfo{
-					tapscripts: c.BoardingTapscripts,
-					delay:      c.BoardingDelay,
-				}
-			} else {
-				log.WithError(err).Error("failed to get pk script for boarding address")
-			}
-		}
-		if c.Onchain != "" {
-			newAddrs = append(newAddrs, c.Onchain)
-			if sc, err := toOutputScript(c.Onchain, cfg.Network); err == nil {
-				addressByScript[hex.EncodeToString(sc)] = addressInfo{
-					tapscripts: []string{},
-					delay:      arklib.RelativeLocktime{},
-				}
-			} else {
-				log.WithError(err).Error("failed to get pk script for onchain address")
-			}
-		}
-		if c.Address != "" {
-			if onchainEquiv, err := toOnchainAddress(c.Address, cfg.Network); err == nil {
-				newAddrs = append(newAddrs, onchainEquiv)
-				if sc, err := toOutputScript(onchainEquiv, cfg.Network); err == nil {
-					addressByScript[hex.EncodeToString(sc)] = addressInfo{
-						tapscripts: c.Tapscripts,
-						delay:      c.Delay,
-					}
-				} else {
-					log.WithError(err).Error("failed to get pk script for offchain address")
-				}
-			} else {
+		addr := c.Address
+		if !c.IsOnchain {
+			// Offchain (VTXO) contract: subscribe to the onchain equivalent for
+			// unroll detection — a spent VTXO appears as an onchain output.
+			onchainEquiv, err := toOnchainAddress(addr, cfg.Network)
+			if err != nil {
 				log.WithError(err).Error("failed to convert ark address to onchain address")
+				return nil
 			}
+			addr = onchainEquiv
 		}
-		return newAddrs
+		sc, err := toOutputScript(addr, cfg.Network)
+		if err != nil {
+			log.WithError(err).Error("failed to get pk script for contract address")
+			return nil
+		}
+		addressByScript[hex.EncodeToString(sc)] = addressInfo{
+			tapscripts: c.GetTapscripts(),
+			delay:      c.GetDelay(),
+		}
+		return []string{addr}
 	}
 
 	for _, c := range contracts {
@@ -1567,36 +1552,23 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 		return nil, fmt.Errorf("explorer not initialized")
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{})
+	boardingType := contract.TypeDefaultBoarding
+	contracts, err := a.contractManager.GetContracts(ctx, contract.Filter{Type: &boardingType})
 	if err != nil {
 		return nil, err
 	}
 
-	type boardingAddr struct {
-		address    string
-		tapscripts []string
-		delay      arklib.RelativeLocktime
-	}
-	var boardingAddrs []boardingAddr
-	for _, c := range contracts {
-		if c.Boarding != "" {
-			boardingAddrs = append(boardingAddrs, boardingAddr{
-				address:    c.Boarding,
-				tapscripts: c.BoardingTapscripts,
-				delay:      c.BoardingDelay,
-			})
-		}
-	}
-
 	utxos := []clientTypes.Utxo{}
-	for _, addr := range boardingAddrs {
-		txs, err := explorer.GetTxs(addr.address)
+	for _, c := range contracts {
+		delay := c.GetDelay()
+		tapscripts := c.GetTapscripts()
+		txs, err := explorer.GetTxs(c.Address)
 		if err != nil {
 			return nil, err
 		}
 		for _, tx := range txs {
 			for i, vout := range tx.Vout {
-				if vout.Address == addr.address {
+				if vout.Address == c.Address {
 					createdAt := time.Time{}
 					utxoTime := time.Now()
 					if tx.Status.Confirmed {
@@ -1628,12 +1600,12 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 						},
 						Amount: vout.Amount,
 						Script: vout.Script,
-						Delay:  addr.delay,
+						Delay:  delay,
 						SpendableAt: utxoTime.Add(
-							time.Duration(addr.delay.Seconds()) * time.Second,
+							time.Duration(delay.Seconds()) * time.Second,
 						),
 						CreatedAt:  createdAt,
-						Tapscripts: addr.tapscripts,
+						Tapscripts: tapscripts,
 						Spent:      spent,
 						SpentBy:    spentBy,
 						Tx:         txHex,

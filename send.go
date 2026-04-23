@@ -94,7 +94,7 @@ func (a *arkClient) getSpendableVtxos(
 		}
 		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
 			Vtxo:       v,
-			Tapscripts: c.Tapscripts,
+			Tapscripts: c.GetTapscripts(),
 		})
 		if keyID := c.Params["keyId"]; keyID != "" {
 			scriptToKeyID[c.Script] = keyID
