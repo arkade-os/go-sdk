@@ -83,6 +83,7 @@ func (a *arkClient) Init(
 			Store:               initOpts.hdStore,
 			Indexer:             hdIndexer,
 			Explorer:            explorer,
+			KeyPathPrefix:       a.hdKeyPath,
 			ArkNetwork:          networkFromString(info.Network),
 			SignerPubKey:        signerPubKey,
 			BoardingExitDelay:   relativeLocktimeFromValue(uint32(info.BoardingExitDelay)),

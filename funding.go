@@ -17,7 +17,9 @@ func (a *arkClient) GetAddresses(ctx context.Context) (
 		return nil, nil, nil, nil, err
 	}
 
-	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.ArkClient.GetAddresses(ctx)
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.ArkClient.GetAddresses(
+		ctx,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

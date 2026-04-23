@@ -13,9 +13,11 @@ import (
 
 // State holds the persisted state of an HD wallet.
 type State struct {
+	Version            uint32 `json:"version,omitempty"`
 	WalletType         string `json:"wallet_type"`
 	EncryptedMasterKey []byte `json:"encrypted_master_key"`
-	PasswordHash       []byte `json:"password_hash"`
+	PasswordVerifier   []byte `json:"password_verifier,omitempty"`
+	PasswordSalt       []byte `json:"password_salt,omitempty"`
 	EncryptedMnemonic  []byte `json:"encrypted_mnemonic,omitempty"`
 	OffchainNextIndex  uint32 `json:"offchain_next_index"`
 }
@@ -59,7 +61,34 @@ func (s *configStoreBackend) Save(_ context.Context, state *State) error {
 		return fmt.Errorf("failed to create datadir: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0600)
+	tmp, err := os.CreateTemp(filepath.Dir(filePath), hdWalletStateFile+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp state file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Chmod(0600); err != nil {
+		cleanupTempStateFile(tmp, tmpPath)
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanupTempStateFile(tmp, tmpPath)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanupTempStateFile(tmp, tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	return os.Rename(tmpPath, filePath)
+}
+
+func cleanupTempStateFile(file *os.File, path string) {
+	_ = file.Close()
+	_ = os.Remove(path)
 }
 
 func (s *configStoreBackend) Load(_ context.Context) (*State, error) {

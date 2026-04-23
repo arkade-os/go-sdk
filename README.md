@@ -102,7 +102,7 @@ if err != nil {
     return err
 }
 
-hdStore := hdwallet.NewConfigStoreBackend(client.GetConfigStore())
+hdStore := hdwallet.NewStore(client.GetConfigStore())
 
 // Create a new HD wallet. Pass an empty seed to generate a new mnemonic.
 if err := client.Init(

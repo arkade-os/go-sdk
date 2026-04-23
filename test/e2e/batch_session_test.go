@@ -282,14 +282,8 @@ func TestBatchSession(t *testing.T) {
 		require.Len(t, utxoEvent.Utxos, 1)
 		require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
 
-		// first alice and bob join the same batch to complete their onboarding
-		wg := &sync.WaitGroup{}
-		var batchTx string
-		var batchErr error
-		wg.Go(func() {
-			batchTx, batchErr = alice.Settle(ctx)
-		})
-		wg.Wait()
+		// alice joins a batch to complete her onboarding and renew expired funds
+		batchTx, batchErr := alice.Settle(ctx)
 		require.NoError(t, batchErr)
 		require.NotEmpty(t, batchTx)
 

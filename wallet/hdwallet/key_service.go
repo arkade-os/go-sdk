@@ -26,6 +26,10 @@ type KeyService struct {
 	// masterKey is the BIP32 root key restored from the user's mnemonic or xpriv.
 	masterKey *hdkeychain.ExtendedKey
 
+	// keyPathPrefix is the string form of keyBasePath used when exposing
+	// derivation ids back to callers.
+	keyPathPrefix string
+
 	// keyBasePath is the parsed form of defaultKeyPathPrefix.
 	//
 	// The final non-hardened child index is appended per allocated key. Each derived
@@ -50,22 +54,27 @@ type KeyService struct {
 // DefaultKeyPath returns the full derivation path for the shared Ark wallet key
 // at the given child index.
 func (p *KeyService) DefaultKeyPath(index uint32) string {
-	return fmt.Sprintf("%s/%d", defaultKeyPathPrefix, index)
+	return fmt.Sprintf("%s/%d", p.keyPathPrefix, index)
 }
 
 // NewHDKeyProvider creates a new key provider from a BIP32 master extended key.
-func NewHDKeyProvider(masterKey *hdkeychain.ExtendedKey) (*KeyService, error) {
-	keyBasePath, err := parseKeyPathPrefix(defaultKeyPathPrefix)
+func NewHDKeyProvider(
+	masterKey *hdkeychain.ExtendedKey,
+	keyPathPrefix string,
+) (*KeyService, error) {
+	keyPathPrefix = normalizeKeyPathPrefix(keyPathPrefix)
+	keyBasePath, err := parseKeyPathPrefix(keyPathPrefix)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"invalid default HD key path prefix %q: %v",
-			defaultKeyPathPrefix,
+			"invalid HD key path prefix %q: %v",
+			keyPathPrefix,
 			err,
 		)
 	}
 
 	return &KeyService{
 		masterKey:       masterKey,
+		keyPathPrefix:   keyPathPrefix,
 		keyBasePath:     keyBasePath,
 		derivedKeyCache: make(map[uint32]*cachedKey),
 	}, nil
@@ -277,4 +286,18 @@ func parseKeyPathPrefix(path string) ([]uint32, error) {
 	}
 
 	return parsed, nil
+}
+
+func normalizeKeyPathPrefix(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return defaultKeyPathPrefix
+	}
+	if path == "m" {
+		return path
+	}
+	if !strings.HasPrefix(path, "m/") {
+		return "m/" + path
+	}
+	return path
 }

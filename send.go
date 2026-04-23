@@ -44,7 +44,7 @@ func (a *arkClient) SendOffChain(
 		clone,
 		client.WithVtxos(vtxos),
 		client.WithKeys(signingKeys),
-		)
+	)
 	if err != nil {
 		return "", err
 	}

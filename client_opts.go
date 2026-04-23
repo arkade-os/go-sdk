@@ -49,13 +49,30 @@ func WithVerbose() ClientOption {
 // recovery. Must be greater than zero.
 func WithGapLimit(limit uint32) ClientOption {
 	return func(o *clientOptions) error {
-		if o.hdGapLimit != hdwallet.DefaultGapLimit {
+		if o.hdGapLimitSet {
 			return fmt.Errorf("gap limit already set")
 		}
 		if limit == 0 {
 			return fmt.Errorf("gap limit must be greater than zero")
 		}
 		o.hdGapLimit = limit
+		o.hdGapLimitSet = true
+		return nil
+	}
+}
+
+// WithHDKeyPath overrides the base derivation path prefix used by the built-in
+// HD wallet. If not set, the default Ark path is used.
+func WithHDKeyPath(path string) ClientOption {
+	return func(o *clientOptions) error {
+		if o.hdKeyPathSet {
+			return fmt.Errorf("hd key path already set")
+		}
+		if path == "" {
+			return fmt.Errorf("hd key path cannot be empty")
+		}
+		o.hdKeyPath = path
+		o.hdKeyPathSet = true
 		return nil
 	}
 }
@@ -77,6 +94,9 @@ type clientOptions struct {
 	refreshDbInterval time.Duration
 	verbose           bool
 	hdGapLimit        uint32
+	hdGapLimitSet     bool
+	hdKeyPath         string
+	hdKeyPathSet      bool
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.

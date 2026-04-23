@@ -171,7 +171,7 @@ func TestCollaborativeExit(t *testing.T) {
 
 			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 			require.NoError(t, err)
-			require.NotEmpty(t, aliceBoardingAddr)
+			require.NotEmpty(t, bobOnchainAddr)
 
 			faucetOffchain(t, alice, aliceOffchainAddr, 0.00021)
 			aliceUtxoCh := alice.GetUtxoEventChannel(ctx)

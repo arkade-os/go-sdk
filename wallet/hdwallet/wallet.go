@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -36,7 +37,10 @@ const (
 	// Type is the wallet type identifier for HD wallets.
 	Type = "hd"
 	// DefaultGapLimit is the number of unused addresses to check during discovery.
-	DefaultGapLimit = uint32(20)
+	DefaultGapLimit      = uint32(20)
+	hdWalletStateVersion = uint32(2)
+	passwordSaltSize     = 32
+	pbkdf2Iterations     = 600_000
 )
 
 // Compile-time interface check.
@@ -48,6 +52,7 @@ type Service struct {
 	store               Store
 	indexer             indexer.Indexer
 	explorer            explorer.Explorer
+	keyPathPrefix       string
 	arkNetwork          arklib.Network
 	signerPubKey        *btcec.PublicKey
 	boardingExitDelay   arklib.RelativeLocktime
@@ -62,6 +67,7 @@ type Args struct {
 	Store               Store
 	Indexer             indexer.Indexer
 	Explorer            explorer.Explorer
+	KeyPathPrefix       string
 	ArkNetwork          arklib.Network
 	SignerPubKey        *btcec.PublicKey
 	BoardingExitDelay   arklib.RelativeLocktime
@@ -73,11 +79,16 @@ func NewService(args Args) (*Service, error) {
 	if args.Store == nil {
 		return nil, fmt.Errorf("missing hd wallet store")
 	}
+	keyPathPrefix := normalizeKeyPathPrefix(args.KeyPathPrefix)
+	if _, err := parseKeyPathPrefix(keyPathPrefix); err != nil {
+		return nil, fmt.Errorf("invalid hd key path prefix %q: %w", keyPathPrefix, err)
+	}
 
 	return &Service{
 		store:               args.Store,
 		indexer:             args.Indexer,
 		explorer:            args.Explorer,
+		keyPathPrefix:       keyPathPrefix,
 		arkNetwork:          args.ArkNetwork,
 		signerPubKey:        args.SignerPubKey,
 		boardingExitDelay:   args.BoardingExitDelay,
@@ -99,6 +110,14 @@ func (w *Service) Create(
 ) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	existing, err := w.store.Load(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to check existing wallet state: %w", err)
+	}
+	if existing != nil {
+		return "", fmt.Errorf("wallet already initialized")
+	}
 
 	var mnemonic string
 	var masterSeed []byte
@@ -151,12 +170,18 @@ func (w *Service) Create(
 		}
 	}
 
-	passwordHash := hashPassword(pwd)
+	passwordSalt, err := randomBytes(passwordSaltSize)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate password salt: %w", err)
+	}
+	passwordVerifier := derivePasswordVerifier(pwd, passwordSalt)
 
 	state := &State{
+		Version:            hdWalletStateVersion,
 		WalletType:         Type,
 		EncryptedMasterKey: encryptedKey,
-		PasswordHash:       passwordHash,
+		PasswordVerifier:   passwordVerifier,
+		PasswordSalt:       passwordSalt,
 		EncryptedMnemonic:  encryptedMnemonic,
 	}
 
@@ -164,7 +189,7 @@ func (w *Service) Create(
 		return "", fmt.Errorf("failed to save wallet state: %w", err)
 	}
 
-	w.keyProvider, err = NewHDKeyProvider(masterKey)
+	w.keyProvider, err = NewHDKeyProvider(masterKey, w.keyPathPrefix)
 	if err != nil {
 		return "", err
 	}
@@ -211,8 +236,11 @@ func (w *Service) Unlock(ctx context.Context, password string) (bool, error) {
 	}
 
 	pwd := []byte(password)
-	currentHash := hashPassword(pwd)
-	if !bytes.Equal(currentHash, state.PasswordHash) {
+	if len(state.PasswordVerifier) == 0 || len(state.PasswordSalt) == 0 {
+		return false, fmt.Errorf("wallet password verifier is missing")
+	}
+	currentVerifier := derivePasswordVerifier(pwd, state.PasswordSalt)
+	if subtle.ConstantTimeCompare(currentVerifier, state.PasswordVerifier) != 1 {
 		return false, fmt.Errorf("invalid password")
 	}
 
@@ -227,7 +255,7 @@ func (w *Service) Unlock(ctx context.Context, password string) (bool, error) {
 		return false, fmt.Errorf("failed to parse master key: %w", err)
 	}
 
-	w.keyProvider, err = NewHDKeyProvider(masterKey)
+	w.keyProvider, err = NewHDKeyProvider(masterKey, w.keyPathPrefix)
 	if err != nil {
 		return false, err
 	}
@@ -398,6 +426,12 @@ func (w *Service) SignTransaction(
 			return "", fmt.Errorf("failed to deserialize prev tx: %w", err)
 		}
 
+		if int(input.PreviousOutPoint.Index) >= len(prevoutTx.TxOut) {
+			return "", fmt.Errorf(
+				"prev tx output index %d out of range (have %d outputs)",
+				input.PreviousOutPoint.Index, len(prevoutTx.TxOut),
+			)
+		}
 		utxo := prevoutTx.TxOut[input.PreviousOutPoint.Index]
 		if utxo == nil {
 			return "", fmt.Errorf("witness utxo not found")
@@ -420,6 +454,9 @@ func (w *Service) SignTransaction(
 	for i, input := range ptx.Inputs {
 		inputKeyID := ""
 		if input.WitnessUtxo != nil {
+			// We cannot skip early when this lookup misses: key-path spends may be
+			// safely ignored, but tapscript spends still need to inspect their leaves
+			// so we can fail if the caller omitted a required script -> key mapping.
 			inputKeyID = keys[hex.EncodeToString(input.WitnessUtxo.PkScript)]
 		}
 
@@ -434,11 +471,11 @@ func (w *Service) SignTransaction(
 
 		if input.WitnessUtxo != nil && len(input.TaprootInternalKey) == 0 {
 			if inputKeyID != "" {
-				taprootKey, err := w.taprootKeyForKeyID(inputKeyID)
+				internalKey, err := w.internalKeyForKeyID(inputKeyID)
 				if err != nil {
 					return "", err
 				}
-				updater.Upsbt.Inputs[i].TaprootInternalKey = schnorr.SerializePubKey(taprootKey)
+				updater.Upsbt.Inputs[i].TaprootInternalKey = schnorr.SerializePubKey(internalKey)
 				input = updater.Upsbt.Inputs[i]
 			}
 		}
@@ -551,9 +588,11 @@ func (w *Service) signTapscriptSpend(
 		}
 	}
 
+	// No leaf required one of our wallet keys, so this input is not ours to sign.
 	if !needsWalletKey {
 		return nil
 	}
+	// The input looks wallet-owned, but the caller did not provide script -> key ownership.
 	if keyID == "" {
 		scriptHex := ""
 		if input.WitnessUtxo != nil {
@@ -567,6 +606,7 @@ func (w *Service) signTapscriptSpend(
 			sampleSigningKeyScripts(signingKeys),
 		)
 	}
+	// A key was provided, but it does not match any pubkey in the signable leaves.
 	if !signed {
 		return fmt.Errorf("signing key %q does not match tapscript input %d", keyID, inputIndex)
 	}
@@ -603,7 +643,7 @@ func (w *Service) signTaprootKeySpend(
 
 	internalKey, err := schnorr.ParsePubKey(input.TaprootInternalKey)
 	if err != nil {
-		return nil
+		return fmt.Errorf("invalid taproot internal key on input %d: %w", inputIndex, err)
 	}
 
 	var matchedPrivKey *btcec.PrivateKey
@@ -613,9 +653,8 @@ func (w *Service) signTaprootKeySpend(
 		return err
 	}
 
-	computedTaprootKey := txscript.ComputeTaprootKeyNoScript(pub)
 	if bytes.Equal(
-		schnorr.SerializePubKey(computedTaprootKey),
+		schnorr.SerializePubKey(pub),
 		schnorr.SerializePubKey(internalKey),
 	) {
 		matchedPrivKey = priv
@@ -663,13 +702,13 @@ func (w *Service) derivedKeyForID(keyID string) (*btcec.PrivateKey, *btcec.Publi
 	return privKey, privKey.PubKey(), nil
 }
 
-func (w *Service) taprootKeyForKeyID(keyID string) (*btcec.PublicKey, error) {
+func (w *Service) internalKeyForKeyID(keyID string) (*btcec.PublicKey, error) {
 	_, pubKey, err := w.derivedKeyForID(keyID)
 	if err != nil {
 		return nil, err
 	}
 
-	return txscript.ComputeTaprootKeyNoScript(pubKey), nil
+	return pubKey, nil
 }
 
 func (w *Service) SignMessage(_ context.Context, message []byte) (string, error) {
@@ -849,13 +888,15 @@ func (w *Service) discoverKeysFrom(
 		if w.explorer != nil {
 			// Explorer-backed discovery covers Bitcoin addresses that may hold materialized
 			// wallet outputs outside the indexer view, such as boarding deposits, direct
-			// onchain funds, and redemption/unrolled outputs.
+			// onchain funds, and redemption/unrolled outputs. We check transaction
+			// history instead of only current UTXOs so fully spent addresses still count
+			// as used and do not truncate gap-limit discovery prematurely.
 			for _, candidate := range candidates {
 				if _, ok := matched[candidate.index]; ok {
 					continue
 				}
 
-				boardingUtxos, err := w.explorer.GetUtxos(candidate.boardingAddr)
+				boardingUsed, err := w.addressHasHistory(candidate.boardingAddr)
 				if err != nil {
 					return false, fmt.Errorf(
 						"failed to query boarding address for index %d: %w",
@@ -863,12 +904,12 @@ func (w *Service) discoverKeysFrom(
 						err,
 					)
 				}
-				if len(boardingUtxos) > 0 {
+				if boardingUsed {
 					matched[candidate.index] = struct{}{}
 					continue
 				}
 
-				redemptionUtxos, err := w.explorer.GetUtxos(candidate.redemptionAddr)
+				redemptionUsed, err := w.addressHasHistory(candidate.redemptionAddr)
 				if err != nil {
 					return false, fmt.Errorf(
 						"failed to query redemption address for index %d: %w",
@@ -876,12 +917,12 @@ func (w *Service) discoverKeysFrom(
 						err,
 					)
 				}
-				if len(redemptionUtxos) > 0 {
+				if redemptionUsed {
 					matched[candidate.index] = struct{}{}
 					continue
 				}
 
-				onchainUtxos, err := w.explorer.GetUtxos(candidate.onchainAddr)
+				onchainUsed, err := w.addressHasHistory(candidate.onchainAddr)
 				if err != nil {
 					return false, fmt.Errorf(
 						"failed to query onchain address for index %d: %w",
@@ -889,7 +930,7 @@ func (w *Service) discoverKeysFrom(
 						err,
 					)
 				}
-				if len(onchainUtxos) > 0 {
+				if onchainUsed {
 					matched[candidate.index] = struct{}{}
 				}
 			}
@@ -918,6 +959,15 @@ func (w *Service) discoverKeysFrom(
 	}
 
 	return true, w.persistState(ctx)
+}
+
+func (w *Service) addressHasHistory(address string) (bool, error) {
+	txs, err := w.explorer.GetTxs(address)
+	if err != nil {
+		return false, err
+	}
+
+	return len(txs) > 0, nil
 }
 
 func (w *Service) computeVtxoScript(
@@ -1010,17 +1060,20 @@ func (w *Service) persistState(ctx context.Context) error {
 		return fmt.Errorf("failed to load existing state: %w", err)
 	}
 
+	if existing == nil {
+		return fmt.Errorf("cannot persist state: wallet credentials missing from store")
+	}
+
 	keyState := w.keyProvider.ExportState()
 
 	state := &State{
-		WalletType:        Type,
-		OffchainNextIndex: keyState.OffchainNextIndex,
-	}
-
-	if existing != nil {
-		state.EncryptedMasterKey = existing.EncryptedMasterKey
-		state.PasswordHash = existing.PasswordHash
-		state.EncryptedMnemonic = existing.EncryptedMnemonic
+		Version:            hdWalletStateVersion,
+		WalletType:         Type,
+		OffchainNextIndex:  keyState.OffchainNextIndex,
+		EncryptedMasterKey: existing.EncryptedMasterKey,
+		PasswordVerifier:   existing.PasswordVerifier,
+		PasswordSalt:       existing.PasswordSalt,
+		EncryptedMnemonic:  existing.EncryptedMnemonic,
 	}
 
 	return w.store.Save(ctx, state)
@@ -1028,20 +1081,28 @@ func (w *Service) persistState(ctx context.Context) error {
 
 // --- AES-256-GCM encryption (compatible with singlekey wallet pattern) ---
 
-func hashPassword(password []byte) []byte {
-	hash := sha256.Sum256(password)
-	return hash[:]
+func derivePasswordVerifier(password, salt []byte) []byte {
+	return pbkdf2.Key(password, salt, pbkdf2Iterations, 32, sha256.New)
 }
 
 func deriveEncryptionKey(password, salt []byte) ([]byte, []byte, error) {
 	if salt == nil {
-		salt = make([]byte, 32)
-		if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		var err error
+		salt, err = randomBytes(passwordSaltSize)
+		if err != nil {
 			return nil, nil, err
 		}
 	}
-	key := pbkdf2.Key(password, salt, 10000, 32, sha256.New)
+	key := pbkdf2.Key(password, salt, pbkdf2Iterations, 32, sha256.New)
 	return key, salt, nil
+}
+
+func randomBytes(size int) ([]byte, error) {
+	buf := make([]byte, size)
+	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func encryptAES256(plaintext, password []byte) ([]byte, error) {

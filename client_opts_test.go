@@ -33,6 +33,10 @@ func TestClientOptions(t *testing.T) {
 				name: "WithGapLimit",
 				opts: []arksdk.ClientOption{arksdk.WithGapLimit(10)},
 			},
+			{
+				name: "WithHDKeyPath",
+				opts: []arksdk.ClientOption{arksdk.WithHDKeyPath("m/1/2'/3")},
+			},
 		}
 
 		for _, f := range fixtures {
@@ -79,6 +83,19 @@ func TestClientOptions(t *testing.T) {
 					arksdk.WithGapLimit(12),
 				},
 				wantErrContains: "gap limit already set",
+			},
+			{
+				name:            "WithHDKeyPath empty",
+				opts:            []arksdk.ClientOption{arksdk.WithHDKeyPath("")},
+				wantErrContains: "hd key path cannot be empty",
+			},
+			{
+				name: "WithHDKeyPath twice",
+				opts: []arksdk.ClientOption{
+					arksdk.WithHDKeyPath("m/1/2'/3"),
+					arksdk.WithHDKeyPath("m/1/2'/4"),
+				},
+				wantErrContains: "hd key path already set",
 			},
 		}
 

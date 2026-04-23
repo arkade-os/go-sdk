@@ -29,7 +29,7 @@ import (
 
 func TestKeyDerivationDeterministic(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider, err := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey, "")
 	require.NoError(t, err)
 
 	// Derive index 0 twice — must be identical
@@ -54,6 +54,30 @@ func TestKeyDerivationDeterministic(t *testing.T) {
 		t.Fatal("different indices should produce different keys")
 	}
 
+}
+
+func TestKeyDerivationCustomPath(t *testing.T) {
+	masterKey := createTestMasterKey(t)
+
+	defaultProvider, err := NewHDKeyProvider(masterKey, "")
+	require.NoError(t, err)
+
+	customProvider, err := NewHDKeyProvider(masterKey, "m/83696968'/11811'/1")
+	require.NoError(t, err)
+
+	defaultPriv, err := defaultProvider.DeriveKeyAtIndex(0)
+	require.NoError(t, err)
+
+	customPriv, err := customProvider.DeriveKeyAtIndex(0)
+	require.NoError(t, err)
+
+	if bytes.Equal(defaultPriv.Serialize(), customPriv.Serialize()) {
+		t.Fatal("expected custom key path to derive a different key")
+	}
+
+	if got := customProvider.DefaultKeyPath(7); got != "m/83696968'/11811'/1/7" {
+		t.Fatalf("unexpected custom derivation id %q", got)
+	}
 }
 
 func TestParseKeyPathPrefix(t *testing.T) {
@@ -117,7 +141,7 @@ func TestParseKeyPathPrefix(t *testing.T) {
 
 func TestGetNextKeyAllocatesSequentialIndices(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider, err := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey, "")
 	require.NoError(t, err)
 
 	// Successive allocations should give indices 0, 1, 2.
@@ -137,7 +161,7 @@ func TestGetNextKeyAllocatesSequentialIndices(t *testing.T) {
 
 func TestStateRoundTrip(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider, err := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey, "")
 	require.NoError(t, err)
 
 	// Derive indices 0, 1, 2
@@ -149,7 +173,7 @@ func TestStateRoundTrip(t *testing.T) {
 	state := provider.ExportState()
 
 	// Create new provider with same master key
-	provider2, err := NewHDKeyProvider(masterKey)
+	provider2, err := NewHDKeyProvider(masterKey, "")
 	require.NoError(t, err)
 
 	if err := provider2.LoadState(state); err != nil {
@@ -172,7 +196,7 @@ func TestStateRoundTrip(t *testing.T) {
 
 func TestConcurrentKeyGeneration(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider, err := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey, "")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -198,7 +222,7 @@ func TestConcurrentKeyGeneration(t *testing.T) {
 
 func TestGetPrivKeyForPubKey(t *testing.T) {
 	masterKey := createTestMasterKey(t)
-	provider, err := NewHDKeyProvider(masterKey)
+	provider, err := NewHDKeyProvider(masterKey, "")
 	require.NoError(t, err)
 
 	// Derive a key and cache it
@@ -276,6 +300,24 @@ func TestWalletCreateAndUnlock(t *testing.T) {
 	}
 	if dumped != seed {
 		t.Fatalf("Dump mismatch: got %q, want %q", dumped, seed)
+	}
+
+	state, err := store.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if state.Version != hdWalletStateVersion {
+		t.Fatalf("expected state version %d, got %d", hdWalletStateVersion, state.Version)
+	}
+	if len(state.PasswordVerifier) == 0 {
+		t.Fatal("expected salted password verifier to be stored")
+	}
+	if len(state.PasswordSalt) != passwordSaltSize {
+		t.Fatalf(
+			"expected password salt size %d, got %d",
+			passwordSaltSize,
+			len(state.PasswordSalt),
+		)
 	}
 }
 
@@ -491,9 +533,7 @@ func TestDiscoverKeysRecoversBoardingRedemptionAndOnchainUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to compute boarding address: %v", err)
 	}
-	exp.utxosByAddress[boardingAddr] = []explorer.Utxo{
-		{Txid: "boarding-tx", Vout: 0, Amount: 1_000},
-	}
+	exp.txsByAddress[boardingAddr] = []explorer.Tx{{Txid: "boarding-tx"}}
 
 	redemptionPriv, err := svc.keyProvider.DeriveKeyAtIndex(2)
 	if err != nil {
@@ -503,9 +543,7 @@ func TestDiscoverKeysRecoversBoardingRedemptionAndOnchainUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to compute redemption address: %v", err)
 	}
-	exp.utxosByAddress[redemptionAddr] = []explorer.Utxo{
-		{Txid: "redemption-tx", Vout: 0, Amount: 1_000},
-	}
+	exp.txsByAddress[redemptionAddr] = []explorer.Tx{{Txid: "redemption-tx"}}
 
 	onchainPriv, err := svc.keyProvider.DeriveKeyAtIndex(4)
 	if err != nil {
@@ -515,7 +553,7 @@ func TestDiscoverKeysRecoversBoardingRedemptionAndOnchainUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to compute onchain address: %v", err)
 	}
-	exp.utxosByAddress[onchainAddr] = []explorer.Utxo{{Txid: "onchain-tx", Vout: 0, Amount: 1_000}}
+	exp.txsByAddress[onchainAddr] = []explorer.Tx{{Txid: "onchain-tx"}}
 
 	expanded, err := svc.DiscoverKeys(context.Background(), 2)
 	if err != nil {
@@ -534,6 +572,49 @@ func TestDiscoverKeysRecoversBoardingRedemptionAndOnchainUsage(t *testing.T) {
 	}
 	if len(idx.scriptQueries) != 4 {
 		t.Fatalf("expected 4 offchain discovery windows, got %d", len(idx.scriptQueries))
+	}
+}
+
+func TestDiscoverKeysCountsSpentExplorerAddressesAsUsed(t *testing.T) {
+	svc, idx, exp := newRecoveryTestWallet(t)
+
+	boardingPriv, err := svc.keyProvider.DeriveKeyAtIndex(0)
+	if err != nil {
+		t.Fatalf("failed to derive boarding key: %v", err)
+	}
+	boardingAddr, err := svc.computeBoardingAddress(boardingPriv.PubKey())
+	if err != nil {
+		t.Fatalf("failed to compute boarding address: %v", err)
+	}
+	exp.txsByAddress[boardingAddr] = []explorer.Tx{{Txid: "boarding-spent"}}
+
+	onchainPriv, err := svc.keyProvider.DeriveKeyAtIndex(3)
+	if err != nil {
+		t.Fatalf("failed to derive onchain key: %v", err)
+	}
+	onchainAddr, err := svc.computeOnchainAddress(onchainPriv.PubKey())
+	if err != nil {
+		t.Fatalf("failed to compute onchain address: %v", err)
+	}
+	exp.txsByAddress[onchainAddr] = []explorer.Tx{{Txid: "onchain-spent"}}
+
+	expanded, err := svc.DiscoverKeys(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("DiscoverKeys failed: %v", err)
+	}
+	if !expanded {
+		t.Fatal("expected discovery to find spent explorer-backed addresses")
+	}
+
+	keys, err := svc.ListKeys(context.Background())
+	if err != nil {
+		t.Fatalf("ListKeys failed: %v", err)
+	}
+	if len(keys) != 4 {
+		t.Fatalf("expected recovered key range to extend through index 3, got %d keys", len(keys))
+	}
+	if len(idx.scriptQueries) != 3 {
+		t.Fatalf("expected 3 offchain discovery windows, got %d", len(idx.scriptQueries))
 	}
 }
 
@@ -621,11 +702,11 @@ func TestSignTransactionDetectsOwnedOnchainTaprootInput(t *testing.T) {
 		t.Fatal("expected taproot internal key to be populated")
 	}
 
-	expectedTaprootKey := schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(key.PubKey))
+	expectedInternalKey := schnorr.SerializePubKey(key.PubKey)
 	if hex.EncodeToString(
 		parsed.Inputs[0].TaprootInternalKey,
 	) != hex.EncodeToString(
-		expectedTaprootKey,
+		expectedInternalKey,
 	) {
 		t.Fatal("unexpected taproot internal key")
 	}
@@ -714,6 +795,13 @@ func TestSignTransactionDoesNotFallbackToKeyScan(t *testing.T) {
 
 	if len(parsedWithKeyMap.Inputs[0].TaprootInternalKey) == 0 {
 		t.Fatal("expected taproot internal key with provided key map")
+	}
+
+	if !bytes.Equal(
+		parsedWithKeyMap.Inputs[0].TaprootInternalKey,
+		schnorr.SerializePubKey(key.PubKey),
+	) {
+		t.Fatal("expected taproot internal key to contain the untweaked wallet pubkey")
 	}
 }
 
@@ -906,6 +994,18 @@ func (f *fakeIndexer) SubscribeForScripts(context.Context, string, []string) (st
 }
 
 func (f *fakeIndexer) UnsubscribeForScripts(context.Context, string, []string) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (f *fakeIndexer) NewSubscription(
+	context.Context, []string,
+) (string, <-chan indexer.ScriptEvent, func(), error) {
+	return "", nil, func() {}, fmt.Errorf("not implemented")
+}
+
+func (f *fakeIndexer) UpdateSubscription(
+	context.Context, string, []string, []string,
+) error {
 	return fmt.Errorf("not implemented")
 }
 

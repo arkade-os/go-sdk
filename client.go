@@ -59,6 +59,7 @@ type arkClient struct {
 	logMu             *sync.Mutex
 	lastUpdate        time.Time
 	hdGapLimit        uint32
+	hdKeyPath         string
 	onchainRegistry   *onchainAddressRegistry
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
@@ -122,6 +123,7 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
+		hdKeyPath:         o.hdKeyPath,
 		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
@@ -208,6 +210,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 			Store:               hdwallet.NewStore(clientDb.ConfigStore()),
 			Indexer:             hdIndexer,
 			Explorer:            explorerSvc,
+			KeyPathPrefix:       o.hdKeyPath,
 			ArkNetwork:          cfgData.Network,
 			SignerPubKey:        cfgData.SignerPubKey,
 			BoardingExitDelay:   cfgData.BoardingExitDelay,
@@ -240,6 +243,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
+		hdKeyPath:         o.hdKeyPath,
 		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 

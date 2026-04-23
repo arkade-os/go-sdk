@@ -34,8 +34,11 @@ func WithWallet(wallet wallet.WalletService) InitOption {
 // and asks the client to build it with runtime dependencies during Init.
 func WithHDWallet(hdStore hdwallet.Store) InitOption {
 	return func(o *initOptions) error {
-		if o.wallet != nil || o.hdStore != nil {
+		if o.wallet != nil {
 			return fmt.Errorf("wallet already set")
+		}
+		if o.hdStore != nil {
+			return fmt.Errorf("hd wallet store already set")
 		}
 		if hdStore == nil {
 			return fmt.Errorf("hd wallet store cannot be nil")
