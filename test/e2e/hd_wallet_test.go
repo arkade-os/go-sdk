@@ -258,7 +258,10 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	}
 
 	require.NoError(t, generateBlocks(1))
-	time.Sleep(5 * time.Second)
+	waitForExplorerHistory(t, bobClientHD, append(
+		append(append([]string{}, boardingAddrs...), onchainAddrs...),
+		redemptionTargets...,
+	))
 
 	aliceClientHD = setupHDWallet(t, seed)
 
@@ -284,7 +287,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
 			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable &&
 			sumLockedAmounts(balance.OnchainBalance.LockedAmount) == wantLockedOnchain
-	}, 30*time.Second, 500*time.Millisecond)
+	}, 60*time.Second, 500*time.Millisecond)
 }
 
 func TestHDWalletEventStreams(t *testing.T) {
@@ -420,6 +423,26 @@ func TestHDWalletEventStreams(t *testing.T) {
 		require.Equal(t, commitmentTxid, settledTxEvent.Txs[0].SettledBy)
 		require.Equal(t, addedTxEvent.Txs[0].BoardingTxid, settledTxEvent.Txs[0].BoardingTxid)
 	})
+}
+
+func waitForExplorerHistory(t *testing.T, client *testHDWallet, addresses []string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		explorer := client.Explorer()
+		if explorer == nil {
+			return false
+		}
+
+		for _, address := range addresses {
+			txs, err := explorer.GetTxs(address)
+			if err != nil || len(txs) == 0 {
+				return false
+			}
+		}
+
+		return true
+	}, 30*time.Second, 500*time.Millisecond)
 }
 
 func waitForSpendableVtxos(
