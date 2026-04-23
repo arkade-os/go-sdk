@@ -869,8 +869,15 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		}
 		delay, err := c.GetDelay()
 		if err != nil {
-			log.WithError(err).Errorf("skipping contract %s: invalid exit delay", c.Script)
-			return nil
+			// Plain onchain contracts (e.g. TypeDefaultOnchain) have no CSV exit
+			// delay — they are immediately spendable. Boarding and VTXO contracts
+			// must have a delay, so skip those if the param is missing or malformed.
+			if c.IsOnchain && c.Type != contract.TypeDefaultBoarding {
+				delay = arklib.RelativeLocktime{}
+			} else {
+				log.WithError(err).Errorf("skipping contract %s: invalid exit delay", c.Script)
+				return nil
+			}
 		}
 		addressByScript[hex.EncodeToString(sc)] = addressInfo{
 			tapscripts: c.GetTapscripts(),
