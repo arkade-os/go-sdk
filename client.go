@@ -62,6 +62,7 @@ type arkClient struct {
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 
+	cmMu            sync.RWMutex
 	contractManager contract.Manager
 }
 
@@ -220,6 +221,14 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 }
 
 func (a *arkClient) ContractManager() contract.Manager {
+	return a.contractMgr()
+}
+
+// contractMgr returns the current contract manager under a read lock.
+// Callers must treat a nil return as "wallet is locked".
+func (a *arkClient) contractMgr() contract.Manager {
+	a.cmMu.RLock()
+	defer a.cmMu.RUnlock()
 	return a.contractManager
 }
 
@@ -755,7 +764,11 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
-			contracts, err := a.contractManager.GetContracts(ctx)
+			mgr := a.contractMgr()
+			if mgr == nil {
+				continue
+			}
+			contracts, err := mgr.GetContracts(ctx)
 			if err != nil {
 				log.WithError(err).Error("failed to get contracts for ark tx listener")
 				continue
@@ -820,7 +833,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		return
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx)
+	mgr := a.contractMgr()
+	if mgr == nil {
+		return
+	}
+	contracts, err := mgr.GetContracts(ctx)
 	if err != nil {
 		log.WithError(err).Error("failed to get contracts for onchain listener")
 		return
@@ -867,7 +884,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 	}
 
 	newContractCh := make(chan contract.Contract, 8)
-	unsub := a.contractManager.OnContractEvent(func(e contract.Event) {
+	unsub := mgr.OnContractEvent(func(e contract.Event) {
 		if e.Type == "contract_created" {
 			select {
 			case newContractCh <- e.Contract:

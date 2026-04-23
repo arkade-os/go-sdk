@@ -63,11 +63,13 @@ func (a *arkClient) getSpendableVtxos(
 		return nil, nil, err
 	}
 
+	eligible := make([]clientTypes.Vtxo, 0, len(spendableVtxos))
 	scripts := make([]string, 0, len(spendableVtxos))
 	for _, v := range spendableVtxos {
 		if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
 			continue
 		}
+		eligible = append(eligible, v)
 		scripts = append(scripts, v.Script)
 	}
 
@@ -81,12 +83,9 @@ func (a *arkClient) getSpendableVtxos(
 		contractsByScript[c.Script] = c
 	}
 
-	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(scripts))
+	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(eligible))
 	scriptToKeyID := make(map[string]string, len(contracts))
-	for _, v := range spendableVtxos {
-		if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
-			continue
-		}
+	for _, v := range eligible {
 		c, ok := contractsByScript[v.Script]
 		if !ok {
 			log.Debugf("skipping vtxo %s:%d: no contract for script %s", v.Txid, v.VOut, v.Script)
@@ -96,7 +95,7 @@ func (a *arkClient) getSpendableVtxos(
 			Vtxo:       v,
 			Tapscripts: c.GetTapscripts(),
 		})
-		if keyID := c.Params["keyId"]; keyID != "" {
+		if keyID := c.Params[contract.ParamKeyID]; keyID != "" {
 			scriptToKeyID[c.Script] = keyID
 		}
 	}

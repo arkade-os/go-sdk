@@ -101,7 +101,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		}
 		return fmt.Errorf("unlock: load contracts: %w", err)
 	}
+	a.cmMu.Lock()
 	a.contractManager = mgr
+	a.cmMu.Unlock()
 
 	a.syncDone = false
 	a.syncErr = nil
@@ -150,12 +152,14 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		a.stopFn()
 	}
 
+	a.cmMu.Lock()
 	if a.contractManager != nil {
 		if err := a.contractManager.Close(); err != nil {
 			log.WithError(err).Warn("failed to close contract manager on lock")
 		}
 		a.contractManager = nil
 	}
+	a.cmMu.Unlock()
 
 	a.syncMu.Lock()
 	a.syncDone = false
