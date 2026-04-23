@@ -79,7 +79,9 @@ func TestDefaultHandler_DeriveContract(t *testing.T) {
 	offchain, boarding, onchain := splitContracts(t, cs)
 
 	require.Equal(t, "test-key", offchain.Params[contract.ParamKeyID])
-	require.Equal(t, arklib.LocktimeTypeBlock, offchain.GetDelay().Type)
+	delay, err := offchain.GetDelay()
+	require.NoError(t, err)
+	require.Equal(t, arklib.LocktimeTypeBlock, delay.Type)
 	require.False(t, offchain.IsOnchain)
 	require.True(t, boarding.IsOnchain)
 	require.True(t, onchain.IsOnchain)

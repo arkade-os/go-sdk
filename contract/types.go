@@ -63,27 +63,33 @@ func (c *Contract) GetTapscripts() []string {
 }
 
 // GetDelay decodes the exit delay stored in Params.
-func (c *Contract) GetDelay() arklib.RelativeLocktime {
+// Returns an error if the param is missing or malformed; callers must not
+// proceed with a zero locktime as it would bypass the CSV timelock.
+func (c *Contract) GetDelay() (arklib.RelativeLocktime, error) {
 	return parseDelay(c.Params[ParamExitDelay])
 }
 
-func parseDelay(s string) arklib.RelativeLocktime {
+// parseDelay parses an exit delay string of the form "block:N" or "second:N"
+// where N is a non-negative integer. Any prefix other than "second" is treated
+// as block-based. Empty string is an error; use serializeDelay to produce
+// the canonical form written into Params[ParamExitDelay].
+func parseDelay(s string) (arklib.RelativeLocktime, error) {
 	if s == "" {
-		return arklib.RelativeLocktime{}
+		return arklib.RelativeLocktime{}, fmt.Errorf("exit delay param is empty")
 	}
 	idx := strings.LastIndex(s, ":")
 	if idx < 0 {
-		return arklib.RelativeLocktime{}
+		return arklib.RelativeLocktime{}, fmt.Errorf("invalid exit delay format %q", s)
 	}
 	var val uint32
 	if _, err := fmt.Sscanf(s[idx+1:], "%d", &val); err != nil {
-		return arklib.RelativeLocktime{}
+		return arklib.RelativeLocktime{}, fmt.Errorf("invalid exit delay value in %q", s)
 	}
 	t := arklib.LocktimeTypeBlock
 	if s[:idx] == "second" {
 		t = arklib.LocktimeTypeSecond
 	}
-	return arklib.RelativeLocktime{Type: t, Value: val}
+	return arklib.RelativeLocktime{Type: t, Value: val}, nil
 }
 
 func serializeDelay(d arklib.RelativeLocktime) string {

@@ -55,7 +55,7 @@ ON CONFLICT (script) DO UPDATE SET
 func (r *contractRepository) GetContractByScript(
 	ctx context.Context, scriptHex string,
 ) (*contract.Contract, error) {
-	const q = `SELECT * FROM contract WHERE script = ?`
+	const q = `SELECT script, type, label, params, address, is_onchain, state, created_at, metadata FROM contract WHERE script = ?`
 	row := r.db.QueryRowContext(ctx, q, scriptHex)
 	c, err := scanContract(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -67,7 +67,7 @@ func (r *contractRepository) GetContractByScript(
 func (r *contractRepository) ListContracts(
 	ctx context.Context, f contract.Filter,
 ) ([]contract.Contract, error) {
-	q := `SELECT * FROM contract WHERE 1=1`
+	q := `SELECT script, type, label, params, address, is_onchain, state, created_at, metadata FROM contract WHERE 1=1`
 	args := []any{}
 
 	if f.Type != nil {

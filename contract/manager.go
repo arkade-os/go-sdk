@@ -85,17 +85,21 @@ func (m *managerImpl) Load(ctx context.Context) error {
 		return err
 	}
 	for _, key := range keys {
-		// Check whether an offchain contract for this key already exists.
-		existing, err := m.GetContracts(
-			ctx,
-			WithType(TypeDefault),
-			WithIsOnchain(false),
-			WithKeyID(key.Id),
-		)
+		// Check which contract types already exist for this key. We expect all
+		// three (offchain, boarding, onchain). If any are missing — e.g. because a
+		// previous NewDefault call persisted the offchain contract and then crashed
+		// before writing the siblings then re-derive the full set and persist only the
+		// missing contracts. DeriveContracts is deterministic so this is safe.
+		existing, err := m.GetContracts(ctx, WithKeyID(key.Id))
 		if err != nil {
 			return err
 		}
-		if len(existing) > 0 {
+		existingByType := make(map[string]bool, len(existing))
+		for _, c := range existing {
+			existingByType[c.Type] = true
+		}
+		if existingByType[TypeDefault] && existingByType[TypeDefaultBoarding] &&
+			existingByType[TypeDefaultOnchain] {
 			continue
 		}
 		contracts, err := h.DeriveContracts(ctx, key, m.cfg)
@@ -103,6 +107,9 @@ func (m *managerImpl) Load(ctx context.Context) error {
 			return fmt.Errorf("bootstrap: derive contracts for key %s: %w", key.Id, err)
 		}
 		for _, c := range contracts {
+			if existingByType[c.Type] {
+				continue // already persisted; don't overwrite label/state/metadata
+			}
 			if err := m.persistAndCache(ctx, *c); err != nil {
 				return fmt.Errorf("bootstrap: persist contract for key %s: %w", key.Id, err)
 			}

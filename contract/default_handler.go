@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -35,7 +34,6 @@ func (h *DefaultHandler) DeriveContracts(
 	}
 
 	signerKeyHex := hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerPubKey))
-	now := time.Now()
 
 	// --- offchain VTXO contract (IsOnchain=false) ---
 	offchainScript := script.NewDefaultVtxoScript(
@@ -74,7 +72,6 @@ func (h *DefaultHandler) DeriveContracts(
 		Address:   encodedArkAddr,
 		IsOnchain: false,
 		State:     StateActive,
-		CreatedAt: now,
 	}
 
 	// --- boarding contract (IsOnchain=true, has tapscripts and boarding delay) ---
@@ -111,7 +108,6 @@ func (h *DefaultHandler) DeriveContracts(
 		Address:   boardingAddr.EncodeAddress(),
 		IsOnchain: true,
 		State:     StateActive,
-		CreatedAt: now,
 	}
 
 	// --- onchain contract (IsOnchain=true, bare key-path P2TR, no tapscripts or delay) ---
@@ -136,7 +132,6 @@ func (h *DefaultHandler) DeriveContracts(
 		Address:   onchainAddr.EncodeAddress(),
 		IsOnchain: true,
 		State:     StateActive,
-		CreatedAt: now,
 	}
 
 	return []*Contract{offchain, boarding, onchain}, nil
@@ -157,7 +152,11 @@ func (h *DefaultHandler) SelectPath(
 	if pctx.Collaborative {
 		return tapLeafSelection(tapscripts[1], nil, nil)
 	}
-	seq, err := arklib.BIP68Sequence(c.GetDelay())
+	delay, err := c.GetDelay()
+	if err != nil {
+		return nil, fmt.Errorf("exit delay: %w", err)
+	}
+	seq, err := arklib.BIP68Sequence(delay)
 	if err != nil {
 		return nil, fmt.Errorf("BIP68 sequence: %w", err)
 	}
@@ -176,7 +175,11 @@ func (h *DefaultHandler) GetSpendablePaths(
 			len(tapscripts),
 		)
 	}
-	seq, err := arklib.BIP68Sequence(c.GetDelay())
+	delay, err := c.GetDelay()
+	if err != nil {
+		return nil, fmt.Errorf("exit delay: %w", err)
+	}
+	seq, err := arklib.BIP68Sequence(delay)
 	if err != nil {
 		return nil, fmt.Errorf("BIP68 sequence: %w", err)
 	}

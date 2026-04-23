@@ -850,9 +850,14 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			log.WithError(err).Error("failed to get pk script for contract address")
 			return nil
 		}
+		delay, err := c.GetDelay()
+		if err != nil {
+			log.WithError(err).Errorf("skipping contract %s: invalid exit delay", c.Script)
+			return nil
+		}
 		addressByScript[hex.EncodeToString(sc)] = addressInfo{
 			tapscripts: c.GetTapscripts(),
-			delay:      c.GetDelay(),
+			delay:      delay,
 		}
 		return []string{addr}
 	}
@@ -1562,7 +1567,11 @@ func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo
 
 	utxos := []clientTypes.Utxo{}
 	for _, c := range contracts {
-		delay := c.GetDelay()
+		delay, err := c.GetDelay()
+		if err != nil {
+			log.WithError(err).Errorf("skipping boarding contract %s: invalid exit delay", c.Script)
+			continue
+		}
 		tapscripts := c.GetTapscripts()
 		txs, err := explorer.GetTxs(c.Address)
 		if err != nil {
