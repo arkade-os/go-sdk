@@ -19,17 +19,32 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	signingKeys, err := a.signingKeysByScript(ctx)
 	if err != nil {
 		return "", err
 	}
 
+	// ensure asset-carrying receivers have at least dust sats as a carrier
+	clone := make([]clientTypes.Receiver, len(receivers))
+	copy(clone, receivers)
+	dust := cfg.Dust
+	for i, receiver := range clone {
+		if len(receiver.Assets) > 0 && receiver.Amount < dust {
+			clone[i].Amount = dust
+		}
+	}
+
 	res, err := a.ArkClient.SendOffChain(
 		ctx,
-		receivers,
+		clone,
 		client.WithVtxos(vtxos),
 		client.WithKeys(signingKeys),
-	)
+		)
 	if err != nil {
 		return "", err
 	}

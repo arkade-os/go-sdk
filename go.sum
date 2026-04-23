@@ -18,14 +18,6 @@ github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmH
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da/go.mod h1:eHEWzANqSiWQsof+nXEI9bUVUyV6F53Fp89EuCh2EAA=
 github.com/aead/siphash v1.0.1 h1:FwHfE/T45KPKYuuSAKyyvE+oPWcaQ+CUmFW0bPlM+kg=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
-github.com/altafan/ark/api-spec v0.0.0-20260421020609-5853324f9344 h1:2ewTYZgwrQ91VNR1iBf0lquluz6+QZi3xy3C/s992tQ=
-github.com/altafan/ark/api-spec v0.0.0-20260421020609-5853324f9344/go.mod h1:2+6ix1UGGE22Q/rbab1dycFPPKiTyq0gldKVqVfFPWs=
-github.com/altafan/ark/pkg/ark-lib v0.0.0-20260421020609-5853324f9344 h1:PdM6HD70EoBl+6QTxHE+4VD1MpzXGlYl3O54lOr/uwM=
-github.com/altafan/ark/pkg/ark-lib v0.0.0-20260421020609-5853324f9344/go.mod h1:P5ipJ1CatvH6xKxEtMUt4KhUGl1JPLcFiSdo1PGTny8=
-github.com/altafan/ark/pkg/client-lib v0.0.0-20260421020609-5853324f9344 h1:3kyCzND8r9cAp7SkiIQNrc37P3fFnvNJTAHRDsJRC6Y=
-github.com/altafan/ark/pkg/client-lib v0.0.0-20260421020609-5853324f9344/go.mod h1:eQQqqpcGcwf6qQLvN0Z7VORVA8nr+6MFOayaNW4LdaI=
-github.com/altafan/ark/pkg/errors v0.0.0-20260421020609-5853324f9344 h1:wqGpMm4SPPs7wgolTYVpKxEsYdmL2rlr0sI0EdcUoKw=
-github.com/altafan/ark/pkg/errors v0.0.0-20260421020609-5853324f9344/go.mod h1:ACQfhs+4AG/HMgQfXXURmb0EngKEE4XrfE1CFFLybiM=
 github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8TVTI=
 github.com/antlr4-go/antlr/v4 v4.13.0/go.mod h1:pfChB/xh/Unjila75QW7+VU4TSnWnnk9UTnmpPaOR2g=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=

@@ -1,6 +1,6 @@
 module github.com/arkade-os/go-sdk
 
-go 1.26.2
+go 1.26.1
 
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 

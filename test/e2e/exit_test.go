@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const onchainFee = 300
+
 func TestCollaborativeExit(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
@@ -241,6 +243,34 @@ func TestUnilateralExit(t *testing.T) {
 		require.Len(t, spent, 1)
 		require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 		require.True(t, spent[0].Unrolled)
+
+		err = generateBlocks(10)
+		require.NoError(t, err)
+
+		time.Sleep(15 * time.Second)
+
+		// Use a separate HD wallet to observe the onchain receive after CompleteUnroll.
+		bob := setupHDWallet(t, "")
+		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
+
+		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, bobOnchainAddr)
+
+		txid, err := alice.CompleteUnroll(ctx, bobOnchainAddr)
+		require.NoError(t, err)
+		require.NotEmpty(t, txid)
+
+		select {
+		case bobUtxoEvent := <-bobUtxoCh:
+			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
+			require.Len(t, bobUtxoEvent.Utxos, 1)
+
+			bobUtxo := bobUtxoEvent.Utxos[0]
+			require.GreaterOrEqual(t, int(bobUtxo.Amount), 21000-onchainFee)
+		case <-time.After(15 * time.Second):
+			t.Fatal("timed out waiting for UtxosAdded on onchain address")
+		}
 	})
 
 	// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
@@ -267,15 +297,12 @@ func TestUnilateralExit(t *testing.T) {
 		require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
-		// Alice sends to Bob
 		_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 			To:     bobOffchainAddr,
 			Amount: 21000,
 		}})
 		require.NoError(t, err)
 
-		// next event received by bob vtxo channel should be the added event
-		// related to the offchain send
 		bobVtxoEvent := <-bobVtxoCh
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
@@ -283,12 +310,8 @@ func TestUnilateralExit(t *testing.T) {
 		require.Equal(t, 21000, int(vtxoToUnroll.Amount))
 
 		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
-
-		// Fund Bob's onchain wallet to cover network fees for the unroll
 		faucetOnchain(t, bobOnchainAddr, 0.0001)
 
-		// next event received by bob utxo channel should be the added event
-		// related to the faucet
 		bobUtxoEvent := <-bobUtxoCh
 		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
 		require.Len(t, bobUtxoEvent.Utxos, 1)
@@ -319,5 +342,32 @@ func TestUnilateralExit(t *testing.T) {
 		require.Len(t, spent, 1)
 		require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 		require.True(t, spent[0].Unrolled)
+
+		err = generateBlocks(10)
+		require.NoError(t, err)
+
+		time.Sleep(15 * time.Second)
+
+		carol := setupHDWallet(t, "")
+		carolUtxoCh := carol.GetUtxoEventChannel(ctx)
+
+		carolOnchainAddr, err := carol.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, carolOnchainAddr)
+
+		txid, err := bob.CompleteUnroll(ctx, carolOnchainAddr)
+		require.NoError(t, err)
+		require.NotEmpty(t, txid)
+
+		select {
+		case carolUtxoEvent := <-carolUtxoCh:
+			require.Equal(t, types.UtxosAdded, carolUtxoEvent.Type)
+			require.Len(t, carolUtxoEvent.Utxos, 1)
+
+			carolUtxo := carolUtxoEvent.Utxos[0]
+			require.GreaterOrEqual(t, int(carolUtxo.Amount), 21000-onchainFee)
+		case <-time.After(15 * time.Second):
+			t.Fatal("timed out waiting for UtxosAdded on onchain address")
+		}
 	})
 }
