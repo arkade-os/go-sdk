@@ -4,17 +4,17 @@ go 1.26.2
 
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
-replace github.com/arkade-os/arkd/api-spec => github.com/altafan/ark/api-spec v0.0.0-20260411092811-86c10c7f3076
+replace github.com/arkade-os/arkd/api-spec => /Users/dusansekulic/code/go/ark/api-spec
 
-replace github.com/arkade-os/arkd/pkg/ark-lib => github.com/altafan/ark/pkg/ark-lib v0.0.0-20260411092811-86c10c7f3076
+replace github.com/arkade-os/arkd/pkg/ark-lib => /Users/dusansekulic/code/go/ark/pkg/ark-lib
 
-replace github.com/arkade-os/arkd/pkg/client-lib => github.com/altafan/ark/pkg/client-lib v0.0.0-20260411092811-86c10c7f3076
+replace github.com/arkade-os/arkd/pkg/client-lib => /Users/dusansekulic/code/go/ark/pkg/client-lib
 
-replace github.com/arkade-os/arkd/pkg/errors => github.com/altafan/ark/pkg/errors v0.0.0-20260411092811-86c10c7f3076
+replace github.com/arkade-os/arkd/pkg/errors => /Users/dusansekulic/code/go/ark/pkg/errors
 
 require (
 	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260323091657-eeb0baef6937
-	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260403181126-d372608bf69c
+	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260421020609-5853324f9344
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5

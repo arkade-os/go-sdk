@@ -356,7 +356,16 @@ func TestOffchainTx(t *testing.T) {
 		// sign the ark transaction
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
-		signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx)
+		signedArkTx, err := aliceWallet.SignTransaction(
+			ctx,
+			explorer,
+			encodedArkTx,
+			map[string]string{
+				hex.EncodeToString(
+					ptx.Inputs[0].WitnessUtxo.PkScript,
+				): offchainAddress.KeyID,
+			},
+		)
 		require.NoError(t, err)
 
 		txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
@@ -416,6 +425,8 @@ func TestOffchainTx(t *testing.T) {
 
 		bob := setupHDWallet(t, "")
 		bobWallet := bob.WalletSvc
+		_, err = bob.NewOffchainAddress(ctx)
+		require.NoError(t, err)
 
 		vtxo := faucetOffchain(t, alice, aliceFundingAddr, 0.00021)
 
@@ -501,7 +512,16 @@ func TestOffchainTx(t *testing.T) {
 		// sign the ark transaction
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
-		signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx)
+		signedArkTx, err := aliceWallet.SignTransaction(
+			ctx,
+			explorer,
+			encodedArkTx,
+			map[string]string{
+				hex.EncodeToString(
+					ptx.Inputs[0].WitnessUtxo.PkScript,
+				): aliceOffchainAddr.KeyID,
+			},
+		)
 		require.NoError(t, err)
 
 		txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)

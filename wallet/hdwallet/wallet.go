@@ -363,7 +363,7 @@ func (w *Service) ListKeys(ctx context.Context) ([]wallet.KeyRef, error) {
 }
 
 func (w *Service) SignTransaction(
-	ctx context.Context, explorerSvc explorer.Explorer, tx string,
+	ctx context.Context, explorerSvc explorer.Explorer, tx string, keys map[string]string,
 ) (string, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -393,7 +393,8 @@ func (w *Service) SignTransaction(
 		}
 
 		var prevoutTx wire.MsgTx
-		if err := prevoutTx.Deserialize(hex.NewDecoder(strings.NewReader(prevoutTxHex))); err != nil {
+		prevoutReader := hex.NewDecoder(strings.NewReader(prevoutTxHex))
+		if err := prevoutTx.Deserialize(prevoutReader); err != nil {
 			return "", fmt.Errorf("failed to deserialize prev tx: %w", err)
 		}
 
@@ -417,22 +418,35 @@ func (w *Service) SignTransaction(
 	txsighashes := txscript.NewTxSigHashes(updater.Upsbt.UnsignedTx, prevoutFetcher)
 
 	for i, input := range ptx.Inputs {
+		inputKeyID := ""
+		if input.WitnessUtxo != nil {
+			inputKeyID = keys[hex.EncodeToString(input.WitnessUtxo.PkScript)]
+		}
+
 		if len(input.TaprootLeafScript) > 0 {
-			if err := w.signTapscriptSpend(updater, input, i, txsighashes, prevoutFetcher); err != nil {
+			if err := w.signTapscriptSpend(
+				updater, input, i, txsighashes, prevoutFetcher, inputKeyID, keys,
+			); err != nil {
 				return "", err
 			}
 			continue
 		}
 
 		if input.WitnessUtxo != nil && len(input.TaprootInternalKey) == 0 {
-			if taprootKey, ok := w.findOwnedOnchainTaprootKey(input.WitnessUtxo.PkScript); ok {
+			if inputKeyID != "" {
+				taprootKey, err := w.taprootKeyForKeyID(inputKeyID)
+				if err != nil {
+					return "", err
+				}
 				updater.Upsbt.Inputs[i].TaprootInternalKey = schnorr.SerializePubKey(taprootKey)
 				input = updater.Upsbt.Inputs[i]
 			}
 		}
 
 		if len(input.TaprootInternalKey) > 0 {
-			if err := w.signTaprootKeySpend(updater, input, i, txsighashes, prevoutFetcher); err != nil {
+			if err := w.signTaprootKeySpend(
+				updater, input, i, txsighashes, prevoutFetcher, inputKeyID,
+			); err != nil {
 				return "", err
 			}
 			continue
@@ -442,37 +456,27 @@ func (w *Service) SignTransaction(
 	return ptx.B64Encode()
 }
 
-func (w *Service) findOwnedOnchainTaprootKey(pkScript []byte) (*btcec.PublicKey, bool) {
-	for _, pub := range w.keyProvider.GetAllDerivedPubKeys() {
-		script, err := w.computeOnchainPkScript(pub)
-		if err != nil {
-			continue
-		}
-		if bytes.Equal(script, pkScript) {
-			return txscript.ComputeTaprootKeyNoScript(pub), true
-		}
-	}
-
-	return nil, false
-}
-
 func (w *Service) signTapscriptSpend(
 	updater *psbt.Updater,
 	input psbt.PInput,
 	inputIndex int,
 	txsighashes *txscript.TxSigHashes,
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
+	keyID string,
+	signingKeys map[string]string,
 ) error {
-	allDerivedPubs := w.keyProvider.GetAllDerivedPubKeys()
-
 	myPubkeys := make(map[string]*btcec.PrivateKey)
-	for _, pub := range allDerivedPubs {
-		priv, err := w.keyProvider.GetPrivKeyForPubKey(pub)
-		if err == nil {
-			myPubkeys[hex.EncodeToString(schnorr.SerializePubKey(pub))] = priv
+
+	if keyID != "" {
+		priv, pub, err := w.derivedKeyForID(keyID)
+		if err != nil {
+			return err
 		}
+		myPubkeys[hex.EncodeToString(schnorr.SerializePubKey(pub))] = priv
 	}
 
+	needsWalletKey := false
+	signed := false
 	for _, leaf := range input.TaprootLeafScript {
 		closure, err := script.DecodeClosure(leaf.Script)
 		if err != nil {
@@ -495,12 +499,16 @@ func (w *Service) signTapscriptSpend(
 
 		switch c := closure.(type) {
 		case *script.CSVMultisigClosure:
+			needsWalletKey = true
 			checkKeys(c.PubKeys)
 		case *script.MultisigClosure:
+			needsWalletKey = true
 			checkKeys(c.PubKeys)
 		case *script.CLTVMultisigClosure:
+			needsWalletKey = true
 			checkKeys(c.PubKeys)
 		case *script.ConditionMultisigClosure:
+			needsWalletKey = true
 			checkKeys(c.PubKeys)
 		}
 
@@ -539,10 +547,43 @@ func (w *Service) signTapscriptSpend(
 					SigHash:     input.SighashType,
 				},
 			)
+			signed = true
 		}
 	}
 
+	if !needsWalletKey {
+		return nil
+	}
+	if keyID == "" {
+		scriptHex := ""
+		if input.WitnessUtxo != nil {
+			scriptHex = hex.EncodeToString(input.WitnessUtxo.PkScript)
+		}
+
+		return fmt.Errorf(
+			"missing signing key for tapscript input %d script %s known %v",
+			inputIndex,
+			scriptHex,
+			sampleSigningKeyScripts(signingKeys),
+		)
+	}
+	if !signed {
+		return fmt.Errorf("signing key %q does not match tapscript input %d", keyID, inputIndex)
+	}
+
 	return nil
+}
+
+func sampleSigningKeyScripts(keys map[string]string) []string {
+	scripts := make([]string, 0, 3)
+	for script := range keys {
+		scripts = append(scripts, script)
+		if len(scripts) == cap(scripts) {
+			break
+		}
+	}
+
+	return scripts
 }
 
 func (w *Service) signTaprootKeySpend(
@@ -551,8 +592,12 @@ func (w *Service) signTaprootKeySpend(
 	inputIndex int,
 	txsighashes *txscript.TxSigHashes,
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
+	keyID string,
 ) error {
 	if len(input.TaprootKeySpendSig) > 0 {
+		return nil
+	}
+	if keyID == "" {
 		return nil
 	}
 
@@ -562,19 +607,26 @@ func (w *Service) signTaprootKeySpend(
 	}
 
 	var matchedPrivKey *btcec.PrivateKey
-	for _, pub := range w.keyProvider.GetAllDerivedPubKeys() {
-		computedTaprootKey := txscript.ComputeTaprootKeyNoScript(pub)
-		if bytes.Equal(schnorr.SerializePubKey(computedTaprootKey), schnorr.SerializePubKey(internalKey)) {
-			priv, err := w.keyProvider.GetPrivKeyForPubKey(pub)
-			if err == nil {
-				matchedPrivKey = priv
-				break
-			}
-		}
+
+	priv, pub, err := w.derivedKeyForID(keyID)
+	if err != nil {
+		return err
+	}
+
+	computedTaprootKey := txscript.ComputeTaprootKeyNoScript(pub)
+	if bytes.Equal(
+		schnorr.SerializePubKey(computedTaprootKey),
+		schnorr.SerializePubKey(internalKey),
+	) {
+		matchedPrivKey = priv
 	}
 
 	if matchedPrivKey == nil {
-		return nil
+		return fmt.Errorf(
+			"signing key %q does not match taproot key spend input %d",
+			keyID,
+			inputIndex,
+		)
 	}
 
 	preimage, err := txscript.CalcTaprootSignatureHash(
@@ -595,6 +647,29 @@ func (w *Service) signTaprootKeySpend(
 
 	updater.Upsbt.Inputs[inputIndex].TaprootKeySpendSig = sig.Serialize()
 	return nil
+}
+
+func (w *Service) derivedKeyForID(keyID string) (*btcec.PrivateKey, *btcec.PublicKey, error) {
+	index, err := parseOffchainIndex(keyID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid key id %q: %w", keyID, err)
+	}
+
+	privKey, err := w.keyProvider.DeriveKeyAtIndex(index)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to derive key %q: %w", keyID, err)
+	}
+
+	return privKey, privKey.PubKey(), nil
+}
+
+func (w *Service) taprootKeyForKeyID(keyID string) (*btcec.PublicKey, error) {
+	_, pubKey, err := w.derivedKeyForID(keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	return txscript.ComputeTaprootKeyNoScript(pubKey), nil
 }
 
 func (w *Service) SignMessage(_ context.Context, message []byte) (string, error) {
@@ -722,17 +797,29 @@ func (w *Service) discoverKeysFrom(
 
 			boardingAddr, err := w.computeBoardingAddress(pubKey)
 			if err != nil {
-				return false, fmt.Errorf("failed to compute boarding address for index %d: %w", idx, err)
+				return false, fmt.Errorf(
+					"failed to compute boarding address for index %d: %w",
+					idx,
+					err,
+				)
 			}
 
 			redemptionAddr, err := w.computeRedemptionAddress(pubKey)
 			if err != nil {
-				return false, fmt.Errorf("failed to compute redemption address for index %d: %w", idx, err)
+				return false, fmt.Errorf(
+					"failed to compute redemption address for index %d: %w",
+					idx,
+					err,
+				)
 			}
 
 			onchainAddr, err := w.computeOnchainAddress(pubKey)
 			if err != nil {
-				return false, fmt.Errorf("failed to compute onchain address for index %d: %w", idx, err)
+				return false, fmt.Errorf(
+					"failed to compute onchain address for index %d: %w",
+					idx,
+					err,
+				)
 			}
 
 			scripts = append(scripts, scriptHex)
@@ -770,7 +857,11 @@ func (w *Service) discoverKeysFrom(
 
 				boardingUtxos, err := w.explorer.GetUtxos(candidate.boardingAddr)
 				if err != nil {
-					return false, fmt.Errorf("failed to query boarding address for index %d: %w", candidate.index, err)
+					return false, fmt.Errorf(
+						"failed to query boarding address for index %d: %w",
+						candidate.index,
+						err,
+					)
 				}
 				if len(boardingUtxos) > 0 {
 					matched[candidate.index] = struct{}{}
@@ -779,7 +870,11 @@ func (w *Service) discoverKeysFrom(
 
 				redemptionUtxos, err := w.explorer.GetUtxos(candidate.redemptionAddr)
 				if err != nil {
-					return false, fmt.Errorf("failed to query redemption address for index %d: %w", candidate.index, err)
+					return false, fmt.Errorf(
+						"failed to query redemption address for index %d: %w",
+						candidate.index,
+						err,
+					)
 				}
 				if len(redemptionUtxos) > 0 {
 					matched[candidate.index] = struct{}{}
@@ -788,7 +883,11 @@ func (w *Service) discoverKeysFrom(
 
 				onchainUtxos, err := w.explorer.GetUtxos(candidate.onchainAddr)
 				if err != nil {
-					return false, fmt.Errorf("failed to query onchain address for index %d: %w", candidate.index, err)
+					return false, fmt.Errorf(
+						"failed to query onchain address for index %d: %w",
+						candidate.index,
+						err,
+					)
 				}
 				if len(onchainUtxos) > 0 {
 					matched[candidate.index] = struct{}{}

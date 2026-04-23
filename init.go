@@ -125,7 +125,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		return err
 	}
 	if hasKeys {
-		if _, err := a.ArkClient.FinalizePendingTxs(ctx, nil); err != nil {
+		if _, err := a.FinalizePendingTxs(ctx, nil); err != nil {
 			return err
 		}
 	}

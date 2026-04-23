@@ -34,7 +34,9 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, hdOnchain1, hdOnchain2)
 
-	hdOnchainAddrs, hdOffchainAddrs, hdBoardingAddrs, hdRedemptionAddrs, err := hdWallet.GetAddresses(ctx)
+	hdOnchainAddrs, hdOffchainAddrs, hdBoardingAddrs, hdRedemptionAddrs, err := hdWallet.GetAddresses(
+		ctx,
+	)
 	require.NoError(t, err)
 	require.Len(t, hdOnchainAddrs, 6)
 	require.Len(t, hdOffchainAddrs, 6)
@@ -267,7 +269,8 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 			return false
 		}
 
-		return len(spent) == 0 && len(spendable) == 4 && sumVtxoAmounts(spendable) == wantOffchainTotal
+		return len(spent) == 0 && len(spendable) == 4 &&
+			sumVtxoAmounts(spendable) == wantOffchainTotal
 	}, 30*time.Second, 500*time.Millisecond)
 
 	const wantOnchainSpendable = uint64(23_000)
@@ -306,11 +309,16 @@ func TestHDWalletEventStreams(t *testing.T) {
 		}})
 		require.NoError(t, err)
 
-		firstReceived := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
-			return event.Type == types.VtxosAdded &&
-				len(event.Vtxos) == 1 &&
-				event.Vtxos[0].Amount == 100
-		})
+		firstReceived := waitForVtxoEvent(
+			t,
+			bobVtxoCh,
+			30*time.Second,
+			func(event types.VtxoEvent) bool {
+				return event.Type == types.VtxosAdded &&
+					len(event.Vtxos) == 1 &&
+					event.Vtxos[0].Amount == 100
+			},
+		)
 		require.EqualValues(t, 100, firstReceived.Vtxos[0].Amount)
 
 		_, err = aliceClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
@@ -319,11 +327,16 @@ func TestHDWalletEventStreams(t *testing.T) {
 		}})
 		require.NoError(t, err)
 
-		secondReceived := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
-			return event.Type == types.VtxosAdded &&
-				len(event.Vtxos) == 1 &&
-				event.Vtxos[0].Amount == 1000
-		})
+		secondReceived := waitForVtxoEvent(
+			t,
+			bobVtxoCh,
+			30*time.Second,
+			func(event types.VtxoEvent) bool {
+				return event.Type == types.VtxosAdded &&
+					len(event.Vtxos) == 1 &&
+					event.Vtxos[0].Amount == 1000
+			},
+		)
 		require.EqualValues(t, 1000, secondReceived.Vtxos[0].Amount)
 
 		_, err = bobClientHD.Settle(ctx)
@@ -351,19 +364,29 @@ func TestHDWalletEventStreams(t *testing.T) {
 
 		faucetOnchain(t, boardingAddr, 0.00021)
 
-		addedUtxoEvent := waitForUtxoEvent(t, aliceUtxoCh, 30*time.Second, func(event types.UtxoEvent) bool {
-			return event.Type == types.UtxosAdded &&
-				len(event.Utxos) == 1 &&
-				event.Utxos[0].Amount == 21000
-		})
+		addedUtxoEvent := waitForUtxoEvent(
+			t,
+			aliceUtxoCh,
+			30*time.Second,
+			func(event types.UtxoEvent) bool {
+				return event.Type == types.UtxosAdded &&
+					len(event.Utxos) == 1 &&
+					event.Utxos[0].Amount == 21000
+			},
+		)
 		require.EqualValues(t, 21000, addedUtxoEvent.Utxos[0].Amount)
 
-		addedTxEvent := waitForTxEvent(t, aliceTxCh, 30*time.Second, func(event types.TransactionEvent) bool {
-			return event.Type == types.TxsAdded &&
-				len(event.Txs) == 1 &&
-				event.Txs[0].Amount == 21000 &&
-				event.Txs[0].BoardingTxid != ""
-		})
+		addedTxEvent := waitForTxEvent(
+			t,
+			aliceTxCh,
+			30*time.Second,
+			func(event types.TransactionEvent) bool {
+				return event.Type == types.TxsAdded &&
+					len(event.Txs) == 1 &&
+					event.Txs[0].Amount == 21000 &&
+					event.Txs[0].BoardingTxid != ""
+			},
+		)
 		require.EqualValues(t, 21000, addedTxEvent.Txs[0].Amount)
 		require.NotEmpty(t, addedTxEvent.Txs[0].BoardingTxid)
 
@@ -371,19 +394,29 @@ func TestHDWalletEventStreams(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, commitmentTxid)
 
-		addedVtxoEvent := waitForVtxoEvent(t, aliceVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
-			return event.Type == types.VtxosAdded &&
-				len(event.Vtxos) == 1 &&
-				event.Vtxos[0].Amount == 21000
-		})
+		addedVtxoEvent := waitForVtxoEvent(
+			t,
+			aliceVtxoCh,
+			30*time.Second,
+			func(event types.VtxoEvent) bool {
+				return event.Type == types.VtxosAdded &&
+					len(event.Vtxos) == 1 &&
+					event.Vtxos[0].Amount == 21000
+			},
+		)
 		require.EqualValues(t, 21000, addedVtxoEvent.Vtxos[0].Amount)
 
-		settledTxEvent := waitForTxEvent(t, aliceTxCh, 30*time.Second, func(event types.TransactionEvent) bool {
-			return event.Type == types.TxsSettled &&
-				len(event.Txs) == 1 &&
-				event.Txs[0].BoardingTxid == addedTxEvent.Txs[0].BoardingTxid &&
-				event.Txs[0].SettledBy == commitmentTxid
-		})
+		settledTxEvent := waitForTxEvent(
+			t,
+			aliceTxCh,
+			30*time.Second,
+			func(event types.TransactionEvent) bool {
+				return event.Type == types.TxsSettled &&
+					len(event.Txs) == 1 &&
+					event.Txs[0].BoardingTxid == addedTxEvent.Txs[0].BoardingTxid &&
+					event.Txs[0].SettledBy == commitmentTxid
+			},
+		)
 		require.Equal(t, commitmentTxid, settledTxEvent.Txs[0].SettledBy)
 		require.Equal(t, addedTxEvent.Txs[0].BoardingTxid, settledTxEvent.Txs[0].BoardingTxid)
 	})

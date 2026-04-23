@@ -1,6 +1,7 @@
 package hdwallet
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -40,7 +41,7 @@ func TestKeyDerivationDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to derive key index 0 again: %v", err)
 	}
-	if !bytesEqual(priv1.Serialize(), priv2.Serialize()) {
+	if !bytes.Equal(priv1.Serialize(), priv2.Serialize()) {
 		t.Fatal("same index should produce same key")
 	}
 
@@ -49,7 +50,7 @@ func TestKeyDerivationDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to derive key index 5: %v", err)
 	}
-	if bytesEqual(priv1.Serialize(), priv5.Serialize()) {
+	if bytes.Equal(priv1.Serialize(), priv5.Serialize()) {
 		t.Fatal("different indices should produce different keys")
 	}
 
@@ -211,7 +212,7 @@ func TestGetPrivKeyForPubKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to find key by pubkey: %v", err)
 	}
-	if !bytesEqual(priv.PubKey().SerializeCompressed(), pub.SerializeCompressed()) {
+	if !bytes.Equal(priv.PubKey().SerializeCompressed(), pub.SerializeCompressed()) {
 		t.Fatal("returned key does not match")
 	}
 
@@ -318,7 +319,7 @@ func TestWalletNewKeyAlwaysFresh(t *testing.T) {
 		t.Fatalf("expected fresh key ids, got %q twice", first.Id)
 	}
 
-	if bytesEqual(first.PubKey.SerializeCompressed(), second.PubKey.SerializeCompressed()) {
+	if bytes.Equal(first.PubKey.SerializeCompressed(), second.PubKey.SerializeCompressed()) {
 		t.Fatal("expected fresh pubkeys on successive NewKey calls")
 	}
 
@@ -361,7 +362,7 @@ func TestWalletGetKeyByDerivationPath(t *testing.T) {
 		t.Fatalf("expected key id %q, got %q", allocated.Id, resolved.Id)
 	}
 
-	if !bytesEqual(
+	if !bytes.Equal(
 		resolved.PubKey.SerializeCompressed(),
 		allocated.PubKey.SerializeCompressed(),
 	) {
@@ -432,8 +433,13 @@ func TestDiscoverKeysRecoversUsedKeysAcrossGapWithinLimit(t *testing.T) {
 	if len(keys) != 4 {
 		t.Fatalf("expected recovered key range to extend through index 3, got %d keys", len(keys))
 	}
-	if keys[0].Id != svc.keyProvider.DefaultKeyPath(0) || keys[len(keys)-1].Id != svc.keyProvider.DefaultKeyPath(3) {
-		t.Fatalf("unexpected discovered key ids: first=%q last=%q", keys[0].Id, keys[len(keys)-1].Id)
+	if keys[0].Id != svc.keyProvider.DefaultKeyPath(0) ||
+		keys[len(keys)-1].Id != svc.keyProvider.DefaultKeyPath(3) {
+		t.Fatalf(
+			"unexpected discovered key ids: first=%q last=%q",
+			keys[0].Id,
+			keys[len(keys)-1].Id,
+		)
 	}
 	if len(idx.scriptQueries) != 3 {
 		t.Fatalf("expected 3 discovery windows, got %d", len(idx.scriptQueries))
@@ -467,7 +473,10 @@ func TestDiscoverKeysStopsWhenGapLimitExceeded(t *testing.T) {
 		t.Fatalf("unexpected discovered key id %q", keys[0].Id)
 	}
 	if len(idx.scriptQueries) != 2 {
-		t.Fatalf("expected discovery to stop after the first empty window, got %d queries", len(idx.scriptQueries))
+		t.Fatalf(
+			"expected discovery to stop after the first empty window, got %d queries",
+			len(idx.scriptQueries),
+		)
 	}
 }
 
@@ -482,7 +491,9 @@ func TestDiscoverKeysRecoversBoardingRedemptionAndOnchainUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to compute boarding address: %v", err)
 	}
-	exp.utxosByAddress[boardingAddr] = []explorer.Utxo{{Txid: "boarding-tx", Vout: 0, Amount: 1_000}}
+	exp.utxosByAddress[boardingAddr] = []explorer.Utxo{
+		{Txid: "boarding-tx", Vout: 0, Amount: 1_000},
+	}
 
 	redemptionPriv, err := svc.keyProvider.DeriveKeyAtIndex(2)
 	if err != nil {
@@ -492,7 +503,9 @@ func TestDiscoverKeysRecoversBoardingRedemptionAndOnchainUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to compute redemption address: %v", err)
 	}
-	exp.utxosByAddress[redemptionAddr] = []explorer.Utxo{{Txid: "redemption-tx", Vout: 0, Amount: 1_000}}
+	exp.utxosByAddress[redemptionAddr] = []explorer.Utxo{
+		{Txid: "redemption-tx", Vout: 0, Amount: 1_000},
+	}
 
 	onchainPriv, err := svc.keyProvider.DeriveKeyAtIndex(4)
 	if err != nil {
@@ -588,7 +601,9 @@ func TestSignTransactionDetectsOwnedOnchainTaprootInput(t *testing.T) {
 		t.Fatalf("failed to encode psbt: %v", err)
 	}
 
-	signed, err := svc.SignTransaction(ctx, nil, encoded)
+	signed, err := svc.SignTransaction(ctx, nil, encoded, map[string]string{
+		hex.EncodeToString(onchainPkScript): key.Id,
+	})
 	if err != nil {
 		t.Fatalf("SignTransaction failed: %v", err)
 	}
@@ -607,8 +622,98 @@ func TestSignTransactionDetectsOwnedOnchainTaprootInput(t *testing.T) {
 	}
 
 	expectedTaprootKey := schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(key.PubKey))
-	if hex.EncodeToString(parsed.Inputs[0].TaprootInternalKey) != hex.EncodeToString(expectedTaprootKey) {
+	if hex.EncodeToString(
+		parsed.Inputs[0].TaprootInternalKey,
+	) != hex.EncodeToString(
+		expectedTaprootKey,
+	) {
 		t.Fatal("unexpected taproot internal key")
+	}
+}
+
+func TestSignTransactionDoesNotFallbackToKeyScan(t *testing.T) {
+	store := NewInMemoryStore()
+	svc := newTestHDWalletService(t, store)
+
+	ctx := context.Background()
+	_, err := svc.Create(ctx, "testpassword", testMnemonic)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	key, err := svc.NewKey(ctx)
+	if err != nil {
+		t.Fatalf("NewKey failed: %v", err)
+	}
+
+	onchainPkScript, err := svc.computeOnchainPkScript(key.PubKey)
+	if err != nil {
+		t.Fatalf("failed to compute onchain script: %v", err)
+	}
+
+	packet, err := psbt.New(
+		[]*wire.OutPoint{{
+			Hash:  chainhash.Hash{},
+			Index: 0,
+		}},
+		[]*wire.TxOut{{
+			Value:    500,
+			PkScript: []byte{txscript.OP_TRUE},
+		}},
+		2,
+		0,
+		[]uint32{uint32(txscript.SigHashDefault)},
+	)
+	if err != nil {
+		t.Fatalf("failed to create psbt: %v", err)
+	}
+
+	packet.Inputs[0].WitnessUtxo = &wire.TxOut{
+		Value:    1000,
+		PkScript: onchainPkScript,
+	}
+
+	encoded, err := packet.B64Encode()
+	if err != nil {
+		t.Fatalf("failed to encode psbt: %v", err)
+	}
+
+	signed, err := svc.SignTransaction(ctx, nil, encoded, nil)
+	if err != nil {
+		t.Fatalf("SignTransaction failed: %v", err)
+	}
+
+	parsed, err := psbt.NewFromRawBytes(strings.NewReader(signed), true)
+	if err != nil {
+		t.Fatalf("failed to parse signed psbt: %v", err)
+	}
+
+	if len(parsed.Inputs[0].TaprootKeySpendSig) != 0 {
+		t.Fatal("expected no taproot key spend signature without provided key map")
+	}
+
+	if len(parsed.Inputs[0].TaprootInternalKey) != 0 {
+		t.Fatal("expected no taproot internal key without provided key map")
+	}
+
+	signedWithKeyMap, err := svc.SignTransaction(ctx, nil, encoded, map[string]string{
+		hex.EncodeToString(onchainPkScript): key.Id,
+	})
+	if err != nil {
+		t.Fatalf("SignTransaction with key map failed: %v", err)
+	}
+
+	parsedWithKeyMap, err := psbt.NewFromRawBytes(strings.NewReader(signedWithKeyMap), true)
+	if err != nil {
+		t.Fatalf("failed to parse signed psbt with key map: %v", err)
+	}
+
+	if len(parsedWithKeyMap.Inputs[0].TaprootKeySpendSig) == 0 {
+		t.Fatal("expected taproot key spend signature with provided key map")
+	}
+
+	if len(parsedWithKeyMap.Inputs[0].TaprootInternalKey) == 0 {
+		t.Fatal("expected taproot internal key with provided key map")
 	}
 }
 
@@ -646,7 +751,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 		t.Fatalf("decrypt failed: %v", err)
 	}
 
-	if !bytesEqual(plaintext, decrypted) {
+	if !bytes.Equal(plaintext, decrypted) {
 		t.Fatal("decrypted data does not match plaintext")
 	}
 }
@@ -695,7 +800,6 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 }
 
-
 const testMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon " +
 	"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
 
@@ -709,7 +813,10 @@ type fakeExplorer struct {
 	utxosByAddress map[string][]explorer.Utxo
 }
 
-func (f *fakeIndexer) GetVtxos(_ context.Context, opts ...indexer.GetVtxosOption) (*indexer.VtxosResponse, error) {
+func (f *fakeIndexer) GetVtxos(
+	_ context.Context,
+	opts ...indexer.GetVtxosOption,
+) (*indexer.VtxosResponse, error) {
 	parsed, err := indexer.ApplyGetVtxosOptions(opts...)
 	if err != nil {
 		return nil, err
@@ -734,31 +841,59 @@ func (f *fakeIndexer) GetCommitmentTx(context.Context, string) (*indexer.Commitm
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetVtxoTree(context.Context, clientTypes.Outpoint, ...indexer.PageOption) (*indexer.VtxoTreeResponse, error) {
+func (f *fakeIndexer) GetVtxoTree(
+	context.Context,
+	clientTypes.Outpoint,
+	...indexer.PageOption,
+) (*indexer.VtxoTreeResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetFullVtxoTree(context.Context, clientTypes.Outpoint, ...indexer.PageOption) ([]tree.TxTreeNode, error) {
+func (f *fakeIndexer) GetFullVtxoTree(
+	context.Context,
+	clientTypes.Outpoint,
+	...indexer.PageOption,
+) ([]tree.TxTreeNode, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetVtxoTreeLeaves(context.Context, clientTypes.Outpoint, ...indexer.PageOption) (*indexer.VtxoTreeLeavesResponse, error) {
+func (f *fakeIndexer) GetVtxoTreeLeaves(
+	context.Context,
+	clientTypes.Outpoint,
+	...indexer.PageOption,
+) (*indexer.VtxoTreeLeavesResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetForfeitTxs(context.Context, string, ...indexer.PageOption) (*indexer.ForfeitTxsResponse, error) {
+func (f *fakeIndexer) GetForfeitTxs(
+	context.Context,
+	string,
+	...indexer.PageOption,
+) (*indexer.ForfeitTxsResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetConnectors(context.Context, string, ...indexer.PageOption) (*indexer.ConnectorsResponse, error) {
+func (f *fakeIndexer) GetConnectors(
+	context.Context,
+	string,
+	...indexer.PageOption,
+) (*indexer.ConnectorsResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetVtxoChain(context.Context, clientTypes.Outpoint, ...indexer.PageOption) (*indexer.VtxoChainResponse, error) {
+func (f *fakeIndexer) GetVtxoChain(
+	context.Context,
+	clientTypes.Outpoint,
+	...indexer.PageOption,
+) (*indexer.VtxoChainResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetVirtualTxs(context.Context, []string, ...indexer.PageOption) (*indexer.VirtualTxsResponse, error) {
+func (f *fakeIndexer) GetVirtualTxs(
+	context.Context,
+	[]string,
+	...indexer.PageOption,
+) (*indexer.VirtualTxsResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
@@ -774,7 +909,10 @@ func (f *fakeIndexer) UnsubscribeForScripts(context.Context, string, []string) e
 	return fmt.Errorf("not implemented")
 }
 
-func (f *fakeIndexer) GetSubscription(context.Context, string) (<-chan indexer.ScriptEvent, func(), error) {
+func (f *fakeIndexer) GetSubscription(
+	context.Context,
+	string,
+) (<-chan indexer.ScriptEvent, func(), error) {
 	return nil, func() {}, fmt.Errorf("not implemented")
 }
 
@@ -806,7 +944,10 @@ func (f *fakeExplorer) GetUtxos(addr string) ([]explorer.Utxo, error) {
 	return append([]explorer.Utxo(nil), f.utxosByAddress[addr]...), nil
 }
 
-func (f *fakeExplorer) GetRedeemedVtxosBalance(string, arklib.RelativeLocktime) (uint64, map[int64]uint64, error) {
+func (f *fakeExplorer) GetRedeemedVtxosBalance(
+	string,
+	arklib.RelativeLocktime,
+) (uint64, map[int64]uint64, error) {
 	return 0, nil, fmt.Errorf("not implemented")
 }
 

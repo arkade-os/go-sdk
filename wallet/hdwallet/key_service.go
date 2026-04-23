@@ -1,6 +1,7 @@
 package hdwallet
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -56,7 +57,11 @@ func (p *KeyService) DefaultKeyPath(index uint32) string {
 func NewHDKeyProvider(masterKey *hdkeychain.ExtendedKey) (*KeyService, error) {
 	keyBasePath, err := parseKeyPathPrefix(defaultKeyPathPrefix)
 	if err != nil {
-		return nil, fmt.Errorf("invalid default HD key path prefix %q: %v", defaultKeyPathPrefix, err)
+		return nil, fmt.Errorf(
+			"invalid default HD key path prefix %q: %v",
+			defaultKeyPathPrefix,
+			err,
+		)
 	}
 
 	return &KeyService{
@@ -128,7 +133,7 @@ func (p *KeyService) GetPrivKeyForPubKey(pubKey *btcec.PublicKey) (*btcec.Privat
 		if err != nil {
 			return nil, err
 		}
-		if bytesEqual(ck.pubKey.SerializeCompressed(), target) {
+		if bytes.Equal(ck.pubKey.SerializeCompressed(), target) {
 			return ck.privKey, nil
 		}
 	}
@@ -221,7 +226,10 @@ func (p *KeyService) getOrDeriveKeyLocked(index uint32) (*cachedKey, error) {
 
 // deriveChildKey derives a child key at basePath/{index} from the master key.
 // The index is non-hardened.
-func (p *KeyService) deriveChildKey(basePath []uint32, index uint32) (*hdkeychain.ExtendedKey, error) {
+func (p *KeyService) deriveChildKey(
+	basePath []uint32,
+	index uint32,
+) (*hdkeychain.ExtendedKey, error) {
 	current := p.masterKey
 	fullPath := append(basePath, index)
 	for _, childIdx := range fullPath {
@@ -269,16 +277,4 @@ func parseKeyPathPrefix(path string) ([]uint32, error) {
 	}
 
 	return parsed, nil
-}
-
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

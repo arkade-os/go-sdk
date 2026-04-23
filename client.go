@@ -410,7 +410,11 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	updateTime := time.Now()
 	opts := []client.ListVtxosOption{}
 	if !a.lastUpdate.IsZero() {
-		opts = append(opts, client.WithTimeRange(updateTime.Unix(), a.lastUpdate.Unix()))
+		updateUnix := updateTime.Unix()
+		lastUpdateUnix := a.lastUpdate.Unix()
+		if updateUnix > lastUpdateUnix {
+			opts = append(opts, client.WithTimeRange(updateUnix, lastUpdateUnix))
+		}
 	}
 
 	spendableVtxos := make([]clientTypes.Vtxo, 0)

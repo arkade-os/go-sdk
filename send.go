@@ -19,7 +19,17 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, receivers, client.WithVtxos(vtxos))
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	res, err := a.ArkClient.SendOffChain(
+		ctx,
+		receivers,
+		client.WithVtxos(vtxos),
+		client.WithKeys(signingKeys),
+	)
 	if err != nil {
 		return "", err
 	}
