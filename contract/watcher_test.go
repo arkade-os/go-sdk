@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"context"
+	"encoding/hex"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/stretchr/testify/require"
 )
 
@@ -290,5 +294,63 @@ func TestWatcher_ReconnectOnChannelClose(t *testing.T) {
 		require.Equal(t, "cafebabe", got.NewUtxos[0].Txid)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for reconnect event")
+	}
+}
+
+func TestWatcher_LookupAddress(t *testing.T) {
+	t.Parallel()
+
+	addr := "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
+	exp := newMockExplorer()
+	mgr := &watcherMockManager{
+		contracts: []contract.Contract{makeBoardingContract(addr)},
+	}
+
+	w := contract.NewWatcher(exp, mgr, regtest())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	require.NoError(t, w.Start(ctx))
+
+	require.Eventually(t, func() bool {
+		return len(exp.getSubscribed()) > 0
+	}, time.Second, 10*time.Millisecond)
+
+	// Derive the P2TR output script for the address the same way the watcher does,
+	// so we can look it up.
+	decoded, err := btcutil.DecodeAddress(addr, &chaincfg.RegressionNetParams)
+	require.NoError(t, err)
+	sc, err := txscript.PayToAddrScript(decoded)
+	require.NoError(t, err)
+
+	info, ok := w.LookupAddress(hex.EncodeToString(sc))
+	require.True(t, ok)
+	require.Equal(t, []string{"leaf0"}, info.Tapscripts)
+}
+
+func TestWatcher_StopClosesEvents(t *testing.T) {
+	t.Parallel()
+
+	exp := newMockExplorer()
+	mgr := &watcherMockManager{}
+
+	w := contract.NewWatcher(exp, mgr, regtest())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	require.NoError(t, w.Start(ctx))
+
+	// Wait for the watcher goroutine to be running before stopping.
+	require.Eventually(t, func() bool {
+		return len(exp.getSubscribed()) >= 0
+	}, time.Second, 10*time.Millisecond)
+
+	w.Stop()
+
+	select {
+	case _, ok := <-w.Events():
+		require.False(t, ok, "Events() channel should be closed after Stop")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Events() to close after Stop")
 	}
 }

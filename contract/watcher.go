@@ -54,6 +54,7 @@ func NewWatcher(exp explorer.Explorer, mgr Manager, network arklib.Network) *Wat
 		network:         network,
 		addressByScript: make(map[string]AddressInfo),
 		events:          make(chan clientTypes.OnchainAddressEvent, watcherEventBuf),
+		cancel:          func() {},
 	}
 }
 
@@ -72,7 +73,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 	}
 
 	watchCtx, cancel := context.WithCancel(ctx)
+	w.mu.Lock()
 	w.cancel = cancel
+	w.mu.Unlock()
 
 	go func() {
 		defer w.closeOnce.Do(func() { close(w.events) })
@@ -111,9 +114,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 // Stop cancels the watcher context, shutting down the listener goroutine.
 func (w *Watcher) Stop() {
-	if w.cancel != nil {
-		w.cancel()
-	}
+	w.mu.RLock()
+	cancel := w.cancel
+	w.mu.RUnlock()
+	cancel()
 }
 
 // Events returns the channel on which the watcher delivers OnchainAddressEvents.
@@ -202,15 +206,15 @@ func (w *Watcher) subscribeWithBackoff(ctx context.Context) error {
 }
 
 func (w *Watcher) listen(ctx context.Context) {
-	defer w.closeOnce.Do(func() { close(w.events) })
+	// w.events is closed by the Start goroutine's defer on exit.
 	ch := w.exp.GetAddressesEvents()
 	for {
 		select {
 		case <-ctx.Done():
-			w.mu.Lock()
+			w.mu.RLock()
 			addrs := make([]string, len(w.addresses))
 			copy(addrs, w.addresses)
-			w.mu.Unlock()
+			w.mu.RUnlock()
 			if err := w.exp.UnsubscribeForAddresses(addrs); err != nil {
 				log.WithError(err).Warn("watcher: failed to unsubscribe on stop")
 			}

@@ -130,9 +130,13 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.syncCh <- err
 		close(a.syncCh)
 
+		a.cmMu.RLock()
+		watcher := a.watcher
+		a.cmMu.RUnlock()
+
 		// start listening to stream events
 		go a.listenForArkTxs(ctx)
-		if err := a.watcher.Start(ctx); err != nil {
+		if err := watcher.Start(ctx); err != nil {
 			log.WithError(err).Error("failed to start contract watcher")
 		} else {
 			go a.listenForOnchainTxs(ctx)
