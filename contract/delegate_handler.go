@@ -26,12 +26,27 @@ type DelegateHandler struct{}
 
 // DeriveContract derives the delegate VTXO contract. Only an offchain contract is
 // produced; no boarding or onchain facets are derived for delegate contracts.
+//
+// Closure ordering is load-bearing: the arkd client-lib uses forfeitClosures[0]
+// to build forfeit transactions, and ForfeitClosures() matches all *MultisigClosure
+// values regardless of key count. The 2-of-2 forfeit MUST remain at index [1] so
+// it is picked ahead of the 3-of-3 delegate at index [2]. Do not reorder.
 func (h *DelegateHandler) DeriveContract(
 	_ context.Context,
 	key wallet.KeyRef,
 	cfg *clientTypes.Config,
 	delegateKey *btcec.PublicKey,
 ) (*Contract, error) {
+	if delegateKey == nil {
+		return nil, fmt.Errorf("delegate key must not be nil")
+	}
+	if delegateKey.IsEqual(key.PubKey) {
+		return nil, fmt.Errorf("delegate key must differ from owner key")
+	}
+	if delegateKey.IsEqual(cfg.SignerPubKey) {
+		return nil, fmt.Errorf("delegate key must differ from signer key")
+	}
+
 	signerKeyHex := hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerPubKey))
 
 	vtxoScript := &script.TapscriptsVtxoScript{
@@ -95,7 +110,9 @@ func (h *DelegateHandler) DeriveContract(
 	}, nil
 }
 
-// SelectPath returns the forfeit leaf when collaborative, the exit leaf otherwise.
+// SelectPath returns the forfeit leaf (2-of-2) for a standard collaborative spend,
+// the delegate leaf (3-of-3) when pctx.UseDelegatePath is set, or the exit leaf
+// for a unilateral spend.
 func (h *DelegateHandler) SelectPath(
 	_ context.Context, c *Contract, pctx PathContext,
 ) (*PathSelection, error) {
@@ -104,6 +121,9 @@ func (h *DelegateHandler) SelectPath(
 		return nil, fmt.Errorf("delegate contract requires 3 tapscripts, got %d", len(tapscripts))
 	}
 	if pctx.Collaborative {
+		if pctx.UseDelegatePath {
+			return tapLeafSelection(tapscripts[2], nil, nil)
+		}
 		return tapLeafSelection(tapscripts[1], nil, nil)
 	}
 	delay, err := c.GetDelay()

@@ -115,6 +115,36 @@ func TestDelegateHandler_DifferentDelegateDifferentScript(t *testing.T) {
 	require.NotEqual(t, c1.Address, c2.Address)
 }
 
+func TestDelegateHandler_DeriveContract_Validation(t *testing.T) {
+	t.Parallel()
+
+	h := &contract.DelegateHandler{}
+	key := testKey(t)
+	cfg := testCfg(t)
+	ctx := context.Background()
+
+	t.Run("nil delegate key returns error", func(t *testing.T) {
+		t.Parallel()
+		_, err := h.DeriveContract(ctx, key, cfg, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "nil")
+	})
+
+	t.Run("delegate key same as owner returns error", func(t *testing.T) {
+		t.Parallel()
+		_, err := h.DeriveContract(ctx, key, cfg, key.PubKey)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "owner")
+	})
+
+	t.Run("delegate key same as signer returns error", func(t *testing.T) {
+		t.Parallel()
+		_, err := h.DeriveContract(ctx, key, cfg, cfg.SignerPubKey)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signer")
+	})
+}
+
 func TestDelegateHandler_SelectPath(t *testing.T) {
 	t.Parallel()
 
@@ -135,6 +165,21 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 
 		// Forfeit leaf is tapscripts[1].
 		refScript, _ := hex.DecodeString(c.GetTapscripts()[1])
+		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
+	})
+
+	t.Run("collaborative with UseDelegatePath returns delegate leaf", func(t *testing.T) {
+		t.Parallel()
+		sel, err := h.SelectPath(context.Background(), c, contract.PathContext{
+			Collaborative:   true,
+			UseDelegatePath: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, sel)
+		require.Nil(t, sel.Sequence)
+
+		// Delegate leaf is tapscripts[2].
+		refScript, _ := hex.DecodeString(c.GetTapscripts()[2])
 		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 

@@ -2,12 +2,14 @@ package contract
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 )
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
@@ -31,8 +33,9 @@ type Manager interface {
 	// GetContractsForVtxos returns the contracts whose Script matches any of the
 	// provided vtxo script hex strings. Unknown scripts are silently omitted.
 	GetContractsForVtxos(ctx context.Context, scripts []string) ([]Contract, error)
-	// NewDelegate creates a delegate VTXO contract for the given delegate public key,
-	// using a fresh wallet key. Only an offchain contract is produced.
+	// NewDelegate returns the most recently created active delegate contract for
+	// the given delegate public key, or creates one with a fresh wallet key if
+	// none exists. Only an offchain contract is produced.
 	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*Contract, error)
 	// SelectPath selects the appropriate tapscript leaf for the contract type and spend context.
 	SelectPath(ctx context.Context, c *Contract, pctx PathContext) (*PathSelection, error)
@@ -65,7 +68,8 @@ type managerImpl struct {
 	mu        sync.RWMutex
 	contracts map[string]Contract // scriptHex → Contract (write-through cache)
 
-	defaultCreateMu sync.Mutex // serializes the check-mint-persist sequence in NewDefault
+	defaultCreateMu  sync.Mutex // serializes the check-mint-persist sequence in NewDefault
+	delegateCreateMu sync.Mutex // serializes the check-mint-persist sequence in NewDelegate
 
 	cbMu   sync.RWMutex
 	cbs    map[int]func(Event) // event subscribers, keyed by monotonic ID
@@ -105,6 +109,16 @@ func (m *managerImpl) Load(ctx context.Context) error {
 		existingByType := make(map[string]bool, len(existing))
 		for _, c := range existing {
 			existingByType[c.Type] = true
+		}
+		// Keys created by NewDelegate only have TypeDelegate contracts and should
+		// never receive default contracts as a side effect. Skip derivation only
+		// when the key already has contracts but none are default-type. A key with
+		// no contracts at all is a partially-crashed NewDefault call and must still
+		// go through derivation.
+		hasAnyDefault := existingByType[TypeDefault] || existingByType[TypeDefaultBoarding] ||
+			existingByType[TypeDefaultOnchain]
+		if len(existing) > 0 && !hasAnyDefault {
+			continue
 		}
 		if existingByType[TypeDefault] && existingByType[TypeDefaultBoarding] &&
 			existingByType[TypeDefaultOnchain] {
@@ -270,6 +284,24 @@ func (m *managerImpl) NewDelegate(
 	ctx context.Context,
 	delegateKey *btcec.PublicKey,
 ) (*Contract, error) {
+	if delegateKey == nil {
+		return nil, fmt.Errorf("delegate key must not be nil")
+	}
+
+	m.delegateCreateMu.Lock()
+	defer m.delegateCreateMu.Unlock()
+
+	delegateKeyHex := hex.EncodeToString(schnorr.SerializePubKey(delegateKey))
+	existing, err := m.GetContracts(ctx, WithType(TypeDelegate), WithState(StateActive))
+	if err != nil {
+		return nil, err
+	}
+	for i := range existing {
+		if existing[i].Params[ParamDelegateKey] == delegateKeyHex {
+			return &existing[i], nil
+		}
+	}
+
 	key, err := m.ks.NewKey(ctx)
 	if err != nil {
 		return nil, err
@@ -297,7 +329,7 @@ func (m *managerImpl) SelectPath(
 	ctx context.Context, c *Contract, pctx PathContext,
 ) (*PathSelection, error) {
 	switch c.Type {
-	case TypeDefault, TypeDefaultBoarding:
+	case TypeDefault, TypeDefaultBoarding, TypeDefaultOnchain:
 		return (&DefaultHandler{}).SelectPath(ctx, c, pctx)
 	case TypeDelegate:
 		return (&DelegateHandler{}).SelectPath(ctx, c, pctx)
@@ -310,7 +342,7 @@ func (m *managerImpl) GetSpendablePaths(
 	ctx context.Context, c *Contract, pctx PathContext,
 ) ([]PathSelection, error) {
 	switch c.Type {
-	case TypeDefault, TypeDefaultBoarding:
+	case TypeDefault, TypeDefaultBoarding, TypeDefaultOnchain:
 		return (&DefaultHandler{}).GetSpendablePaths(ctx, c, pctx)
 	case TypeDelegate:
 		return (&DelegateHandler{}).GetSpendablePaths(ctx, c, pctx)

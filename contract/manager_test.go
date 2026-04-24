@@ -79,6 +79,25 @@ func TestManager_Bootstrap(t *testing.T) {
 		require.True(t, types[contract.TypeDefaultOnchain])
 	})
 
+	t.Run("Load does not create default contracts for delegate-only keys", func(t *testing.T) {
+		t.Parallel()
+		ks := newMockKeystore(t)
+		mgr := contract.NewManager(ks, testConfig(t), nil)
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		_, err = mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		require.NoError(t, mgr.Load(context.Background()))
+
+		all, err := mgr.GetContracts(context.Background())
+		require.NoError(t, err)
+		// Only the one delegate contract; Load must not create the default triple.
+		require.Len(t, all, 1)
+		require.Equal(t, contract.TypeDelegate, all[0].Type)
+	})
+
 	t.Run("Load with no keys is a no-op", func(t *testing.T) {
 		t.Parallel()
 		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
@@ -279,6 +298,115 @@ func TestManager_NewDefault_KeystoreError(t *testing.T) {
 		_, err := mgr.NewDefault(context.Background())
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "keystore returned nil key")
+	})
+}
+
+func TestManager_NewDelegate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NewDelegate creates contract", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		c, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+		require.Equal(t, contract.TypeDelegate, c.Type)
+		require.Equal(t, contract.StateActive, c.State)
+
+		all, err := mgr.GetContracts(context.Background())
+		require.NoError(t, err)
+		require.Len(t, all, 1)
+	})
+
+	t.Run("NewDelegate reuses existing active contract for same delegate key", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		c1, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+		c2, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+		require.Equal(t, c1.Script, c2.Script)
+
+		all, err := mgr.GetContracts(context.Background())
+		require.NoError(t, err)
+		require.Len(t, all, 1)
+	})
+
+	t.Run("different delegate keys produce different contracts", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		priv1, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		priv2, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		c1, err := mgr.NewDelegate(context.Background(), priv1.PubKey())
+		require.NoError(t, err)
+		c2, err := mgr.NewDelegate(context.Background(), priv2.PubKey())
+		require.NoError(t, err)
+		require.NotEqual(t, c1.Script, c2.Script)
+	})
+
+	t.Run("nil delegate key returns error", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+		_, err := mgr.NewDelegate(context.Background(), nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "nil")
+	})
+}
+
+func TestManager_SelectPath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TypeDefaultOnchain returns tapscripts error not unsupported type", func(t *testing.T) {
+		t.Parallel()
+		ks := newMockKeystore(t)
+		mgr := contract.NewManager(ks, testConfig(t), nil)
+		require.NoError(t, mgr.Load(context.Background()))
+
+		onchain, err := mgr.GetContracts(
+			context.Background(),
+			contract.WithType(contract.TypeDefaultOnchain),
+		)
+		require.NoError(t, err)
+		require.Len(t, onchain, 1)
+
+		_, err = mgr.SelectPath(context.Background(), &onchain[0], contract.PathContext{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tapscripts")
+		require.NotContains(t, err.Error(), "unsupported")
+	})
+}
+
+func TestManager_GetSpendablePaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TypeDefaultOnchain returns tapscripts error not unsupported type", func(t *testing.T) {
+		t.Parallel()
+		ks := newMockKeystore(t)
+		mgr := contract.NewManager(ks, testConfig(t), nil)
+		require.NoError(t, mgr.Load(context.Background()))
+
+		onchain, err := mgr.GetContracts(
+			context.Background(),
+			contract.WithType(contract.TypeDefaultOnchain),
+		)
+		require.NoError(t, err)
+		require.Len(t, onchain, 1)
+
+		_, err = mgr.GetSpendablePaths(context.Background(), &onchain[0], contract.PathContext{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tapscripts")
+		require.NotContains(t, err.Error(), "unsupported")
 	})
 }
 

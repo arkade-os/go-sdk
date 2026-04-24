@@ -153,11 +153,12 @@ type Event struct {
 
 // PathContext carries the spend-time state needed to select a tapscript path.
 type PathContext struct {
-	Collaborative bool
-	CurrentTime   time.Time
-	BlockHeight   *uint32
-	WalletPubKey  []byte
-	Preimage      []byte // preimage for HTLC-style claim paths
+	Collaborative   bool
+	UseDelegatePath bool // when true, SelectPath returns the 3-of-3 delegate leaf instead of forfeit
+	CurrentTime     time.Time
+	BlockHeight     *uint32
+	WalletPubKey    []byte
+	Preimage        []byte // preimage for HTLC-style claim paths
 }
 
 // PathSelection describes which tapscript leaf to use and any extra witness data.
