@@ -2,7 +2,9 @@ package contract_test
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"sync"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -10,6 +12,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/stretchr/testify/require"
 )
 
@@ -279,6 +282,21 @@ func TestManager_GetContractsForVtxos(t *testing.T) {
 		require.Len(t, got, 1)
 		require.Equal(t, c.Script, got[0].Script)
 	})
+
+	t.Run("delegate contract script is found", func(t *testing.T) {
+		t.Parallel()
+		delegateMgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		dc, err := delegateMgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		got, err := delegateMgr.GetContractsForVtxos(context.Background(), []string{dc.Script})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, contract.TypeDelegate, got[0].Type)
+		require.Equal(t, dc.Script, got[0].Script)
+	})
 }
 
 func TestManager_NewDefault_KeystoreError(t *testing.T) {
@@ -296,6 +314,31 @@ func TestManager_NewDefault_KeystoreError(t *testing.T) {
 		t.Parallel()
 		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
 		_, err := mgr.NewDefault(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "keystore returned nil key")
+	})
+}
+
+func TestManager_NewDelegate_KeystoreError(t *testing.T) {
+	t.Parallel()
+
+	delegatePriv, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("NewKey error is propagated", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(&errKeystore{}, testConfig(t), nil)
+		_, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "keystore unavailable")
+	})
+
+	t.Run("nil key from NewKey returns error", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(&emptyKeystore{}, testConfig(t), nil)
+		_, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "keystore returned nil key")
 	})
@@ -362,6 +405,44 @@ func TestManager_NewDelegate(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "nil")
 	})
+
+	t.Run("emits contract_created event", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		var received []contract.Event
+		mgr.OnContractEvent(func(e contract.Event) {
+			received = append(received, e)
+		})
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		c, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		require.Len(t, received, 1)
+		require.Equal(t, "contract_created", received[0].Type)
+		require.Equal(t, c.Script, received[0].Contract.Script)
+	})
+
+	t.Run("reuse does not re-emit event", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		var received []contract.Event
+		mgr.OnContractEvent(func(e contract.Event) {
+			received = append(received, e)
+		})
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		_, err = mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+		_, err = mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		require.Len(t, received, 1)
+	})
 }
 
 func TestManager_SelectPath(t *testing.T) {
@@ -384,6 +465,45 @@ func TestManager_SelectPath(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "tapscripts")
 		require.NotContains(t, err.Error(), "unsupported")
+	})
+
+	t.Run("TypeDelegate collaborative routes to forfeit leaf", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		c, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		sel, err := mgr.SelectPath(
+			context.Background(),
+			c,
+			contract.PathContext{Collaborative: true},
+		)
+		require.NoError(t, err)
+		require.Nil(t, sel.Sequence)
+		refScript, _ := hex.DecodeString(c.GetTapscripts()[1])
+		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
+	})
+
+	t.Run("TypeDelegate UseDelegatePath routes to delegate leaf", func(t *testing.T) {
+		t.Parallel()
+		mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+
+		delegatePriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		c, err := mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		sel, err := mgr.SelectPath(context.Background(), c, contract.PathContext{
+			Collaborative:   true,
+			UseDelegatePath: true,
+		})
+		require.NoError(t, err)
+		require.Nil(t, sel.Sequence)
+		refScript, _ := hex.DecodeString(c.GetTapscripts()[2])
+		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 }
 
@@ -408,6 +528,37 @@ func TestManager_GetSpendablePaths(t *testing.T) {
 		require.Contains(t, err.Error(), "tapscripts")
 		require.NotContains(t, err.Error(), "unsupported")
 	})
+}
+
+func TestManager_NewDelegate_Concurrent(t *testing.T) {
+	t.Parallel()
+
+	mgr := contract.NewManager(newMockKeystore(t), testConfig(t), nil)
+	delegatePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	const n = 20
+	results := make([]*contract.Contract, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = mgr.NewDelegate(context.Background(), delegatePriv.PubKey())
+		}(i)
+	}
+	wg.Wait()
+
+	for _, e := range errs {
+		require.NoError(t, e)
+	}
+	for _, r := range results {
+		require.Equal(t, results[0].Script, r.Script)
+	}
+	all, err := mgr.GetContracts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, all, 1)
 }
 
 // emptyKeystore returns no keys.

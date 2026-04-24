@@ -45,6 +45,13 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 	// Exactly 3 tapscripts: exit, forfeit, delegate.
 	require.Len(t, c.GetTapscripts(), 3)
 
+	// Signer key and exit delay are stored in params.
+	require.Equal(t,
+		hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerPubKey)),
+		c.Params[contract.ParamSignerKey],
+	)
+	require.Equal(t, "block:144", c.Params[contract.ParamExitDelay])
+
 	// Address matches manual derivation.
 	vtxoScript := &script.TapscriptsVtxoScript{
 		Closures: []script.Closure{
@@ -200,6 +207,36 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 
+	t.Run("UseDelegatePath without Collaborative returns exit leaf", func(t *testing.T) {
+		t.Parallel()
+		sel, err := h.SelectPath(context.Background(), c, contract.PathContext{
+			Collaborative:   false,
+			UseDelegatePath: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, sel.Sequence) // still an exit path
+
+		refScript, _ := hex.DecodeString(c.GetTapscripts()[0])
+		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
+	})
+
+	t.Run("unilateral with missing exit delay returns error", func(t *testing.T) {
+		t.Parallel()
+		bad := &contract.Contract{
+			Params: map[string]string{
+				contract.ParamTapscripts: `["aabb","ccdd","eeff"]`,
+				// no ParamExitDelay
+			},
+		}
+		_, err := h.SelectPath(
+			context.Background(),
+			bad,
+			contract.PathContext{Collaborative: false},
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exit delay")
+	})
+
 	t.Run("fewer than 3 tapscripts returns error", func(t *testing.T) {
 		t.Parallel()
 		bad := &contract.Contract{
@@ -243,9 +280,33 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Len(t, paths, 3)
-		require.NotNil(t, paths[0].Sequence) // exit has CSV sequence
-		require.Nil(t, paths[1].Sequence)    // forfeit: no sequence
-		require.Nil(t, paths[2].Sequence)    // delegate: no sequence
+
+		tapscripts := c.GetTapscripts()
+
+		exitScript, _ := hex.DecodeString(tapscripts[0])
+		require.Equal(t, txscript.NewBaseTapLeaf(exitScript), paths[0].Leaf)
+		require.NotNil(t, paths[0].Sequence)
+
+		forfeitScript, _ := hex.DecodeString(tapscripts[1])
+		require.Equal(t, txscript.NewBaseTapLeaf(forfeitScript), paths[1].Leaf)
+		require.Nil(t, paths[1].Sequence)
+
+		delegateScript, _ := hex.DecodeString(tapscripts[2])
+		require.Equal(t, txscript.NewBaseTapLeaf(delegateScript), paths[2].Leaf)
+		require.Nil(t, paths[2].Sequence)
+	})
+
+	t.Run("missing exit delay returns error", func(t *testing.T) {
+		t.Parallel()
+		bad := &contract.Contract{
+			Params: map[string]string{
+				contract.ParamTapscripts: `["aabb","ccdd","eeff"]`,
+				// no ParamExitDelay
+			},
+		}
+		_, err := h.GetSpendablePaths(context.Background(), bad, contract.PathContext{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exit delay")
 	})
 
 	t.Run("fewer than 3 tapscripts returns error", func(t *testing.T) {
