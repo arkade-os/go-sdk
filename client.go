@@ -289,6 +289,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
 		a.syncListeners.clear()
 	}
+	a.cmMu.Lock()
 	if a.watcher != nil {
 		a.watcher.Stop()
 		a.watcher = nil
@@ -299,6 +300,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 		}
 		a.contractManager = nil
 	}
+	a.cmMu.Unlock()
 	if a.store != nil {
 		a.store.Clean(ctx)
 	}
@@ -322,6 +324,7 @@ func (a *arkClient) Stop() {
 			a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
 			a.syncListeners.clear()
 		}
+		a.cmMu.Lock()
 		if a.watcher != nil {
 			a.watcher.Stop()
 			a.watcher = nil
@@ -332,6 +335,7 @@ func (a *arkClient) Stop() {
 			}
 			a.contractManager = nil
 		}
+		a.cmMu.Unlock()
 
 		a.store.Close()
 	})
@@ -835,7 +839,10 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
-	if a.watcher == nil {
+	a.cmMu.RLock()
+	watcher := a.watcher
+	a.cmMu.RUnlock()
+	if watcher == nil {
 		log.Error("cannot listen for onchain txs: watcher is nil")
 		return
 	}
@@ -849,7 +856,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case update, ok := <-a.watcher.Events():
+		case update, ok := <-watcher.Events():
 			if !ok {
 				return
 			}
@@ -974,7 +981,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			if len(update.NewUtxos) > 0 {
 				utxosToAdd := make([]clientTypes.Utxo, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
-					addrInfo, ok := a.watcher.LookupAddress(u.Script)
+					addrInfo, ok := watcher.LookupAddress(u.Script)
 					if !ok {
 						log.WithField("script", u.Script).
 							WithField("outpoint", u.Outpoint).

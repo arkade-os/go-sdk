@@ -54,6 +54,17 @@ func (m *mockExplorer) getSubscribed() []string {
 	return out
 }
 
+func (m *mockExplorer) trySend(evt clientTypes.OnchainAddressEvent) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	select {
+	case m.eventCh <- evt:
+		return true
+	default:
+		return false
+	}
+}
+
 // satisfy the full explorer.Explorer interface with no-ops for methods not needed.
 func (m *mockExplorer) GetTxHex(_ string) (string, error)      { return "", nil }
 func (m *mockExplorer) GetTxs(_ string) ([]explorer.Tx, error) { return nil, nil }
@@ -93,7 +104,7 @@ func (m *watcherMockManager) NewDefault(_ context.Context) (*contract.Contract, 
 
 func (m *watcherMockManager) GetContracts(
 	_ context.Context,
-	_ contract.Filter,
+	_ ...contract.FilterOption,
 ) ([]contract.Contract, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -128,17 +139,28 @@ func (m *watcherMockManager) emit(e contract.Event) {
 
 func regtest() arklib.Network { return arklib.BitcoinRegTest }
 
-// makeWatcherContract builds a minimal contract with plausible-looking addresses
-// for regtest. We use the addresses from the default_handler_test fixture.
-func makeWatcherContract(boarding, onchain string) contract.Contract {
+func makeBoardingContract(addr string) contract.Contract {
 	return contract.Contract{
-		Script:             "aabbcc",
-		Type:               contract.TypeDefault,
-		State:              contract.StateActive,
-		Boarding:           boarding,
-		Onchain:            onchain,
-		BoardingTapscripts: []string{"leaf0"},
-		BoardingDelay:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 144},
+		Script:    "aabbcc",
+		Type:      contract.TypeDefaultBoarding,
+		State:     contract.StateActive,
+		IsOnchain: true,
+		Address:   addr,
+		Params: map[string]string{
+			contract.ParamExitDelay:  "block:144",
+			contract.ParamTapscripts: `["leaf0"]`,
+		},
+	}
+}
+
+func makeOnchainContract(addr string) contract.Contract {
+	return contract.Contract{
+		Script:    "ddeeff",
+		Type:      contract.TypeDefaultOnchain,
+		State:     contract.StateActive,
+		IsOnchain: true,
+		Address:   addr,
+		Params:    map[string]string{},
 	}
 }
 
@@ -148,11 +170,14 @@ func TestWatcher_InitialSubscription(t *testing.T) {
 	t.Parallel()
 
 	boarding := "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
-	onchain := "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
+	onchain := "bcrt1ph9qqde3z0xkk8gzny2tz3uxfd30799w8dkgpj7ktlu9cxcankljqmxer0v"
 
 	exp := newMockExplorer()
 	mgr := &watcherMockManager{
-		contracts: []contract.Contract{makeWatcherContract(boarding, onchain)},
+		contracts: []contract.Contract{
+			makeBoardingContract(boarding),
+			makeOnchainContract(onchain),
+		},
 	}
 
 	w := contract.NewWatcher(exp, mgr, regtest())
@@ -192,7 +217,7 @@ func TestWatcher_DynamicContractSubscription(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 
 	newBoarding := "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
-	c := makeWatcherContract(newBoarding, "")
+	c := makeBoardingContract(newBoarding)
 	mgr.emit(contract.Event{Type: "contract_created", Contract: c})
 
 	require.Eventually(t, func() bool {
@@ -257,12 +282,7 @@ func TestWatcher_ReconnectOnChannelClose(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		select {
-		case exp.eventCh <- evt:
-			return true
-		default:
-			return false
-		}
+		return exp.trySend(evt)
 	}, 2*time.Second, 50*time.Millisecond)
 
 	select {

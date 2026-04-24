@@ -62,7 +62,7 @@ func NewWatcher(exp explorer.Explorer, mgr Manager, network arklib.Network) *Wat
 // dynamically. Start returns an error only if the initial address load fails;
 // subscription failures are retried internally with exponential backoff.
 func (w *Watcher) Start(ctx context.Context) error {
-	contracts, err := w.mgr.GetContracts(ctx)
+	contracts, err := w.mgr.GetContracts(ctx, WithState(StateActive))
 	if err != nil {
 		return fmt.Errorf("watcher: load contracts: %w", err)
 	}
@@ -74,15 +74,13 @@ func (w *Watcher) Start(ctx context.Context) error {
 	watchCtx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
 
-	// Subscribe with backoff so a slow explorer start does not abort the watcher.
 	go func() {
-		if err := w.subscribeWithBackoff(watchCtx); err != nil {
-			// Context cancelled before we could subscribe — clean exit.
-			return
-		}
+		defer w.closeOnce.Do(func() { close(w.events) })
 
+		// Register the callback before subscribing so no contract_created events
+		// are missed during the backoff retry window.
 		// Dynamic subscription: one goroutine per new contract so the
-		// OnContractEvent callback never blocks NewDefault → emit.
+		// OnContractEvent callback never blocks NewDefault -> emit.
 		unsub := w.mgr.OnContractEvent(func(e Event) {
 			if e.Type != "contract_created" {
 				return
@@ -98,9 +96,14 @@ func (w *Watcher) Start(ctx context.Context) error {
 				}
 			}()
 		})
+		defer unsub()
+
+		if err := w.subscribeWithBackoff(watchCtx); err != nil {
+			// Context cancelled before we could subscribe: clean exit.
+			return
+		}
 
 		w.listen(watchCtx)
-		unsub()
 	}()
 
 	return nil
@@ -160,7 +163,11 @@ func (w *Watcher) addContractAddresses(c Contract) []string {
 		}
 	}
 
-	w.addressByScript[hex.EncodeToString(sc)] = AddressInfo{
+	scriptHex := hex.EncodeToString(sc)
+	if _, exists := w.addressByScript[scriptHex]; exists {
+		return nil
+	}
+	w.addressByScript[scriptHex] = AddressInfo{
 		Tapscripts: c.GetTapscripts(),
 		Delay:      delay,
 	}

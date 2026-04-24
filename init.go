@@ -156,12 +156,11 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		a.stopFn()
 	}
 
+	a.cmMu.Lock()
 	if a.watcher != nil {
 		a.watcher.Stop()
 		a.watcher = nil
 	}
-
-	a.cmMu.Lock()
 	if a.contractManager != nil {
 		if err := a.contractManager.Close(); err != nil {
 			log.WithError(err).Warn("failed to close contract manager on lock")
