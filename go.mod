@@ -5,8 +5,8 @@ go 1.26.2
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
 require (
-	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260415135455-65edd1660714
-	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260415135455-65edd1660714
+	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260424100525-a2d86c81759d
+	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260424100525-a2d86c81759d
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5
