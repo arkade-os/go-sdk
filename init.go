@@ -134,8 +134,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		go a.listenForArkTxs(ctx)
 		if err := a.watcher.Start(ctx); err != nil {
 			log.WithError(err).Error("failed to start contract watcher")
+		} else {
+			go a.listenForOnchainTxs(ctx)
 		}
-		go a.listenForOnchainTxs(ctx)
 		go a.listenDbEvents(ctx)
 
 		// start periodic refresh db

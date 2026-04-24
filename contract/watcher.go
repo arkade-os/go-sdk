@@ -88,7 +88,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 			c := e.Contract
 			go func() {
 				newAddrs := w.addContractAddresses(c)
-				if len(newAddrs) == 0 {
+				if len(newAddrs) == 0 || watchCtx.Err() != nil {
 					return
 				}
 				if err := w.exp.SubscribeForAddresses(newAddrs); err != nil {
@@ -178,10 +178,10 @@ func (w *Watcher) addContractAddresses(c Contract) []string {
 func (w *Watcher) subscribeWithBackoff(ctx context.Context) error {
 	backoff := watcherBackoffBase
 	for {
-		w.mu.Lock()
+		w.mu.RLock()
 		addrs := make([]string, len(w.addresses))
 		copy(addrs, w.addresses)
-		w.mu.Unlock()
+		w.mu.RUnlock()
 
 		if err := w.exp.SubscribeForAddresses(addrs); err != nil {
 			if ctx.Err() != nil {
