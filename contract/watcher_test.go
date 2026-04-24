@@ -11,6 +11,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -126,6 +127,21 @@ func (m *watcherMockManager) OnContractEvent(cb func(contract.Event)) func() {
 	m.cbs = append(m.cbs, cb)
 	m.mu.Unlock()
 	return func() {}
+}
+func (m *watcherMockManager) NewDelegate(
+	_ context.Context, _ *btcec.PublicKey,
+) (*contract.Contract, error) {
+	return nil, nil
+}
+func (m *watcherMockManager) SelectPath(
+	_ context.Context, _ *contract.Contract, _ contract.PathContext,
+) (*contract.PathSelection, error) {
+	return nil, nil
+}
+func (m *watcherMockManager) GetSpendablePaths(
+	_ context.Context, _ *contract.Contract, _ contract.PathContext,
+) ([]contract.PathSelection, error) {
+	return nil, nil
 }
 func (m *watcherMockManager) Close() error { return nil }
 

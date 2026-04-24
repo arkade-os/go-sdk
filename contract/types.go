@@ -18,19 +18,21 @@ const (
 	StateInactive State = "inactive"
 )
 
-// Contract type constants for the default handler.
+// Contract type constants.
 const (
 	TypeDefault         = "default"          // offchain VTXO; IsOnchain=false
 	TypeDefaultBoarding = "default_boarding" // boarding P2TR; IsOnchain=true
 	TypeDefaultOnchain  = "default_onchain"  // bare key-path P2TR; IsOnchain=true
+	TypeDelegate        = "delegate"         // offchain VTXO with delegate key; IsOnchain=false
 )
 
 // Param key constants stored in Contract.Params.
 const (
-	ParamKeyID      = "keyId"      // wallet key ID
-	ParamSignerKey  = "signerKey"  // hex-encoded server signer public key
-	ParamTapscripts = "tapscripts" // JSON-encoded []string of hex tapscript leaves
-	ParamExitDelay  = "exitDelay"  // "block:N" or "second:N"; empty means no delay
+	ParamKeyID       = "keyId"       // wallet key ID
+	ParamSignerKey   = "signerKey"   // hex-encoded server signer public key
+	ParamDelegateKey = "delegateKey" // hex-encoded schnorr delegate public key
+	ParamTapscripts  = "tapscripts"  // JSON-encoded []string of hex tapscript leaves
+	ParamExitDelay   = "exitDelay"   // "block:N" or "second:N"; empty means no delay
 )
 
 // Contract holds the params and derived address for one address type (offchain

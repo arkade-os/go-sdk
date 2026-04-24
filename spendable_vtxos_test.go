@@ -9,6 +9,7 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	sdktypes "github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,6 +109,21 @@ func (m *fixContractManager) GetContractsForVtxos(
 		}
 	}
 	return result, nil
+}
+func (m *fixContractManager) NewDelegate(
+	_ context.Context, _ *btcec.PublicKey,
+) (*contract.Contract, error) {
+	return nil, nil
+}
+func (m *fixContractManager) SelectPath(
+	_ context.Context, _ *contract.Contract, _ contract.PathContext,
+) (*contract.PathSelection, error) {
+	return nil, nil
+}
+func (m *fixContractManager) GetSpendablePaths(
+	_ context.Context, _ *contract.Contract, _ contract.PathContext,
+) ([]contract.PathSelection, error) {
+	return nil, nil
 }
 func (m *fixContractManager) OnContractEvent(_ func(contract.Event)) func() { return func() {} }
 func (m *fixContractManager) Close() error                                  { return nil }

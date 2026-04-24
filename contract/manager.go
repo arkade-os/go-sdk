@@ -7,6 +7,7 @@ import (
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
@@ -30,6 +31,13 @@ type Manager interface {
 	// GetContractsForVtxos returns the contracts whose Script matches any of the
 	// provided vtxo script hex strings. Unknown scripts are silently omitted.
 	GetContractsForVtxos(ctx context.Context, scripts []string) ([]Contract, error)
+	// NewDelegate creates a delegate VTXO contract for the given delegate public key,
+	// using a fresh wallet key. Only an offchain contract is produced.
+	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*Contract, error)
+	// SelectPath selects the appropriate tapscript leaf for the contract type and spend context.
+	SelectPath(ctx context.Context, c *Contract, pctx PathContext) (*PathSelection, error)
+	// GetSpendablePaths returns all spendable tapscript paths for the contract type and spend context.
+	GetSpendablePaths(ctx context.Context, c *Contract, pctx PathContext) ([]PathSelection, error)
 	// OnContractEvent registers a callback; returns an unsubscribe func.
 	OnContractEvent(cb func(Event)) func()
 	// Close releases resources and clears the in-memory contract map.
@@ -256,6 +264,59 @@ func (m *managerImpl) Close() error {
 	m.cbMu.Unlock()
 
 	return nil
+}
+
+func (m *managerImpl) NewDelegate(
+	ctx context.Context,
+	delegateKey *btcec.PublicKey,
+) (*Contract, error) {
+	key, err := m.ks.NewKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if key == nil {
+		return nil, fmt.Errorf("keystore returned nil key")
+	}
+
+	c, err := (&DelegateHandler{}).DeriveContract(ctx, *key, m.cfg, delegateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	c.CreatedAt = time.Now()
+	if err := m.persistAndCache(ctx, *c); err != nil {
+		return nil, err
+	}
+
+	m.emit(Event{Type: "contract_created", Contract: *c})
+	return c, nil
+}
+
+func (m *managerImpl) SelectPath(
+	ctx context.Context, c *Contract, pctx PathContext,
+) (*PathSelection, error) {
+	switch c.Type {
+	case TypeDefault, TypeDefaultBoarding:
+		return (&DefaultHandler{}).SelectPath(ctx, c, pctx)
+	case TypeDelegate:
+		return (&DelegateHandler{}).SelectPath(ctx, c, pctx)
+	default:
+		return nil, fmt.Errorf("SelectPath: unsupported contract type %q", c.Type)
+	}
+}
+
+func (m *managerImpl) GetSpendablePaths(
+	ctx context.Context, c *Contract, pctx PathContext,
+) ([]PathSelection, error) {
+	switch c.Type {
+	case TypeDefault, TypeDefaultBoarding:
+		return (&DefaultHandler{}).GetSpendablePaths(ctx, c, pctx)
+	case TypeDelegate:
+		return (&DelegateHandler{}).GetSpendablePaths(ctx, c, pctx)
+	default:
+		return nil, fmt.Errorf("GetSpendablePaths: unsupported contract type %q", c.Type)
+	}
 }
 
 func (m *managerImpl) emit(e Event) {
