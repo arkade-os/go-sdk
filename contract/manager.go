@@ -9,7 +9,6 @@ import (
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 )
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
@@ -291,7 +290,7 @@ func (m *managerImpl) NewDelegate(
 	m.delegateCreateMu.Lock()
 	defer m.delegateCreateMu.Unlock()
 
-	delegateKeyHex := hex.EncodeToString(schnorr.SerializePubKey(delegateKey))
+	delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
 	existing, err := m.GetContracts(ctx, WithType(TypeDelegate), WithState(StateActive))
 	if err != nil {
 		return nil, err

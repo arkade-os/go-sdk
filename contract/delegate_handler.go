@@ -99,7 +99,7 @@ func (h *DelegateHandler) DeriveContract(
 		Params: map[string]string{
 			ParamKeyID:       key.Id,
 			ParamSignerKey:   signerKeyHex,
-			ParamDelegateKey: hex.EncodeToString(schnorr.SerializePubKey(delegateKey)),
+			ParamDelegateKey: hex.EncodeToString(delegateKey.SerializeCompressed()),
 			ParamTapscripts:  serializeTapscripts(tapscripts),
 			ParamExitDelay:   serializeDelay(cfg.UnilateralExitDelay),
 		},

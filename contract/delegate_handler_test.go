@@ -38,7 +38,7 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 	require.False(t, c.IsOnchain)
 	require.Equal(t, "test-key", c.Params[contract.ParamKeyID])
 	require.Equal(t,
-		hex.EncodeToString(schnorr.SerializePubKey(delegatePriv.PubKey())),
+		hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()),
 		c.Params[contract.ParamDelegateKey],
 	)
 
@@ -321,4 +321,66 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "3 tapscripts")
 	})
+}
+
+func TestDelegateHandler_ClosureOrdering(t *testing.T) {
+	t.Parallel()
+
+	key := testKey(t)
+	cfg := testCfg(t)
+	delegatePriv := testDelegateKey(t)
+
+	// Mirror the closure layout used by DeriveContract so that ForfeitClosures()
+	// behaviour is verified against the exact structure the handler produces.
+	// ForfeitClosures() matches every *MultisigClosure in Closures order; downstream
+	// code that builds forfeit transactions uses forfeitClosures[0]. If the 3-of-3
+	// delegate closure were placed before the 2-of-2 forfeit closure the server could
+	// not produce a valid forfeit signature without the delegate key.
+	vtxoScript := &script.TapscriptsVtxoScript{
+		Closures: []script.Closure{
+			// [0] exit — CSVMultisigClosure; excluded from ForfeitClosures
+			&script.CSVMultisigClosure{
+				MultisigClosure: script.MultisigClosure{
+					PubKeys: []*btcec.PublicKey{key.PubKey},
+				},
+				Locktime: cfg.UnilateralExitDelay,
+			},
+			// [1] forfeit — 2-of-2; must be forfeitClosures[0]
+			&script.MultisigClosure{
+				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerPubKey},
+			},
+			// [2] delegate — 3-of-3; must be forfeitClosures[1]
+			&script.MultisigClosure{
+				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerPubKey},
+			},
+		},
+	}
+
+	forfeits := vtxoScript.ForfeitClosures()
+	require.Len(t, forfeits, 2)
+
+	forfeit, ok := forfeits[0].(*script.MultisigClosure)
+	require.True(t, ok, "forfeitClosures[0] must be *MultisigClosure")
+	require.Len(t, forfeit.PubKeys, 2, "forfeitClosures[0] must be 2-of-2 (owner+server)")
+
+	delegate, ok := forfeits[1].(*script.MultisigClosure)
+	require.True(t, ok, "forfeitClosures[1] must be *MultisigClosure")
+	require.Len(t, delegate.PubKeys, 3, "forfeitClosures[1] must be 3-of-3 (owner+delegate+server)")
+
+	// Verify DeriveContract produces a contract whose tap key matches this layout,
+	// proving the handler uses this exact closure order.
+	c, err := (&contract.DelegateHandler{}).DeriveContract(
+		context.Background(), key, cfg, delegatePriv.PubKey(),
+	)
+	require.NoError(t, err)
+
+	refTapKey, _, err := vtxoScript.TapTree()
+	require.NoError(t, err)
+	refAddr := &arklib.Address{
+		HRP: cfg.Network.Addr, Signer: cfg.SignerPubKey, VtxoTapKey: refTapKey,
+	}
+	refEncoded, err := refAddr.EncodeV0()
+	require.NoError(t, err)
+	require.Equal(t, refEncoded, c.Address,
+		"DeriveContract address must match the expected closure ordering")
 }
