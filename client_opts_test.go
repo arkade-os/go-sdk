@@ -34,8 +34,8 @@ func TestClientOptions(t *testing.T) {
 				opts: []arksdk.ClientOption{arksdk.WithGapLimit(10)},
 			},
 			{
-				name: "WithHDKeyPath",
-				opts: []arksdk.ClientOption{arksdk.WithHDKeyPath("m/1/2'/3")},
+				name: "WithWallet",
+				opts: []arksdk.ClientOption{arksdk.WithWallet(&mockWallet{})},
 			},
 		}
 
@@ -85,17 +85,17 @@ func TestClientOptions(t *testing.T) {
 				wantErrContains: "gap limit already set",
 			},
 			{
-				name:            "WithHDKeyPath empty",
-				opts:            []arksdk.ClientOption{arksdk.WithHDKeyPath("")},
-				wantErrContains: "hd key path cannot be empty",
+				name:            "WithWallet nil",
+				opts:            []arksdk.ClientOption{arksdk.WithWallet(nil)},
+				wantErrContains: "wallet cannot be nil",
 			},
 			{
-				name: "WithHDKeyPath twice",
+				name: "WithWallet twice",
 				opts: []arksdk.ClientOption{
-					arksdk.WithHDKeyPath("m/1/2'/3"),
-					arksdk.WithHDKeyPath("m/1/2'/4"),
+					arksdk.WithWallet(&mockWallet{}),
+					arksdk.WithWallet(&mockWallet{}),
 				},
-				wantErrContains: "hd key path already set",
+				wantErrContains: "wallet already set",
 			},
 		}
 

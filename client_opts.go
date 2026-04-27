@@ -2,8 +2,10 @@ package arksdk
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 )
 
@@ -61,18 +63,17 @@ func WithGapLimit(limit uint32) ClientOption {
 	}
 }
 
-// WithHDKeyPath overrides the base derivation path prefix used by the built-in
-// HD wallet. If not set, the default Ark path is used.
-func WithHDKeyPath(path string) ClientOption {
+// WithWallet injects a custom WalletService implementation for key management.
+// Can only be set once and must not be nil.
+func WithWallet(walletSvc wallet.WalletService) ClientOption {
 	return func(o *clientOptions) error {
-		if o.hdKeyPathSet {
-			return fmt.Errorf("hd key path already set")
+		if o.wallet != nil {
+			return fmt.Errorf("wallet already set")
 		}
-		if path == "" {
-			return fmt.Errorf("hd key path cannot be empty")
+		if walletSvc == nil {
+			return fmt.Errorf("wallet cannot be nil")
 		}
-		o.hdKeyPath = path
-		o.hdKeyPathSet = true
+		o.wallet = walletSvc
 		return nil
 	}
 }
@@ -95,14 +96,22 @@ type clientOptions struct {
 	verbose           bool
 	hdGapLimit        uint32
 	hdGapLimitSet     bool
-	hdKeyPath         string
-	hdKeyPathSet      bool
+	wallet            wallet.WalletService
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultClientOptions() *clientOptions {
-	return &clientOptions{
-		hdGapLimit: hdwallet.DefaultGapLimit,
+	return &clientOptions{hdGapLimit: hdwallet.DefaultGapLimit}
+}
+
+func normalizeRootPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "m" {
+		return path
 	}
+	if !strings.HasPrefix(path, "m/") {
+		return "m/" + path
+	}
+	return path
 }

@@ -36,18 +36,15 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		vtxos = append(vtxos, vtxo.Vtxo)
 	}
 
-	res, err := a.ArkClient.Unroll(
-		ctx,
-		client.WithVtxos(allVtxos),
-		client.WithKeys(signingKeys),
-	)
+	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos), client.WithKeys(signingKeys))
 	if err != nil {
 		return err
 	}
 
 	for _, rr := range res {
 		var parentTx wire.MsgTx
-		if err := parentTx.Deserialize(hex.NewDecoder(strings.NewReader(rr.ParentTx))); err != nil {
+		dec := hex.NewDecoder(strings.NewReader(rr.ParentTx))
+		if err := parentTx.Deserialize(dec); err != nil {
 			return err
 		}
 

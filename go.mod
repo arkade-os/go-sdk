@@ -4,17 +4,9 @@ go 1.26.2
 
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
-replace github.com/arkade-os/arkd/api-spec => github.com/altafan/ark/api-spec v0.0.0-20260423105630-d6cfeab78ef7
-
-replace github.com/arkade-os/arkd/pkg/ark-lib => github.com/altafan/ark/pkg/ark-lib v0.0.0-20260423105630-d6cfeab78ef7
-
-replace github.com/arkade-os/arkd/pkg/client-lib => github.com/altafan/ark/pkg/client-lib v0.0.0-20260423105630-d6cfeab78ef7
-
-replace github.com/arkade-os/arkd/pkg/errors => github.com/altafan/ark/pkg/errors v0.0.0-20260423105630-d6cfeab78ef7
-
 require (
-	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260323091657-eeb0baef6937
-	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260423105630-d6cfeab78ef7
+	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260427154141-7ff1fffcb409
+	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260427154141-7ff1fffcb409
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5
@@ -28,7 +20,6 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/timshannon/badgerhold/v4 v4.0.3
 	github.com/tyler-smith/go-bip39 v1.1.0
-	github.com/vulpemventures/go-bip32 v0.0.0-20200624192635-867c159da4d7
 	golang.org/x/crypto v0.48.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
@@ -37,8 +28,6 @@ require (
 
 require (
 	cel.dev/expr v0.25.1 // indirect
-	github.com/FactomProject/basen v0.0.0-20150613233007-fe3947df716e // indirect
-	github.com/FactomProject/btcutilecc v0.0.0-20130527213604-d3a63a5752ec // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect

@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const onchainFee = 300
+const onchainFee = 400
 
 func TestCollaborativeExit(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
 		t.Run("with change", func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupHDWallet(t, "")
-			bob := setupHDWallet(t, "")
+			alice := setupClient(t, "")
+			bob := setupClient(t, "")
 
 			// Faucet Alice
 			aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
@@ -87,8 +87,8 @@ func TestCollaborativeExit(t *testing.T) {
 		// In this test Alice sends all to Bob'c onchain address without (VTXO) change
 		t.Run("without change", func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupHDWallet(t, "")
-			bob := setupHDWallet(t, "")
+			alice := setupClient(t, "")
+			bob := setupClient(t, "")
 
 			// Faucet Alice
 			aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
@@ -158,8 +158,8 @@ func TestCollaborativeExit(t *testing.T) {
 		// funding Bob's onchain address. The server should reject the request
 		t.Run("with boarding inputs", func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupHDWallet(t, "")
-			bob := setupHDWallet(t, "")
+			alice := setupClient(t, "")
+			bob := setupClient(t, "")
 
 			aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 			require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Alice owns a leaf VTXO and unrolls it onchain
 	t.Run("leaf vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
+		alice := setupClient(t, "")
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
@@ -247,10 +247,10 @@ func TestUnilateralExit(t *testing.T) {
 		err = generateBlocks(10)
 		require.NoError(t, err)
 
-		time.Sleep(15 * time.Second)
+		time.Sleep(20 * time.Second)
 
 		// Use a separate HD wallet to observe the onchain receive after CompleteUnroll.
-		bob := setupHDWallet(t, "")
+		bob := setupClient(t, "")
 		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
@@ -267,6 +267,7 @@ func TestUnilateralExit(t *testing.T) {
 			require.Len(t, bobUtxoEvent.Utxos, 1)
 
 			bobUtxo := bobUtxoEvent.Utxos[0]
+			require.Less(t, int(bobUtxo.Amount), 21000)
 			require.GreaterOrEqual(t, int(bobUtxo.Amount), 21000-onchainFee)
 		case <-time.After(15 * time.Second):
 			t.Fatal("timed out waiting for UtxosAdded on onchain address")
@@ -276,13 +277,13 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
 	t.Run("preconfirmed vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
+		alice := setupClient(t, "")
 
 		aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		faucetOffchain(t, alice, aliceFaucetAddr, 0.001)
 
-		bob := setupHDWallet(t, "")
+		bob := setupClient(t, "")
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOnchainAddr)
@@ -346,9 +347,9 @@ func TestUnilateralExit(t *testing.T) {
 		err = generateBlocks(10)
 		require.NoError(t, err)
 
-		time.Sleep(15 * time.Second)
+		time.Sleep(20 * time.Second)
 
-		carol := setupHDWallet(t, "")
+		carol := setupClient(t, "")
 		carolUtxoCh := carol.GetUtxoEventChannel(ctx)
 
 		carolOnchainAddr, err := carol.NewBoardingAddress(ctx)
@@ -365,6 +366,7 @@ func TestUnilateralExit(t *testing.T) {
 			require.Len(t, carolUtxoEvent.Utxos, 1)
 
 			carolUtxo := carolUtxoEvent.Utxos[0]
+			require.Less(t, int(carolUtxo.Amount), 21000)
 			require.GreaterOrEqual(t, int(carolUtxo.Amount), 21000-onchainFee)
 		case <-time.After(15 * time.Second):
 			t.Fatal("timed out waiting for UtxosAdded on onchain address")

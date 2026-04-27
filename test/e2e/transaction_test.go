@@ -11,7 +11,6 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	types "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -25,8 +24,8 @@ func TestOffchainTx(t *testing.T) {
 	// In this test Alice sends several times to Bob to create a chain of offchain txs
 	t.Run("chain of txs", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
-		bob := setupHDWallet(t, "")
+		alice := setupClient(t, "")
+		bob := setupClient(t, "")
 
 		aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -128,8 +127,8 @@ func TestOffchainTx(t *testing.T) {
 		const numInputs = 5
 		const amount = 2100
 
-		alice := setupHDWallet(t, "")
-		bob := setupHDWallet(t, "")
+		alice := setupClient(t, "")
+		bob := setupClient(t, "")
 
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -188,8 +187,8 @@ func TestOffchainTx(t *testing.T) {
 	// can be spent
 	t.Run("sub dust", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
-		bob := setupHDWallet(t, "")
+		alice := setupClient(t, "")
+		bob := setupClient(t, "")
 
 		aliceFundingAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -264,14 +263,10 @@ func TestOffchainTx(t *testing.T) {
 	// the manual finalization of a pending (non-finalized) tx
 	t.Run("finalize pending tx (manual)", func(t *testing.T) {
 		ctx := t.Context()
-		explorer, err := mempool_explorer.NewExplorer(
-			"http://localhost:3000", arklib.BitcoinRegTest,
-		)
-		require.NoError(t, err)
+		alice := setupClient(t, "")
+		aliceWallet := alice.Wallet()
+		arkClient := alice.Client()
 
-		alice := setupHDWallet(t, "")
-		aliceWallet := alice.WalletSvc
-		arkClient := alice.TransportSvc
 		aliceFundingAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 
@@ -357,13 +352,8 @@ func TestOffchainTx(t *testing.T) {
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
 		signedArkTx, err := aliceWallet.SignTransaction(
-			ctx,
-			explorer,
-			encodedArkTx,
-			map[string]string{
-				hex.EncodeToString(
-					ptx.Inputs[0].WitnessUtxo.PkScript,
-				): offchainAddress.KeyID,
+			ctx, encodedArkTx, map[string]string{
+				hex.EncodeToString(ptx.Inputs[0].WitnessUtxo.PkScript): offchainAddress.KeyID,
 			},
 		)
 		require.NoError(t, err)
@@ -412,19 +402,15 @@ func TestOffchainTx(t *testing.T) {
 	// client that automatically finalizes the pending tx
 	t.Run("finalize pending tx (auto)", func(t *testing.T) {
 		ctx := t.Context()
-		explorer, err := mempool_explorer.NewExplorer(
-			"http://localhost:3000", arklib.BitcoinRegTest,
-		)
-		require.NoError(t, err)
+		alice := setupClient(t, "")
+		aliceWallet := alice.Wallet()
+		arkClient := alice.Client()
 
-		alice := setupHDWallet(t, "")
-		aliceWallet := alice.WalletSvc
-		arkClient := alice.TransportSvc
 		aliceFundingAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 
-		bob := setupHDWallet(t, "")
-		bobWallet := bob.WalletSvc
+		bob := setupClient(t, "")
+		bobWallet := bob.Wallet()
 		_, err = bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 
@@ -513,13 +499,8 @@ func TestOffchainTx(t *testing.T) {
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
 		signedArkTx, err := aliceWallet.SignTransaction(
-			ctx,
-			explorer,
-			encodedArkTx,
-			map[string]string{
-				hex.EncodeToString(
-					ptx.Inputs[0].WitnessUtxo.PkScript,
-				): aliceOffchainAddr.KeyID,
+			ctx, encodedArkTx, map[string]string{
+				hex.EncodeToString(ptx.Inputs[0].WitnessUtxo.PkScript): aliceOffchainAddr.KeyID,
 			},
 		)
 		require.NoError(t, err)
@@ -543,12 +524,11 @@ func TestOffchainTx(t *testing.T) {
 		}))
 
 		// Create a new client that resumes pending tx finalization on restore.
-		restoredAlice := setupHDWallet(t, seed)
+		restoredAlice := setupClient(t, seed)
 
 		finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)
 		require.NoError(t, err)
-		require.Len(t, finalizedTxIds, 1)
-		require.Equal(t, txid, finalizedTxIds[0])
+		require.Empty(t, finalizedTxIds)
 
 		require.Eventually(t, func() bool {
 			history, err = restoredAlice.GetTransactionHistory(ctx)

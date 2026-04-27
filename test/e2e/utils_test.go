@@ -16,16 +16,10 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
-	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
-	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
-	grpcindexer "github.com/arkade-os/arkd/pkg/client-lib/indexer/grpc"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -39,53 +33,13 @@ const (
 	explorerUrl = "http://127.0.0.1:3000"
 )
 
-type testHDWallet struct {
-	sdk.ArkClient
-	WalletSvc    wallet.WalletService
-	TransportSvc transport.TransportClient
-}
-
-func setupHDWallet(t *testing.T, seed string, opts ...sdk.ClientOption) *testHDWallet {
+func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkClient {
 	t.Helper()
 
 	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
 	require.NoError(t, err)
 
-	grpcClient, err := grpcclient.NewClient(serverUrl)
-	require.NoError(t, err)
-
-	info, err := grpcClient.GetInfo(t.Context())
-	require.NoError(t, err)
-
-	explorerSvc, err := mempool_explorer.NewExplorer(
-		explorerUrl,
-		arklib.BitcoinRegTest,
-		mempool_explorer.WithTracker(true),
-		mempool_explorer.WithPollInterval(2*time.Second),
-	)
-	require.NoError(t, err)
-
-	hdIndexer, err := grpcindexer.NewClient(serverUrl)
-	require.NoError(t, err)
-
-	signerKeyBytes, err := hex.DecodeString(info.SignerPubKey)
-	require.NoError(t, err)
-
-	parsedSignerPubKey, err := btcec.ParsePubKey(signerKeyBytes)
-	require.NoError(t, err)
-
-	walletSvc, err := hdwallet.NewService(hdwallet.Args{
-		Store:               hdwallet.NewStore(arkClient.GetConfigStore()),
-		Indexer:             hdIndexer,
-		Explorer:            explorerSvc,
-		ArkNetwork:          arklib.BitcoinRegTest,
-		SignerPubKey:        parsedSignerPubKey,
-		BoardingExitDelay:   relativeLocktimeFromValue(uint32(info.BoardingExitDelay)),
-		UnilateralExitDelay: relativeLocktimeFromValue(uint32(info.UnilateralExitDelay)),
-	})
-	require.NoError(t, err)
-
-	err = arkClient.Init(t.Context(), serverUrl, seed, password, sdk.WithWallet(walletSvc))
+	err = arkClient.Init(t.Context(), serverUrl, seed, password)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
@@ -97,11 +51,7 @@ func setupHDWallet(t *testing.T, seed string, opts ...sdk.ClientOption) *testHDW
 
 	t.Cleanup(arkClient.Stop)
 
-	return &testHDWallet{
-		ArkClient:    arkClient,
-		WalletSvc:    walletSvc,
-		TransportSvc: grpcClient,
-	}
+	return arkClient
 }
 
 func relativeLocktimeFromValue(value uint32) arklib.RelativeLocktime {

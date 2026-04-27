@@ -14,7 +14,7 @@ import (
 func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	ctx := t.Context()
 
-	hdWallet := setupHDWallet(t, "")
+	hdWallet := setupClient(t, "")
 
 	hdOffchain1, err := hdWallet.NewOffchainAddress(ctx)
 	require.NoError(t, err)
@@ -50,11 +50,11 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.Contains(t, hdOnchainAddrs, hdOnchain2)
 }
 
-func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
+func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupHDWallet(t, "")
-	bobClientHD := setupHDWallet(t, "")
+	aliceClientHD := setupClient(t, "")
+	bobClientHD := setupClient(t, "")
 
 	addresses := make([]string, 0, 22)
 	for range 22 {
@@ -96,7 +96,7 @@ func TestHDWalletRecoversOfflineFundsAcrossGapsOnStartup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Scenario 3: Alice restores from seed and discovers all used keys on startup.
-	aliceClientHD = setupHDWallet(t, seed)
+	aliceClientHD = setupClient(t, seed, sdk.WithGapLimit(50))
 
 	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
 	require.NoError(t, err)
@@ -140,8 +140,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 
 	const gapLimit = uint32(5)
 
-	aliceClientHD := setupHDWallet(t, "", sdk.WithGapLimit(gapLimit))
-	bobClientHD := setupHDWallet(t, "")
+	aliceClientHD := setupClient(t, "", sdk.WithGapLimit(gapLimit))
+	bobClientHD := setupClient(t, "")
 
 	addresses := make([]string, 0, 11)
 	for range 11 {
@@ -175,7 +175,7 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	aliceClientHD = setupHDWallet(t, seed, sdk.WithGapLimit(gapLimit))
+	aliceClientHD = setupClient(t, seed, sdk.WithGapLimit(gapLimit))
 
 	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
 	require.NoError(t, err)
@@ -191,8 +191,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupHDWallet(t, "")
-	bobClientHD := setupHDWallet(t, "")
+	aliceClientHD := setupClient(t, "")
+	bobClientHD := setupClient(t, "")
 
 	offchainAddrs := make([]string, 0, 2)
 	for range 2 {
@@ -263,7 +263,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		redemptionTargets...,
 	))
 
-	aliceClientHD = setupHDWallet(t, seed)
+	aliceClientHD = setupClient(t, seed)
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
@@ -294,8 +294,8 @@ func TestHDWalletEventStreams(t *testing.T) {
 	t.Run("offchain transfer and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
-		aliceClientHD := setupHDWallet(t, "")
-		bobClientHD := setupHDWallet(t, "")
+		aliceClientHD := setupClient(t, "")
+		bobClientHD := setupClient(t, "")
 
 		aliceFaucetAddr, err := aliceClientHD.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -356,7 +356,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 	t.Run("boarding receive and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
-		aliceClientHD := setupHDWallet(t, "")
+		aliceClientHD := setupClient(t, "")
 
 		boardingAddr, err := aliceClientHD.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -425,7 +425,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 	})
 }
 
-func waitForExplorerHistory(t *testing.T, client *testHDWallet, addresses []string) {
+func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {

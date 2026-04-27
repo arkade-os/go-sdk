@@ -18,8 +18,8 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	const supply = 5_000
 	const transferAmount = 1_200
 
-	alice := setupHDWallet(t, "")
-	bob := setupHDWallet(t, "")
+	alice := setupClient(t, "")
+	bob := setupClient(t, "")
 	aliceTxStream := alice.GetTransactionEventChannel(ctx)
 	bobTxStream := bob.GetTransactionEventChannel(ctx)
 
@@ -128,8 +128,8 @@ func TestAssetTransferAndRenew(t *testing.T) {
 func TestProveDustAmountAddedByDefault(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupHDWallet(t, "")
-	bob := setupHDWallet(t, "")
+	alice := setupClient(t, "")
+	bob := setupClient(t, "")
 
 	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 func TestAssetIssuance(t *testing.T) {
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
+		alice := setupClient(t, "")
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
@@ -197,7 +197,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with new control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
+		alice := setupClient(t, "")
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
@@ -232,7 +232,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with existing control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupHDWallet(t, "")
+		alice := setupClient(t, "")
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
@@ -288,7 +288,7 @@ func TestAssetIssuance(t *testing.T) {
 func TestAssetReissuance(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupHDWallet(t, "")
+	alice := setupClient(t, "")
 	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 	require.NoError(t, err)
 	faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
@@ -357,7 +357,7 @@ func TestAssetReissuance(t *testing.T) {
 func TestAssetBurn(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupHDWallet(t, "")
+	alice := setupClient(t, "")
 	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 	require.NoError(t, err)
 	faucetOffchain(t, alice, aliceOffchainAddr, 0.01)

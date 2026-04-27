@@ -27,6 +27,12 @@ func (a *arkClient) FinalizePendingTxs(
 		return nil, err
 	}
 
+	return a.finalizePendingTxs(ctx, createdAfter)
+}
+
+func (a *arkClient) finalizePendingTxs(
+	ctx context.Context, createdAfter *time.Time,
+) ([]string, error) {
 	signingKeys, err := a.signingKeysByScript(ctx)
 	if err != nil {
 		return nil, err

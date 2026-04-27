@@ -10,9 +10,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
-	grpcindexer "github.com/arkade-os/arkd/pkg/client-lib/indexer/grpc"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
@@ -59,49 +57,6 @@ func (a *arkClient) Init(
 		return fmt.Errorf("failed to init explorer: %v", err)
 	}
 
-	if initOpts.wallet != nil {
-		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
-			ServerUrl: serverUrl,
-			Seed:      seed,
-			Password:  password,
-			Wallet:    initOpts.wallet,
-			Explorer:  explorer,
-		})
-	}
-
-	if initOpts.hdStore != nil {
-		hdIndexer, err := grpcindexer.NewClient(serverUrl)
-		if err != nil {
-			return fmt.Errorf("failed to setup hd wallet indexer: %v", err)
-		}
-		signerPubKey, err := parseServerPubKey(info.SignerPubKey)
-		if err != nil {
-			return fmt.Errorf("failed to parse signer pubkey: %v", err)
-		}
-
-		hdWallet, err := hdwallet.NewService(hdwallet.Args{
-			Store:               initOpts.hdStore,
-			Indexer:             hdIndexer,
-			Explorer:            explorer,
-			KeyPathPrefix:       a.hdKeyPath,
-			ArkNetwork:          networkFromString(info.Network),
-			SignerPubKey:        signerPubKey,
-			BoardingExitDelay:   relativeLocktimeFromValue(uint32(info.BoardingExitDelay)),
-			UnilateralExitDelay: relativeLocktimeFromValue(uint32(info.UnilateralExitDelay)),
-		})
-		if err != nil {
-			return err
-		}
-
-		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
-			ServerUrl: serverUrl,
-			Seed:      seed,
-			Password:  password,
-			Wallet:    hdWallet,
-			Explorer:  explorer,
-		})
-	}
-
 	return a.ArkClient.Init(ctx, client.InitArgs{
 		ServerUrl:  serverUrl,
 		Seed:       seed,
@@ -119,16 +74,6 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 	if _, err := walletSvc.Unlock(ctx, password); err != nil {
 		return err
-	}
-
-	hasKeys, err := a.walletHasKeys(ctx)
-	if err != nil {
-		return err
-	}
-	if hasKeys {
-		if _, err := a.FinalizePendingTxs(ctx, nil); err != nil {
-			return err
-		}
 	}
 
 	a.logMu.Lock()
@@ -158,10 +103,17 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
-		_, err := a.discoverHDWalletKeys(ctx)
-		if err == nil {
-			err = a.refreshDb(ctx)
+		if _, err := a.discoverHDWalletKeys(ctx); err != nil {
+			a.syncCh <- err
+			close(a.syncCh)
+			return
 		}
+
+		if _, err := a.finalizePendingTxs(ctx, nil); err != nil {
+			log.WithError(err).Warn("failed to finalize pending txs")
+		}
+
+		err := a.refreshDb(ctx)
 		a.syncCh <- err
 		close(a.syncCh)
 

@@ -21,12 +21,13 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
-	grpcindexer "github.com/arkade-os/arkd/pkg/client-lib/indexer/grpc"
 	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
+	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
+	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
@@ -59,7 +60,6 @@ type arkClient struct {
 	logMu             *sync.Mutex
 	lastUpdate        time.Time
 	hdGapLimit        uint32
-	hdKeyPath         string
 	onchainRegistry   *onchainAddressRegistry
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
@@ -106,6 +106,22 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
 
+	if o.wallet == nil {
+		walletStore := inmemorywalletstore.NewStore()
+		if len(datadir) > 0 {
+			walletStore, err = filewalletstore.NewStore(datadir)
+			if err != nil {
+				return nil, err
+			}
+		}
+		hdWallet, err := hdwallet.NewService(walletStore)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup wallet: %s", err)
+		}
+		o.wallet = hdWallet
+	}
+	clientOpts = append(clientOpts, client.WithWallet(o.wallet))
+
 	cli, err := client.NewArkClient(clientDb, clientOpts...)
 	if err != nil {
 		return nil, err
@@ -123,7 +139,6 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
-		hdKeyPath:         o.hdKeyPath,
 		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
@@ -200,35 +215,25 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		clientOpts = append(clientOpts, client.WithExplorer(explorerSvc))
 	}
 
-	var cli client.ArkClient
-	if cfgData != nil && cfgData.WalletType == hdwallet.Type {
-		hdIndexer, err := grpcindexer.NewClient(cfgData.ServerUrl)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init hd wallet indexer: %v", err)
+	if o.wallet == nil {
+		walletStore := inmemorywalletstore.NewStore()
+		if len(datadir) > 0 {
+			walletStore, err = filewalletstore.NewStore(datadir)
+			if err != nil {
+				return nil, err
+			}
 		}
-		hdWallet, err := hdwallet.NewService(hdwallet.Args{
-			Store:               hdwallet.NewStore(clientDb.ConfigStore()),
-			Indexer:             hdIndexer,
-			Explorer:            explorerSvc,
-			KeyPathPrefix:       o.hdKeyPath,
-			ArkNetwork:          cfgData.Network,
-			SignerPubKey:        cfgData.SignerPubKey,
-			BoardingExitDelay:   cfgData.BoardingExitDelay,
-			UnilateralExitDelay: cfgData.UnilateralExitDelay,
-		})
+		hdWallet, err := hdwallet.NewService(walletStore)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to setup wallet: %s", err)
 		}
+		o.wallet = hdWallet
+	}
+	clientOpts = append(clientOpts, client.WithWallet(o.wallet))
 
-		cli, err = client.LoadArkClientWithWallet(clientDb, hdWallet, clientOpts...)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		cli, err = client.LoadArkClient(clientDb, clientOpts...)
-		if err != nil {
-			return nil, err
-		}
+	cli, err := client.LoadArkClient(clientDb, clientOpts...)
+	if err != nil {
+		return nil, err
 	}
 
 	client := &arkClient{
@@ -243,7 +248,6 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
-		hdKeyPath:         o.hdKeyPath,
 		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
@@ -802,6 +806,12 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
+			// Drop events that raced past a shutdown — handlers below would hit
+			// a closed DB or canceled context and surface noisy errors.
+			if ctx.Err() != nil {
+				return
+			}
+
 			_, offchainAddrs, _, _, err := a.ArkClient.GetAddresses(ctx)
 			if err != nil {
 				log.WithError(err).Error("failed to get offchain addresses")
@@ -818,6 +828,9 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 
 			if event.CommitmentTx != nil {
 				if err := a.handleCommitmentTx(ctx, myPubkeys, event.CommitmentTx); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
@@ -825,6 +838,9 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 
 			if event.ArkTx != nil {
 				if err := a.handleArkTx(ctx, myPubkeys, event.ArkTx); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
@@ -832,6 +848,9 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 
 			if event.SweepTx != nil {
 				if err := a.handleSweepTx(ctx, event.SweepTx); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					log.WithError(err).Error("failed to process sweep tx")
 					continue
 				}
@@ -2106,23 +2125,6 @@ func (a *arkClient) saveBatchTransaction(
 	}
 
 	return nil
-}
-
-func (a *arkClient) discoverHDWalletKeys(ctx context.Context) (bool, error) {
-	wallet := a.Wallet()
-	if wallet == nil {
-		return false, nil
-	}
-	hdWallet, ok := wallet.(*hdwallet.Service)
-	if !ok {
-		return false, nil
-	}
-
-	expanded, err := hdWallet.DiscoverKeys(ctx, a.hdGapLimit)
-	if err != nil {
-		return false, err
-	}
-	return expanded, nil
 }
 
 type trackedAddressInfo struct {

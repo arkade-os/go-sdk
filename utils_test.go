@@ -4,18 +4,16 @@ import (
 	"context"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/btcsuite/btcd/chaincfg"
 )
 
 type mockWallet struct{}
 
-var _ wallet.WalletService = (*mockWallet)(nil)
-
 func (m *mockWallet) GetType() string {
 	return "mock"
 }
-func (m *mockWallet) Create(_ context.Context, _, _ string) (string, error) {
+func (m *mockWallet) Create(_ context.Context, _ chaincfg.Params, _, _ string) (string, error) {
 	return "", nil
 }
 func (m *mockWallet) Lock(_ context.Context) error {
@@ -27,17 +25,20 @@ func (m *mockWallet) Unlock(_ context.Context, _ string) (bool, error) {
 func (m *mockWallet) IsLocked() bool {
 	return false
 }
-func (m *mockWallet) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (m *mockWallet) NextIndex(_ context.Context) (uint32, error) {
+	return 0, nil
+}
+func (m *mockWallet) NewKey(_ context.Context) (*wallet.KeyRef, error) {
 	return &wallet.KeyRef{}, nil
 }
-func (m *mockWallet) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (m *mockWallet) GetKey(_ context.Context, _ string) (*wallet.KeyRef, error) {
 	return &wallet.KeyRef{}, nil
 }
 func (m *mockWallet) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	return nil, nil
 }
 func (m *mockWallet) SignTransaction(
-	_ context.Context, _ explorer.Explorer, _ string, _ map[string]string,
+	_ context.Context, _ string, _ map[string]string,
 ) (string, error) {
 	return "", nil
 }
@@ -47,6 +48,6 @@ func (m *mockWallet) SignMessage(_ context.Context, _ []byte) (string, error) {
 func (m *mockWallet) Dump(_ context.Context) (string, error) {
 	return "", nil
 }
-func (m *mockWallet) NewVtxoTreeSigner(_ context.Context, _ string) (tree.SignerSession, error) {
+func (m *mockWallet) NewVtxoTreeSigner(_ context.Context) (tree.SignerSession, error) {
 	return nil, nil
 }
