@@ -54,18 +54,6 @@ func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkCli
 	return arkClient
 }
 
-func relativeLocktimeFromValue(value uint32) arklib.RelativeLocktime {
-	locktimeType := arklib.LocktimeTypeBlock
-	if value >= 512 {
-		locktimeType = arklib.LocktimeTypeSecond
-	}
-
-	return arklib.RelativeLocktime{
-		Type:  locktimeType,
-		Value: value,
-	}
-}
-
 func faucetOnchain(t *testing.T, address string, amount float64) {
 	_, err := runCommand("nigiri", "faucet", address, fmt.Sprintf("%.8f", amount))
 	require.NoError(t, err)

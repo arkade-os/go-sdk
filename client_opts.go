@@ -2,7 +2,6 @@ package arksdk
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
@@ -103,15 +102,4 @@ type clientOptions struct {
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultClientOptions() *clientOptions {
 	return &clientOptions{hdGapLimit: hdwallet.DefaultGapLimit}
-}
-
-func normalizeRootPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "m" {
-		return path
-	}
-	if !strings.HasPrefix(path, "m/") {
-		return "m/" + path
-	}
-	return path
 }

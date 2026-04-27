@@ -2,7 +2,6 @@ package arksdk
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -129,22 +127,6 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}()
 
 	return nil
-}
-
-func parseServerPubKey(pubkey string) (*btcec.PublicKey, error) {
-	buf, err := hex.DecodeString(pubkey)
-	if err != nil {
-		return nil, err
-	}
-	return btcec.ParsePubKey(buf)
-}
-
-func relativeLocktimeFromValue(value uint32) arklib.RelativeLocktime {
-	locktimeType := arklib.LocktimeTypeBlock
-	if value >= 512 {
-		locktimeType = arklib.LocktimeTypeSecond
-	}
-	return arklib.RelativeLocktime{Type: locktimeType, Value: value}
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {

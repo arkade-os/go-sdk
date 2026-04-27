@@ -140,11 +140,3 @@ func deriveEncryptionKey(password, salt []byte) ([]byte, []byte, error) {
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
 	return key, salt, nil
 }
-
-func randomBytes(size int) ([]byte, error) {
-	buf := make([]byte, size)
-	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
