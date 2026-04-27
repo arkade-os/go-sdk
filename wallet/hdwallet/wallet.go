@@ -130,7 +130,6 @@ func (w *service) Create(
 		return "", fmt.Errorf("failed to save wallet state: %w", err)
 	}
 
-	w.keyProvider = newHDKeyService(masterKey)
 	w.mnemonic = mnemonic
 	w.locked = true
 
@@ -171,7 +170,7 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 
 	// Already unlocked
 	if !w.locked && w.keyProvider != nil {
-		return w.keyProvider.GetNextKeyIndex() > 1, nil
+		return w.keyProvider.GetNextKeyIndex() > 0, nil
 	}
 
 	pwd := []byte(password)

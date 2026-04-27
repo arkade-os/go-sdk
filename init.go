@@ -109,6 +109,8 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 			return
 		}
 
+		// TODO: For this is a best-effort attempt to finalize any pending txs. Find a way to let
+		// the user aware of this so he can proceed with a manual finalization
 		if _, err := a.finalizePendingTxs(ctx, nil); err != nil {
 			log.WithError(err).Warn("failed to finalize pending txs")
 		}

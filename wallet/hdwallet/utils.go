@@ -134,7 +134,8 @@ func deriveEncryptionKey(password, salt []byte) ([]byte, []byte, error) {
 			return nil, nil, err
 		}
 	}
-	iterations := 10000
+	// OWASP minimum for PBKDF2-HMAC-SHA256: 600,000
+	iterations := 600000
 	keySize := 32
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
 	return key, salt, nil

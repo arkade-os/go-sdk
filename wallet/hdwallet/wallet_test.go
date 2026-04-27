@@ -342,7 +342,7 @@ func TestNewKey(t *testing.T) {
 				setup: func(t *testing.T) wallet.WalletService {
 					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
 				},
-				wantErrContains: "wallet not initalized",
+				wantErrContains: "wallet not initialized",
 			},
 			{
 				name: "wallet is locked",
@@ -397,7 +397,7 @@ func TestGetKey(t *testing.T) {
 					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
 				},
 				id:              "m/0/0",
-				wantErrContains: "wallet not initalized",
+				wantErrContains: "wallet not initialized",
 			},
 			{
 				name: "wallet is locked",
@@ -498,7 +498,7 @@ func TestListKeys(t *testing.T) {
 				setup: func(t *testing.T) wallet.WalletService {
 					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
 				},
-				wantErrContains: "wallet not initalized",
+				wantErrContains: "wallet not initialized",
 			},
 			{
 				name:            "wallet is locked",
@@ -564,7 +564,7 @@ func TestSignMessage(t *testing.T) {
 					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
 				},
 				msg:             make([]byte, 32),
-				wantErrContains: "wallet not initalized",
+				wantErrContains: "wallet not initialized",
 			},
 			{
 				name:            "wallet is locked",

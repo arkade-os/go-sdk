@@ -8,11 +8,31 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
+	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
+	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 )
+
+func newDefaultHDWallet(datadir string) (wallet.WalletService, error) {
+	walletStore := inmemorywalletstore.NewStore()
+	if len(datadir) > 0 {
+		var err error
+		walletStore, err = filewalletstore.NewStore(datadir)
+		if err != nil {
+			return nil, err
+		}
+	}
+	hdWallet, err := hdwallet.NewService(walletStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup wallet: %s", err)
+	}
+	return hdWallet, nil
+}
 
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []client.VtxoDetails) {
 	nextExpiration := int64(0)

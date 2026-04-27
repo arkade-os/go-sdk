@@ -99,7 +99,11 @@ func (s *walletStore) Save(_ context.Context, state walletstore.State) error {
 		return err
 	}
 
-	return os.Rename(tmpPath, filePath)
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to rename temp state file: %w", err)
+	}
+	return nil
 }
 
 func (s *walletStore) Load(_ context.Context) (*walletstore.State, error) {

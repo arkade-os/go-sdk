@@ -25,9 +25,6 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
-	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
-	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
@@ -107,14 +104,7 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	}
 
 	if o.wallet == nil {
-		walletStore := inmemorywalletstore.NewStore()
-		if len(datadir) > 0 {
-			walletStore, err = filewalletstore.NewStore(datadir)
-			if err != nil {
-				return nil, err
-			}
-		}
-		hdWallet, err := hdwallet.NewService(walletStore)
+		hdWallet, err := newDefaultHDWallet(datadir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup wallet: %s", err)
 		}
@@ -216,14 +206,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	}
 
 	if o.wallet == nil {
-		walletStore := inmemorywalletstore.NewStore()
-		if len(datadir) > 0 {
-			walletStore, err = filewalletstore.NewStore(datadir)
-			if err != nil {
-				return nil, err
-			}
-		}
-		hdWallet, err := hdwallet.NewService(walletStore)
+		hdWallet, err := newDefaultHDWallet(datadir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup wallet: %s", err)
 		}
