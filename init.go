@@ -91,6 +91,15 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		}
 		return fmt.Errorf("unlock: load contracts: %w", err)
 	}
+	// Ensure at least one key is derived so the indexer sync has a non-empty
+	// script set. NewDefault is idempotent: it reuses the existing contract when
+	// one already exists, and re-derives the deterministic key-0 on restore.
+	if _, err := mgr.NewDefault(ctx); err != nil {
+		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: init default contract: %w (rollback lock failed: %v)", err, lockErr)
+		}
+		return fmt.Errorf("unlock: init default contract: %w", err)
+	}
 	a.cmMu.Lock()
 	a.contractManager = mgr
 	a.cmMu.Unlock()
