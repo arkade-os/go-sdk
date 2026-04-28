@@ -3,7 +3,6 @@ package hdwallet
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -105,7 +104,6 @@ func (w *service) Create(
 
 	// Encrypt master key (xpriv string)
 	pwd := []byte(password)
-	passwordHash := sha256.Sum256(pwd)
 
 	xpriv := masterKey.String()
 	encryptedKey, err := encryptAES256([]byte(xpriv), pwd)
@@ -123,7 +121,6 @@ func (w *service) Create(
 		WalletType:         Type,
 		EncryptedMasterKey: hex.EncodeToString(encryptedKey),
 		EncryptedMnemonic:  hex.EncodeToString(encryptedMnemonic),
-		PasswordHash:       hex.EncodeToString(passwordHash[:]),
 	}
 
 	if err := w.store.Save(ctx, state); err != nil {
@@ -174,13 +171,10 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 	}
 
 	pwd := []byte(password)
-	passwordHash := sha256.Sum256(pwd)
-	passwordHashStr := hex.EncodeToString(passwordHash[:])
-	if passwordHashStr != state.PasswordHash {
-		return false, fmt.Errorf("invalid password")
-	}
 
-	// Decrypt mnemonic
+	// Password verification is performed implicitly by AES-GCM decryption: any
+	// wrong password fails the AEAD tag check below and surfaces as an
+	// "invalid password" error from decryptAES256.
 	encryptedMnemonic, err := hex.DecodeString(state.EncryptedMnemonic)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode mnemonic: %w", err)

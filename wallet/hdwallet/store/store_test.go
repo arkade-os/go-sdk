@@ -18,7 +18,6 @@ var (
 		WalletType:         hdwallet.Type,
 		EncryptedMnemonic:  "encryptedMnemonic",
 		EncryptedMasterKey: "encryptedMasterKey",
-		PasswordHash:       "passwordHash",
 		NextIndex:          15,
 	}
 )
@@ -75,7 +74,6 @@ func TestSave(t *testing.T) {
 						state: walletstore.State{
 							EncryptedMasterKey: "encryptedMasterKey",
 							EncryptedMnemonic:  "encryptedMnemonic",
-							PasswordHash:       "passwordHash",
 						},
 						wantErrContains: "missing wallet type",
 					},
@@ -84,7 +82,6 @@ func TestSave(t *testing.T) {
 						state: walletstore.State{
 							WalletType:        hdwallet.Type,
 							EncryptedMnemonic: "encryptedMnemonic",
-							PasswordHash:      "passwordHash",
 						},
 						wantErrContains: "missing encrypted master key",
 					},
@@ -93,18 +90,8 @@ func TestSave(t *testing.T) {
 						state: walletstore.State{
 							WalletType:         hdwallet.Type,
 							EncryptedMasterKey: "encryptedMasterKey",
-							PasswordHash:       "passwordHash",
 						},
 						wantErrContains: "missing encrypted mnemonic",
-					},
-					{
-						name: "missing password hash",
-						state: walletstore.State{
-							WalletType:         hdwallet.Type,
-							EncryptedMasterKey: "encryptedMasterKey",
-							EncryptedMnemonic:  "encryptedMnemonic",
-						},
-						wantErrContains: "missing password hash",
 					},
 				}
 

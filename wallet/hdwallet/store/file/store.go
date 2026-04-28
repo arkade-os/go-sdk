@@ -54,14 +54,10 @@ func (s *walletStore) Save(_ context.Context, state walletstore.State) error {
 		if state.EncryptedMnemonic == "" {
 			return fmt.Errorf("missing encrypted mnemonic")
 		}
-		if state.PasswordHash == "" {
-			return fmt.Errorf("missing password hash")
-		}
 		newState = &walletstore.State{
 			WalletType:         state.WalletType,
 			EncryptedMasterKey: state.EncryptedMasterKey,
 			EncryptedMnemonic:  state.EncryptedMnemonic,
-			PasswordHash:       state.PasswordHash,
 			NextIndex:          state.NextIndex,
 		}
 	default:

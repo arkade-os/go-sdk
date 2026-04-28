@@ -7,7 +7,6 @@ type State struct {
 	WalletType         string `json:"wallet_type"`
 	EncryptedMasterKey string `json:"encrypted_master_key"`
 	EncryptedMnemonic  string `json:"encrypted_mnemonic"`
-	PasswordHash       string `json:"password_hash,omitempty"`
 	NextIndex          uint32 `json:"next_index"`
 }
 

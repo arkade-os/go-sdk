@@ -178,7 +178,6 @@ func TestUnlock(t *testing.T) {
 						WalletType:         "lnd",
 						EncryptedMasterKey: "deadbeef",
 						EncryptedMnemonic:  "deadbeef",
-						PasswordHash:       "deadbeef",
 					}))
 					return newTestHDWalletService(t, store)
 				},
