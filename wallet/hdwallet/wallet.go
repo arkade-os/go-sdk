@@ -259,7 +259,7 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	_, pubKey, keiID, err := w.keyProvider.GetNextKey()
+	_, pubKey, keyID, err := w.keyProvider.GetNextKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key: %w", err)
 	}
@@ -268,7 +268,7 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	return &wallet.KeyRef{Id: keiID, PubKey: pubKey}, nil
+	return &wallet.KeyRef{Id: keyID, PubKey: pubKey}, nil
 }
 
 func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error) {
