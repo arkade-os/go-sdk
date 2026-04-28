@@ -769,6 +769,9 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			if mgr == nil {
 				continue
 			}
+			if err := mgr.Load(ctx); err != nil {
+				log.WithError(err).Warn("failed to sync contracts in ark tx listener")
+			}
 			contracts, err := mgr.GetContracts(ctx)
 			if err != nil {
 				log.WithError(err).Error("failed to get contracts for ark tx listener")
@@ -1806,6 +1809,14 @@ func (i *arkClient) vtxosToTxs(
 func (a *arkClient) saveSendTransaction(
 	ctx context.Context, res client.OffchainTxRes,
 ) error {
+	// Sync any keys the client-lib derived internally (e.g. change addresses)
+	// so that the output filter below recognises the new vtxos.
+	if a.contractManager != nil {
+		if err := a.contractManager.Load(ctx); err != nil {
+			log.Warnf("failed to sync contracts before saving send tx: %s", err)
+		}
+	}
+
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
@@ -2080,6 +2091,31 @@ func (a *arkClient) saveBatchTransaction(
 		}
 		if count > 0 {
 			log.Debugf("spent %d boarding utxo(s)", count)
+		}
+	}
+
+	// 4. For note redemptions (no vtxo or utxo inputs), record a received tx.
+	// handleCommitmentTx only recognises vtxos matching known contract keys, so
+	// vtxos created at freshly-derived keys (e.g. the change address from
+	// RedeemNotes) are never picked up there, leaving the tx store empty and
+	// any listener on GetTransactionEventChannel blocked forever.
+	if len(res.VtxoInputs) == 0 && len(res.UtxoInputs) == 0 && len(res.VtxoOutputs) > 0 {
+		amount := uint64(0)
+		for _, v := range res.VtxoOutputs {
+			amount += v.Amount
+		}
+		if _, err := a.store.TransactionStore().AddTransactions(ctx, []clientTypes.Transaction{
+			{
+				TransactionKey: clientTypes.TransactionKey{
+					CommitmentTxid: res.CommitmentTxid,
+				},
+				Amount:    amount,
+				Type:      clientTypes.TxReceived,
+				CreatedAt: time.Now(),
+				Hex:       res.CommitmentTx,
+			},
+		}); err != nil {
+			log.Warnf("failed to add received note transaction: %s", err)
 		}
 	}
 

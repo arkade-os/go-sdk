@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"fmt"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -62,6 +63,15 @@ func (a *arkClient) SendOffChain(
 func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
 ) ([]clientTypes.VtxoWithTapTree, error) {
+	// The client-lib derives new HD keys internally (e.g. for change addresses)
+	// without informing the contract manager. Load syncs any missing contracts
+	// for newly derived keys before we filter vtxos by known contracts.
+	if a.contractManager != nil {
+		if err := a.contractManager.Load(ctx); err != nil {
+			return nil, fmt.Errorf("sync contracts: %w", err)
+		}
+	}
+
 	a.dbMu.Lock()
 	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
 	a.dbMu.Unlock()
