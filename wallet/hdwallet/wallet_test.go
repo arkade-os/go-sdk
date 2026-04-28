@@ -218,6 +218,24 @@ func TestLock(t *testing.T) {
 		require.False(t, svc.IsLocked())
 	})
 
+	t.Run("zeroes in-memory mnemonic", func(t *testing.T) {
+		svc := newTestCreatedWallet(t)
+		_, err := svc.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		concrete := svc.(*service)
+		// Capture an alias to the underlying mnemonic storage so we can verify
+		// the backing memory is wiped after Lock.
+		captured := concrete.mnemonic
+		require.NotEmpty(t, captured)
+
+		require.NoError(t, svc.Lock(t.Context()))
+
+		for i, b := range captured {
+			require.Zerof(t, b, "captured mnemonic byte %d not zeroed", i)
+		}
+	})
+
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string

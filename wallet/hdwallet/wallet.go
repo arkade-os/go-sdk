@@ -34,9 +34,12 @@ const (
 type service struct {
 	keyProvider *keyService
 	store       walletstore.Store
-	mnemonic    string
-	locked      bool
-	mu          sync.RWMutex
+	// mnemonic holds the BIP39 mnemonic decrypted in memory only while the
+	// wallet is unlocked. Stored as []byte (not string) so Lock can zero the
+	// underlying memory.
+	mnemonic []byte
+	locked   bool
+	mu       sync.RWMutex
 }
 
 // NewService creates a new HD wallet service with all known dependencies.
@@ -127,7 +130,7 @@ func (w *service) Create(
 		return "", fmt.Errorf("failed to save wallet state: %w", err)
 	}
 
-	w.mnemonic = mnemonic
+	w.mnemonic = []byte(mnemonic)
 	w.locked = true
 
 	return mnemonic, nil
@@ -145,7 +148,8 @@ func (w *service) Lock(_ context.Context) error {
 	}
 
 	w.keyProvider = nil
-	w.mnemonic = ""
+	zeroBytes(w.mnemonic)
+	w.mnemonic = nil
 	w.locked = true
 	return nil
 }
@@ -211,7 +215,7 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 	}
 
 	w.keyProvider = keyProvider
-	w.mnemonic = string(mnemonic)
+	w.mnemonic = mnemonic
 	w.locked = false
 
 	return restored, nil
@@ -241,7 +245,7 @@ func (w *service) Dump(_ context.Context) (string, error) {
 	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
-	return w.mnemonic, nil
+	return string(w.mnemonic), nil
 }
 
 func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
