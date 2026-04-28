@@ -273,8 +273,7 @@ func TestOffchainTx(t *testing.T) {
 
 			_, offchainAddresses, _, _, err := alice.GetAddresses(ctx)
 			require.NoError(t, err)
-			require.NotEmpty(t, offchainAddresses)
-			offchainAddress := offchainAddresses[0]
+			offchainAddress := findAddrForVtxo(t, offchainAddresses, vtxo)
 
 			serverParams, err := arkClient.GetInfo(ctx)
 			require.NoError(t, err)
@@ -400,18 +399,9 @@ func TestOffchainTx(t *testing.T) {
 
 			vtxo := faucetOffchain(t, alice, 0.00021)
 
-			aliceAddrStr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
 			_, aliceAddrs, _, _, err := alice.GetAddresses(ctx)
 			require.NoError(t, err)
-			var aliceOffchainAddr clientTypes.Address
-			for _, a := range aliceAddrs {
-				if a.Address == aliceAddrStr {
-					aliceOffchainAddr = a
-					break
-				}
-			}
-			require.NotEmpty(t, aliceOffchainAddr.Address)
+			aliceOffchainAddr := findAddrForVtxo(t, aliceAddrs, vtxo)
 
 			bobAddrStr, err := bob.NewOffchainAddress(ctx)
 			require.NoError(t, err)
@@ -521,7 +511,7 @@ func TestOffchainTx(t *testing.T) {
 			// Create a new client that automatically finalizes pending txs
 			restoredAlice, _ := setupClientWithWallet(t, key)
 
-			// // No pending txs should be finalized as they've been all handled in the background
+			// No pending txs should be finalized as they've been all handled in the background
 			finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)
 			require.NoError(t, err)
 			require.Empty(t, finalizedTxIds)
@@ -533,4 +523,23 @@ func TestOffchainTx(t *testing.T) {
 			}))
 		})
 	})
+}
+
+func findAddrForVtxo(
+	t *testing.T,
+	addrs []clientTypes.Address,
+	vtxo clientTypes.Vtxo,
+) clientTypes.Address {
+	t.Helper()
+	for _, addr := range addrs {
+		decoded, err := arklib.DecodeAddressV0(addr.Address)
+		require.NoError(t, err)
+		pkscript, err := decoded.GetPkScript()
+		require.NoError(t, err)
+		if hex.EncodeToString(pkscript) == vtxo.Script {
+			return addr
+		}
+	}
+	t.Fatalf("no offchain address matches vtxo script %s", vtxo.Script)
+	return clientTypes.Address{}
 }

@@ -9,6 +9,8 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -142,6 +144,24 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
+		// Gap-limit scan: discover wallet keys that had vtxos from before this
+		// restore session. Non-fatal: a failure just means the restored history
+		// will be incomplete, not that the unlock itself fails.
+		if err := a.scanAndRegisterKeys(ctx, mgr, cfg); err != nil {
+			log.WithError(err).Warn("key gap scan failed during restore")
+		}
+
+		// Finalize any pending txs that were submitted before this restore.
+		// Call client-lib directly (not the go-sdk wrapper) to avoid a second
+		// refreshDb before the primary one below runs.
+		if signingKeys, err := a.signingKeysByScript(ctx); err != nil {
+			log.WithError(err).Warn("could not build signing keys for restore finalization")
+		} else if _, err := a.ArkClient.FinalizePendingTxs(
+			ctx, nil, client.WithKeys(signingKeys),
+		); err != nil {
+			log.WithError(err).Warn("pending tx finalization failed during restore")
+		}
+
 		err := a.refreshDb(ctx)
 		a.syncCh <- err
 		close(a.syncCh)
@@ -156,6 +176,95 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}()
 
 	return nil
+}
+
+// scanAndRegisterKeys performs a BIP44-style gap-limit scan to discover wallet
+// keys that have vtxos on the indexer beyond the currently allocated frontier.
+// This is needed on restore: the original wallet may have derived additional
+// keys internally (e.g. via RedeemNotes, SendOffChain), and a fresh datadir
+// only knows key-0 until the scan rediscovers those keys.
+func (a *arkClient) scanAndRegisterKeys(
+	ctx context.Context,
+	mgr contract.Manager,
+	cfg *clientTypes.Config,
+) error {
+	if cfg == nil {
+		return nil
+	}
+	indexerSvc := a.ArkClient.Indexer()
+	if indexerSvc == nil {
+		return nil
+	}
+
+	w := a.Wallet()
+	currentIdx, err := w.NextIndex(ctx)
+	if err != nil {
+		return err
+	}
+	if currentIdx == 0 {
+		return nil
+	}
+
+	const gapLimit = uint32(20)
+
+	h := &contract.DefaultHandler{}
+	scriptToIndex := make(map[string]uint32, gapLimit)
+	scripts := make([]string, 0, gapLimit)
+
+	for i := currentIdx; i < currentIdx+gapLimit; i++ {
+		keyID := fmt.Sprintf("m/0/%d", i)
+		keyRef, err := w.GetKey(ctx, keyID)
+		if err != nil {
+			return err
+		}
+		contracts, err := h.DeriveContracts(ctx, *keyRef, cfg)
+		if err != nil {
+			return err
+		}
+		for _, c := range contracts {
+			if c.Type == contract.TypeDefault && !c.IsOnchain {
+				scripts = append(scripts, c.Script)
+				scriptToIndex[c.Script] = i
+				break
+			}
+		}
+	}
+
+	if len(scripts) == 0 {
+		return nil
+	}
+
+	resp, err := indexerSvc.GetVtxos(ctx, indexer.WithScripts(scripts))
+	if err != nil {
+		return err
+	}
+
+	maxFoundIndex := currentIdx - 1
+	for _, vtxo := range resp.Vtxos {
+		if idx, ok := scriptToIndex[vtxo.Script]; ok && idx > maxFoundIndex {
+			maxFoundIndex = idx
+		}
+	}
+
+	if maxFoundIndex < currentIdx {
+		return nil // no new keys found
+	}
+
+	// Advance nextKeyIndex to cover all discovered keys.
+	for {
+		nextIdx, err := w.NextIndex(ctx)
+		if err != nil {
+			return err
+		}
+		if nextIdx > maxFoundIndex {
+			break
+		}
+		if _, err := w.NewKey(ctx); err != nil {
+			return err
+		}
+	}
+
+	return mgr.Load(ctx)
 }
 
 func (a *arkClient) Lock(ctx context.Context) error {
