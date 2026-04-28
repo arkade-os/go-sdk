@@ -96,7 +96,11 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	// one already exists, and re-derives the deterministic key-0 on restore.
 	if _, err := mgr.NewDefault(ctx); err != nil {
 		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
-			return fmt.Errorf("unlock: init default contract: %w (rollback lock failed: %v)", err, lockErr)
+			return fmt.Errorf(
+				"unlock: init default contract: %w (rollback lock failed: %v)",
+				err,
+				lockErr,
+			)
 		}
 		return fmt.Errorf("unlock: init default contract: %w", err)
 	}
