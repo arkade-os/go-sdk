@@ -26,6 +26,11 @@ var (
 func (a *arkClient) Init(
 	ctx context.Context, serverUrl, seed, password string, opts ...InitOption,
 ) error {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return ErrNotInitialized
+	}
+
 	transportClient, err := grpcclient.NewClient(serverUrl)
 	if err != nil {
 		return err
@@ -56,11 +61,10 @@ func (a *arkClient) Init(
 	}
 
 	return a.ArkClient.Init(ctx, client.InitArgs{
-		ServerUrl:  serverUrl,
-		Seed:       seed,
-		Password:   password,
-		WalletType: client.SingleKeyWallet,
-		Explorer:   explorer,
+		ServerUrl: serverUrl,
+		Seed:      seed,
+		Password:  password,
+		Explorer:  explorer,
 	})
 }
 
@@ -81,9 +85,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}
 	a.logMu.Unlock()
 
-	a.syncDone = false
-	a.syncErr = nil
-	a.syncCh = make(chan error)
+	a.resetSyncStateForUnlock()
 	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
 	a.txBroadcaster = newBroadcaster[types.TransactionEvent]()

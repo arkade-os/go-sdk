@@ -374,6 +374,19 @@ func (a *arkClient) setRestored(err error) {
 	a.syncListeners.clear()
 }
 
+// resetSyncStateForUnlock clears the sync flags and re-creates syncCh so the
+// next Unlock cycle can publish its own sync result without colliding with
+// readers (e.g. IsSynced). The mutex matches every other writer of these
+// fields (Lock, Reset, setRestored).
+func (a *arkClient) resetSyncStateForUnlock() {
+	a.syncMu.Lock()
+	defer a.syncMu.Unlock()
+
+	a.syncDone = false
+	a.syncErr = nil
+	a.syncCh = make(chan error)
+}
+
 func (a *arkClient) walletHasKeys(ctx context.Context) (bool, error) {
 	walletSvc := a.Wallet()
 	if walletSvc == nil {
