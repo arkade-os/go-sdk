@@ -1,13 +1,10 @@
 package e2e
 
 import (
-	"encoding/hex"
 	"sync"
 	"testing"
 	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -237,10 +234,6 @@ func TestBatchSession(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, boardingAddr)
 
-			offchainAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, offchainAddr)
-
 			// Send alice offchain funds
 			vtxoCh := alice.GetVtxoEventChannel(ctx)
 			faucetOffchain(t, alice, 0.00005)
@@ -250,15 +243,7 @@ func TestBatchSession(t *testing.T) {
 			require.Len(t, vtxoEvent.Vtxos, 1)
 			require.Equal(t, 5000, int(vtxoEvent.Vtxos[0].Amount))
 
-			decoded, err := arklib.DecodeAddressV0(offchainAddr)
-			require.NoError(t, err)
-			require.NotNil(t, decoded)
-			outScript, err := script.P2TRScript(decoded.VtxoTapKey)
-			require.NoError(t, err)
-			require.NotEmpty(t, outScript)
-
-			opts := indexer.WithScripts([]string{hex.EncodeToString(outScript)})
-			require.NoError(t, err)
+			opts := indexer.WithScripts([]string{vtxoEvent.Vtxos[0].Script})
 
 			res, err := alice.Indexer().GetVtxos(t.Context(), opts)
 			require.NoError(t, err)

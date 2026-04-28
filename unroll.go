@@ -67,14 +67,22 @@ func (a *arkClient) CompleteUnroll(ctx context.Context, to string) (string, erro
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	return a.ArkClient.CompleteUnroll(ctx, to)
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+	return a.ArkClient.CompleteUnroll(ctx, to, client.WithKeys(signingKeys))
 }
 
 func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx)
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx, client.WithKeys(signingKeys))
 }
 
 func (a *arkClient) WithdrawFromAllExpiredBoardings(
@@ -84,5 +92,9 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	return a.ArkClient.WithdrawFromAllExpiredBoardings(ctx, to)
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+	return a.ArkClient.WithdrawFromAllExpiredBoardings(ctx, to, client.WithKeys(signingKeys))
 }
