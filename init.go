@@ -11,6 +11,7 @@ import (
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -209,13 +210,27 @@ func (a *arkClient) scanAndRegisterKeys(
 
 	const gapLimit = uint32(20)
 
+	// keyPeeker is optionally implemented by wallets that can derive a pubkey
+	// without caching the private key. Probing via PeekKey avoids adding
+	// phantom entries to derivedKeyCache, which would otherwise cause mgr.Load
+	// to persist spurious contracts for every probed-but-not-found index.
+	type keyPeeker interface {
+		PeekKey(ctx context.Context, keyID string) (*wallet.KeyRef, error)
+	}
+	peeker, canPeek := w.(keyPeeker)
+
 	h := &contract.DefaultHandler{}
 	scriptToIndex := make(map[string]uint32, gapLimit)
 	scripts := make([]string, 0, gapLimit)
 
 	for i := currentIdx; i < currentIdx+gapLimit; i++ {
 		keyID := fmt.Sprintf("m/0/%d", i)
-		keyRef, err := w.GetKey(ctx, keyID)
+		var keyRef *wallet.KeyRef
+		if canPeek {
+			keyRef, err = peeker.PeekKey(ctx, keyID)
+		} else {
+			keyRef, err = w.GetKey(ctx, keyID)
+		}
 		if err != nil {
 			return err
 		}

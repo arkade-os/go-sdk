@@ -71,6 +71,30 @@ func (p *keyService) GetNextKeyIndex() uint32 {
 	return p.nextKeyIndex
 }
 
+// PeekKeyAt derives the pubkey at the given keyID without adding it to the cache.
+// Use this for probing indices (e.g. gap-limit scan) when the key should not
+// become a permanent part of the wallet's derived-key set.
+func (p *keyService) PeekKeyAt(keyID string) (*btcec.PublicKey, error) {
+	path, err := parseDerivationIndex(keyID)
+	if err != nil {
+		return nil, err
+	}
+	index := path[1]
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if cached, ok := p.derivedKeyCache[index]; ok {
+		return cached.PubKey(), nil
+	}
+
+	child, err := p.deriveChildKey(index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to peek wallet key at index %d: %w", index, err)
+	}
+	return child.ECPubKey()
+}
+
 // GetAllKeyRefs returns references for all derived keys.
 func (p *keyService) GetAllKeyRefs() []wallet.KeyRef {
 	p.mu.RLock()

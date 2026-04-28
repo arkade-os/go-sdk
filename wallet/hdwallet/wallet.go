@@ -290,6 +290,26 @@ func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error
 	return &wallet.KeyRef{Id: keyID, PubKey: privKey.PubKey()}, nil
 }
 
+// PeekKey returns the pubkey at keyID without caching the private key.
+// It satisfies the optional keyPeeker interface used by scanAndRegisterKeys.
+func (w *service) PeekKey(_ context.Context, keyID string) (*wallet.KeyRef, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if err := w.safeCheck(); err != nil {
+		return nil, err
+	}
+	if len(keyID) == 0 {
+		return nil, fmt.Errorf("key id is required")
+	}
+
+	pubKey, err := w.keyProvider.PeekKeyAt(keyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to peek key %q: %w", keyID, err)
+	}
+	return &wallet.KeyRef{Id: keyID, PubKey: pubKey}, nil
+}
+
 func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()

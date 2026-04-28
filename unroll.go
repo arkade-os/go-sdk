@@ -17,7 +17,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	allVtxos, err := a.getSpendableVtxos(ctx, false)
+	allVtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return err
 	}
