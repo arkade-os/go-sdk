@@ -2,6 +2,7 @@ package hdwallet
 
 import (
 	"encoding/hex"
+	"sync"
 	"testing"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
@@ -691,6 +692,55 @@ func TestNewVtxoTreeSigner(t *testing.T) {
 	require.NotNil(t, second)
 
 	require.NotSame(t, first, second)
+}
+
+// TestServiceConcurrentAccess exercises the *service wrapper under
+// concurrent NewKey/GetKey/SignMessage/ListKeys calls. The keyService has
+// its own concurrency test, but the service wrapper has its own RWMutex
+// and runs additional logic (persistState, safeCheck) that must also be
+// race-safe.
+func TestServiceConcurrentAccess(t *testing.T) {
+	svc := newTestCreatedWallet(t)
+	_, err := svc.Unlock(t.Context(), testPassword)
+	require.NoError(t, err)
+
+	const allocs = 50
+	const reads = 100
+	msg := make([]byte, 32)
+	copy(msg, []byte("concurrent"))
+
+	var wg sync.WaitGroup
+	wg.Add(allocs + reads*3)
+
+	for i := 0; i < allocs; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := svc.NewKey(t.Context())
+			require.NoError(t, err)
+		}()
+	}
+	for i := 0; i < reads; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := svc.ListKeys(t.Context())
+			require.NoError(t, err)
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := svc.SignMessage(t.Context(), msg)
+			require.NoError(t, err)
+		}()
+		go func() {
+			defer wg.Done()
+			require.False(t, svc.IsLocked())
+		}()
+	}
+
+	wg.Wait()
+
+	keys, err := svc.ListKeys(t.Context())
+	require.NoError(t, err)
+	require.Len(t, keys, allocs)
 }
 
 func createTestMasterKey(t *testing.T) *hdkeychain.ExtendedKey {

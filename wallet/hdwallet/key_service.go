@@ -35,7 +35,7 @@ func newHDKeyService(masterKey *hdkeychain.ExtendedKey) *keyService {
 	}
 }
 
-// GetNextKey derives and caches the next shared Ark wallet key pair.
+// GetNextKey derives and tracks the next shared Ark wallet key pair.
 func (p *keyService) GetNextKey() (*btcec.PrivateKey, *btcec.PublicKey, string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -45,6 +45,7 @@ func (p *keyService) GetNextKey() (*btcec.PrivateKey, *btcec.PublicKey, string, 
 	if err != nil {
 		return nil, nil, "", err
 	}
+	p.derivedKeyCache[idx] = struct{}{}
 	p.nextKeyIndex = idx + 1
 	return privKey, privKey.PubKey(), p.derivationPath(idx), nil
 }
@@ -60,7 +61,12 @@ func (p *keyService) DeriveKeyAt(keyID string) (*btcec.PrivateKey, error) {
 	}
 	index := path[1]
 
-	return p.deriveKeyAtIndex(index)
+	privKey, err := p.deriveKeyAtIndex(index)
+	if err != nil {
+		return nil, err
+	}
+	p.derivedKeyCache[index] = struct{}{}
+	return privKey, nil
 }
 
 // GetNextKeyIndex returns the exclusive upper bound of the known derived key range.
@@ -100,6 +106,10 @@ func (p *keyService) LoadState(state walletstore.State) error {
 	return nil
 }
 
+// deriveKeyAtIndex is pure: it derives the private key at the given index but
+// does NOT mutate derivedKeyCache. Callers that want the index tracked must
+// add it to the cache themselves while holding the write lock — otherwise
+// concurrent read-locked callers (e.g. GetAllKeyRefs) would race on the map.
 func (p *keyService) deriveKeyAtIndex(index uint32) (*btcec.PrivateKey, error) {
 	child, err := p.deriveChildKey(index)
 	if err != nil {
@@ -109,8 +119,6 @@ func (p *keyService) deriveKeyAtIndex(index uint32) (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract EC privkey: %w", err)
 	}
-	p.derivedKeyCache[index] = struct{}{}
-
 	return prvkey, nil
 }
 
