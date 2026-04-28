@@ -66,7 +66,12 @@ func (a *arkClient) Init(
 }
 
 func (a *arkClient) Unlock(ctx context.Context, password string) error {
-	if err := a.ArkClient.Unlock(ctx, password); err != nil {
+	// Unlock the wallet directly first so we can derive at least one key
+	// before calling a.ArkClient.Unlock. The client-lib Unlock runs
+	// finalizePendingTxs, which calls GetAddresses; on a fresh wallet with
+	// no derived keys that produces an empty script set and the indexer
+	// rejects it. Deriving key-0 here ensures the script set is non-empty.
+	if _, err := a.Wallet().Unlock(ctx, password); err != nil {
 		return err
 	}
 
@@ -79,23 +84,24 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
-		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
 			return fmt.Errorf("unlock: get config: %w (rollback lock failed: %v)", err, lockErr)
 		}
 		return fmt.Errorf("unlock: get config: %w", err)
 	}
 	mgr := contract.NewManager(a.Wallet(), cfg, a.store.ContractStore())
 	if err := mgr.Load(ctx); err != nil {
-		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
 			return fmt.Errorf("unlock: load contracts: %w (rollback lock failed: %v)", err, lockErr)
 		}
 		return fmt.Errorf("unlock: load contracts: %w", err)
 	}
-	// Ensure at least one key is derived so the indexer sync has a non-empty
-	// script set. NewDefault is idempotent: it reuses the existing contract when
-	// one already exists, and re-derives the deterministic key-0 on restore.
+	// NewDefault is idempotent: reuses the existing contract when one already
+	// exists, and re-derives the deterministic key-0 on restore. This ensures
+	// the wallet has at least one derived key before a.ArkClient.Unlock runs
+	// finalizePendingTxs.
 	if _, err := mgr.NewDefault(ctx); err != nil {
-		if lockErr := a.ArkClient.Lock(ctx); lockErr != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
 			return fmt.Errorf(
 				"unlock: init default contract: %w (rollback lock failed: %v)",
 				err,
@@ -104,6 +110,14 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		}
 		return fmt.Errorf("unlock: init default contract: %w", err)
 	}
+
+	if err := a.ArkClient.Unlock(ctx, password); err != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: %w (rollback lock failed: %v)", err, lockErr)
+		}
+		return err
+	}
+
 	a.cmMu.Lock()
 	a.contractManager = mgr
 	a.cmMu.Unlock()
