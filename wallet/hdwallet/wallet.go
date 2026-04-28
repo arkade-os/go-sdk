@@ -79,6 +79,8 @@ func (w *service) Create(
 		if err != nil {
 			return "", fmt.Errorf("failed to generate entropy: %w", err)
 		}
+		defer zeroBytes(entropy)
+
 		mnemonic, err = bip39.NewMnemonic(entropy)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate mnemonic: %w", err)
@@ -91,6 +93,7 @@ func (w *service) Create(
 		mnemonic = seed
 		masterSeed = bip39.NewSeed(mnemonic, "")
 	}
+	defer zeroBytes(masterSeed)
 
 	masterKey, err := hdkeychain.NewMaster(masterSeed, &network)
 	if err != nil {
