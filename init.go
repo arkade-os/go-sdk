@@ -144,6 +144,16 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
+		// Start stream listeners immediately so events are captured during the
+		// scan / finalize / refresh sequence below. Without this, the listener
+		// goroutines would only start after syncCh is signalled, creating a
+		// window where IsSynced has already resolved in the caller but the
+		// stream connection hasn't been established yet.
+		go a.listenForArkTxs(ctx)
+		go a.listenForOnchainTxs(ctx)
+		go a.listenDbEvents(ctx)
+		go a.periodicRefreshDb(ctx)
+
 		// Gap-limit scan: discover wallet keys that had vtxos from before this
 		// restore session. Non-fatal: a failure just means the restored history
 		// will be incomplete, not that the unlock itself fails.
@@ -165,14 +175,6 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		err := a.refreshDb(ctx)
 		a.syncCh <- err
 		close(a.syncCh)
-
-		// start listening to stream events
-		go a.listenForArkTxs(ctx)
-		go a.listenForOnchainTxs(ctx)
-		go a.listenDbEvents(ctx)
-
-		// start periodic refresh db
-		go a.periodicRefreshDb(ctx)
 	}()
 
 	return nil
