@@ -263,7 +263,7 @@ func TestOffchainTx(t *testing.T) {
 		// the manual finalization of a pending (non-finalized) tx
 		t.Run("finalize pending tx (manual)", func(t *testing.T) {
 			ctx := t.Context()
-			alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
+			alice, arkClient := setupClientWithWallet(t, "")
 
 			vtxo := faucetOffchain(t, alice, 0.00021)
 
@@ -347,7 +347,7 @@ func TestOffchainTx(t *testing.T) {
 			// sign the ark transaction
 			encodedArkTx, err := ptx.B64Encode()
 			require.NoError(t, err)
-			signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, nil)
+			signedArkTx, err := alice.SignTransaction(ctx, encodedArkTx)
 			require.NoError(t, err)
 
 			txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
@@ -394,9 +394,9 @@ func TestOffchainTx(t *testing.T) {
 		// client that automatically finalizes the pending tx
 		t.Run("finalize pending tx (auto)", func(t *testing.T) {
 			ctx := t.Context()
-			alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
+			alice, arkClient := setupClientWithWallet(t, "")
 
-			bob, _, _ := setupClientWithWallet(t, "")
+			bob, _ := setupClientWithWallet(t, "")
 
 			vtxo := faucetOffchain(t, alice, 0.00021)
 
@@ -497,14 +497,14 @@ func TestOffchainTx(t *testing.T) {
 			// sign the ark transaction
 			encodedArkTx, err := ptx.B64Encode()
 			require.NoError(t, err)
-			signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, nil)
+			signedArkTx, err := alice.SignTransaction(ctx, encodedArkTx)
 			require.NoError(t, err)
 
 			txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
 			require.NoError(t, err)
 			require.NotEmpty(t, txid)
 
-			// Dump the private key and load it into a new client with enabled finalization of
+			// Dump the mnemonic and restore into a new client with enabled finalization of
 			// pending transactions
 			key, err := alice.Dump(ctx)
 			require.NoError(t, err)
@@ -519,7 +519,7 @@ func TestOffchainTx(t *testing.T) {
 			}))
 
 			// Create a new client that automatically finalizes pending txs
-			restoredAlice, _, _ := setupClientWithWallet(t, key)
+			restoredAlice, _ := setupClientWithWallet(t, key)
 
 			// // No pending txs should be finalized as they've been all handled in the background
 			finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)

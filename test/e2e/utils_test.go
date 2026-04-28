@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,12 +15,8 @@ import (
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey"
-	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/wallet/singlekey/store/inmemory"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,11 +47,11 @@ func (b testStoreBackend) setupClient(t *testing.T) sdk.ArkClient {
 }
 
 func (b testStoreBackend) setupClientWithWallet(
-	t *testing.T, prvkey string,
-) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
+	t *testing.T, seed string,
+) (sdk.ArkClient, transport.TransportClient) {
 	t.Helper()
 
-	return setupClientWithWalletAndDatadir(t, b.datadir(t), prvkey)
+	return setupClientWithWalletAndDatadir(t, b.datadir(t), seed)
 }
 
 func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStoreBackend)) {
@@ -80,12 +75,7 @@ func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
 	arkClient, err := sdk.NewArkClient(datadir)
 	require.NoError(t, err)
 
-	privkey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	privkeyHex := hex.EncodeToString(privkey.Serialize())
-
-	err = arkClient.Init(t.Context(), serverUrl, privkeyHex, password)
+	err = arkClient.Init(t.Context(), serverUrl, "", password)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
@@ -101,32 +91,15 @@ func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
 }
 
 func setupClientWithWalletAndDatadir(
-	t *testing.T, datadir, prvkey string,
-) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
+	t *testing.T, datadir, seed string,
+) (sdk.ArkClient, transport.TransportClient) {
 	t.Helper()
 
 	arkClient, err := sdk.NewArkClient(datadir)
 	require.NoError(t, err)
 	require.NotNil(t, arkClient)
 
-	walletStore, err := inmemorystore.NewWalletStore()
-	require.NoError(t, err)
-	require.NotNil(t, walletStore)
-
-	configStore := arkClient.GetConfigStore()
-	require.NotNil(t, configStore)
-
-	wallet, err := singlekeywallet.NewBitcoinWallet(walletStore)
-	require.NoError(t, err)
-
-	if len(prvkey) <= 0 {
-		key, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		prvkey = hex.EncodeToString(key.Serialize())
-	}
-
-	err = arkClient.Init(t.Context(), serverUrl, prvkey, password, sdk.WithWallet(wallet))
+	err = arkClient.Init(t.Context(), serverUrl, seed, password)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
@@ -141,7 +114,7 @@ func setupClientWithWalletAndDatadir(
 	grpcClient, err := grpcclient.NewClient(serverUrl)
 	require.NoError(t, err)
 
-	return arkClient, wallet, grpcClient
+	return arkClient, grpcClient
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
