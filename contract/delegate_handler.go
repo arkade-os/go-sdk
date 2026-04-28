@@ -34,17 +34,23 @@ type DelegateConfig struct {
 	ExitDelay arklib.RelativeLocktime
 }
 
-// PathContext describes how the caller intends to spend a delegate contract.
+// PathContext describes how the caller intends to spend a contract.
 type PathContext struct {
 	Collaborative   bool
 	UseDelegatePath bool
+	// VHTLC / HTLC fields.
+	WalletPubKey []byte    // 32-byte Schnorr pubkey of the spending wallet
+	Preimage     []byte    // preimage for hash-locked claim paths
+	BlockHeight  *uint32   // current chain tip block height (for CLTV checks)
+	CurrentTime  time.Time // current time (for time-based CLTV checks)
 }
 
 // PathSelection describes a chosen tapscript spending path.
 type PathSelection struct {
-	Leaf     txscript.TapLeaf
-	Sequence *uint32
-	Locktime *uint32
+	Leaf         txscript.TapLeaf
+	ExtraWitness [][]byte // extra witness elements pushed before signatures (e.g. preimage)
+	Sequence     *uint32
+	Locktime     *uint32
 }
 
 // DelegateHandler derives offchain Ark VTXO contracts that add a 3-of-3 delegate

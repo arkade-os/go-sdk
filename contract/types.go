@@ -39,6 +39,12 @@ type Manager interface {
 	// public key. The owner key is derived from the key provider. Returns an error if
 	// delegateKey is nil or matches the owner or signer key.
 	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*types.Contract, error)
+	// NewVHTLC stores a VHTLC contract derived from the given raw params.
+	// If a contract with the same script already exists, it is returned as-is.
+	// rawParams must include: sender, receiver, hash, refundLocktime,
+	// claimDelay, refundDelay, refundNoReceiverDelay. An optional keyId entry
+	// is stored for caller tracking.
+	NewVHTLC(ctx context.Context, rawParams map[string]string) (*types.Contract, error)
 	// Clean removes all contracts from the store. Must be used only at wallet reset.
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.

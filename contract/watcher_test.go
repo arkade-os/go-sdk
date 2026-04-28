@@ -228,6 +228,11 @@ func (m *watcherMockManager) OnContractEvent(cb func(types.Contract)) func() {
 	m.mu.Unlock()
 	return func() {}
 }
+func (m *watcherMockManager) NewVHTLC(
+	_ context.Context, _ map[string]string,
+) (*types.Contract, error) {
+	return nil, nil
+}
 
 func (m *watcherMockManager) emit(c types.Contract) {
 	m.mu.Lock()
