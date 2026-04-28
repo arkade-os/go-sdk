@@ -21,7 +21,7 @@ type keyService struct {
 
 	// derivedKeyCache stores already derived keys by child index so we can reuse
 	// them across address generation, signing, and discovery without deriving again.
-	derivedKeyCache map[uint32]btcec.PrivateKey
+	derivedKeyCache map[uint32]struct{}
 	// nextKeyIndex is the next child index to allocate from keyBasePath.
 	nextKeyIndex uint32
 	mu           sync.RWMutex
@@ -31,7 +31,7 @@ type keyService struct {
 func newHDKeyService(masterKey *hdkeychain.ExtendedKey) *keyService {
 	return &keyService{
 		masterKey:       masterKey,
-		derivedKeyCache: make(map[uint32]btcec.PrivateKey),
+		derivedKeyCache: make(map[uint32]struct{}),
 	}
 }
 
@@ -77,8 +77,15 @@ func (p *keyService) GetAllKeyRefs() []wallet.KeyRef {
 	defer p.mu.RUnlock()
 
 	refs := make([]wallet.KeyRef, 0, len(p.derivedKeyCache))
-	for i, key := range p.derivedKeyCache {
-		refs = append(refs, wallet.KeyRef{Id: p.derivationPath(i), PubKey: key.PubKey()})
+	for index := range p.derivedKeyCache {
+		// nolint
+		key, _ := p.deriveKeyAtIndex(index)
+		if key != nil {
+			refs = append(refs, wallet.KeyRef{
+				Id:     p.derivationPath(index),
+				PubKey: key.PubKey(),
+			})
+		}
 	}
 	return refs
 }
@@ -89,15 +96,11 @@ func (p *keyService) LoadState(state walletstore.State) error {
 	defer p.mu.Unlock()
 
 	p.nextKeyIndex = state.NextIndex
-	p.derivedKeyCache = make(map[uint32]btcec.PrivateKey)
+	p.derivedKeyCache = make(map[uint32]struct{})
 	return nil
 }
 
 func (p *keyService) deriveKeyAtIndex(index uint32) (*btcec.PrivateKey, error) {
-	if key, ok := p.derivedKeyCache[index]; ok {
-		return &key, nil
-	}
-
 	child, err := p.deriveChildKey(index)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive wallet key at index %d: %w", index, err)
@@ -106,7 +109,7 @@ func (p *keyService) deriveKeyAtIndex(index uint32) (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract EC privkey: %w", err)
 	}
-	p.derivedKeyCache[index] = *prvkey
+	p.derivedKeyCache[index] = struct{}{}
 
 	return prvkey, nil
 }
