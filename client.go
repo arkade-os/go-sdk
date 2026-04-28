@@ -132,10 +132,6 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
-	syncListeners := newReadyListeners()
-
-	client.syncListeners = syncListeners
-
 	return client, nil
 }
 
@@ -233,10 +229,6 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		hdGapLimit:        o.hdGapLimit,
 		onchainRegistry:   newOnchainAddressRegistry(),
 	}
-
-	syncListeners := newReadyListeners()
-
-	client.syncListeners = syncListeners
 
 	return client, nil
 }
