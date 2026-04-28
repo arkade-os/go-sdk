@@ -142,7 +142,7 @@ func makeTestContract(script, keyID string) contract.Contract {
 }
 
 // TestGetSpendableVtxos_AllHaveContracts is the normal case: every vtxo has a
-// matching contract, so the key map is fully populated.
+// matching contract, so tapscripts are fully populated.
 func TestGetSpendableVtxos_AllHaveContracts(t *testing.T) {
 	t.Parallel()
 
@@ -156,19 +156,14 @@ func TestGetSpendableVtxos_AllHaveContracts(t *testing.T) {
 	}
 
 	a := newArkClientForTest(vtxos, contracts)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Len(t, result, 2)
-	require.Len(t, keyMap, 2)
-	require.Equal(t, "key-a", keyMap["script-a"])
-	require.Equal(t, "key-b", keyMap["script-b"])
 }
 
-// TestGetSpendableVtxos_NoContracts is the boarding-only scenario that
-// motivated the bug fix: vtxos in the store have no matching contracts, so
-// scriptToKeyID must be empty. Callers guard with len(scriptToKeyID) > 0
-// before passing WithKeys to the client; an empty map must not be passed.
+// TestGetSpendableVtxos_NoContracts: vtxos in the store have no matching contracts,
+// so all are skipped (tapscripts are required for spending).
 func TestGetSpendableVtxos_NoContracts(t *testing.T) {
 	t.Parallel()
 
@@ -178,11 +173,10 @@ func TestGetSpendableVtxos_NoContracts(t *testing.T) {
 	}
 
 	a := newArkClientForTest(vtxos, nil)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Empty(t, result, "vtxos without a contract should be skipped")
-	require.Empty(t, keyMap, "scriptToKeyID must be empty when no contracts match")
 }
 
 // TestGetSpendableVtxos_MixedContracts verifies that only matched vtxos and
@@ -199,14 +193,11 @@ func TestGetSpendableVtxos_MixedContracts(t *testing.T) {
 	}
 
 	a := newArkClientForTest(vtxos, contracts)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, "has-contract", result[0].Script)
-	require.Len(t, keyMap, 1)
-	require.Equal(t, "key-x", keyMap["has-contract"])
-	require.NotContains(t, keyMap, "no-contract")
 }
 
 // TestGetSpendableVtxos_Empty verifies that an empty vtxo store produces empty
@@ -215,11 +206,10 @@ func TestGetSpendableVtxos_Empty(t *testing.T) {
 	t.Parallel()
 
 	a := newArkClientForTest(nil, nil)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Empty(t, result)
-	require.Empty(t, keyMap)
 }
 
 // TestGetSpendableVtxos_UnrolledVtxosSkipped verifies that unrolled vtxos are
@@ -232,11 +222,10 @@ func TestGetSpendableVtxos_UnrolledVtxosSkipped(t *testing.T) {
 	contracts := []contract.Contract{makeTestContract("unrolled-script", "key-u")}
 
 	a := newArkClientForTest([]clientTypes.Vtxo{v}, contracts)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Empty(t, result)
-	require.Empty(t, keyMap)
 }
 
 // TestGetSpendableVtxos_TapscriptsFromContract verifies that the Tapscripts on
@@ -249,7 +238,7 @@ func TestGetSpendableVtxos_TapscriptsFromContract(t *testing.T) {
 	c.Params[contract.ParamTapscripts] = `["aa","bb","cc"]`
 
 	a := newArkClientForTest(vtxos, []contract.Contract{c})
-	result, _, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)

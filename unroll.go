@@ -17,7 +17,7 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	allVtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
+	allVtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -26,10 +26,12 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return fmt.Errorf("no vtxos to unroll")
 	}
 
-	unrollOpts := []client.UnrollOption{client.WithVtxos(allVtxos)}
-	if len(scriptToKeyID) > 0 {
-		unrollOpts = append(unrollOpts, client.WithKeys(scriptToKeyID))
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return err
 	}
+
+	unrollOpts := []client.UnrollOption{client.WithVtxos(allVtxos), client.WithKeys(signingKeys)}
 	res, err := a.ArkClient.Unroll(ctx, unrollOpts...)
 	if err != nil {
 		return err

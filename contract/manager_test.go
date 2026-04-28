@@ -27,11 +27,11 @@ func newMockKeystore(t *testing.T) *mockKeystore {
 	}
 }
 
-func (m *mockKeystore) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (m *mockKeystore) NewKey(_ context.Context) (*wallet.KeyRef, error) {
 	return m.key, nil
 }
 
-func (m *mockKeystore) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (m *mockKeystore) GetKey(_ context.Context, _ string) (*wallet.KeyRef, error) {
 	return m.key, nil
 }
 
@@ -285,10 +285,10 @@ func TestManager_NewDefault_KeystoreError(t *testing.T) {
 // emptyKeystore returns no keys.
 type emptyKeystore struct{}
 
-func (e *emptyKeystore) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (e *emptyKeystore) NewKey(_ context.Context) (*wallet.KeyRef, error) {
 	return nil, nil
 }
-func (e *emptyKeystore) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (e *emptyKeystore) GetKey(_ context.Context, _ string) (*wallet.KeyRef, error) {
 	return nil, nil
 }
 func (e *emptyKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
@@ -298,10 +298,10 @@ func (e *emptyKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 // errKeystore returns an error from NewKey.
 type errKeystore struct{}
 
-func (e *errKeystore) NewKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (e *errKeystore) NewKey(_ context.Context) (*wallet.KeyRef, error) {
 	return nil, fmt.Errorf("keystore unavailable")
 }
-func (e *errKeystore) GetKey(_ context.Context, _ ...wallet.KeyOption) (*wallet.KeyRef, error) {
+func (e *errKeystore) GetKey(_ context.Context, _ string) (*wallet.KeyRef, error) {
 	return nil, nil
 }
 func (e *errKeystore) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {

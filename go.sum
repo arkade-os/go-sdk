@@ -24,8 +24,12 @@ github.com/arkade-os/arkd/api-spec v0.0.0-20260323091657-eeb0baef6937 h1:010LTrh
 github.com/arkade-os/arkd/api-spec v0.0.0-20260323091657-eeb0baef6937/go.mod h1:2+6ix1UGGE22Q/rbab1dycFPPKiTyq0gldKVqVfFPWs=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260415135455-65edd1660714 h1:yii4qQVMnA1qVe1TmhVK+kcWDOn1H9Oo/KppBtvAwTU=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260415135455-65edd1660714/go.mod h1:gYJkHBV9B9OkSgANCvyST24HTlZ0tSmr1mZSsj+jGAc=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260427154141-7ff1fffcb409 h1:scDS1k6Gg862IZaoqG7CC1LiaaimroAAhyfWUWbl6ro=
+github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260427154141-7ff1fffcb409/go.mod h1:gYJkHBV9B9OkSgANCvyST24HTlZ0tSmr1mZSsj+jGAc=
 github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260421020609-5853324f9344 h1:Vrg58RVdMZ6YpiWspxaTHOW7CfBeqOeQ04zwziE7frk=
 github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260421020609-5853324f9344/go.mod h1:eQQqqpcGcwf6qQLvN0Z7VORVA8nr+6MFOayaNW4LdaI=
+github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260427154141-7ff1fffcb409 h1:cOQqYxrZthIeEUnk32tvCi76EP4kvglPJeaMa81zhqg=
+github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260427154141-7ff1fffcb409/go.mod h1:gSMZ490WXBijQBWUdbaxMKUl7l5sUH0xarOFn6UFqQw=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea h1:x9ZwZL+F2b9E0uBZYBVjCLGtlqIE4zahDOY4C89h3X4=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea/go.mod h1:NYGE+baj57ynbXNwjISJddMDpMqAWOX27dV22xqFm2A=
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
@@ -406,6 +410,8 @@ github.com/timshannon/badgerhold/v4 v4.0.3 h1:W6pd2qckoXw2cl8eH0ZCV/9CXNaXvaM26t
 github.com/timshannon/badgerhold/v4 v4.0.3/go.mod h1:IkZIr0kcZLMdD7YJfW/G6epb6ZXHD/h0XR2BTk/VZg8=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 h1:6fotK7otjonDflCTK0BCfls4SPy3NcCVb5dqqmbRknE=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75/go.mod h1:KO6IkyS8Y3j8OdNO85qEYBsRPuteD+YciPomcXdrMnk=
+github.com/tyler-smith/go-bip39 v1.1.0 h1:5eUemwrMargf3BSLRRCalXT93Ns6pQJIjYQN2nyfOP8=
+github.com/tyler-smith/go-bip39 v1.1.0/go.mod h1:gUYDtqQw1JS3ZJ8UWVcGTGqqr6YIN3CWg+kkNaLt55U=
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
 github.com/vulpemventures/go-bip32 v0.0.0-20200624192635-867c159da4d7 h1:X7DtNv+YWy76kELMZB/xVkIJ7YNp2vpgMFVsDcQA40U=
 github.com/vulpemventures/go-bip32 v0.0.0-20200624192635-867c159da4d7/go.mod h1:Zrvx8XgpWvSPdz1lXnuN083CkoZnzwxBLEB03S8et1I=

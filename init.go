@@ -56,16 +56,6 @@ func (a *arkClient) Init(
 		return fmt.Errorf("failed to init explorer: %v", err)
 	}
 
-	if initOpts.wallet != nil {
-		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
-			ServerUrl: serverUrl,
-			Seed:      seed,
-			Password:  password,
-			Wallet:    initOpts.wallet,
-			Explorer:  explorer,
-		})
-	}
-
 	return a.ArkClient.Init(ctx, client.InitArgs{
 		ServerUrl:  serverUrl,
 		Seed:       seed,

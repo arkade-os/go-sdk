@@ -5,8 +5,8 @@ go 1.26.2
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
 require (
-	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260415135455-65edd1660714
-	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260421020609-5853324f9344
+	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260427154141-7ff1fffcb409
+	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260427154141-7ff1fffcb409
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
 	github.com/btcsuite/btcd/btcutil v1.1.5
@@ -84,6 +84,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/vulpemventures/go-bip32 v0.0.0-20200624192635-867c159da4d7 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	go.etcd.io/etcd/client/v2 v2.305.15 // indirect

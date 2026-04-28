@@ -105,6 +105,12 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
 
+	hdWallet, err := newDefaultHDWallet(datadir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup wallet: %s", err)
+	}
+	clientOpts = append(clientOpts, client.WithWallet(hdWallet))
+
 	cli, err := client.NewArkClient(clientDb, clientOpts...)
 	if err != nil {
 		return nil, err
@@ -168,6 +174,12 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
+
+	hdWallet, err := newDefaultHDWallet(datadir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup wallet: %s", err)
+	}
+	clientOpts = append(clientOpts, client.WithWallet(hdWallet))
 
 	// client.LoadArkClient defaults to noTracking=true, which leaves the explorer's
 	// listeners field nil. When listenForOnchainTxs calls GetAddressesEvents() it
@@ -352,17 +364,6 @@ func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEven
 		return a.utxoBroadcaster.subscribe(0)
 	}
 	return nil
-}
-
-func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, error) {
-	return a.ArkClient.SignTransaction(ctx, tx)
-}
-
-func (a *arkClient) FinalizePendingTxs(
-	ctx context.Context,
-	createdAfter *time.Time,
-) ([]string, error) {
-	return a.ArkClient.FinalizePendingTxs(ctx, createdAfter)
 }
 
 func (a *arkClient) setRestored(err error) {

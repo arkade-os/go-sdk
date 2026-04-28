@@ -11,7 +11,6 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	types "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -264,11 +263,6 @@ func TestOffchainTx(t *testing.T) {
 		// the manual finalization of a pending (non-finalized) tx
 		t.Run("finalize pending tx (manual)", func(t *testing.T) {
 			ctx := t.Context()
-			explorer, err := mempool_explorer.NewExplorer(
-				"http://localhost:3000", arklib.BitcoinRegTest,
-			)
-			require.NoError(t, err)
-
 			alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
 
 			vtxo := faucetOffchain(t, alice, 0.00021)
@@ -353,7 +347,7 @@ func TestOffchainTx(t *testing.T) {
 			// sign the ark transaction
 			encodedArkTx, err := ptx.B64Encode()
 			require.NoError(t, err)
-			signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx, nil)
+			signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, nil)
 			require.NoError(t, err)
 
 			txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
@@ -400,11 +394,6 @@ func TestOffchainTx(t *testing.T) {
 		// client that automatically finalizes the pending tx
 		t.Run("finalize pending tx (auto)", func(t *testing.T) {
 			ctx := t.Context()
-			explorer, err := mempool_explorer.NewExplorer(
-				"http://localhost:3000", arklib.BitcoinRegTest,
-			)
-			require.NoError(t, err)
-
 			alice, aliceWallet, arkClient := setupClientWithWallet(t, "")
 
 			bob, _, _ := setupClientWithWallet(t, "")
@@ -508,7 +497,7 @@ func TestOffchainTx(t *testing.T) {
 			// sign the ark transaction
 			encodedArkTx, err := ptx.B64Encode()
 			require.NoError(t, err)
-			signedArkTx, err := aliceWallet.SignTransaction(ctx, explorer, encodedArkTx, nil)
+			signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, nil)
 			require.NoError(t, err)
 
 			txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)

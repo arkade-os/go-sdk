@@ -116,7 +116,7 @@ func setupClientWithWalletAndDatadir(
 	configStore := arkClient.GetConfigStore()
 	require.NotNil(t, configStore)
 
-	wallet, err := singlekeywallet.NewBitcoinWallet(configStore, walletStore)
+	wallet, err := singlekeywallet.NewBitcoinWallet(walletStore)
 	require.NoError(t, err)
 
 	if len(prvkey) <= 0 {

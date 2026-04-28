@@ -16,15 +16,17 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", nil, err
 	}
 
-	issueOpts := []client.SendOption{client.WithVtxos(vtxos)}
-	if len(scriptToKeyID) > 0 {
-		issueOpts = append(issueOpts, client.WithKeys(scriptToKeyID))
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", nil, err
 	}
+
+	issueOpts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
 	res, err := a.ArkClient.IssueAsset(ctx, amount, controlAsset, metadata, issueOpts...)
 	if err != nil {
 		return "", nil, err
@@ -45,15 +47,17 @@ func (a *arkClient) ReissueAsset(
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
 
-	reissueOpts := []client.SendOption{client.WithVtxos(vtxos)}
-	if len(scriptToKeyID) > 0 {
-		reissueOpts = append(reissueOpts, client.WithKeys(scriptToKeyID))
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
 	}
+
+	reissueOpts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
 	res, err := a.ArkClient.ReissueAsset(ctx, assetId, amount, reissueOpts...)
 	if err != nil {
 		return "", err
@@ -74,15 +78,17 @@ func (a *arkClient) BurnAsset(
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
 
-	burnOpts := []client.SendOption{client.WithVtxos(vtxos)}
-	if len(scriptToKeyID) > 0 {
-		burnOpts = append(burnOpts, client.WithKeys(scriptToKeyID))
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
 	}
+
+	burnOpts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
 	res, err := a.ArkClient.BurnAsset(ctx, assetId, amount, burnOpts...)
 	if err != nil {
 		return "", err

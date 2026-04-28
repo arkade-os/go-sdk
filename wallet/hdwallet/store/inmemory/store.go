@@ -1,0 +1,86 @@
+package inmemorywalletstore
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+
+	walletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store"
+)
+
+// store implements an in-memory Store for testing purposes.
+type store struct {
+	state *walletstore.State
+	mu    sync.Mutex
+}
+
+// NewStore creates an in-memory Store for testing.
+func NewStore() walletstore.Store {
+	return &store{}
+}
+
+func (s *store) Save(_ context.Context, state walletstore.State) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state == nil {
+		if state.WalletType == "" {
+			return fmt.Errorf("missing wallet type")
+		}
+		if state.EncryptedMasterKey == "" {
+			return fmt.Errorf("missing encrypted master key")
+		}
+		if state.EncryptedMnemonic == "" {
+			return fmt.Errorf("missing encrypted mnemonic")
+		}
+		if state.PasswordHash == "" {
+			return fmt.Errorf("missing password hash")
+		}
+		s.state = &walletstore.State{
+			WalletType:         state.WalletType,
+			EncryptedMasterKey: state.EncryptedMasterKey,
+			EncryptedMnemonic:  state.EncryptedMnemonic,
+			PasswordHash:       state.PasswordHash,
+			NextIndex:          state.NextIndex,
+		}
+		return nil
+	}
+
+	newState := &walletstore.State{
+		WalletType:         s.state.WalletType,
+		EncryptedMasterKey: s.state.EncryptedMasterKey,
+		EncryptedMnemonic:  s.state.EncryptedMnemonic,
+		PasswordHash:       s.state.PasswordHash,
+		NextIndex:          state.NextIndex,
+	}
+
+	s.state = newState
+	return nil
+}
+
+func (s *store) Load(_ context.Context) (*walletstore.State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state == nil {
+		return nil, nil
+	}
+
+	data, err := json.Marshal(s.state)
+	if err != nil {
+		return nil, err
+	}
+	var cp walletstore.State
+	if err := json.Unmarshal(data, &cp); err != nil {
+		return nil, err
+	}
+	return &cp, nil
+}
+
+func (s *store) Clear(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = nil
+	return nil
+}

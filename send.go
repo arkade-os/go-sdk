@@ -16,12 +16,17 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
 
 	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	signingKeys, err := a.signingKeysByScript(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -36,11 +41,12 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	sendOpts := []client.SendOption{client.WithVtxos(vtxos)}
-	if len(scriptToKeyID) > 0 {
-		sendOpts = append(sendOpts, client.WithKeys(scriptToKeyID))
-	}
-	res, err := a.ArkClient.SendOffChain(ctx, clone, sendOpts...)
+	res, err := a.ArkClient.SendOffChain(
+		ctx,
+		clone,
+		client.WithVtxos(vtxos),
+		client.WithKeys(signingKeys),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -55,12 +61,12 @@ func (a *arkClient) SendOffChain(
 
 func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
-) ([]clientTypes.VtxoWithTapTree, map[string]string, error) {
+) ([]clientTypes.VtxoWithTapTree, error) {
 	a.dbMu.Lock()
 	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
 	a.dbMu.Unlock()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	eligible := make([]clientTypes.Vtxo, 0, len(spendableVtxos))
@@ -75,7 +81,7 @@ func (a *arkClient) getSpendableVtxos(
 
 	contracts, err := a.contractManager.GetContractsForVtxos(ctx, scripts)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	contractsByScript := make(map[string]contract.Contract, len(contracts))
@@ -84,7 +90,6 @@ func (a *arkClient) getSpendableVtxos(
 	}
 
 	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(eligible))
-	scriptToKeyID := make(map[string]string, len(contracts))
 	for _, v := range eligible {
 		c, ok := contractsByScript[v.Script]
 		if !ok {
@@ -95,10 +100,7 @@ func (a *arkClient) getSpendableVtxos(
 			Vtxo:       v,
 			Tapscripts: c.GetTapscripts(),
 		})
-		if keyID := c.Params[contract.ParamKeyID]; keyID != "" {
-			scriptToKeyID[c.Script] = keyID
-		}
 	}
 
-	return vtxos, scriptToKeyID, nil
+	return vtxos, nil
 }

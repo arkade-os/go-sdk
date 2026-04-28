@@ -13,7 +13,7 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, true)
+	vtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return "", err
 	}
@@ -27,14 +27,19 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("no funds to settle")
 	}
 
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
 	if err != nil {
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	settleOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
-	if len(scriptToKeyID) > 0 {
-		settleOpts = append(settleOpts, client.WithKeys(scriptToKeyID))
+	settleOpts := []client.BatchSessionOption{
+		client.WithFunds(utxos, vtxos),
+		client.WithKeys(signingKeys),
 	}
 	if batchSessionOpts.retryNum > 0 {
 		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
@@ -59,7 +64,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, true)
+	vtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return "", err
 	}
@@ -70,14 +75,19 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
 	if err != nil {
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	exitOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
-	if len(scriptToKeyID) > 0 {
-		exitOpts = append(exitOpts, client.WithKeys(scriptToKeyID))
+	exitOpts := []client.BatchSessionOption{
+		client.WithFunds(utxos, vtxos),
+		client.WithKeys(signingKeys),
 	}
 	if batchSessionOpts.retryNum > 0 {
 		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))
