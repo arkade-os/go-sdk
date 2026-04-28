@@ -140,7 +140,12 @@ func (a *arkClient) RedeemNotes(
 		return "", err
 	}
 
-	res, err := a.ArkClient.RedeemNotes(ctx, notes)
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	res, err := a.ArkClient.RedeemNotes(ctx, notes, client.WithKeys(signingKeys))
 	if err != nil {
 		return "", err
 	}
