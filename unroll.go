@@ -31,15 +31,20 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	unrollOpts := []client.UnrollOption{client.WithVtxos(allVtxos), client.WithKeys(signingKeys)}
-	res, err := a.ArkClient.Unroll(ctx, unrollOpts...)
+	vtxos := make([]clientTypes.Vtxo, 0, len(allVtxos))
+	for _, vtxo := range allVtxos {
+		vtxos = append(vtxos, vtxo.Vtxo)
+	}
+
+	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos), client.WithKeys(signingKeys))
 	if err != nil {
 		return err
 	}
 
 	for _, rr := range res {
 		var parentTx wire.MsgTx
-		if err := parentTx.Deserialize(hex.NewDecoder(strings.NewReader(rr.ParentTx))); err != nil {
+		dec := hex.NewDecoder(strings.NewReader(rr.ParentTx))
+		if err := parentTx.Deserialize(dec); err != nil {
 			return err
 		}
 
@@ -71,7 +76,23 @@ func (a *arkClient) CompleteUnroll(ctx context.Context, to string) (string, erro
 	if err != nil {
 		return "", err
 	}
+
 	return a.ArkClient.CompleteUnroll(ctx, to, client.WithKeys(signingKeys))
+}
+
+func (a *arkClient) WithdrawFromAllExpiredBoardings(
+	ctx context.Context, to string,
+) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return a.ArkClient.WithdrawFromAllExpiredBoardings(ctx, to, client.WithKeys(signingKeys))
 }
 
 func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error) {
@@ -82,19 +103,6 @@ func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string
 	if err != nil {
 		return "", err
 	}
-	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx, client.WithKeys(signingKeys))
-}
 
-func (a *arkClient) WithdrawFromAllExpiredBoardings(
-	ctx context.Context,
-	to string,
-) (string, error) {
-	if err := a.safeCheck(); err != nil {
-		return "", err
-	}
-	signingKeys, err := a.signingKeysByScript(ctx)
-	if err != nil {
-		return "", err
-	}
-	return a.ArkClient.WithdrawFromAllExpiredBoardings(ctx, to, client.WithKeys(signingKeys))
+	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx, client.WithKeys(signingKeys))
 }

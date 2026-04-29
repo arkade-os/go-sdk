@@ -10,8 +10,6 @@ import (
 
 type mockWallet struct{}
 
-var _ wallet.WalletService = (*mockWallet)(nil)
-
 func (m *mockWallet) GetType() string {
 	return "mock"
 }
@@ -31,10 +29,10 @@ func (m *mockWallet) NextIndex(_ context.Context) (uint32, error) {
 	return 0, nil
 }
 func (m *mockWallet) NewKey(_ context.Context) (*wallet.KeyRef, error) {
-	return nil, nil
+	return &wallet.KeyRef{}, nil
 }
 func (m *mockWallet) GetKey(_ context.Context, _ string) (*wallet.KeyRef, error) {
-	return nil, nil
+	return &wallet.KeyRef{}, nil
 }
 func (m *mockWallet) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	return nil, nil

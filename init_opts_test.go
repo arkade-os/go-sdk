@@ -17,19 +17,8 @@ func TestInitOptions(t *testing.T) {
 				name: "no options",
 			},
 			{
-				name: "WithWallet",
-				opts: []arksdk.InitOption{arksdk.WithWallet(&mockWallet{})},
-			},
-			{
 				name: "WithExplorerURL",
 				opts: []arksdk.InitOption{arksdk.WithExplorerURL("https://example.com")},
-			},
-			{
-				name: "WithWallet and WithExplorerUrl",
-				opts: []arksdk.InitOption{
-					arksdk.WithWallet(&mockWallet{}),
-					arksdk.WithExplorerURL("https://example.com"),
-				},
 			},
 		}
 
@@ -51,19 +40,6 @@ func TestInitOptions(t *testing.T) {
 				name:            "nil option",
 				opts:            []arksdk.InitOption{nil},
 				wantErrContains: "init option cannot be nil",
-			},
-			{
-				name:            "WithWallet nil",
-				opts:            []arksdk.InitOption{arksdk.WithWallet(nil)},
-				wantErrContains: "wallet cannot be nil",
-			},
-			{
-				name: "WithWallet twice",
-				opts: []arksdk.InitOption{
-					arksdk.WithWallet(&mockWallet{}),
-					arksdk.WithWallet(&mockWallet{}),
-				},
-				wantErrContains: "wallet already set",
 			},
 			{
 				name:            "WithExplorerURL empty string",

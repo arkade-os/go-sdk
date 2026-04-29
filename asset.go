@@ -26,8 +26,9 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	issueOpts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
-	res, err := a.ArkClient.IssueAsset(ctx, amount, controlAsset, metadata, issueOpts...)
+	res, err := a.ArkClient.IssueAsset(
+		ctx, amount, controlAsset, metadata, client.WithVtxos(vtxos), client.WithKeys(signingKeys),
+	)
 	if err != nil {
 		return "", nil, err
 	}
@@ -57,8 +58,9 @@ func (a *arkClient) ReissueAsset(
 		return "", err
 	}
 
-	reissueOpts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
-	res, err := a.ArkClient.ReissueAsset(ctx, assetId, amount, reissueOpts...)
+	res, err := a.ArkClient.ReissueAsset(
+		ctx, assetId, amount, client.WithVtxos(vtxos), client.WithKeys(signingKeys),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -88,8 +90,9 @@ func (a *arkClient) BurnAsset(
 		return "", err
 	}
 
-	burnOpts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
-	res, err := a.ArkClient.BurnAsset(ctx, assetId, amount, burnOpts...)
+	res, err := a.ArkClient.BurnAsset(
+		ctx, assetId, amount, client.WithVtxos(vtxos), client.WithKeys(signingKeys),
+	)
 	if err != nil {
 		return "", err
 	}

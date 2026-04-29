@@ -27,14 +27,14 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("no funds to settle")
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
-	if err != nil {
-		return "", err
-	}
-
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
 	if err != nil {
 		return "", fmt.Errorf("invalid options: %v", (err))
+	}
+
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	settleOpts := []client.BatchSessionOption{
@@ -75,14 +75,14 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
-	if err != nil {
-		return "", err
-	}
-
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
 	if err != nil {
 		return "", fmt.Errorf("invalid options: %v", (err))
+	}
+
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	exitOpts := []client.BatchSessionOption{

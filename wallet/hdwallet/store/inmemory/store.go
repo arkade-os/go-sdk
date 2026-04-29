@@ -28,31 +28,26 @@ func (s *store) Save(_ context.Context, state walletstore.State) error {
 		if state.WalletType == "" {
 			return fmt.Errorf("missing wallet type")
 		}
-		if state.EncryptedMasterKey == "" {
-			return fmt.Errorf("missing encrypted master key")
+		if state.EncryptedExtendedKey == "" {
+			return fmt.Errorf("missing encrypted extended key")
 		}
 		if state.EncryptedMnemonic == "" {
 			return fmt.Errorf("missing encrypted mnemonic")
 		}
-		if state.PasswordHash == "" {
-			return fmt.Errorf("missing password hash")
-		}
 		s.state = &walletstore.State{
-			WalletType:         state.WalletType,
-			EncryptedMasterKey: state.EncryptedMasterKey,
-			EncryptedMnemonic:  state.EncryptedMnemonic,
-			PasswordHash:       state.PasswordHash,
-			NextIndex:          state.NextIndex,
+			WalletType:           state.WalletType,
+			EncryptedExtendedKey: state.EncryptedExtendedKey,
+			EncryptedMnemonic:    state.EncryptedMnemonic,
+			NextIndex:            state.NextIndex,
 		}
 		return nil
 	}
 
 	newState := &walletstore.State{
-		WalletType:         s.state.WalletType,
-		EncryptedMasterKey: s.state.EncryptedMasterKey,
-		EncryptedMnemonic:  s.state.EncryptedMnemonic,
-		PasswordHash:       s.state.PasswordHash,
-		NextIndex:          state.NextIndex,
+		WalletType:           s.state.WalletType,
+		EncryptedExtendedKey: s.state.EncryptedExtendedKey,
+		EncryptedMnemonic:    s.state.EncryptedMnemonic,
+		NextIndex:            state.NextIndex,
 	}
 
 	s.state = newState

@@ -25,7 +25,6 @@ func seedConfigStore(t *testing.T, datadir string) {
 		ServerUrl:     "localhost:7070",
 		SignerPubKey:  privKey.PubKey(),
 		ForfeitPubKey: privKey.PubKey(),
-		WalletType:    "singlekey",
 		Network:       arklib.BitcoinRegTest,
 		ExplorerURL:   "http://127.0.0.1:3000",
 	}

@@ -140,3 +140,11 @@ func deriveEncryptionKey(password, salt []byte) ([]byte, []byte, error) {
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
 	return key, salt, nil
 }
+
+// zeroBytes overwrites every byte of b with zero. It's a best-effort
+// memory-hygiene helper for sensitive material like the decrypted mnemonic.
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}

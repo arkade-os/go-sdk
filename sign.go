@@ -38,18 +38,5 @@ func (a *arkClient) finalizePendingTxs(
 		return nil, err
 	}
 
-	txids, err := a.ArkClient.FinalizePendingTxs(ctx, createdAfter, client.WithKeys(signingKeys))
-	if err != nil {
-		return nil, err
-	}
-
-	if len(txids) == 0 {
-		return nil, nil
-	}
-
-	if err := a.refreshDb(ctx); err != nil {
-		return nil, err
-	}
-
-	return txids, nil
+	return a.ArkClient.FinalizePendingTxs(ctx, createdAfter, client.WithKeys(signingKeys))
 }

@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"bytes"
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,11 +14,16 @@ import (
 	"testing"
 	"time"
 
-	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
-	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,56 +33,13 @@ const (
 	explorerUrl = "http://127.0.0.1:3000"
 )
 
-type testStoreBackend struct {
-	name string
-}
-
-func (b testStoreBackend) datadir(t *testing.T) string {
+func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkClient {
 	t.Helper()
 
-	if b.name == "sql" {
-		return t.TempDir()
-	}
-
-	return ""
-}
-
-func (b testStoreBackend) setupClient(t *testing.T) sdk.ArkClient {
-	t.Helper()
-
-	return setupClientWithDatadir(t, b.datadir(t))
-}
-
-func (b testStoreBackend) setupClientWithWallet(
-	t *testing.T, seed string,
-) (sdk.ArkClient, transport.TransportClient) {
-	t.Helper()
-
-	return setupClientWithWalletAndDatadir(t, b.datadir(t), seed)
-}
-
-func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStoreBackend)) {
-	t.Helper()
-
-	backends := []testStoreBackend{
-		{name: "kv"},
-		{name: "sql"},
-	}
-
-	for _, backend := range backends {
-		t.Run(backend.name, func(t *testing.T) {
-			fn(t, backend)
-		})
-	}
-}
-
-func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
-	t.Helper()
-
-	arkClient, err := sdk.NewArkClient(datadir)
+	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
 	require.NoError(t, err)
 
-	err = arkClient.Init(t.Context(), serverUrl, "", password)
+	err = arkClient.Init(t.Context(), serverUrl, seed, password)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
@@ -90,42 +54,15 @@ func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
 	return arkClient
 }
 
-func setupClientWithWalletAndDatadir(
-	t *testing.T, datadir, seed string,
-) (sdk.ArkClient, transport.TransportClient) {
-	t.Helper()
-
-	arkClient, err := sdk.NewArkClient(datadir)
-	require.NoError(t, err)
-	require.NotNil(t, arkClient)
-
-	err = arkClient.Init(t.Context(), serverUrl, seed, password)
-	require.NoError(t, err)
-
-	err = arkClient.Unlock(t.Context(), password)
-	require.NoError(t, err)
-
-	synced := <-arkClient.IsSynced(t.Context())
-	require.True(t, synced.Synced)
-	require.Nil(t, synced.Err)
-
-	t.Cleanup(arkClient.Stop)
-
-	grpcClient, err := grpcclient.NewClient(serverUrl)
-	require.NoError(t, err)
-
-	return arkClient, grpcClient
-}
-
 func faucetOnchain(t *testing.T, address string, amount float64) {
 	_, err := runCommand("nigiri", "faucet", address, fmt.Sprintf("%.8f", amount))
 	require.NoError(t, err)
 }
 
-func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTypes.Vtxo {
+func faucetOffchain(
+	t *testing.T, client sdk.ArkClient, offchainAddr string, amount float64,
+) clientTypes.Vtxo {
 	ctx := t.Context()
-	offchainAddr, err := client.NewOffchainAddress(ctx)
-	require.NoError(t, err)
 	require.NotEmpty(t, offchainAddr)
 
 	note := generateNote(t, uint64(amount*1e8))
@@ -153,6 +90,117 @@ func faucetOffchain(t *testing.T, client sdk.ArkClient, amount float64) clientTy
 	wg.Wait()
 
 	return vtxo
+}
+
+func deriveWalletAddresses(
+	t *testing.T, ctx context.Context, client sdk.ArkClient, walletSvc wallet.WalletService,
+) ([]string, []clientTypes.Address, []clientTypes.Address, []clientTypes.Address) {
+	t.Helper()
+
+	cfg, err := client.GetConfigData(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	keys, err := walletSvc.ListKeys(ctx)
+	require.NoError(t, err)
+
+	onchainAddrs := make([]string, 0, len(keys))
+	offchainAddrs := make([]clientTypes.Address, 0, len(keys))
+	boardingAddrs := make([]clientTypes.Address, 0, len(keys))
+	redemptionAddrs := make([]clientTypes.Address, 0, len(keys))
+
+	for _, key := range keys {
+		defaultVtxoScript := script.NewDefaultVtxoScript(
+			key.PubKey, cfg.SignerPubKey, cfg.UnilateralExitDelay,
+		)
+		vtxoTapKey, _, err := defaultVtxoScript.TapTree()
+		require.NoError(t, err)
+
+		offchainAddress := &arklib.Address{
+			HRP:        cfg.Network.Addr,
+			Signer:     cfg.SignerPubKey,
+			VtxoTapKey: vtxoTapKey,
+		}
+		encodedOffchainAddr, err := offchainAddress.EncodeV0()
+		require.NoError(t, err)
+
+		tapscripts, err := defaultVtxoScript.Encode()
+		require.NoError(t, err)
+
+		boardingVtxoScript := script.NewDefaultVtxoScript(
+			key.PubKey, cfg.SignerPubKey, cfg.BoardingExitDelay,
+		)
+		boardingTapKey, _, err := boardingVtxoScript.TapTree()
+		require.NoError(t, err)
+
+		netParams := chaincfg.MainNetParams
+		switch cfg.Network.Name {
+		case arklib.BitcoinRegTest.Name:
+			netParams = chaincfg.RegressionNetParams
+		case arklib.BitcoinTestNet.Name:
+			netParams = chaincfg.TestNet3Params
+		case arklib.BitcoinSigNet.Name:
+			netParams = chaincfg.SigNetParams
+		}
+		boardingTaprootAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(boardingTapKey), &netParams,
+		)
+		require.NoError(t, err)
+
+		boardingTapscripts, err := boardingVtxoScript.Encode()
+		require.NoError(t, err)
+
+		redemptionTaprootAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(vtxoTapKey), &netParams,
+		)
+		require.NoError(t, err)
+
+		onchainTapKey := txscript.ComputeTaprootKeyNoScript(key.PubKey)
+		onchainTaprootAddr, err := btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(onchainTapKey), &netParams,
+		)
+		require.NoError(t, err)
+
+		onchainAddrs = append(onchainAddrs, onchainTaprootAddr.EncodeAddress())
+		offchainAddrs = append(offchainAddrs, clientTypes.Address{
+			KeyID:      key.Id,
+			Tapscripts: tapscripts,
+			Address:    encodedOffchainAddr,
+		})
+		boardingAddrs = append(boardingAddrs, clientTypes.Address{
+			KeyID:      key.Id,
+			Tapscripts: boardingTapscripts,
+			Address:    boardingTaprootAddr.EncodeAddress(),
+		})
+		redemptionAddrs = append(redemptionAddrs, clientTypes.Address{
+			KeyID:      key.Id,
+			Tapscripts: tapscripts,
+			Address:    redemptionTaprootAddr.EncodeAddress(),
+		})
+	}
+
+	return onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs
+}
+
+func findOffchainAddressByScript(
+	t *testing.T, addrs []clientTypes.Address, scriptHex string,
+) clientTypes.Address {
+	t.Helper()
+
+	for _, addr := range addrs {
+		decodedAddr, err := arklib.DecodeAddressV0(addr.Address)
+		require.NoError(t, err)
+
+		pkScript, err := decodedAddr.GetPkScript()
+		require.NoError(t, err)
+
+		if hex.EncodeToString(pkScript) == scriptHex {
+			return addr
+		}
+	}
+
+	t.Fatalf("offchain address with script %s not found", scriptHex)
+	return clientTypes.Address{}
 }
 
 func generateNote(t *testing.T, amount uint64) string {

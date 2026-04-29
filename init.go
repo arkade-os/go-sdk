@@ -30,6 +30,11 @@ var (
 func (a *arkClient) Init(
 	ctx context.Context, serverUrl, seed, password string, opts ...InitOption,
 ) error {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return ErrNotInitialized
+	}
+
 	transportClient, err := grpcclient.NewClient(serverUrl)
 	if err != nil {
 		return err
@@ -60,21 +65,20 @@ func (a *arkClient) Init(
 	}
 
 	return a.ArkClient.Init(ctx, client.InitArgs{
-		ServerUrl:  serverUrl,
-		Seed:       seed,
-		Password:   password,
-		WalletType: client.SingleKeyWallet,
-		Explorer:   explorer,
+		ServerUrl: serverUrl,
+		Seed:      seed,
+		Password:  password,
+		Explorer:  explorer,
 	})
 }
 
 func (a *arkClient) Unlock(ctx context.Context, password string) error {
-	// Unlock the wallet directly first so we can derive at least one key
-	// before calling a.ArkClient.Unlock. The client-lib Unlock runs
-	// finalizePendingTxs, which calls GetAddresses; on a fresh wallet with
-	// no derived keys that produces an empty script set and the indexer
-	// rejects it. Deriving key-0 here ensures the script set is non-empty.
-	if _, err := a.Wallet().Unlock(ctx, password); err != nil {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return ErrNotInitialized
+	}
+
+	if _, err := walletSvc.Unlock(ctx, password); err != nil {
 		return err
 	}
 
@@ -114,20 +118,11 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		return fmt.Errorf("unlock: init default contract: %w", err)
 	}
 
-	if err := a.ArkClient.Unlock(ctx, password); err != nil {
-		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
-			return fmt.Errorf("unlock: %w (rollback lock failed: %v)", err, lockErr)
-		}
-		return err
-	}
-
 	a.cmMu.Lock()
 	a.contractManager = mgr
 	a.cmMu.Unlock()
 
-	a.syncDone = false
-	a.syncErr = nil
-	a.syncCh = make(chan error)
+	a.resetSyncStateForUnlock()
 	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
 	a.txBroadcaster = newBroadcaster[types.TransactionEvent]()
@@ -145,16 +140,6 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
-		// Start stream listeners immediately so events are captured during the
-		// scan / finalize / refresh sequence below. Without this, the listener
-		// goroutines would only start after syncCh is signalled, creating a
-		// window where IsSynced has already resolved in the caller but the
-		// stream connection hasn't been established yet.
-		go a.listenForArkTxs(ctx)
-		go a.listenForOnchainTxs(ctx)
-		go a.listenDbEvents(ctx)
-		go a.periodicRefreshDb(ctx)
-
 		// Gap-limit scan: discover wallet keys that had vtxos from before this
 		// restore session. Non-fatal: a failure just means the restored history
 		// will be incomplete, not that the unlock itself fails.
@@ -165,17 +150,20 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		// Finalize any pending txs that were submitted before this restore.
 		// Call client-lib directly (not the go-sdk wrapper) to avoid a second
 		// refreshDb before the primary one below runs.
-		if signingKeys, err := a.signingKeysByScript(ctx); err != nil {
-			log.WithError(err).Warn("could not build signing keys for restore finalization")
-		} else if _, err := a.ArkClient.FinalizePendingTxs(
-			ctx, nil, client.WithKeys(signingKeys),
-		); err != nil {
-			log.WithError(err).Warn("pending tx finalization failed during restore")
+		// TODO: For this is a best-effort attempt to finalize any pending txs. Find a way to let
+		// the user aware of this so he can proceed with a manual finalization
+		if _, err := a.finalizePendingTxs(ctx, nil); err != nil {
+			log.WithError(err).Warn("failed to finalize pending txs")
 		}
 
 		err := a.refreshDb(ctx)
 		a.syncCh <- err
 		close(a.syncCh)
+
+		go a.listenForArkTxs(ctx)
+		go a.listenForOnchainTxs(ctx)
+		go a.listenDbEvents(ctx)
+		go a.periodicRefreshDb(ctx)
 	}()
 
 	return nil

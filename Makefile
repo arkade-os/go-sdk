@@ -58,7 +58,7 @@ regtestdown:
 	@docker compose -f test/docker/docker-compose.yml down
 
 integrationtest:
-	@go test -v -count=1 -race -timeout 30m ./test/e2e
+	@go test -v -count=1 -race -timeout 40m ./test/e2e
 
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:

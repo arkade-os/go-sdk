@@ -3,7 +3,6 @@ package hdwallet
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -35,9 +34,12 @@ const (
 type service struct {
 	keyProvider *keyService
 	store       walletstore.Store
-	mnemonic    string
-	locked      bool
-	mu          sync.RWMutex
+	// mnemonic holds the BIP39 mnemonic decrypted in memory only while the
+	// wallet is unlocked. Stored as []byte (not string) so Lock can zero the
+	// underlying memory.
+	mnemonic []byte
+	locked   bool
+	mu       sync.RWMutex
 }
 
 // NewService creates a new HD wallet service with all known dependencies.
@@ -77,6 +79,8 @@ func (w *service) Create(
 		if err != nil {
 			return "", fmt.Errorf("failed to generate entropy: %w", err)
 		}
+		defer zeroBytes(entropy)
+
 		mnemonic, err = bip39.NewMnemonic(entropy)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate mnemonic: %w", err)
@@ -89,15 +93,16 @@ func (w *service) Create(
 		mnemonic = seed
 		masterSeed = bip39.NewSeed(mnemonic, "")
 	}
+	defer zeroBytes(masterSeed)
 
-	masterKey, err := hdkeychain.NewMaster(masterSeed, &network)
+	extendedKey, err := hdkeychain.NewMaster(masterSeed, &network)
 	if err != nil {
 		return "", fmt.Errorf("failed to create master key: %w", err)
 	}
 
 	rootPath := getBIP86RootPath(network)
 	for _, step := range rootPath {
-		masterKey, err = masterKey.Derive(step)
+		extendedKey, err = extendedKey.Derive(step)
 		if err != nil {
 			return "", fmt.Errorf("failed to derive key: %w", err)
 		}
@@ -105,12 +110,11 @@ func (w *service) Create(
 
 	// Encrypt master key (xpriv string)
 	pwd := []byte(password)
-	passwordHash := sha256.Sum256(pwd)
 
-	xpriv := masterKey.String()
+	xpriv := extendedKey.String()
 	encryptedKey, err := encryptAES256([]byte(xpriv), pwd)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt master key: %w", err)
+		return "", fmt.Errorf("failed to encrypt xpriv: %w", err)
 	}
 
 	encryptedMnemonic, err := encryptAES256([]byte(mnemonic), pwd)
@@ -120,17 +124,16 @@ func (w *service) Create(
 
 	// Store encrypted data
 	state := walletstore.State{
-		WalletType:         Type,
-		EncryptedMasterKey: hex.EncodeToString(encryptedKey),
-		EncryptedMnemonic:  hex.EncodeToString(encryptedMnemonic),
-		PasswordHash:       hex.EncodeToString(passwordHash[:]),
+		WalletType:           Type,
+		EncryptedExtendedKey: hex.EncodeToString(encryptedKey),
+		EncryptedMnemonic:    hex.EncodeToString(encryptedMnemonic),
 	}
 
 	if err := w.store.Save(ctx, state); err != nil {
 		return "", fmt.Errorf("failed to save wallet state: %w", err)
 	}
 
-	w.mnemonic = mnemonic
+	w.mnemonic = []byte(mnemonic)
 	w.locked = true
 
 	return mnemonic, nil
@@ -148,7 +151,8 @@ func (w *service) Lock(_ context.Context) error {
 	}
 
 	w.keyProvider = nil
-	w.mnemonic = ""
+	zeroBytes(w.mnemonic)
+	w.mnemonic = nil
 	w.locked = true
 	return nil
 }
@@ -174,13 +178,10 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 	}
 
 	pwd := []byte(password)
-	passwordHash := sha256.Sum256(pwd)
-	passwordHashStr := hex.EncodeToString(passwordHash[:])
-	if passwordHashStr != state.PasswordHash {
-		return false, fmt.Errorf("invalid password")
-	}
 
-	// Decrypt mnemonic
+	// Password verification is performed implicitly by AES-GCM decryption: any
+	// wrong password fails the AEAD tag check below and surfaces as an
+	// "invalid password" error from decryptAES256.
 	encryptedMnemonic, err := hex.DecodeString(state.EncryptedMnemonic)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode mnemonic: %w", err)
@@ -191,24 +192,24 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 		return false, fmt.Errorf("failed to decrypt mnemonic: %w", err)
 	}
 
-	// Decrypt master key
-	encryptedMasterKey, err := hex.DecodeString(state.EncryptedMasterKey)
+	// Decrypt xpriv
+	encryptedXpriv, err := hex.DecodeString(state.EncryptedExtendedKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to decode master key: %w", err)
+		return false, fmt.Errorf("failed to decode xpriv: %w", err)
 	}
 
-	xpriv, err := decryptAES256(encryptedMasterKey, pwd)
+	xpriv, err := decryptAES256(encryptedXpriv, pwd)
 	if err != nil {
-		return false, fmt.Errorf("failed to decrypt master key: %w", err)
+		return false, fmt.Errorf("failed to decrypt xpriv: %w", err)
 	}
 
-	masterKey, err := hdkeychain.NewKeyFromString(string(xpriv))
+	extendedKey, err := hdkeychain.NewKeyFromString(string(xpriv))
 	if err != nil {
-		return false, fmt.Errorf("failed to parse master key: %w", err)
+		return false, fmt.Errorf("failed to parse xpriv: %w", err)
 	}
 
 	// Load and restore
-	keyProvider := newHDKeyService(masterKey)
+	keyProvider := newHDKeyService(extendedKey)
 	restored := state.NextIndex > 0
 	if restored {
 		if err := keyProvider.LoadState(*state); err != nil {
@@ -217,7 +218,7 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 	}
 
 	w.keyProvider = keyProvider
-	w.mnemonic = string(mnemonic)
+	w.mnemonic = mnemonic
 	w.locked = false
 
 	return restored, nil
@@ -247,7 +248,7 @@ func (w *service) Dump(_ context.Context) (string, error) {
 	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
-	return w.mnemonic, nil
+	return string(w.mnemonic), nil
 }
 
 func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
@@ -258,7 +259,7 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	_, pubKey, keiID, err := w.keyProvider.GetNextKey()
+	_, pubKey, keyID, err := w.keyProvider.GetNextKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key: %w", err)
 	}
@@ -267,7 +268,7 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	return &wallet.KeyRef{Id: keiID, PubKey: pubKey}, nil
+	return &wallet.KeyRef{Id: keyID, PubKey: pubKey}, nil
 }
 
 func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error) {
@@ -288,26 +289,6 @@ func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error
 	}
 
 	return &wallet.KeyRef{Id: keyID, PubKey: privKey.PubKey()}, nil
-}
-
-// PeekKey returns the pubkey at keyID without caching the private key.
-// It satisfies the optional keyPeeker interface used by scanAndRegisterKeys.
-func (w *service) PeekKey(_ context.Context, keyID string) (*wallet.KeyRef, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-
-	if err := w.safeCheck(); err != nil {
-		return nil, err
-	}
-	if len(keyID) == 0 {
-		return nil, fmt.Errorf("key id is required")
-	}
-
-	pubKey, err := w.keyProvider.PeekKeyAt(keyID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to peek key %q: %w", keyID, err)
-	}
-	return &wallet.KeyRef{Id: keyID, PubKey: pubKey}, nil
 }
 
 func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {

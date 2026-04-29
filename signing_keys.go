@@ -15,7 +15,7 @@ func (a *arkClient) signingKeysByScript(ctx context.Context) (map[string]string,
 		return nil, err
 	}
 
-	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.GetAddresses(
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := a.ArkClient.GetAddresses(
 		ctx,
 	)
 	if err != nil {
