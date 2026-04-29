@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -94,6 +95,11 @@ func networkToChainParams(net arklib.Network) *chaincfg.Params {
 		return &chaincfg.TestNet3Params
 	case arklib.BitcoinSigNet.Name:
 		return &chaincfg.SigNetParams
+	case arklib.BitcoinMutinyNet.Name:
+		mutinyParams := arklib.MutinyNetSigNetParams
+		return &mutinyParams
+	case arklib.BitcoinRegTest.Name:
+		return &chaincfg.RegressionNetParams
 	default:
 		return &chaincfg.MainNetParams
 	}
@@ -251,11 +257,16 @@ func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 		if err != nil {
 			return nil, err
 		}
+		confirmed := entry.Height > 0
 		var blocktime int64
-		if entry.Height > 0 {
-			blocktime, _ = e.blockTimestamp(entry.Height)
+		if confirmed {
+			if vtx.Blocktime > 0 {
+				blocktime = vtx.Blocktime
+			} else {
+				blocktime, _ = e.blockTimestamp(entry.Height)
+			}
 		}
-		txs = append(txs, verboseTxToExplorerTx(vtx, blocktime, entry.Height > 0))
+		txs = append(txs, verboseTxToExplorerTx(vtx, blocktime, confirmed, e.netParams))
 	}
 	return txs, nil
 }
@@ -320,12 +331,18 @@ func (e *explorerSvc) GetUtxos(addr string) ([]explorer.Utxo, error) {
 	if err != nil {
 		return nil, err
 	}
+	btCache := make(map[int64]int64)
 	utxos := make([]explorer.Utxo, 0, len(electrumUtxos))
 	for _, u := range electrumUtxos {
 		var blocktime int64
 		confirmed := u.Height > 0
 		if confirmed {
-			blocktime, _ = e.blockTimestamp(u.Height)
+			if t, ok := btCache[u.Height]; ok {
+				blocktime = t
+			} else {
+				blocktime, _ = e.blockTimestamp(u.Height)
+				btCache[u.Height] = blocktime
+			}
 		}
 		utxos = append(utxos, explorer.Utxo{
 			Txid:   u.TxHash,
@@ -369,6 +386,9 @@ func (e *explorerSvc) GetTxBlockTime(txid string) (confirmed bool, blocktime int
 	}
 	if vtx.Confirmations == 0 || vtx.BlockHeight <= 0 {
 		return false, -1, nil
+	}
+	if vtx.Blocktime > 0 {
+		return true, vtx.Blocktime, nil
 	}
 	bt, err := e.blockTimestamp(vtx.BlockHeight)
 	if err != nil {
@@ -512,6 +532,52 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 		return
 	}
 
+	// Build outpoint → electrumUTXO lookup for height-based enrichment.
+	newByOutpoint := make(map[types.Outpoint]electrumUTXO, len(newUTXOs))
+	for _, u := range newUTXOs {
+		newByOutpoint[types.Outpoint{Txid: u.TxHash, VOut: u.TxPos}] = u
+	}
+
+	// Cache block header timestamps to avoid redundant RPC calls within one poll.
+	btCache := make(map[int64]int64)
+	blocktime := func(height int64) time.Time {
+		if height <= 0 {
+			return time.Time{}
+		}
+		if t, ok := btCache[height]; ok {
+			return time.Unix(t, 0)
+		}
+		t, err := e.blockTimestamp(height)
+		if err != nil {
+			return time.Time{}
+		}
+		btCache[height] = t
+		return time.Unix(t, 0)
+	}
+
+	// Populate CreatedAt for newly seen UTXOs that are already confirmed.
+	for i := range event.NewUtxos {
+		if eu, ok := newByOutpoint[event.NewUtxos[i].Outpoint]; ok && eu.Height > 0 {
+			event.NewUtxos[i].CreatedAt = blocktime(eu.Height)
+		}
+	}
+
+	// Populate CreatedAt for UTXOs that just confirmed (unconfirmed → confirmed).
+	for i := range event.ConfirmedUtxos {
+		if eu, ok := newByOutpoint[event.ConfirmedUtxos[i].Outpoint]; ok && eu.Height > 0 {
+			event.ConfirmedUtxos[i].CreatedAt = blocktime(eu.Height)
+		}
+	}
+
+	// Populate SpentBy by querying the outspend status of each spent UTXO.
+	for i := range event.SpentUtxos {
+		op := event.SpentUtxos[i].Outpoint
+		statuses, err := e.GetTxOutspends(op.Txid)
+		if err == nil && int(op.VOut) < len(statuses) {
+			event.SpentUtxos[i].SpentBy = statuses[op.VOut].SpentBy
+		}
+	}
+
 	e.subscribedMu.Lock()
 	if s, ok := e.subscribedMap[addr]; ok {
 		s.utxos = newUTXOs
@@ -551,17 +617,14 @@ func diffUTXOs(old, new []electrumUTXO, script string) (types.OnchainAddressEven
 	for k, u := range newMap {
 		oldU, existed := oldMap[k]
 		if !existed {
-			var createdAt time.Time
-			if u.Height > 0 {
-				createdAt = time.Unix(u.Height, 0) // approximate; real blocktime fetched separately
-			}
+			// CreatedAt is zero here; pollAddress fills it in from blockTimestamp.
 			received = append(received, types.OnchainOutput{
-				Outpoint:  types.Outpoint{Txid: u.TxHash, VOut: u.TxPos},
-				Script:    script,
-				Amount:    u.Value,
-				CreatedAt: createdAt,
+				Outpoint: types.Outpoint{Txid: u.TxHash, VOut: u.TxPos},
+				Script:   script,
+				Amount:   u.Value,
 			})
 		} else if oldU.Height == 0 && u.Height > 0 {
+			// CreatedAt is zero here; pollAddress fills it in from blockTimestamp.
 			confirmed = append(confirmed, types.OnchainOutput{
 				Outpoint: types.Outpoint{Txid: u.TxHash, VOut: u.TxPos},
 				Script:   script,
@@ -638,13 +701,19 @@ func addrToScript(addr string, params *chaincfg.Params) (string, error) {
 	return hex.EncodeToString(script), nil
 }
 
-func verboseTxToExplorerTx(vtx *electrumVerboseTx, blocktime int64, confirmed bool) explorer.Tx {
+func verboseTxToExplorerTx(
+	vtx *electrumVerboseTx,
+	blocktime int64,
+	confirmed bool,
+	params *chaincfg.Params,
+) explorer.Tx {
 	vins := make([]explorer.Input, 0, len(vtx.Vin))
 	for _, in := range vtx.Vin {
 		vins = append(vins, explorer.Input{
 			Output: explorer.Output{
-				Script: in.Prevout.ScriptPubKey.Hex,
-				Amount: uint64(in.Prevout.Value * 1e8),
+				Script:  in.Prevout.ScriptPubKey.Hex,
+				Address: scriptToAddress(in.Prevout.ScriptPubKey.Hex, params),
+				Amount:  uint64(math.Round(in.Prevout.Value * 1e8)),
 			},
 			Txid: in.TxID,
 			Vout: in.Vout,
@@ -653,8 +722,9 @@ func verboseTxToExplorerTx(vtx *electrumVerboseTx, blocktime int64, confirmed bo
 	vouts := make([]explorer.Output, 0, len(vtx.Vout))
 	for _, out := range vtx.Vout {
 		vouts = append(vouts, explorer.Output{
-			Script: out.ScriptPubKey.Hex,
-			Amount: uint64(out.Value * 1e8),
+			Script:  out.ScriptPubKey.Hex,
+			Address: scriptToAddress(out.ScriptPubKey.Hex, params),
+			Amount:  uint64(math.Round(out.Value * 1e8)),
 		})
 	}
 	return explorer.Tx{

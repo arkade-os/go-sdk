@@ -47,6 +47,27 @@ func scriptToScripthash(scriptHex string) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
+// scriptToAddress converts a hex-encoded output script to a Bitcoin address string.
+// Returns empty string for unrecognised or non-standard scripts.
+func scriptToAddress(scriptHex string, params *chaincfg.Params) string {
+	if scriptHex == "" {
+		return ""
+	}
+	script, err := hex.DecodeString(scriptHex)
+	if err != nil {
+		return ""
+	}
+	pkScript, err := txscript.ParsePkScript(script)
+	if err != nil {
+		return ""
+	}
+	addr, err := pkScript.Address(params)
+	if err != nil {
+		return ""
+	}
+	return addr.EncodeAddress()
+}
+
 func parseBitcoinTx(txStr string) (string, string, error) {
 	var tx wire.MsgTx
 	if err := tx.Deserialize(hex.NewDecoder(strings.NewReader(txStr))); err != nil {
