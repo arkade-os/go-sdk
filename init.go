@@ -99,10 +99,11 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}()
 
 	bgCtx, cancel := context.WithCancel(context.Background())
+	a.goroutineWg.Add(1)
 	a.stopFn = cancel
-
-	a.goroutineWg.Add(4)
 	go func() {
+		defer a.goroutineWg.Done()
+
 		a.Explorer().Start()
 
 		ctx := bgCtx
@@ -111,7 +112,12 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.syncCh <- err
 		close(a.syncCh)
 
+		if err != nil {
+			return
+		}
+
 		// start listening to stream events
+		a.goroutineWg.Add(4)
 		go a.listenForArkTxs(ctx)
 		go a.listenForOnchainTxs(ctx)
 		go a.listenDbEvents(ctx)
