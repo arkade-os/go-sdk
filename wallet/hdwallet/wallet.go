@@ -301,11 +301,23 @@ func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 
 	keys := w.keyProvider.GetAllKeyRefs()
 
+	var sortErr error
 	sort.SliceStable(keys, func(i, j int) bool {
-		pi, _ := parseDerivationIndex(keys[i].Id)
-		pj, _ := parseDerivationIndex(keys[j].Id)
+		pi, ei := parseDerivationIndex(keys[i].Id)
+		pj, ej := parseDerivationIndex(keys[j].Id)
+		if ei != nil {
+			sortErr = ei
+			return false
+		}
+		if ej != nil {
+			sortErr = ej
+			return false
+		}
 		return pi[1] < pj[1]
 	})
+	if sortErr != nil {
+		return nil, sortErr
+	}
 
 	return keys, nil
 }
