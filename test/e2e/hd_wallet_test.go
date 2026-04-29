@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -283,6 +284,8 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		if err != nil {
 			return false
 		}
+
+		fmt.Printf("BALANCE %+v\n", balance)
 
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
 			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable &&
