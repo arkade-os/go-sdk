@@ -2,8 +2,6 @@ package arksdk
 
 import (
 	"fmt"
-
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 )
 
 type InitOption func(options *initOptions) error
@@ -14,19 +12,6 @@ type InitOption func(options *initOptions) error
 func ApplyInitOptions(opts ...InitOption) error {
 	_, err := applyInitOptions(opts...)
 	return err
-}
-
-func WithWallet(wallet wallet.WalletService) InitOption {
-	return func(o *initOptions) error {
-		if o.wallet != nil {
-			return fmt.Errorf("wallet already set")
-		}
-		if wallet == nil {
-			return fmt.Errorf("wallet cannot be nil")
-		}
-		o.wallet = wallet
-		return nil
-	}
 }
 
 func WithExplorerURL(explorerUrl string) InitOption {
@@ -56,7 +41,6 @@ func applyInitOptions(opts ...InitOption) (*initOptions, error) {
 }
 
 type initOptions struct {
-	wallet      wallet.WalletService
 	explorerUrl string
 }
 

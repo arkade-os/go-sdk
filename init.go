@@ -26,6 +26,11 @@ var (
 func (a *arkClient) Init(
 	ctx context.Context, serverUrl, seed, password string, opts ...InitOption,
 ) error {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return ErrNotInitialized
+	}
+
 	transportClient, err := grpcclient.NewClient(serverUrl)
 	if err != nil {
 		return err
@@ -55,27 +60,21 @@ func (a *arkClient) Init(
 		return fmt.Errorf("failed to init explorer: %v", err)
 	}
 
-	if initOpts.wallet != nil {
-		return a.InitWithWallet(ctx, client.InitWithWalletArgs{
-			ServerUrl: serverUrl,
-			Seed:      seed,
-			Password:  password,
-			Wallet:    initOpts.wallet,
-			Explorer:  explorer,
-		})
-	}
-
 	return a.ArkClient.Init(ctx, client.InitArgs{
-		ServerUrl:  serverUrl,
-		Seed:       seed,
-		Password:   password,
-		WalletType: client.SingleKeyWallet,
-		Explorer:   explorer,
+		ServerUrl: serverUrl,
+		Seed:      seed,
+		Password:  password,
+		Explorer:  explorer,
 	})
 }
 
 func (a *arkClient) Unlock(ctx context.Context, password string) error {
-	if err := a.ArkClient.Unlock(ctx, password); err != nil {
+	walletSvc := a.Wallet()
+	if walletSvc == nil {
+		return ErrNotInitialized
+	}
+
+	if _, err := walletSvc.Unlock(ctx, password); err != nil {
 		return err
 	}
 
@@ -86,9 +85,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}
 	a.logMu.Unlock()
 
-	a.syncDone = false
-	a.syncErr = nil
-	a.syncCh = make(chan error)
+	a.resetSyncStateForUnlock()
 	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
 	a.txBroadcaster = newBroadcaster[types.TransactionEvent]()
@@ -105,6 +102,18 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.Explorer().Start()
 
 		ctx := bgCtx
+
+		if _, err := a.discoverHDWalletKeys(ctx); err != nil {
+			a.syncCh <- err
+			close(a.syncCh)
+			return
+		}
+
+		// TODO: For this is a best-effort attempt to finalize any pending txs. Find a way to let
+		// the user aware of this so he can proceed with a manual finalization
+		if _, err := a.finalizePendingTxs(ctx, nil); err != nil {
+			log.WithError(err).Warn("failed to finalize pending txs")
+		}
 
 		err := a.refreshDb(ctx)
 		a.syncCh <- err

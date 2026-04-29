@@ -31,7 +31,15 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	settleOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	settleOpts := []client.BatchSessionOption{
+		client.WithFunds(utxos, vtxos),
+		client.WithKeys(signingKeys),
+	}
 	if batchSessionOpts.retryNum > 0 {
 		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
 	}
@@ -71,7 +79,15 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	exitOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	exitOpts := []client.BatchSessionOption{
+		client.WithFunds(utxos, vtxos),
+		client.WithKeys(signingKeys),
+	}
 	if batchSessionOpts.retryNum > 0 {
 		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))
 	}
@@ -95,7 +111,12 @@ func (a *arkClient) RedeemNotes(
 		return "", err
 	}
 
-	res, err := a.ArkClient.RedeemNotes(ctx, notes)
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	res, err := a.ArkClient.RedeemNotes(ctx, notes, client.WithKeys(signingKeys))
 	if err != nil {
 		return "", err
 	}
