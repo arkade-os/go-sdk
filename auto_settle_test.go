@@ -28,7 +28,11 @@ func TestScheduleSettle(t *testing.T) {
 				a.scheduleSettle(context.Background(), expiresAt, cfg)
 
 				got := a.WhenNextSettlement()
-				require.False(t, got.IsZero(), "WhenNextSettlement should be set after scheduleSettle")
+				require.False(
+					t,
+					got.IsZero(),
+					"WhenNextSettlement should be set after scheduleSettle",
+				)
 				require.WithinDuration(t, settlementFireAt(expiresAt, cfg), got, time.Second)
 				require.Equal(t, int32(0), calls.Load(), "settle must not fire before its delay")
 			},
@@ -50,7 +54,12 @@ func TestScheduleSettle(t *testing.T) {
 				require.WithinDuration(t, settlementFireAt(earlierExpiry, cfg), second, time.Second)
 
 				a.scheduleSettle(context.Background(), time.Now().Add(45*time.Minute), cfg)
-				require.Equal(t, second, a.WhenNextSettlement(), "later schedule must not displace earlier one")
+				require.Equal(
+					t,
+					second,
+					a.WhenNextSettlement(),
+					"later schedule must not displace earlier one",
+				)
 				require.Equal(t, int32(0), calls.Load(), "settle must not fire before delay")
 			},
 		},
@@ -71,7 +80,12 @@ func TestScheduleSettle(t *testing.T) {
 				a.scheduleSettle(context.Background(), newExpiry, cfg)
 				secondFireAt := a.WhenNextSettlement()
 				require.True(t, secondFireAt.Before(firstFireAt))
-				require.WithinDuration(t, settlementFireAt(newExpiry, cfg), secondFireAt, time.Second)
+				require.WithinDuration(
+					t,
+					settlementFireAt(newExpiry, cfg),
+					secondFireAt,
+					time.Second,
+				)
 				require.Equal(t, int32(0), calls.Load(), "settle must not fire before delay")
 			},
 		},
@@ -83,7 +97,11 @@ func TestScheduleSettle(t *testing.T) {
 				a.scheduleSettle(context.Background(), time.Now().Add(-time.Hour), cfg)
 
 				waitFor(t, 500*time.Millisecond, func() bool { return calls.Load() == 1 })
-				waitFor(t, 200*time.Millisecond, func() bool { return a.WhenNextSettlement().IsZero() })
+				waitFor(
+					t,
+					200*time.Millisecond,
+					func() bool { return a.WhenNextSettlement().IsZero() },
+				)
 				require.Equal(t, int32(1), calls.Load(), "expected exactly one settle call")
 			},
 		},
@@ -111,7 +129,11 @@ func TestScheduleSettle(t *testing.T) {
 
 				a.scheduleSettle(context.Background(), time.Now().Add(-time.Hour), cfg)
 
-				waitFor(t, 500*time.Millisecond, func() bool { return a.WhenNextSettlement().IsZero() })
+				waitFor(
+					t,
+					500*time.Millisecond,
+					func() bool { return a.WhenNextSettlement().IsZero() },
+				)
 				require.Equal(t, int32(0), calls.Load(),
 					"settle must not be called when wallet is locked at fire time")
 			},
@@ -125,7 +147,11 @@ func TestScheduleSettle(t *testing.T) {
 
 				a.scheduleSettle(ctx, time.Now().Add(-time.Hour), cfg)
 
-				waitFor(t, 500*time.Millisecond, func() bool { return a.WhenNextSettlement().IsZero() })
+				waitFor(
+					t,
+					500*time.Millisecond,
+					func() bool { return a.WhenNextSettlement().IsZero() },
+				)
 				require.Equal(t, int32(0), calls.Load(),
 					"settle must not be called after context cancellation")
 			},
