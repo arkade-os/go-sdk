@@ -24,6 +24,11 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	signingKeys, err := a.signingKeysByScript(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	// ensure asset-carrying receivers have at least dust sats as a carrier
 	clone := make([]clientTypes.Receiver, len(receivers))
 	copy(clone, receivers)
@@ -34,7 +39,12 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, clone, client.WithVtxos(vtxos))
+	res, err := a.ArkClient.SendOffChain(
+		ctx,
+		clone,
+		client.WithVtxos(vtxos),
+		client.WithKeys(signingKeys),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -56,7 +66,7 @@ func (a *arkClient) getSpendableVtxos(
 	if err != nil {
 		return nil, err
 	}
-	_, offchainAddrs, _, _, err := a.Wallet().GetAddresses(ctx)
+	_, offchainAddrs, _, _, err := a.ArkClient.GetAddresses(ctx)
 	if err != nil {
 		return nil, err
 	}

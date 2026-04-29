@@ -87,6 +87,81 @@ if err := client.Init(
 }
 ```
 
+#### Using the HD wallet
+
+The SDK also supports an HD wallet implementation backed by a mnemonic seed.
+
+```go
+import (
+    arksdk "github.com/arkade-os/go-sdk"
+    "github.com/arkade-os/go-sdk/wallet/hdwallet"
+)
+
+client, err := arksdk.NewArkClient("/path/to/data/dir")
+if err != nil {
+    return err
+}
+
+hdStore := hdwallet.NewStore(client.GetConfigStore())
+
+// Create a new HD wallet. Pass an empty seed to generate a new mnemonic.
+if err := client.Init(
+    ctx,
+    "localhost:7070",
+    "",
+    "your_password",
+    arksdk.WithHDWallet(hdStore),
+); err != nil {
+    return err
+}
+
+mnemonic, err := client.Dump(ctx)
+if err != nil {
+    return err
+}
+log.Printf("backup mnemonic: %s", mnemonic)
+```
+
+To restore an existing HD wallet, pass the mnemonic to `Init`:
+
+```go
+client, err := arksdk.LoadArkClient("/path/to/data/dir")
+if err != nil && !errors.Is(err, arksdk.ErrNotInitialized) {
+    return err
+}
+
+hdStore := hdwallet.NewConfigStoreBackend(client.GetConfigStore())
+if err := client.Init(
+    ctx,
+    "localhost:7070",
+    "abandon ...",
+    "your_password",
+    arksdk.WithHDWallet(hdStore),
+); err != nil {
+    return err
+}
+```
+
+After unlocking an HD wallet, wait for sync to complete before using balances or
+history. The SDK performs HD key discovery on unlock and restores any known
+offchain, boarding, redemption, and direct onchain state.
+
+```go
+if err := client.Unlock(ctx, "your_password"); err != nil {
+    return err
+}
+
+syncEvent := <-client.IsSynced(ctx)
+if syncEvent.Err != nil {
+    return syncEvent.Err
+}
+```
+
+The HD wallet differs from the built-in single-key wallet in one important way:
+each call to `NewOnchainAddress`, `NewBoardingAddress`, and
+`NewOffchainAddress` allocates a fresh derived key, so `GetAddresses()` returns
+the full discovered address set instead of a single stable address per family.
+
 ### 2. Client Configuration Options
 
 `Init` has the following signature:
@@ -96,11 +171,14 @@ Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) 
 ```
 
 - `serverUrl` — address of the Arkade server (e.g. `"localhost:7070"`).
-- `seed` — hex-encoded private key for wallet initialization or restoration.
+- `seed` — wallet secret used for initialization or restoration:
+  - hex-encoded private key for the built-in single-key wallet
+  - mnemonic seed phrase for the HD wallet
 - `password` — password used to encrypt and protect the wallet.
 - `opts` — optional functional options:
   - `WithExplorerURL(url string)` — override the default mempool explorer URL for the network.
   - `WithWallet(wallet wallet.WalletService)` — supply a custom wallet implementation instead of the built-in single-key wallet.
+  - `WithHDWallet(store hdwallet.Store)` — use the built-in HD wallet implementation backed by the provided config store.
 
 Note: Always keep your seed and password secure. Never share them or store them in plaintext.
 
