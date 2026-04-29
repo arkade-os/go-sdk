@@ -43,6 +43,19 @@ func WithVerbose() ClientOption {
 	}
 }
 
+// WithAutoSettle enables automatic settlement scheduling. When enabled, the SDK
+// will call Settle() automatically 2 × SessionDuration before the earliest
+// spendable VTXO expiry. Off by default; explicit opt-in required.
+//
+// The feature is a no-op when delegate addresses are in use (a warning is
+// logged when the loop starts).
+func WithAutoSettle() ClientOption {
+	return func(o *clientOptions) error {
+		o.autoSettle = true
+		return nil
+	}
+}
+
 func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 	o := newDefaultClientOptions()
 	for _, opt := range opts {
@@ -59,6 +72,13 @@ func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 type clientOptions struct {
 	refreshDbInterval time.Duration
 	verbose           bool
+	// autoSettle enables the auto-settlement scheduler. Off by default.
+	autoSettle bool
+	// delegateMode is a placeholder guard for the future delegate-address feature.
+	// Always false today; when true, the auto-settle loop becomes a no-op.
+	// No exported WithDelegateMode option exists yet — the field is structural so
+	// the guard wiring is in place when delegate support lands.
+	delegateMode bool
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.

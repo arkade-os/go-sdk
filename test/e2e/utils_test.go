@@ -51,6 +51,16 @@ func (b testStoreBackend) setupClient(t *testing.T) sdk.ArkClient {
 	return setupClientWithDatadir(t, b.datadir(t))
 }
 
+// setupClientWithOptions creates a client backed by this store with the given
+// extra ClientOptions applied (in addition to the default test setup).
+func (b testStoreBackend) setupClientWithOptions(
+	t *testing.T, opts ...sdk.ClientOption,
+) sdk.ArkClient {
+	t.Helper()
+
+	return setupClientWithDatadir(t, b.datadir(t), opts...)
+}
+
 func (b testStoreBackend) setupClientWithWallet(
 	t *testing.T, prvkey string,
 ) (sdk.ArkClient, wallet.WalletService, transport.TransportClient) {
@@ -74,10 +84,12 @@ func runForEachStoreBackend(t *testing.T, fn func(t *testing.T, backend testStor
 	}
 }
 
-func setupClientWithDatadir(t *testing.T, datadir string) sdk.ArkClient {
+func setupClientWithDatadir(
+	t *testing.T, datadir string, opts ...sdk.ClientOption,
+) sdk.ArkClient {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient(datadir)
+	arkClient, err := sdk.NewArkClient(datadir, opts...)
 	require.NoError(t, err)
 
 	privkey, err := btcec.NewPrivateKey()

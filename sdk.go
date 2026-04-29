@@ -78,6 +78,10 @@ type ArkClient interface {
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
+	// WhenNextSettlement returns the time at which the next automatic settlement
+	// is scheduled to fire. Returns the zero time.Time when auto-settle is
+	// disabled, no schedule is currently active, or the wallet is locked.
+	WhenNextSettlement() time.Time
 }
 
 type InitArgs struct {

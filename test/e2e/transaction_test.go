@@ -13,6 +13,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	sdk "github.com/arkade-os/go-sdk"
 	types "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -525,5 +526,112 @@ func TestOffchainTx(t *testing.T) {
 				return tx.TransactionKey.String() == txid
 			}))
 		})
+	})
+}
+
+// TestAutoSettle exercises the WithAutoSettle() opt-in end-to-end against a
+// live arkd. The VTXO expiry can be several minutes out, so the test first
+// asserts the computed schedule and then waits relative to that scheduled
+// fire time.
+func TestAutoSettle(t *testing.T) {
+	runForEachStoreBackend(t, func(t *testing.T, backend testStoreBackend) {
+		ctx := t.Context()
+
+		alice := backend.setupClientWithOptions(t, sdk.WithAutoSettle())
+
+		// Subscribe to vtxo events BEFORE faucet so we observe both the
+		// VtxosAdded (faucet) and the VtxoSettled / subsequent VtxosAdded
+		// (auto-settle) events on the same channel.
+		vtxoCh := alice.GetVtxoEventChannel(ctx)
+
+		// Sanity: WhenNextSettlement should be zero before any vtxos arrive.
+		require.True(t, alice.WhenNextSettlement().IsZero(),
+			"WhenNextSettlement should be zero before any vtxos exist")
+
+		// Fund alice with an offchain VTXO.
+		fundedVtxo := faucetOffchain(t, alice, 0.0001)
+		require.False(t, fundedVtxo.ExpiresAt.IsZero(),
+			"funded vtxo must have a non-zero ExpiresAt")
+
+		// Read SessionDuration from the server config.
+		cfg, err := alice.GetConfigData(ctx)
+		require.NoError(t, err)
+		require.Greater(t, cfg.SessionDuration, int64(0))
+		sessionDuration := time.Duration(cfg.SessionDuration) * time.Second
+
+		// Compute expected fire time using the same formula the SDK uses.
+		expectedFireAt := fundedVtxo.ExpiresAt.Add(-2 * sessionDuration)
+		require.Greater(t, time.Until(expectedFireAt), 5*time.Second,
+			"test arkd config must leave enough time to observe WhenNextSettlement")
+
+		// Poll WhenNextSettlement up to 5 seconds: the auto-settle loop
+		// schedules the timer asynchronously after the VtxosAdded event
+		// arrives, so the schedule may not be visible the instant the faucet
+		// returns.
+		var nextSettle time.Time
+		require.Eventually(t, func() bool {
+			nextSettle = alice.WhenNextSettlement()
+			return !nextSettle.IsZero()
+		}, 10*time.Second, 50*time.Millisecond,
+			"WhenNextSettlement was never set after faucet")
+
+		// The SQL store persists expiry timestamps at second precision. If the
+		// scheduler observes the initial DB scan instead of the event payload,
+		// allow that small truncation difference.
+		require.WithinDuration(t, expectedFireAt, nextSettle, time.Second,
+			"WhenNextSettlement does not match expected fireAt")
+
+		// Wait for the auto-settle to complete. We accept either VtxoSettled
+		// (the vtxo we just funded got settled) OR a subsequent VtxosAdded
+		// event whose vtxo's CommitmentTxids points back to a *different*
+		// commitment from the faucet — both indicate the round closed.
+		//
+		// The schedule is expiry-based, not sessionDuration-based. Wait until
+		// the actual scheduled fire time plus a small round-completion grace.
+		settleWait := time.Until(nextSettle) + 3*sessionDuration
+		if minWait := 3 * sessionDuration; settleWait < minWait {
+			settleWait = minWait
+		}
+		deadline := time.After(settleWait)
+		settled := false
+	WAIT:
+		for !settled {
+			select {
+			case event, ok := <-vtxoCh:
+				if !ok {
+					break WAIT
+				}
+				switch event.Type {
+				case types.VtxoSettled:
+					settled = true
+				case types.VtxosAdded:
+					// Fresh round output for alice with a new commitment txid.
+					for _, v := range event.Vtxos {
+						if v.Txid != fundedVtxo.Txid {
+							settled = true
+							break
+						}
+					}
+				}
+			case <-deadline:
+				t.Fatalf(
+					"auto-settle did not complete within %s "+
+						"(WhenNextSettlement was %s, %s ago)",
+					settleWait, nextSettle, time.Since(nextSettle),
+				)
+			}
+		}
+		require.True(t, settled, "auto-settle did not produce a settle/refresh event")
+
+		// After firing, WhenNextSettlement must reset to zero (until the
+		// next VtxosAdded re-arms it). Be tolerant of a brief race where
+		// the loop is racing the timer callback to clear the field.
+		require.Eventually(t, func() bool {
+			next := alice.WhenNextSettlement()
+			// Either zero (cleared post-fire) or a fresh schedule keyed off
+			// the new vtxo's ExpiresAt is acceptable.
+			return next.IsZero() || next.After(time.Now())
+		}, 5*time.Second, 50*time.Millisecond,
+			"post-settle nextSettleAt is in an unexpected state")
 	})
 }

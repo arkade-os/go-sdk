@@ -60,6 +60,8 @@ type arkClient struct {
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
+
+	autoSettlement autoSettlementInfo
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
@@ -117,6 +119,10 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		dbMu:              &sync.Mutex{},
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
+		autoSettlement: autoSettlementInfo{
+			enabled:      o.autoSettle,
+			delegateMode: o.delegateMode,
+		},
 	}
 
 	syncListeners := newReadyListeners()
@@ -207,6 +213,10 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		dbMu:              &sync.Mutex{},
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
+		autoSettlement: autoSettlementInfo{
+			enabled:      o.autoSettle,
+			delegateMode: o.delegateMode,
+		},
 	}
 
 	syncListeners := newReadyListeners()
@@ -280,6 +290,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 
 func (a *arkClient) Stop() {
 	a.stopOnce.Do(func() {
+		a.cancelPendingSettle()
 		a.ArkClient.Stop()
 		a.Explorer().Stop()
 
@@ -336,6 +347,19 @@ func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEven
 		return a.utxoBroadcaster.subscribe(0)
 	}
 	return nil
+}
+
+// WhenNextSettlement returns the time at which the next automatic settlement
+// is scheduled to fire. Returns the zero time.Time when auto-settle is
+// disabled, no schedule is currently active (e.g. wallet locked or no
+// spendable VTXOs), or when the previously scheduled timer has already fired
+// and no new schedule has been set yet.
+//
+// Safe to call concurrently from any goroutine.
+func (a *arkClient) WhenNextSettlement() time.Time {
+	a.autoSettlement.mu.Lock()
+	defer a.autoSettlement.mu.Unlock()
+	return a.autoSettlement.nextSettleAt
 }
 
 func (a *arkClient) setRestored(err error) {
