@@ -7,6 +7,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	log "github.com/sirupsen/logrus"
 )
 
 func (a *arkClient) SendOffChain(
@@ -102,6 +103,7 @@ func (a *arkClient) getSpendableVtxos(
 	for _, v := range eligible {
 		c, ok := contractsByScript[v.Script]
 		if !ok {
+			log.Debugf("skipping vtxo %s: no matching contract", v.Script)
 			continue
 		}
 		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
