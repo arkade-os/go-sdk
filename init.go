@@ -3,12 +3,15 @@ package arksdk
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
+	clientexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	electrum_explorer "github.com/arkade-os/go-sdk/explorer/electrum"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -46,15 +49,18 @@ func (a *arkClient) Init(
 	}
 
 	explorerUrl := initOpts.explorerUrl
-	if initOpts.explorerUrl == "" {
+	if explorerUrl == "" {
 		explorerUrl = defaultExplorerUrl[info.Network]
 	}
-	explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
+	var pollInterval time.Duration
 	if info.Network == arklib.BitcoinRegTest.Name {
-		explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
+		pollInterval = 2 * time.Second
 	}
-	explorer, err := mempool_explorer.NewExplorer(
-		explorerUrl, networkFromString(info.Network), explorerOpts...,
+	explorerSvc, err := newExplorer(
+		explorerUrl,
+		networkFromString(info.Network),
+		true,
+		pollInterval,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to init explorer: %v", err)
@@ -64,7 +70,7 @@ func (a *arkClient) Init(
 		ServerUrl: serverUrl,
 		Seed:      seed,
 		Password:  password,
-		Explorer:  explorer,
+		Explorer:  explorerSvc,
 	})
 }
 
@@ -151,4 +157,22 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		a.syncListeners.clear()
 	}
 	return nil
+}
+
+// newExplorer creates either an ElectrumX or mempool.space Explorer depending
+// on the URL scheme. URLs starting with "tcp://" or "ssl://" use ElectrumX;
+// all others use the mempool.space REST/WebSocket implementation.
+func newExplorer(
+	url string, net arklib.Network, tracker bool, pollInterval time.Duration,
+) (clientexplorer.Explorer, error) {
+	if strings.HasPrefix(url, "tcp://") || strings.HasPrefix(url, "ssl://") {
+		return electrum_explorer.NewExplorer(
+			url, net, electrum_explorer.WithTracker(tracker),
+		)
+	}
+	opts := []mempool_explorer.Option{mempool_explorer.WithTracker(tracker)}
+	if pollInterval > 0 {
+		opts = append(opts, mempool_explorer.WithPollInterval(pollInterval))
+	}
+	return mempool_explorer.NewExplorer(url, net, opts...)
 }

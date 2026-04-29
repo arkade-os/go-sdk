@@ -19,7 +19,6 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
-	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -188,13 +187,11 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		if len(explorerUrl) == 0 {
 			explorerUrl = defaultExplorerUrl[cfgData.Network.Name]
 		}
-		explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
+		var pollInterval time.Duration
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
-			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
+			pollInterval = 2 * time.Second
 		}
-		explorerSvc, err = mempool_explorer.NewExplorer(
-			explorerUrl, cfgData.Network, explorerOpts...,
-		)
+		explorerSvc, err = newExplorer(explorerUrl, cfgData.Network, true, pollInterval)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init explorer: %v", err)
 		}

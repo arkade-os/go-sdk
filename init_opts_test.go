@@ -20,6 +20,16 @@ func TestInitOptions(t *testing.T) {
 				name: "WithExplorerURL",
 				opts: []arksdk.InitOption{arksdk.WithExplorerURL("https://example.com")},
 			},
+			{
+				name: "WithElectrumExplorer tcp",
+				opts: []arksdk.InitOption{arksdk.WithElectrumExplorer("tcp://127.0.0.1:50001")},
+			},
+			{
+				name: "WithElectrumExplorer ssl",
+				opts: []arksdk.InitOption{
+					arksdk.WithElectrumExplorer("ssl://electrum.example.com:50002"),
+				},
+			},
 		}
 
 		for _, f := range fixtures {
@@ -51,6 +61,26 @@ func TestInitOptions(t *testing.T) {
 				opts: []arksdk.InitOption{
 					arksdk.WithExplorerURL("https://example.com"),
 					arksdk.WithExplorerURL("https://example.com"),
+				},
+				wantErrContains: "explorer url already set",
+			},
+			{
+				name:            "WithElectrumExplorer empty string",
+				opts:            []arksdk.InitOption{arksdk.WithElectrumExplorer("")},
+				wantErrContains: "electrum server url cannot be empty",
+			},
+			{
+				name: "WithElectrumExplorer bad scheme",
+				opts: []arksdk.InitOption{
+					arksdk.WithElectrumExplorer("http://example.com"),
+				},
+				wantErrContains: "must start with tcp:// or ssl://",
+			},
+			{
+				name: "WithElectrumExplorer conflicts with WithExplorerURL",
+				opts: []arksdk.InitOption{
+					arksdk.WithExplorerURL("https://example.com"),
+					arksdk.WithElectrumExplorer("tcp://127.0.0.1:50001"),
 				},
 				wantErrContains: "explorer url already set",
 			},

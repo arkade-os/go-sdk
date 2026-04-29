@@ -70,10 +70,26 @@ if err := client.Init(ctx, "localhost:7070", "your_seed", "your_password"); err 
     return fmt.Errorf("failed to restore wallet: %s", err)
 }
 
-// Custom explorer URL.
+// Custom mempool.space-compatible explorer URL.
 if err := client.Init(
     ctx, "localhost:7070", "your_seed", "your_password",
     arksdk.WithExplorerURL("https://example.com"),
+); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
+}
+
+// Use a self-hosted ElectrumX server (plaintext TCP or TLS).
+if err := client.Init(
+    ctx, "localhost:7070", "your_seed", "your_password",
+    arksdk.WithElectrumExplorer("ssl://electrum.example.com:50002"),
+); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
+}
+
+// ElectrumX over local plaintext TCP (useful for regtest).
+if err := client.Init(
+    ctx, "localhost:7070", "your_seed", "your_password",
+    arksdk.WithElectrumExplorer("tcp://127.0.0.1:50001"),
 ); err != nil {
     return fmt.Errorf("failed to initialize wallet: %s", err)
 }
@@ -177,6 +193,7 @@ Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) 
 - `password` — password used to encrypt and protect the wallet.
 - `opts` — optional functional options:
   - `WithExplorerURL(url string)` — override the default mempool explorer URL for the network.
+  - `WithElectrumExplorer(serverURL string)` — use an ElectrumX server instead of mempool.space. The URL must start with `tcp://` (plaintext) or `ssl://` (TLS). Mutually exclusive with `WithExplorerURL`.
   - `WithWallet(wallet wallet.WalletService)` — supply a custom wallet implementation instead of the built-in single-key wallet.
   - `WithHDWallet(store hdwallet.Store)` — use the built-in HD wallet implementation backed by the provided config store.
 
