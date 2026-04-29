@@ -101,6 +101,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	a.stopFn = cancel
 
+	a.goroutineWg.Add(4)
 	go func() {
 		a.Explorer().Start()
 
@@ -136,6 +137,7 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	if a.stopFn != nil {
 		a.stopFn()
+		a.goroutineWg.Wait()
 	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))

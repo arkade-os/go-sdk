@@ -51,6 +51,7 @@ type arkClient struct {
 	syncErr           error
 	syncListeners     *syncListeners
 	stopFn            context.CancelFunc
+	goroutineWg       sync.WaitGroup
 	stopOnce          sync.Once
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
@@ -267,6 +268,7 @@ func (a *arkClient) Reset(ctx context.Context) {
 
 	if a.stopFn != nil {
 		a.stopFn()
+		a.goroutineWg.Wait()
 	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
@@ -290,6 +292,7 @@ func (a *arkClient) Stop() {
 
 		if a.stopFn != nil {
 			a.stopFn()
+			a.goroutineWg.Wait()
 		}
 		if a.syncListeners != nil {
 			a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
@@ -697,6 +700,7 @@ func groupSpentVtxosByTx(
 }
 
 func (a *arkClient) listenForArkTxs(ctx context.Context) {
+	defer a.goroutineWg.Done()
 	wallet := a.Wallet()
 	if wallet == nil {
 		// Should be unreachable
@@ -778,6 +782,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 }
 
 func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
+	defer a.goroutineWg.Done()
 	wallet := a.Wallet()
 	if wallet == nil {
 		// Should be unreachable
@@ -1081,6 +1086,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 }
 
 func (a *arkClient) listenDbEvents(ctx context.Context) {
+	defer a.goroutineWg.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -1139,6 +1145,7 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 }
 
 func (a *arkClient) periodicRefreshDb(ctx context.Context) {
+	defer a.goroutineWg.Done()
 	if a.refreshDbInterval == 0 {
 		return
 	}
