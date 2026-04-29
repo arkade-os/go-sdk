@@ -78,12 +78,12 @@ func TestSave(t *testing.T) {
 						wantErrContains: "missing wallet type",
 					},
 					{
-						name: "missing encrypted master key",
+						name: "missing encrypted extended key",
 						state: walletstore.State{
 							WalletType:        hdwallet.Type,
 							EncryptedMnemonic: "encryptedMnemonic",
 						},
-						wantErrContains: "missing encrypted master key",
+						wantErrContains: "missing encrypted extended key",
 					},
 					{
 						name: "missing encrypted mnemonic",
