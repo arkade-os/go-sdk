@@ -18,12 +18,8 @@ github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8
 github.com/antlr4-go/antlr/v4 v4.13.0/go.mod h1:pfChB/xh/Unjila75QW7+VU4TSnWnnk9UTnmpPaOR2g=
 github.com/arkade-os/arkd/api-spec v0.0.0-20260323091657-eeb0baef6937 h1:010LTrhQYsGDSA2aE8CoCrOpcZFs1JQ5wPrBomtsfOw=
 github.com/arkade-os/arkd/api-spec v0.0.0-20260323091657-eeb0baef6937/go.mod h1:2+6ix1UGGE22Q/rbab1dycFPPKiTyq0gldKVqVfFPWs=
-github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260428151554-6dd2b4e8d427 h1:EVY59j+2tqzu2xsiY4OCG9fBjS41n3GC+j37XyZnhgk=
-github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260428151554-6dd2b4e8d427/go.mod h1:gYJkHBV9B9OkSgANCvyST24HTlZ0tSmr1mZSsj+jGAc=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260429091057-9246f043c4c8 h1:xSPC2XjahDKKMgY1b+Fe3zs16eTkP6BDV6yAKHyjvdc=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260429091057-9246f043c4c8/go.mod h1:gYJkHBV9B9OkSgANCvyST24HTlZ0tSmr1mZSsj+jGAc=
-github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260428151554-6dd2b4e8d427 h1:ge/P4tU/ti1w/5QmyfPzGGNGjTajJzaAUWY4p07T76k=
-github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260428151554-6dd2b4e8d427/go.mod h1:gSMZ490WXBijQBWUdbaxMKUl7l5sUH0xarOFn6UFqQw=
 github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260429091057-9246f043c4c8 h1:BeS30B8R1dM0m2xVX/UttTpt3vQuCuTgjUxHMlVvDqY=
 github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260429091057-9246f043c4c8/go.mod h1:gSMZ490WXBijQBWUdbaxMKUl7l5sUH0xarOFn6UFqQw=
 github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea h1:x9ZwZL+F2b9E0uBZYBVjCLGtlqIE4zahDOY4C89h3X4=
