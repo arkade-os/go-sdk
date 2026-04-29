@@ -176,9 +176,9 @@ func TestUnlock(t *testing.T) {
 				setup: func(t *testing.T) wallet.WalletService {
 					store := inmemorywalletstore.NewStore()
 					require.NoError(t, store.Save(t.Context(), walletstore.State{
-						WalletType:         "lnd",
-						EncryptedMasterKey: "deadbeef",
-						EncryptedMnemonic:  "deadbeef",
+						WalletType:           "lnd",
+						EncryptedExtendedKey: "deadbeef",
+						EncryptedMnemonic:    "deadbeef",
 					}))
 					return newTestHDWalletService(t, store)
 				},

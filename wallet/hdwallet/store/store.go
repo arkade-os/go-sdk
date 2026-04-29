@@ -4,10 +4,10 @@ import "context"
 
 // State holds the persisted state of an HD wallet.
 type State struct {
-	WalletType         string `json:"wallet_type"`
-	EncryptedMasterKey string `json:"encrypted_master_key"`
-	EncryptedMnemonic  string `json:"encrypted_mnemonic"`
-	NextIndex          uint32 `json:"next_index"`
+	WalletType           string `json:"wallet_type"`
+	EncryptedExtendedKey string `json:"encrypted_extended_key"`
+	EncryptedMnemonic    string `json:"encrypted_mnemonic"`
+	NextIndex            uint32 `json:"next_index"`
 }
 
 // Store is the persistence interface for HD wallet state.

@@ -95,14 +95,14 @@ func (w *service) Create(
 	}
 	defer zeroBytes(masterSeed)
 
-	masterKey, err := hdkeychain.NewMaster(masterSeed, &network)
+	extendedKey, err := hdkeychain.NewMaster(masterSeed, &network)
 	if err != nil {
 		return "", fmt.Errorf("failed to create master key: %w", err)
 	}
 
 	rootPath := getBIP86RootPath(network)
 	for _, step := range rootPath {
-		masterKey, err = masterKey.Derive(step)
+		extendedKey, err = extendedKey.Derive(step)
 		if err != nil {
 			return "", fmt.Errorf("failed to derive key: %w", err)
 		}
@@ -111,10 +111,10 @@ func (w *service) Create(
 	// Encrypt master key (xpriv string)
 	pwd := []byte(password)
 
-	xpriv := masterKey.String()
+	xpriv := extendedKey.String()
 	encryptedKey, err := encryptAES256([]byte(xpriv), pwd)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt master key: %w", err)
+		return "", fmt.Errorf("failed to encrypt xpriv: %w", err)
 	}
 
 	encryptedMnemonic, err := encryptAES256([]byte(mnemonic), pwd)
@@ -124,9 +124,9 @@ func (w *service) Create(
 
 	// Store encrypted data
 	state := walletstore.State{
-		WalletType:         Type,
-		EncryptedMasterKey: hex.EncodeToString(encryptedKey),
-		EncryptedMnemonic:  hex.EncodeToString(encryptedMnemonic),
+		WalletType:           Type,
+		EncryptedExtendedKey: hex.EncodeToString(encryptedKey),
+		EncryptedMnemonic:    hex.EncodeToString(encryptedMnemonic),
 	}
 
 	if err := w.store.Save(ctx, state); err != nil {
@@ -192,24 +192,24 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 		return false, fmt.Errorf("failed to decrypt mnemonic: %w", err)
 	}
 
-	// Decrypt master key
-	encryptedMasterKey, err := hex.DecodeString(state.EncryptedMasterKey)
+	// Decrypt xpriv
+	encryptedXpriv, err := hex.DecodeString(state.EncryptedExtendedKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to decode master key: %w", err)
+		return false, fmt.Errorf("failed to decode xpriv: %w", err)
 	}
 
-	xpriv, err := decryptAES256(encryptedMasterKey, pwd)
+	xpriv, err := decryptAES256(encryptedXpriv, pwd)
 	if err != nil {
-		return false, fmt.Errorf("failed to decrypt master key: %w", err)
+		return false, fmt.Errorf("failed to decrypt xpriv: %w", err)
 	}
 
-	masterKey, err := hdkeychain.NewKeyFromString(string(xpriv))
+	extendedKey, err := hdkeychain.NewKeyFromString(string(xpriv))
 	if err != nil {
-		return false, fmt.Errorf("failed to parse master key: %w", err)
+		return false, fmt.Errorf("failed to parse xpriv: %w", err)
 	}
 
 	// Load and restore
-	keyProvider := newHDKeyService(masterKey)
+	keyProvider := newHDKeyService(extendedKey)
 	restored := state.NextIndex > 0
 	if restored {
 		if err := keyProvider.LoadState(*state); err != nil {

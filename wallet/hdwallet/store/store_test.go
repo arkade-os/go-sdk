@@ -15,10 +15,10 @@ var (
 	storeImpls = []string{types.InMemoryStore, types.FileStore}
 
 	validState = walletstore.State{
-		WalletType:         hdwallet.Type,
-		EncryptedMnemonic:  "encryptedMnemonic",
-		EncryptedMasterKey: "encryptedMasterKey",
-		NextIndex:          15,
+		WalletType:           hdwallet.Type,
+		EncryptedMnemonic:    "encryptedMnemonic",
+		EncryptedExtendedKey: "encryptedXPriv",
+		NextIndex:            15,
 	}
 )
 
@@ -72,8 +72,8 @@ func TestSave(t *testing.T) {
 					{
 						name: "missing wallet type",
 						state: walletstore.State{
-							EncryptedMasterKey: "encryptedMasterKey",
-							EncryptedMnemonic:  "encryptedMnemonic",
+							EncryptedExtendedKey: "encryptedXPriv",
+							EncryptedMnemonic:    "encryptedMnemonic",
 						},
 						wantErrContains: "missing wallet type",
 					},
@@ -88,8 +88,8 @@ func TestSave(t *testing.T) {
 					{
 						name: "missing encrypted mnemonic",
 						state: walletstore.State{
-							WalletType:         hdwallet.Type,
-							EncryptedMasterKey: "encryptedMasterKey",
+							WalletType:           hdwallet.Type,
+							EncryptedExtendedKey: "encryptedXPriv",
 						},
 						wantErrContains: "missing encrypted mnemonic",
 					},
