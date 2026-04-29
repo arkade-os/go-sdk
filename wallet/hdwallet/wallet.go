@@ -302,7 +302,9 @@ func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	keys := w.keyProvider.GetAllKeyRefs()
 
 	sort.SliceStable(keys, func(i, j int) bool {
-		return keys[i].Id < keys[j].Id
+		pi, _ := parseDerivationIndex(keys[i].Id)
+		pj, _ := parseDerivationIndex(keys[j].Id)
+		return pi[1] < pj[1]
 	})
 
 	return keys, nil
