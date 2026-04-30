@@ -499,15 +499,15 @@ func TestRequestTimeout(t *testing.T) {
 // server causes the client to reconnect, not silently stop. This covers the case
 // where an ElectrumX server restarts gracefully.
 func TestCleanEOFTriggersReconnect(t *testing.T) {
-	connectCount := 0
+	var connectCount atomic.Int32
 	reconnectCh := make(chan struct{}, 1)
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
 		switch reqMethod(req) {
 		case "server.version":
-			connectCount++
+			n := connectCount.Add(1)
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
-			if connectCount == 1 {
+			if n == 1 {
 				// Close the connection cleanly after the first handshake.
 				conn.Close() // nolint
 			} else {
