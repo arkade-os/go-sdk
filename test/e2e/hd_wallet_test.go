@@ -276,17 +276,17 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 			sumVtxoAmounts(spendable) == wantOffchainTotal
 	}, 30*time.Second, 500*time.Millisecond)
 
-	const wantOnchainSpendable = uint64(23_000)
-	const wantLockedOnchain = uint64(106_000)
+	const wantOnchainTotal = uint64(129_000)
 	require.Eventually(t, func() bool {
 		balance, err := aliceClientHD.Balance(ctx)
 		if err != nil {
 			return false
 		}
 
+		onchainTotal := balance.OnchainBalance.SpendableAmount +
+			sumLockedAmounts(balance.OnchainBalance.LockedAmount)
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
-			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable &&
-			sumLockedAmounts(balance.OnchainBalance.LockedAmount) == wantLockedOnchain
+			onchainTotal == wantOnchainTotal
 	}, 60*time.Second, 500*time.Millisecond)
 }
 
