@@ -34,6 +34,7 @@ import (
 )
 
 type addressState struct {
+	mu         sync.Mutex // serializes concurrent pollAddress calls for this address
 	scripthash string
 	utxos      []electrumUTXO
 	// notifCh is the channel returned by client.subscribe(); nil when noTracking.
@@ -49,7 +50,11 @@ type explorerSvc struct {
 	pollInterval time.Duration
 
 	subscribedMu  sync.RWMutex
-	subscribedMap map[string]addressState // address → state
+	subscribedMap map[string]*addressState // address → state
+
+	// notifWg tracks the per-address goroutines spawned in SubscribeForAddresses.
+	// Stop() waits on this before returning to ensure no goroutine outlives the svc.
+	notifWg sync.WaitGroup
 
 	// reverse lookup: scripthash → address
 	scripthashToAddr   map[string]string
@@ -78,7 +83,7 @@ func NewExplorer(serverURL string, net arklib.Network, opts ...Option) (explorer
 		netParams:        networkToChainParams(net),
 		noTracking:       true, // default off; WithTracker(true) enables
 		pollInterval:     10 * time.Second,
-		subscribedMap:    make(map[string]addressState),
+		subscribedMap:    make(map[string]*addressState),
 		scripthashToAddr: make(map[string]string),
 		cache:            make(map[string]string),
 	}
@@ -132,15 +137,22 @@ func (e *explorerSvc) Stop() {
 		e.stopTracking()
 		e.stopTracking = nil
 	}
-	e.client.close()
+	e.client.shutdown()
+
+	// Close all per-address notification channels so that the goroutines spawned
+	// in SubscribeForAddresses exit and notifWg can complete.
+	e.subscribedMu.Lock()
+	for _, state := range e.subscribedMap {
+		e.client.unsubscribeLocal(state.scripthash)
+	}
+	e.subscribedMap = make(map[string]*addressState)
+	e.subscribedMu.Unlock()
+
+	e.notifWg.Wait()
 
 	if e.listeners != nil {
 		e.listeners.clear()
 	}
-
-	e.subscribedMu.Lock()
-	e.subscribedMap = make(map[string]addressState)
-	e.subscribedMu.Unlock()
 
 	e.scripthashToAddrMu.Lock()
 	e.scripthashToAddr = make(map[string]string)
@@ -473,7 +485,8 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			e.client.unsubscribeLocal(sh)
 			continue
 		}
-		e.subscribedMap[addr] = addressState{scripthash: sh, utxos: initialUTXOs, notifCh: notifCh}
+		state := &addressState{scripthash: sh, utxos: initialUTXOs, notifCh: notifCh}
+		e.subscribedMap[addr] = state
 		e.subscribedMu.Unlock()
 
 		e.scripthashToAddrMu.Lock()
@@ -482,7 +495,9 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 
 		// When ElectrumX pushes a notification for this scripthash, immediately poll
 		// the address rather than waiting for the next ticker cycle.
+		e.notifWg.Add(1)
 		go func(addr, sh string, notifCh <-chan string) {
+			defer e.notifWg.Done()
 			for range notifCh {
 				e.pollAddress(addr, sh)
 			}
@@ -547,6 +562,12 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 	if !ok {
 		return
 	}
+
+	// Serialize concurrent polls for the same address so that two goroutines
+	// cannot both read state.utxos, independently decide there is a diff, and
+	// then each broadcast a partial or duplicated event.
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
 	newUTXOs, err := e.listUnspent(scripthash)
 	if err != nil {
@@ -613,12 +634,7 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 		}
 	}
 
-	e.subscribedMu.Lock()
-	if s, ok := e.subscribedMap[addr]; ok {
-		s.utxos = newUTXOs
-		e.subscribedMap[addr] = s
-	}
-	e.subscribedMu.Unlock()
+	state.utxos = newUTXOs
 
 	go e.listeners.broadcast(event)
 }

@@ -87,7 +87,7 @@ func (c *electrumClient) connect() error {
 	go c.keepAlive(cycleCtx)
 
 	if err := c.handshake(); err != nil {
-		c.close() // cancels c.ctx → cancels cycleCtx → listen exits without reconnecting
+		c.close() // cancels cycleCtx → listen exits without reconnecting
 		return err
 	}
 	return nil
@@ -138,8 +138,9 @@ func (c *electrumClient) newCycleCtx() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
+// close cancels the current connection cycle and drains pending requests, but
+// does NOT cancel the root context. Use shutdown() for a terminal teardown.
 func (c *electrumClient) close() {
-	c.cancel()
 	c.cycleMu.Lock()
 	if c.cycleCancel != nil {
 		c.cycleCancel()
@@ -156,6 +157,13 @@ func (c *electrumClient) close() {
 		delete(c.pending, id)
 	}
 	c.pendMu.Unlock()
+}
+
+// shutdown permanently tears down the client by cancelling the root context
+// and then closing the current connection cycle.
+func (c *electrumClient) shutdown() {
+	c.cancel()
+	c.close()
 }
 
 // listen reads newline-delimited JSON frames and dispatches them.
@@ -214,13 +222,13 @@ func (c *electrumClient) listen(ctx context.Context) {
 			json.Unmarshal(notif.Params[1], &status)
 			c.subsMu.RLock()
 			ch, ok := c.subs[scripthash]
-			c.subsMu.RUnlock()
 			if ok {
 				select {
 				case ch <- status:
 				default:
 				}
 			}
+			c.subsMu.RUnlock()
 		}
 	}
 
