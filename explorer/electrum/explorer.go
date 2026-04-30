@@ -59,8 +59,10 @@ type explorerSvc struct {
 	listeners    *listeners
 
 	cacheMu sync.RWMutex
-	cache   map[string]string // txid → hex
+	cache   map[string]string // txid → hex; bounded to txCacheMaxSize entries
 }
+
+const txCacheMaxSize = 1024
 
 // NewExplorer creates a new ElectrumX-backed Explorer.
 // serverURL must begin with "tcp://" or "ssl://".
@@ -107,8 +109,12 @@ func networkToChainParams(net arklib.Network) *chaincfg.Params {
 
 func (e *explorerSvc) Start() {
 	if err := e.client.connect(); err != nil {
-		log.WithError(err).Error("electrum explorer: failed to connect")
-		return
+		log.WithError(err).Warn("electrum explorer: initial connect failed, retrying in background")
+		go func() {
+			if err := e.client.reconnect(); err != nil {
+				log.WithError(err).Error("electrum explorer: background reconnect failed")
+			}
+		}()
 	}
 
 	if e.noTracking || e.stopTracking != nil {
@@ -189,10 +195,22 @@ func (e *explorerSvc) GetTxHex(txid string) (string, error) {
 	if err := json.Unmarshal(result, &txHex); err != nil {
 		return "", err
 	}
-	e.cacheMu.Lock()
-	e.cache[txid] = txHex
-	e.cacheMu.Unlock()
+	e.setCacheTx(txid, txHex)
 	return txHex, nil
+}
+
+// setCacheTx stores a txid→hex mapping, evicting a random entry if the cache
+// is at capacity to keep memory bounded.
+func (e *explorerSvc) setCacheTx(txid, hex string) {
+	e.cacheMu.Lock()
+	defer e.cacheMu.Unlock()
+	if _, exists := e.cache[txid]; !exists && len(e.cache) >= txCacheMaxSize {
+		for k := range e.cache {
+			delete(e.cache, k)
+			break
+		}
+	}
+	e.cache[txid] = hex
 }
 
 // Broadcast broadcasts one or more raw transactions sequentially.
@@ -207,9 +225,6 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("tx %d: %w", i, err)
 		}
-		e.cacheMu.Lock()
-		e.cache[txid] = txHex
-		e.cacheMu.Unlock()
 
 		result, err := e.client.request("blockchain.transaction.broadcast", []any{txHex})
 		if err != nil {
@@ -217,6 +232,8 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 				strings.ToLower(err.Error()),
 				"transaction already in block chain",
 			) {
+				// Tx is confirmed on-chain; safe to cache.
+				e.setCacheTx(txid, txHex)
 				if i == 0 {
 					firstTxid = txid
 				}
@@ -224,6 +241,9 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 			}
 			return "", err
 		}
+		// Cache only after a successful broadcast to avoid false positives on failure.
+		e.setCacheTx(txid, txHex)
+
 		var returnedTxid string
 		// nolint
 		json.Unmarshal(result, &returnedTxid)
@@ -286,14 +306,19 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error
 		}
 		sh, err := scriptToScripthash(out.ScriptPubKey.Hex)
 		if err != nil {
+			log.WithError(err).
+				Debugf("electrum: scriptToScripthash failed for output %d of %s (script %s)", i, txid, out.ScriptPubKey.Hex)
 			continue
 		}
 		histResult, err := e.client.request("blockchain.scripthash.get_history", []any{sh})
 		if err != nil {
+			log.WithError(err).Debugf("electrum: get_history failed for output %d of %s", i, txid)
 			continue
 		}
 		var history []electrumHistoryEntry
 		if err := json.Unmarshal(histResult, &history); err != nil {
+			log.WithError(err).
+				Debugf("electrum: unmarshal history failed for output %d of %s", i, txid)
 			continue
 		}
 		for _, entry := range history {
@@ -442,6 +467,12 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		}
 
 		e.subscribedMu.Lock()
+		if _, already := e.subscribedMap[addr]; already {
+			// Another concurrent caller subscribed this address between our check and now.
+			e.subscribedMu.Unlock()
+			e.client.unsubscribeLocal(sh)
+			continue
+		}
 		e.subscribedMap[addr] = addressState{scripthash: sh, utxos: initialUTXOs, notifCh: notifCh}
 		e.subscribedMu.Unlock()
 
@@ -526,7 +557,11 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 		return
 	}
 
-	script, _ := addrToScript(addr, e.netParams)
+	script, err := addrToScript(addr, e.netParams)
+	if err != nil {
+		log.WithError(err).Errorf("electrum: failed to derive script for %s", addr)
+		return
+	}
 	event, changed := diffUTXOs(state.utxos, newUTXOs, script)
 	if !changed {
 		return

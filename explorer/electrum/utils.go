@@ -77,11 +77,11 @@ func parseBitcoinTx(txStr string) (string, string, error) {
 		if err2 := tx.DeserializeNoWitness(hex.NewDecoder(strings.NewReader(txStr))); err2 != nil {
 			ptx, err3 := psbt.NewFromRawBytes(strings.NewReader(txStr), true)
 			if err3 != nil {
-				return "", "", err
+				return "", "", err3
 			}
 			txFromPartial, err3 := psbt.Extract(ptx)
 			if err3 != nil {
-				return "", "", err
+				return "", "", err3
 			}
 			tx = *txFromPartial
 		}
@@ -142,6 +142,9 @@ func (l *listeners) remove(chs []chan types.OnchainAddressEvent) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, ch := range chs {
+		if _, ok := l.listeners[ch]; !ok {
+			continue
+		}
 		close(ch)
 		delete(l.listeners, ch)
 	}

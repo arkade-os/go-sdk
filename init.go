@@ -166,9 +166,11 @@ func newExplorer(
 	url string, net arklib.Network, tracker bool, pollInterval time.Duration,
 ) (clientexplorer.Explorer, error) {
 	if strings.HasPrefix(url, "tcp://") || strings.HasPrefix(url, "ssl://") {
-		return electrum_explorer.NewExplorer(
-			url, net, electrum_explorer.WithTracker(tracker),
-		)
+		opts := []electrum_explorer.Option{electrum_explorer.WithTracker(tracker)}
+		if pollInterval > 0 {
+			opts = append(opts, electrum_explorer.WithPollInterval(pollInterval))
+		}
+		return electrum_explorer.NewExplorer(url, net, opts...)
 	}
 	opts := []mempool_explorer.Option{mempool_explorer.WithTracker(tracker)}
 	if pollInterval > 0 {

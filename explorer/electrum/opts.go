@@ -1,6 +1,9 @@
 package electrum_explorer
 
-import "time"
+import (
+	"crypto/tls"
+	"time"
+)
 
 // Option is a functional option for configuring the ElectrumX Explorer.
 type Option func(*explorerSvc)
@@ -19,5 +22,15 @@ func WithPollInterval(interval time.Duration) Option {
 func WithTracker(withTracker bool) Option {
 	return func(svc *explorerSvc) {
 		svc.noTracking = !withTracker
+	}
+}
+
+// WithTLSConfig sets a custom TLS configuration for ssl:// connections.
+// Use this to supply a self-signed CA certificate or to disable certificate
+// verification when connecting to a self-hosted ElectrumX server.
+// If not set, the default system roots are used with TLS 1.2 as the minimum version.
+func WithTLSConfig(cfg *tls.Config) Option {
+	return func(svc *explorerSvc) {
+		svc.client.tlsConfig = cfg
 	}
 }

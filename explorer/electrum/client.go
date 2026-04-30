@@ -21,13 +21,17 @@ const (
 	keepAliveInterval  = 60 * time.Second
 	reconnectBaseDelay = 5 * time.Second
 	reconnectMaxDelay  = 60 * time.Second
+	maxScannerBytes    = 1 << 20 // 1 MB — large enough for verbose txs
 )
 
 type electrumClient struct {
 	serverURL string
+	tlsConfig *tls.Config // nil = default TLS config (system roots, TLS 1.2+)
 
 	conn   net.Conn
-	connMu sync.RWMutex
+	connMu sync.RWMutex // protects c.conn pointer only
+
+	writeMu sync.Mutex // serializes all conn.Write calls so frames don't interleave
 
 	reqID   atomic.Uint64
 	pending map[uint64]chan *jsonRPCResponse
@@ -39,13 +43,22 @@ type electrumClient struct {
 	subsMu sync.RWMutex
 
 	// storedSubs is replayed in full on every reconnect.
-	storedSubs []string
-	subsMu2    sync.Mutex // protects storedSubs
+	// storedSubsMu is kept separate from subsMu because subscribe() must not
+	// hold either lock while doing the blocking RPC call, so the two maps are
+	// updated independently under their own locks.
+	storedSubs   []string
+	storedSubsMu sync.Mutex
 
 	reconnectMu sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// cycleMu/cycleCancel track the current listen+keepAlive goroutine pair.
+	// Cancelling the cycle context signals both goroutines to stop before a new
+	// pair is started, preventing accumulation across reconnects.
+	cycleMu     sync.Mutex
+	cycleCancel context.CancelFunc
 }
 
 func newElectrumClient(serverURL string) *electrumClient {
@@ -68,11 +81,13 @@ func (c *electrumClient) connect() error {
 	}
 	c.setConn(conn)
 
-	go c.listen()
-	go c.keepAlive()
+	// listen must start before handshake so responses can be dispatched.
+	cycleCtx, _ := c.newCycleCtx()
+	go c.listen(cycleCtx)
+	go c.keepAlive(cycleCtx)
 
 	if err := c.handshake(); err != nil {
-		c.close()
+		c.close() // cancels c.ctx → cancels cycleCtx → listen exits without reconnecting
 		return err
 	}
 	return nil
@@ -81,9 +96,13 @@ func (c *electrumClient) connect() error {
 func (c *electrumClient) dial() (net.Conn, error) {
 	addr := strings.TrimPrefix(strings.TrimPrefix(c.serverURL, "tcp://"), "ssl://")
 	if strings.HasPrefix(c.serverURL, "ssl://") {
+		tlsCfg := c.tlsConfig
+		if tlsCfg == nil {
+			tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
+		}
 		return tls.DialWithDialer(
 			&net.Dialer{Timeout: 10 * time.Second},
-			"tcp", addr, &tls.Config{MinVersion: tls.VersionTLS12},
+			"tcp", addr, tlsCfg,
 		)
 	}
 	return net.DialTimeout("tcp", addr, 10*time.Second)
@@ -106,8 +125,28 @@ func (c *electrumClient) getConn() net.Conn {
 	return c.conn
 }
 
+// newCycleCtx cancels the previous keepAlive goroutine and returns a fresh
+// child context (and its cancel) for the new listen+keepAlive cycle.
+func (c *electrumClient) newCycleCtx() (context.Context, context.CancelFunc) {
+	c.cycleMu.Lock()
+	defer c.cycleMu.Unlock()
+	if c.cycleCancel != nil {
+		c.cycleCancel()
+	}
+	ctx, cancel := context.WithCancel(c.ctx)
+	c.cycleCancel = cancel
+	return ctx, cancel
+}
+
 func (c *electrumClient) close() {
 	c.cancel()
+	c.cycleMu.Lock()
+	if c.cycleCancel != nil {
+		c.cycleCancel()
+		c.cycleCancel = nil
+	}
+	c.cycleMu.Unlock()
+
 	if conn := c.getConn(); conn != nil {
 		conn.Close() // nolint
 	}
@@ -121,10 +160,13 @@ func (c *electrumClient) close() {
 
 // listen reads newline-delimited JSON frames and dispatches them.
 // Responses (have "id") go to the pending map; notifications (have "method") go to subs.
-// On connection error it calls reconnect unless the context is cancelled.
-func (c *electrumClient) listen() {
+// On any scanner exit — including a clean EOF from a server restart — it calls
+// reconnect unless ctx is cancelled (which signals that reconnect() already owns
+// the recovery, e.g. after a failed handshake) or the client context is done.
+func (c *electrumClient) listen(ctx context.Context) {
 	conn := c.getConn()
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, maxScannerBytes), maxScannerBytes)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
@@ -146,6 +188,9 @@ func (c *electrumClient) listen() {
 			}
 			c.pendMu.Lock()
 			ch, ok := c.pending[resp.ID]
+			if ok {
+				delete(c.pending, resp.ID)
+			}
 			c.pendMu.Unlock()
 			if ok {
 				ch <- &resp
@@ -179,9 +224,23 @@ func (c *electrumClient) listen() {
 		}
 	}
 
-	// Scanner exited — connection dropped.
-	if err := scanner.Err(); err != nil && !c.contextDone() {
-		log.WithError(err).Debug("electrum: connection lost, reconnecting")
+	// If our cycle context was cancelled, reconnect() already owns recovery
+	// (e.g., it cancelled us after a failed handshake). Don't double-reconnect.
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	// Scanner exited — reconnect unless the client is shutting down.
+	// A nil error means clean EOF (e.g. server restarted and sent FIN);
+	// we must reconnect in that case too, not just on I/O errors.
+	if !c.contextDone() {
+		if err := scanner.Err(); err != nil {
+			log.WithError(err).Debug("electrum: connection error, reconnecting")
+		} else {
+			log.Debug("electrum: server closed connection, reconnecting")
+		}
 		if err := c.reconnect(); err != nil {
 			log.WithError(err).Error("electrum: reconnect failed")
 		}
@@ -197,12 +256,14 @@ func (c *electrumClient) contextDone() bool {
 	}
 }
 
-func (c *electrumClient) keepAlive() {
+// keepAlive sends periodic server.ping RPCs to keep the connection alive.
+// It exits when ctx is cancelled (i.e. when a new connection cycle starts).
+func (c *electrumClient) keepAlive(ctx context.Context) {
 	ticker := time.NewTicker(keepAliveInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			if _, err := c.request("server.ping", []any{}); err != nil {
@@ -217,6 +278,9 @@ func (c *electrumClient) keepAlive() {
 
 // reconnect re-dials with exponential backoff and replays all subscriptions.
 // Only one goroutine runs the reconnect body at a time.
+// listen() is started before handshake() so that responses can be dispatched.
+// If handshake fails the new cycle is cancelled so the freshly-started listen
+// goroutine exits without triggering yet another reconnect.
 func (c *electrumClient) reconnect() error {
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
@@ -244,19 +308,25 @@ func (c *electrumClient) reconnect() error {
 		}
 
 		c.setConn(conn)
+
+		// Start listen before handshake so the handshake response can be read.
+		cycleCtx, cancelCycle := c.newCycleCtx()
+		go c.listen(cycleCtx)
+		go c.keepAlive(cycleCtx)
+
 		if err := c.handshake(); err != nil {
+			// Cancel the cycle first so listen() won't trigger another reconnect
+			// when we close the connection below.
+			cancelCycle()
 			conn.Close() // nolint
 			continue
 		}
 
-		go c.listen()
-		go c.keepAlive()
-
 		// Replay subscriptions.
-		c.subsMu2.Lock()
+		c.storedSubsMu.Lock()
 		subs := make([]string, len(c.storedSubs))
 		copy(subs, c.storedSubs)
-		c.subsMu2.Unlock()
+		c.storedSubsMu.Unlock()
 
 		for _, sh := range subs {
 			if _, err := c.request("blockchain.scripthash.subscribe", []any{sh}); err != nil {
@@ -294,9 +364,9 @@ func (c *electrumClient) request(method string, params []any) (json.RawMessage, 
 	if conn == nil {
 		return nil, fmt.Errorf("not connected")
 	}
-	c.connMu.RLock()
+	c.writeMu.Lock()
 	_, err = conn.Write(data)
-	c.connMu.RUnlock()
+	c.writeMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("write failed: %w", err)
 	}
@@ -325,15 +395,26 @@ func (c *electrumClient) subscribe(scripthash string) (<-chan string, error) {
 	c.subs[scripthash] = ch
 	c.subsMu.Unlock()
 
-	c.subsMu2.Lock()
+	c.storedSubsMu.Lock()
 	c.storedSubs = append(c.storedSubs, scripthash)
-	c.subsMu2.Unlock()
+	c.storedSubsMu.Unlock()
 
 	result, err := c.request("blockchain.scripthash.subscribe", []any{scripthash})
 	if err != nil {
 		c.subsMu.Lock()
 		delete(c.subs, scripthash)
 		c.subsMu.Unlock()
+
+		c.storedSubsMu.Lock()
+		filtered := c.storedSubs[:0]
+		for _, sh := range c.storedSubs {
+			if sh != scripthash {
+				filtered = append(filtered, sh)
+			}
+		}
+		c.storedSubs = filtered
+		c.storedSubsMu.Unlock()
+
 		return nil, err
 	}
 
@@ -359,7 +440,7 @@ func (c *electrumClient) unsubscribeLocal(scripthash string) {
 	}
 	c.subsMu.Unlock()
 
-	c.subsMu2.Lock()
+	c.storedSubsMu.Lock()
 	filtered := c.storedSubs[:0]
 	for _, sh := range c.storedSubs {
 		if sh != scripthash {
@@ -367,7 +448,7 @@ func (c *electrumClient) unsubscribeLocal(scripthash string) {
 		}
 	}
 	c.storedSubs = filtered
-	c.subsMu2.Unlock()
+	c.storedSubsMu.Unlock()
 }
 
 func (c *electrumClient) isConnected() bool {

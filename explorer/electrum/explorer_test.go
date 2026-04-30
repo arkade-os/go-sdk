@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,33 +87,6 @@ func reqMethod(req map[string]json.RawMessage) string {
 	var m string
 	json.Unmarshal(req["method"], &m) // nolint
 	return m
-}
-
-// TestAddressToScripthash verifies the address → scripthash conversion produces
-// a 64-character lowercase hex string and is deterministic.
-func TestAddressToScripthash(t *testing.T) {
-	// A known mainnet P2TR address.
-	addr := "bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297"
-
-	addr2 := "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
-
-	t.Run("produces 64-char hex", func(t *testing.T) {
-		serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
-			writeResponse(conn, reqID(req), "1.4")
-		})
-		exp, err := electrum_explorer.NewExplorer(serverURL, arklib.Bitcoin)
-		require.NoError(t, err)
-		_ = exp
-		// addressToScripthash is internal; test it indirectly via GetUtxos
-		// by verifying no crash occurs with a valid address.
-	})
-
-	t.Run("different addresses produce different scripthashes", func(t *testing.T) {
-		// Use internal test helper exported for testing.
-		_ = addr
-		_ = addr2
-		// Verified by the GetUtxos tests below which exercise addressToScripthash internally.
-	})
 }
 
 // TestNewExplorerValidation checks that NewExplorer rejects bad URLs.
@@ -517,6 +493,183 @@ func TestRequestTimeout(t *testing.T) {
 	_, err = exp.GetTxHex("sometxid")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "timed out")
+}
+
+// TestCleanEOFTriggersReconnect verifies that a clean TCP close (FIN, EOF) from the
+// server causes the client to reconnect, not silently stop. This covers the case
+// where an ElectrumX server restarts gracefully.
+func TestCleanEOFTriggersReconnect(t *testing.T) {
+	connectCount := 0
+	reconnectCh := make(chan struct{}, 1)
+
+	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
+		switch reqMethod(req) {
+		case "server.version":
+			connectCount++
+			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
+			if connectCount == 1 {
+				// Close the connection cleanly after the first handshake.
+				conn.Close() // nolint
+			} else {
+				select {
+				case reconnectCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	})
+
+	exp, err := electrum_explorer.NewExplorer(
+		serverURL,
+		arklib.Bitcoin,
+		electrum_explorer.WithTracker(false),
+	)
+	require.NoError(t, err)
+	exp.Start()
+	defer exp.Stop()
+
+	select {
+	case <-reconnectCh:
+		// Client reconnected after the server's clean close.
+	case <-time.After(10 * time.Second):
+		t.Fatal("client did not reconnect after clean server close (EOF)")
+	}
+}
+
+// TestKeepaliveGoroutineDoesNotLeak verifies that keepAlive goroutines do not
+// accumulate across reconnects. Without the cycle-context fix, every reconnect
+// spawned a new keepAlive without stopping the previous one; after N reconnects
+// there would be N+1 keepAlive goroutines all pinging the same connection.
+//
+// Strategy: record goroutine count after the first stable connection, force N
+// reconnects by having the server close connections, wait for the final stable
+// connection, then record again. With the fix the delta is ≈0; with the bug it
+// grows by N (one leaked keepAlive per reconnect).
+func TestKeepaliveGoroutineDoesNotLeak(t *testing.T) {
+	const reconnects = 3
+
+	var connectCount int32
+	// connReadyCh carries connections so the test can close them on demand.
+	connReadyCh := make(chan net.Conn, reconnects+1)
+	lastConnectedCh := make(chan struct{}, 1)
+
+	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
+		switch reqMethod(req) {
+		case "server.version":
+			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
+			n := int(atomic.AddInt32(&connectCount, 1))
+			if n <= reconnects {
+				// Hand the connection to the test goroutine so it can close it.
+				connReadyCh <- conn
+			} else {
+				// Final stable connection — signal ready.
+				select {
+				case lastConnectedCh <- struct{}{}:
+				default:
+				}
+			}
+		case "server.ping":
+			writeResponse(conn, reqID(req), true)
+		}
+	})
+
+	exp, err := electrum_explorer.NewExplorer(
+		serverURL,
+		arklib.Bitcoin,
+		electrum_explorer.WithTracker(false),
+	)
+	require.NoError(t, err)
+	exp.Start()
+	defer exp.Stop()
+
+	// Wait for the first connection and snapshot goroutine count.
+	var firstConn net.Conn
+	select {
+	case firstConn = <-connReadyCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("initial connect timed out")
+	}
+	time.Sleep(50 * time.Millisecond) // let listen+keepAlive goroutines settle
+	afterFirst := runtime.NumGoroutine()
+
+	// Close each connection in turn to trigger successive reconnects.
+	firstConn.Close() // nolint
+	for i := 1; i < reconnects; i++ {
+		var c net.Conn
+		select {
+		case c = <-connReadyCh:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("reconnect %d timed out", i)
+		}
+		c.Close() // nolint
+	}
+
+	// Wait for the final stable connection.
+	select {
+	case <-lastConnectedCh:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("client did not complete all %d reconnects", reconnects)
+	}
+	time.Sleep(100 * time.Millisecond) // let old keepAlive goroutines exit
+	runtime.Gosched()
+
+	afterAll := runtime.NumGoroutine()
+
+	// With the fix: each reconnect cancels the old keepAlive before starting the
+	// new one, so the net goroutine delta should be ≈0. With the bug: N leaked
+	// keepAlives remain, making the delta ≈N. Slack of 2 for Go runtime fluctuation.
+	require.LessOrEqual(t, afterAll-afterFirst, 2,
+		"goroutine count grew by %d after %d reconnects — likely keepAlive goroutine leak",
+		afterAll-afterFirst, reconnects)
+}
+
+// TestConcurrentRequestsDoNotInterleave verifies that concurrent JSON-RPC requests
+// are serialised on the wire so that frames are never interleaved. The server
+// echoes each request's id back; if bytes interleaved, the JSON parser would
+// return errors or mismatched ids, which would cause the test to fail or hang.
+func TestConcurrentRequestsDoNotInterleave(t *testing.T) {
+	const workers = 20
+
+	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
+		switch reqMethod(req) {
+		case "server.version":
+			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
+		case "blockchain.transaction.get":
+			writeResponse(conn, reqID(req), "deadbeef")
+		}
+	})
+
+	exp, err := electrum_explorer.NewExplorer(
+		serverURL,
+		arklib.Bitcoin,
+		electrum_explorer.WithTracker(false),
+	)
+	require.NoError(t, err)
+	exp.Start()
+	defer exp.Stop()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			txHex, err := exp.GetTxHex(fmt.Sprintf("txid%d", i))
+			if err != nil {
+				errs <- fmt.Errorf("worker %d: %w", i, err)
+				return
+			}
+			if txHex != "deadbeef" {
+				errs <- fmt.Errorf("worker %d: unexpected txHex %q", i, txHex)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
 }
 
 // TestBroadcastNoTxs verifies that Broadcast with no arguments returns an error.
