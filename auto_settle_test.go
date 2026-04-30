@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -103,6 +104,45 @@ func TestScheduleSettle(t *testing.T) {
 					func() bool { return a.WhenNextSettlement().IsZero() },
 				)
 				require.Equal(t, int32(1), calls.Load(), "expected exactly one settle call")
+			},
+		},
+		{
+			name: "retries failed settle with backoff",
+			run: func(t *testing.T, a *arkClient, calls *atomic.Int32) {
+				cfg := &clientTypes.Config{SessionDuration: 60}
+				retryBackoff := 50 * time.Millisecond
+				firstCall := make(chan time.Time, 1)
+				secondCall := make(chan time.Time, 1)
+
+				a.autoSettlement.initialRetryBackoff = retryBackoff
+				a.autoSettlement.maxRetryBackoff = retryBackoff
+				a.autoSettlement.hooks.settle = func(ctx context.Context) error {
+					now := time.Now()
+					if calls.Add(1) == 1 {
+						firstCall <- now
+						return errors.New("boom")
+					}
+					secondCall <- now
+					return nil
+				}
+
+				a.scheduleSettle(context.Background(), time.Now().Add(-time.Hour), cfg)
+
+				first := receiveTime(t, firstCall, 500*time.Millisecond)
+				waitFor(t, 500*time.Millisecond, func() bool {
+					return !a.WhenNextSettlement().IsZero()
+				})
+
+				require.Equal(t, int32(1), calls.Load(),
+					"settle should not retry before the backoff")
+
+				second := receiveTime(t, secondCall, 500*time.Millisecond)
+				require.GreaterOrEqual(t, second.Sub(first), retryBackoff)
+				waitFor(
+					t,
+					200*time.Millisecond,
+					func() bool { return a.WhenNextSettlement().IsZero() },
+				)
 			},
 		},
 		{
@@ -334,4 +374,15 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	require.FailNow(t, "condition not met within timeout")
+}
+
+func receiveTime(t *testing.T, ch <-chan time.Time, timeout time.Duration) time.Time {
+	t.Helper()
+	select {
+	case got := <-ch:
+		return got
+	case <-time.After(timeout):
+		require.FailNow(t, "timed out waiting for settle call")
+		return time.Time{}
+	}
 }

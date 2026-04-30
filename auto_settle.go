@@ -10,6 +10,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	defaultAutoSettleInitialRetryBackoff = 5 * time.Second
+	defaultAutoSettleMaxRetryBackoff     = time.Minute
+)
+
 type autoSettlementInfo struct {
 	// enabled and delegateMode are configured at construction time via
 	// clientOptions and never mutated afterwards.
@@ -24,7 +29,14 @@ type autoSettlementInfo struct {
 	// nextSettleAt. It is kept so new earlier expiries, Lock, and Stop can
 	// cancel the pending callback before it runs.
 	settleTimer *time.Timer
-	mu          sync.Mutex
+	// retryBackoff is the delay for the next retry after a failed Settle.
+	// Zero means the next failure uses initialRetryBackoff.
+	retryBackoff time.Duration
+	// initialRetryBackoff and maxRetryBackoff are optional test overrides.
+	// Zero values use the package defaults.
+	initialRetryBackoff time.Duration
+	maxRetryBackoff     time.Duration
+	mu                  sync.Mutex
 
 	// hooks holds the side-effecting calls made by the scheduler.
 	// nil means "use the defaults" so the zero-value struct stays valid.
@@ -181,9 +193,7 @@ func (a *arkClient) scheduleFromCurrentFunds(
 	if nextExpiry.Before(now) {
 		// at least one spendable VTXO has already expired — settle
 		// immediately rather than waiting for a timer.
-		if err := hooks.settle(ctx); err != nil {
-			log.WithError(err).Warn("auto-settle: immediate settle failed")
-		}
+		a.settleWithRetry(ctx, hooks, "auto-settle: immediate settle failed")
 		return
 	}
 	a.scheduleSettle(ctx, nextExpiry, cfg)
@@ -201,6 +211,16 @@ func (a *arkClient) scheduleSettle(
 	hooks := a.resolveAutoSettleHooks()
 
 	fireAt := settlementFireAt(expiresAt, cfg)
+	a.scheduleSettleAt(ctx, fireAt, hooks, true)
+}
+
+func (a *arkClient) scheduleSettleAt(
+	ctx context.Context, fireAt time.Time, hooks autoSettleHooks, resetRetry bool,
+) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	now := time.Now()
 
 	a.autoSettlement.mu.Lock()
@@ -218,6 +238,9 @@ func (a *arkClient) scheduleSettle(
 	if a.autoSettlement.settleTimer != nil {
 		a.autoSettlement.settleTimer.Stop()
 		a.autoSettlement.settleTimer = nil
+	}
+	if resetRetry {
+		a.autoSettlement.retryBackoff = 0
 	}
 
 	delay := fireAt.Sub(now)
@@ -256,11 +279,64 @@ func (a *arkClient) scheduleSettle(
 
 		// Don't hold the auto-settle lock across Settle (it can publish vtxo
 		// events that the loop wants to handle, which would deadlock).
-		if err := hooks.settle(ctx); err != nil {
-			log.WithError(err).Warn("auto-settle: scheduled settle failed")
-		}
+		a.settleWithRetry(ctx, hooks, "auto-settle: scheduled settle failed")
 	})
 	a.autoSettlement.settleTimer = timer
+	a.autoSettlement.mu.Unlock()
+}
+
+func (a *arkClient) settleWithRetry(
+	ctx context.Context, hooks autoSettleHooks, failureMessage string,
+) {
+	if err := hooks.settle(ctx); err != nil {
+		log.WithError(err).Warn(failureMessage)
+		a.scheduleSettleRetry(ctx, hooks)
+		return
+	}
+	a.resetSettleRetryBackoff()
+}
+
+func (a *arkClient) scheduleSettleRetry(ctx context.Context, hooks autoSettleHooks) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	a.autoSettlement.mu.Lock()
+	delay := a.nextSettleRetryBackoffLocked()
+	a.autoSettlement.mu.Unlock()
+
+	a.scheduleSettleAt(ctx, time.Now().Add(delay), hooks, false)
+}
+
+func (a *arkClient) nextSettleRetryBackoffLocked() time.Duration {
+	initial := a.autoSettlement.initialRetryBackoff
+	if initial <= 0 {
+		initial = defaultAutoSettleInitialRetryBackoff
+	}
+
+	maxBackoff := a.autoSettlement.maxRetryBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = defaultAutoSettleMaxRetryBackoff
+	}
+	if maxBackoff < initial {
+		maxBackoff = initial
+	}
+
+	if a.autoSettlement.retryBackoff <= 0 {
+		a.autoSettlement.retryBackoff = initial
+		return a.autoSettlement.retryBackoff
+	}
+
+	a.autoSettlement.retryBackoff *= 2
+	if a.autoSettlement.retryBackoff > maxBackoff {
+		a.autoSettlement.retryBackoff = maxBackoff
+	}
+	return a.autoSettlement.retryBackoff
+}
+
+func (a *arkClient) resetSettleRetryBackoff() {
+	a.autoSettlement.mu.Lock()
+	a.autoSettlement.retryBackoff = 0
 	a.autoSettlement.mu.Unlock()
 }
 
@@ -273,6 +349,7 @@ func (a *arkClient) cancelPendingSettle() {
 		a.autoSettlement.settleTimer = nil
 	}
 	a.autoSettlement.nextSettleAt = time.Time{}
+	a.autoSettlement.retryBackoff = 0
 	a.autoSettlement.mu.Unlock()
 }
 
