@@ -127,7 +127,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		// start periodic refresh db
 		go a.periodicRefreshDb(ctx)
 
-		// REQ-2, REQ-7: launch the auto-settle scheduler when opted in.
+		// launch the auto-settle scheduler when opted in.
 		// The goroutine itself waits on IsSynced before reading vtxos, so
 		// launching it here (after refreshDb has completed) is safe.
 		if a.autoSettlement.enabled {
@@ -158,7 +158,7 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		a.syncListeners.clear()
 	}
 
-	// REQ-7 (D-5): explicitly stop any pending auto-settle timer to drain a
+	// explicitly stop any pending auto-settle timer to drain a
 	// callback that may already have been scheduled to fire. stopFn() above
 	// cancels bgCtx which causes the autoSettleLoop goroutine to exit, but a
 	// time.AfterFunc callback that has already been fired by the runtime is

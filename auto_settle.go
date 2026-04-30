@@ -370,6 +370,12 @@ func (a *arkClient) scheduleSettleAt(
 	})
 	a.autoSettlement.settleTimer = timer
 	a.autoSettlement.mu.Unlock()
+
+	log.WithFields(log.Fields{
+		"settle_at": fireAt,
+		"delay":     delay.String(),
+		"retry":     !resetRetry,
+	}).Info("auto-settle: settlement scheduled")
 }
 
 func (a *arkClient) settleWithRetry(
@@ -381,6 +387,7 @@ func (a *arkClient) settleWithRetry(
 		return
 	}
 	a.resetSettleRetryBackoff()
+	log.Info("auto-settle: settlement completed successfully")
 }
 
 func (a *arkClient) scheduleSettleRetry(ctx context.Context, hooks autoSettleHooks) {
