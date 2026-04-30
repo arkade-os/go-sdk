@@ -38,28 +38,28 @@ type autoSettlementInfo struct {
 	maxRetryBackoff     time.Duration
 	mu                  sync.Mutex
 
-	// hooks holds the side-effecting calls made by the scheduler.
+	// hooks holds the external calls made by the scheduler.
 	// nil means "use the defaults" so the zero-value struct stays valid.
 	// Tests can pre-populate this field with stub implementations to exercise
 	// the scheduler in isolation.
 	hooks *autoSettleHooks
 }
 
-// autoSettleHooks holds the side-effecting calls made by the auto-settle
-// scheduler. The defaults wrap the real arkClient methods; tests inject
-// counter/spy implementations to exercise the scheduler in isolation.
+// autoSettleHooks holds the external calls made by the auto-settle scheduler.
+// The defaults wrap the real arkClient methods; tests inject counter/spy
+// implementations to exercise the scheduler in isolation.
 type autoSettleHooks struct {
-	settle   func(ctx context.Context) error
-	isLocked func(ctx context.Context) bool
+	settle                   func(ctx context.Context) error
+	isLocked                 func(ctx context.Context) bool
+	getConfigData            func(ctx context.Context) (*clientTypes.Config, error)
+	listSpendableVtxos       func(ctx context.Context) ([]clientTypes.Vtxo, error)
+	listUnspentBoardingUtxos func(ctx context.Context) ([]clientTypes.Utxo, error)
 }
 
 // resolveAutoSettleHooks returns the configured hooks or the real
 // arkClient-backed defaults when none have been injected.
 func (a *arkClient) resolveAutoSettleHooks() autoSettleHooks {
-	if a.autoSettlement.hooks != nil {
-		return *a.autoSettlement.hooks
-	}
-	return autoSettleHooks{
+	hooks := autoSettleHooks{
 		settle: func(ctx context.Context) error {
 			_, err := a.Settle(ctx)
 			return err
@@ -67,7 +67,37 @@ func (a *arkClient) resolveAutoSettleHooks() autoSettleHooks {
 		isLocked: func(ctx context.Context) bool {
 			return a.IsLocked(ctx)
 		},
+		getConfigData: func(ctx context.Context) (*clientTypes.Config, error) {
+			return a.GetConfigData(ctx)
+		},
+		listSpendableVtxos: func(ctx context.Context) ([]clientTypes.Vtxo, error) {
+			return a.ListSpendableVtxos(ctx)
+		},
+		listUnspentBoardingUtxos: func(ctx context.Context) ([]clientTypes.Utxo, error) {
+			return a.listUnspentBoardingUtxos(ctx)
+		},
 	}
+	if a.autoSettlement.hooks == nil {
+		return hooks
+	}
+
+	custom := *a.autoSettlement.hooks
+	if custom.settle != nil {
+		hooks.settle = custom.settle
+	}
+	if custom.isLocked != nil {
+		hooks.isLocked = custom.isLocked
+	}
+	if custom.getConfigData != nil {
+		hooks.getConfigData = custom.getConfigData
+	}
+	if custom.listSpendableVtxos != nil {
+		hooks.listSpendableVtxos = custom.listSpendableVtxos
+	}
+	if custom.listUnspentBoardingUtxos != nil {
+		hooks.listUnspentBoardingUtxos = custom.listUnspentBoardingUtxos
+	}
+	return hooks
 }
 
 // autoSettleLoop is the long-lived goroutine that drives automatic settlement
@@ -115,20 +145,62 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 		}
 	}
 
-	cfg, err := a.GetConfigData(ctx)
+	hooks := a.resolveAutoSettleHooks()
+	cfg, err := hooks.getConfigData(ctx)
 	if err != nil {
 		log.WithError(err).Warn("auto-settle: failed to get config data, aborting")
 		return
 	}
 
-	hooks := a.resolveAutoSettleHooks()
 	vtxoCh := a.GetVtxoEventChannel(ctx)
 	utxoCh := a.GetUtxoEventChannel(ctx)
 	// These channels may be nil if the wallet was locked between Unlock and the
 	// start of this loop. A select on a nil channel blocks forever, so this is
 	// safe — ctx.Done() will still fire on Lock/Stop.
 
-	a.scheduleFromCurrentFunds(ctx, cfg, hooks)
+	// Snapshot retry is separate from settle retry. It only handles transient
+	// failures while reading the current wallet funds; successful settlements
+	// still rely on VTXO/UTXO events to drive future scheduling.
+	var snapshotRetryTimer *time.Timer
+	var snapshotRetryCh <-chan time.Time
+	var snapshotRetryBackoff time.Duration
+
+	stopSnapshotRetry := func() {
+		if snapshotRetryTimer == nil {
+			return
+		}
+		if !snapshotRetryTimer.Stop() {
+			select {
+			case <-snapshotRetryTimer.C:
+			default:
+			}
+		}
+		snapshotRetryTimer = nil
+		snapshotRetryCh = nil
+		snapshotRetryBackoff = 0
+	}
+	defer stopSnapshotRetry()
+
+	scheduleSnapshotRetry := func() {
+		if snapshotRetryTimer != nil || ctx.Err() != nil {
+			return
+		}
+		// Use a timer case instead of sleeping here so the loop keeps consuming
+		// VTXO/UTXO events while waiting to retry the baseline snapshot.
+		snapshotRetryBackoff = nextAutoSettleRetryBackoff(
+			snapshotRetryBackoff,
+			a.autoSettlement.initialRetryBackoff,
+			a.autoSettlement.maxRetryBackoff,
+		)
+		snapshotRetryTimer = time.NewTimer(snapshotRetryBackoff)
+		snapshotRetryCh = snapshotRetryTimer.C
+	}
+
+	if !a.scheduleFromCurrentFunds(ctx, cfg, hooks) {
+		// The initial baseline read failed. Keep the event loop running and retry
+		// later, because existing funds will not necessarily produce a new event.
+		scheduleSnapshotRetry()
+	}
 
 	for {
 		select {
@@ -163,40 +235,55 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 			if nextExpiry, ok := nextSettlementExpiry(time.Now(), nil, event.Utxos); ok {
 				a.scheduleSettle(ctx, nextExpiry, cfg)
 			}
+
+		case <-snapshotRetryCh:
+			// A successful snapshot read means the baseline was restored, even if
+			// there were no funds to schedule. Only read failures keep retrying.
+			snapshotRetryTimer = nil
+			snapshotRetryCh = nil
+			if a.scheduleFromCurrentFunds(ctx, cfg, hooks) {
+				snapshotRetryBackoff = 0
+				continue
+			}
+			scheduleSnapshotRetry()
 		}
 	}
 }
 
+// scheduleFromCurrentFunds returns true when the current funds snapshot was read,
+// even if there are no funds to schedule. It returns false only when the snapshot
+// could not be read and should be retried.
 func (a *arkClient) scheduleFromCurrentFunds(
 	ctx context.Context, cfg *clientTypes.Config, hooks autoSettleHooks,
-) {
+) bool {
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 
-	vtxos, err := a.ListSpendableVtxos(ctx)
+	vtxos, err := hooks.listSpendableVtxos(ctx)
 	if err != nil {
 		log.WithError(err).Warn("auto-settle: failed to list spendable vtxos")
-		return
+		return false
 	}
-	boardingUtxos, err := a.listUnspentBoardingUtxos(ctx)
+	boardingUtxos, err := hooks.listUnspentBoardingUtxos(ctx)
 	if err != nil {
 		log.WithError(err).Warn("auto-settle: failed to list boarding utxos")
-		return
+		return false
 	}
 
 	now := time.Now()
 	nextExpiry, ok := nextSettlementExpiry(now, vtxos, boardingUtxos)
 	if !ok {
-		return
+		return true
 	}
 	if nextExpiry.Before(now) {
 		// at least one spendable VTXO has already expired — settle
 		// immediately rather than waiting for a timer.
 		a.settleWithRetry(ctx, hooks, "auto-settle: immediate settle failed")
-		return
+		return true
 	}
 	a.scheduleSettle(ctx, nextExpiry, cfg)
+	return true
 }
 
 // scheduleSettle (re)arms the auto-settle timer to fire at
@@ -309,29 +396,34 @@ func (a *arkClient) scheduleSettleRetry(ctx context.Context, hooks autoSettleHoo
 }
 
 func (a *arkClient) nextSettleRetryBackoffLocked() time.Duration {
-	initial := a.autoSettlement.initialRetryBackoff
+	a.autoSettlement.retryBackoff = nextAutoSettleRetryBackoff(
+		a.autoSettlement.retryBackoff,
+		a.autoSettlement.initialRetryBackoff,
+		a.autoSettlement.maxRetryBackoff,
+	)
+	return a.autoSettlement.retryBackoff
+}
+
+func nextAutoSettleRetryBackoff(
+	current, initial, maxBackoff time.Duration,
+) time.Duration {
 	if initial <= 0 {
 		initial = defaultAutoSettleInitialRetryBackoff
 	}
-
-	maxBackoff := a.autoSettlement.maxRetryBackoff
 	if maxBackoff <= 0 {
 		maxBackoff = defaultAutoSettleMaxRetryBackoff
 	}
 	if maxBackoff < initial {
 		maxBackoff = initial
 	}
-
-	if a.autoSettlement.retryBackoff <= 0 {
-		a.autoSettlement.retryBackoff = initial
-		return a.autoSettlement.retryBackoff
+	if current <= 0 {
+		return initial
 	}
-
-	a.autoSettlement.retryBackoff *= 2
-	if a.autoSettlement.retryBackoff > maxBackoff {
-		a.autoSettlement.retryBackoff = maxBackoff
+	current *= 2
+	if current > maxBackoff {
+		return maxBackoff
 	}
-	return a.autoSettlement.retryBackoff
+	return current
 }
 
 func (a *arkClient) resetSettleRetryBackoff() {

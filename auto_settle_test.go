@@ -3,6 +3,7 @@ package arksdk
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -212,6 +213,74 @@ func TestScheduleSettle(t *testing.T) {
 	}
 }
 
+func TestAutoSettleLoopRetriesInitialSnapshotWithoutBlockingEvents(t *testing.T) {
+	t.Parallel()
+
+	cfg := &clientTypes.Config{SessionDuration: 60}
+	retryBackoff := 50 * time.Millisecond
+	firstSnapshot := make(chan struct{}, 1)
+	retriedSnapshot := make(chan struct{}, 1)
+	listCalls := &atomic.Int32{}
+
+	hooks, _ := stubHooks(false)
+	hooks.getConfigData = func(ctx context.Context) (*clientTypes.Config, error) {
+		return cfg, nil
+	}
+	hooks.listSpendableVtxos = func(ctx context.Context) ([]clientTypes.Vtxo, error) {
+		switch listCalls.Add(1) {
+		case 1:
+			firstSnapshot <- struct{}{}
+			return nil, errors.New("boom")
+		default:
+			select {
+			case retriedSnapshot <- struct{}{}:
+			default:
+			}
+			return nil, nil
+		}
+	}
+	hooks.listUnspentBoardingUtxos = func(ctx context.Context) ([]clientTypes.Utxo, error) {
+		return nil, nil
+	}
+
+	a := newTestClient(hooks)
+	a.syncMu = &sync.Mutex{}
+	a.syncDone = true
+	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
+	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
+	a.autoSettlement.initialRetryBackoff = retryBackoff
+	a.autoSettlement.maxRetryBackoff = retryBackoff
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go a.autoSettleLoop(ctx)
+
+	receiveSignal(t, firstSnapshot, 500*time.Millisecond)
+
+	expiresAt := time.Now().Add(30 * time.Minute)
+	a.vtxoBroadcaster.publish(types.VtxoEvent{
+		Type:  types.VtxosAdded,
+		Vtxos: []clientTypes.Vtxo{{ExpiresAt: expiresAt}},
+	})
+
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return !a.WhenNextSettlement().IsZero()
+	})
+	require.WithinDuration(t, settlementFireAt(expiresAt, cfg),
+		a.WhenNextSettlement(), time.Second)
+
+	receiveSignal(t, retriedSnapshot, 500*time.Millisecond)
+	time.Sleep(2 * retryBackoff)
+	require.Equal(t, int32(2), listCalls.Load(),
+		"snapshot retry should stop after a successful read")
+
+	cancel()
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return a.WhenNextSettlement().IsZero()
+	})
+}
+
 func TestSettlementFireAt(t *testing.T) {
 	t.Parallel()
 
@@ -384,5 +453,14 @@ func receiveTime(t *testing.T, ch <-chan time.Time, timeout time.Duration) time.
 	case <-time.After(timeout):
 		require.FailNow(t, "timed out waiting for settle call")
 		return time.Time{}
+	}
+}
+
+func receiveSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+		require.FailNow(t, "timed out waiting for signal")
 	}
 }
