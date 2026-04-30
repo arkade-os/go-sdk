@@ -252,8 +252,9 @@ func TestBatchSession(t *testing.T) {
 		require.Len(t, res.Vtxos, 1)
 		require.False(t, res.Vtxos[0].Swept)
 
-		// Make the offchain funds expire
-		err = generateBlocks(41)
+		// Make the offchain funds expire. This must cover the configured
+		// ARKD_VTXO_TREE_EXPIRY plus the checkpoint/unilateral exit delays.
+		err = generateBlocks(81)
 		require.NoError(t, err)
 
 		vtxoEvent = <-vtxoCh
