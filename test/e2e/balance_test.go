@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBalanceBreakdown(t *testing.T) {
-	t.Run("balance state breakdowns after settle", func(t *testing.T) {
+func TestBalance(t *testing.T) {
+	t.Run("onchain (confirmed only)", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 
@@ -108,7 +108,7 @@ func TestBalanceBreakdown(t *testing.T) {
 			"At least some funds should be available or preconfirmed")
 	})
 
-	t.Run("recipient receives preconfirmed offchain funds", func(t *testing.T) {
+	t.Run("preconfirmed", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
@@ -154,7 +154,7 @@ func TestBalanceBreakdown(t *testing.T) {
 	})
 
 	t.Run(
-		"wallet can have settled and preconfirmed funds at the same time",
+		"settled and preconfirmed",
 		func(t *testing.T) {
 			ctx := t.Context()
 			alice := setupClient(t, "")
@@ -203,7 +203,7 @@ func TestBalanceBreakdown(t *testing.T) {
 		},
 	)
 
-	t.Run("subdust_offchain_funds_are_recoverable", func(t *testing.T) {
+	t.Run("recoverable (subdust)", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
@@ -242,7 +242,7 @@ func TestBalanceBreakdown(t *testing.T) {
 		)
 	})
 
-	t.Run("onchain balance tracks unconfirmed and confirmed amounts", func(t *testing.T) {
+	t.Run("onchain", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
@@ -286,7 +286,7 @@ func TestBalanceBreakdown(t *testing.T) {
 		require.Equal(t, uint64(21000), balance.OnchainBalance.Total)
 	})
 
-	t.Run("swept funds become recoverable", func(t *testing.T) {
+	t.Run("recoverable (swept)", func(t *testing.T) {
 		if os.Getenv("RUN_LONG_EXPIRY_TESTS") == "" {
 			t.Skip("set RUN_LONG_EXPIRY_TESTS=1 to run sweep-expiry balance coverage")
 		}

@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
@@ -594,7 +593,7 @@ func vtxoAmounts(vtxos []clientTypes.Vtxo) []uint64 {
 	return amounts
 }
 
-func sumLockedAmounts(locked []client.LockedOnchainBalance) uint64 {
+func sumLockedAmounts(locked []sdk.LockedOnchainBalance) uint64 {
 	var total uint64
 	for _, utxo := range locked {
 		total += utxo.Amount
