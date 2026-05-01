@@ -1,13 +1,5 @@
-// Package electrum_explorer provides an Explorer implementation backed by an
-// ElectrumX server over TCP or SSL. It is modeled on the ocean project's
-// electrum blockchain scanner and requires no third-party ElectrumX library.
-//
-// Known limitations vs the mempool.space explorer:
-//   - Broadcast of multiple txs is sequential, not atomic.
-//   - UnsubscribeForAddresses removes the address locally only; ElectrumX has no unsubscribe wire message.
-//   - OnchainAddressEvent.Replacements is always empty (ElectrumX has no RBF notification).
-//   - GetConnectionCount always returns 1 (single multiplexed TCP connection).
-//   - GetTxOutspends is O(outputs × history length) rather than a dedicated endpoint.
+// See doc.go for the package-level overview, lifecycle, reconnection model,
+// and restart/restore semantics.
 package electrum_explorer
 
 import (
@@ -112,6 +104,25 @@ func networkToChainParams(net arklib.Network) *chaincfg.Params {
 	}
 }
 
+// Start dials the ElectrumX server, performs the server.version handshake,
+// and (if tracking is enabled via WithTracker(true)) launches the poll loop
+// over subscribed addresses.
+//
+// If the initial connect fails Start does NOT return an error — it logs a
+// warning and spawns a background goroutine that retries via the same
+// exponential-backoff reconnect path used after a mid-life disconnect.
+// Callers can observe connection state via GetConnectionCount() if they need
+// to gate logic on "is the explorer ready?".
+//
+// Start is invoked by arkClient.Unlock(). On a fresh process start the path
+// is: LoadArkClient (reads URL from ConfigStore) → newExplorer (constructs
+// a fresh transport with empty subscription/cache state) → Unlock →
+// Explorer().Start(). See doc.go § "Restart and restore semantics".
+//
+// Concurrency: NOT idempotent in the current implementation. Concurrent
+// Start() calls dial multiple connections; only the most-recently-dialed
+// conn is reachable via c.conn, the rest leak. Callers should ensure Start
+// is called exactly once between matching Stop() calls.
 func (e *explorerSvc) Start() {
 	if err := e.client.connect(); err != nil {
 		log.WithError(err).Warn("electrum explorer: initial connect failed, retrying in background")
@@ -132,6 +143,26 @@ func (e *explorerSvc) Start() {
 	log.Debug("electrum explorer: started")
 }
 
+// Stop terminates the explorer in this order:
+//
+//  1. Closes the poll-loop stop channel — pollLoop returns on its next tick.
+//  2. Calls client.shutdown() — cancels the root context, closes the live
+//     conn, and drains in-flight pending requests so callers fail fast with
+//     "connection closed waiting for X" instead of waiting requestTimeout.
+//  3. Calls unsubscribeLocal for every subscribed address — closes each
+//     per-address notif channel, which causes the per-address consumer
+//     goroutine spawned in SubscribeForAddresses to exit.
+//  4. Waits on notifWg until every per-address consumer has exited.
+//  5. Clears the listeners hub — closes every consumer event channel.
+//
+// Stop is invoked by arkClient.Lock(). After Stop returns, the explorer
+// should not be reused: the root context is permanently cancelled and the
+// transport is unrecoverable. To resume operation, construct a fresh
+// Explorer via newExplorer.
+//
+// Concurrency: not safe to call concurrently with itself. Safe to call
+// concurrently with one-shot RPC methods (GetTxHex, etc.) — those will see
+// "connection closed" errors as part of step 2.
 func (e *explorerSvc) Stop() {
 	if e.stopTracking != nil {
 		e.stopTracking()

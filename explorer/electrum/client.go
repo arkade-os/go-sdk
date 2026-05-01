@@ -24,39 +24,79 @@ const (
 	maxScannerBytes    = 1 << 20 // 1 MB — large enough for verbose txs
 )
 
+// electrumClient owns the JSON-RPC transport: a single multiplexed TCP/SSL
+// connection, a pending-request map keyed by atomic request IDs, and the
+// listen + keepAlive goroutine pair that drives the connection.
+//
+// See doc.go for the package-level reconnection model. The dual-context
+// pattern (root c.ctx vs per-cycle cycleCtx) is what bounds goroutine
+// lifetimes across reconnects — see the cycleMu/cycleCancel field comment.
 type electrumClient struct {
 	serverURL string
 	tlsConfig *tls.Config // nil = default TLS config (system roots, TLS 1.2+)
 
+	// conn is the live TCP/SSL connection. Replaced (without nil-ing the old
+	// pointer) by reconnect() on every successful redial. Reads must go
+	// through getConn() under connMu's RLock; writes go through setConn().
 	conn   net.Conn
 	connMu sync.RWMutex // protects c.conn pointer only
 
-	writeMu sync.Mutex // serializes all conn.Write calls so frames don't interleave
+	// writeMu serialises all conn.Write calls so JSON-RPC frames are never
+	// interleaved on the wire. Held only across the single Write — no slow
+	// work happens inside its critical section.
+	writeMu sync.Mutex
 
+	// reqID feeds atomic, monotonically-increasing JSON-RPC request IDs.
+	// pending maps id → response channel; the listen() goroutine fulfils
+	// each request by looking up the id and sending on its channel.
 	reqID   atomic.Uint64
 	pending map[uint64]chan *jsonRPCResponse
 	pendMu  sync.Mutex
 
 	// subs maps scripthash → channel that receives new status hash strings
-	// whenever ElectrumX pushes a blockchain.scripthash.subscribe notification.
+	// whenever ElectrumX pushes a blockchain.scripthash.subscribe
+	// notification. Read by listen() under RLock; written by subscribe() and
+	// unsubscribeLocal() under Lock. Channels are buffered (8) so that a
+	// momentarily-slow consumer does not block the listen() goroutine.
 	subs   map[string]chan string
 	subsMu sync.RWMutex
 
-	// storedSubs is replayed in full on every reconnect.
-	// storedSubsMu is kept separate from subsMu because subscribe() must not
-	// hold either lock while doing the blocking RPC call, so the two maps are
-	// updated independently under their own locks.
+	// storedSubs is the durable list of scripthashes to resubscribe after a
+	// reconnect. Maintained alongside subs by subscribe()/unsubscribeLocal().
+	//
+	// storedSubsMu is kept separate from subsMu so that subscribe() can drop
+	// one lock before taking the other (enforcing lock ordering) and so that
+	// neither lock is held while issuing the blocking
+	// blockchain.scripthash.subscribe RPC.
 	storedSubs   []string
 	storedSubsMu sync.Mutex
 
+	// reconnectMu serialises reconnect attempts so only one goroutine ever
+	// runs the redial loop at a time. Required because both the natural
+	// disconnect path (listen() exit) and the failed-initial-connect path
+	// (Start()) can call reconnect concurrently.
 	reconnectMu sync.Mutex
 
+	// ctx / cancel — the ROOT context. Cancelled only by shutdown() which is
+	// reached via explorerSvc.Stop(). Used to:
+	//   - parent every per-cycle context so they all die at shutdown,
+	//   - unblock the reconnect loop's time.After backoff,
+	//   - bound the requestTimeout context so in-flight requests fail at
+	//     shutdown rather than waiting their full 15 s timeout.
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// cycleMu/cycleCancel track the current listen+keepAlive goroutine pair.
-	// Cancelling the cycle context signals both goroutines to stop before a new
-	// pair is started, preventing accumulation across reconnects.
+	// cycleMu / cycleCancel — the PER-CONNECTION-CYCLE context handle.
+	//
+	// Each successful connect spawns a fresh listen + keepAlive goroutine
+	// pair under a new context derived from c.ctx. cycleCancel is the cancel
+	// fn for that derived context. On the next reconnect, newCycleCtx()
+	// cancels the previous cycleCtx (terminating the old listen + keepAlive
+	// goroutines) BEFORE spawning the new pair.
+	//
+	// Without this, every reconnect would leak two goroutines: the old
+	// listen() (still trying to read the closed conn) and the old
+	// keepAlive() (still pinging via c.request).
 	cycleMu     sync.Mutex
 	cycleCancel context.CancelFunc
 }
