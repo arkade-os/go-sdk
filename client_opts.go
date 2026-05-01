@@ -3,6 +3,9 @@ package arksdk
 import (
 	"fmt"
 	"time"
+
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 )
 
 const (
@@ -43,6 +46,37 @@ func WithVerbose() ClientOption {
 	}
 }
 
+// WithGapLimit sets the HD wallet discovery gap limit used during startup
+// recovery. Must be greater than zero.
+func WithGapLimit(limit uint32) ClientOption {
+	return func(o *clientOptions) error {
+		if o.hdGapLimitSet {
+			return fmt.Errorf("gap limit already set")
+		}
+		if limit == 0 {
+			return fmt.Errorf("gap limit must be greater than zero")
+		}
+		o.hdGapLimit = limit
+		o.hdGapLimitSet = true
+		return nil
+	}
+}
+
+// WithWallet injects a custom WalletService implementation for key management.
+// Can only be set once and must not be nil.
+func WithWallet(walletSvc wallet.WalletService) ClientOption {
+	return func(o *clientOptions) error {
+		if o.wallet != nil {
+			return fmt.Errorf("wallet already set")
+		}
+		if walletSvc == nil {
+			return fmt.Errorf("wallet cannot be nil")
+		}
+		o.wallet = walletSvc
+		return nil
+	}
+}
+
 func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 	o := newDefaultClientOptions()
 	for _, opt := range opts {
@@ -59,10 +93,13 @@ func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 type clientOptions struct {
 	refreshDbInterval time.Duration
 	verbose           bool
+	hdGapLimit        uint32
+	hdGapLimitSet     bool
+	wallet            wallet.WalletService
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultClientOptions() *clientOptions {
-	return &clientOptions{}
+	return &clientOptions{hdGapLimit: hdwallet.DefaultGapLimit}
 }
