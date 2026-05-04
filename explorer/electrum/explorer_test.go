@@ -689,6 +689,58 @@ const fakeBlockHeader = "0100000000000000000000000000000000000000000000000000000
 
 const fakeBlockTime = int64(305419896)
 
+// P2WPKH script for bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq (mainnet).
+const addrScript = "0014e8df018c7e326cc253faac7e46cdc51e68542c42"
+
+// minimalTxHex: 1 null-outpoint input, 1 OP_1 output (1000 sat). Used when
+// only a syntactically valid TX is needed (e.g. GetTxOutspends error paths).
+const minimalTxHex = "020000000100000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01e803000000000000015100000000"
+
+// addrTxHex: 1 null-outpoint input, 1 P2WPKH output (100000 sat, addrScript).
+// When decoded, Vout[0].Address == "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq".
+const addrTxHex = "020000000100000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01a086010000000000160014e8df018c7e326cc253faac7e46cdc51e68542c4200000000"
+
+// precisionTxHex: same structure as addrTxHex but with 123456789 sat output.
+const precisionTxHex = "020000000100000000000000000000000000000000000000000000000000000000000000000000000000ffffffff0115cd5b0700000000160014e8df018c7e326cc253faac7e46cdc51e68542c4200000000"
+
+// twoOutputTxHex: 1 null-outpoint input, 2 outputs (OP_1 @ 1000sat, OP_2 @ 2000sat).
+const twoOutputTxHex = "020000000100000000000000000000000000000000000000000000000000000000000000000000000000ffffffff02e8030000000000000151d007000000000000015200000000"
+
+// Proper 64-hex-char txids (all same nibble so byte-reversing is a no-op, making
+// Hash.String() return the same string as the txid literal — required for
+// PreviousOutPoint.Hash.String() comparisons inside GetTxOutspends).
+const (
+	parentTxid    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	existTxid     = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	multivoutTxid = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	prevTxid      = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+)
+
+// spendingTxHex builds a raw TX that spends output vout of hash (64-hex-char txid).
+// The TX has no outputs. hash must be a 64-char all-same-nibble hex string so that
+// big-endian and little-endian byte orderings are identical.
+func spendingTxHex(hash string, vout uint32) string {
+	// vout as 4-byte little-endian hex
+	indexHex := fmt.Sprintf("%02x%02x%02x%02x",
+		vout&0xff, (vout>>8)&0xff, (vout>>16)&0xff, (vout>>24)&0xff)
+	return "02000000" + "01" +
+		hash + indexHex + "00" + "ffffffff" +
+		"00" + "00000000"
+}
+
+// inputTxHex builds a raw TX with one P2WPKH output (value in satoshis) and
+// one input spending hash:vout. Used for TestGetTxsInputFields.
+func inputTxHex(hash string, vout uint32, valueSat int64) string {
+	indexHex := fmt.Sprintf("%02x%02x%02x%02x",
+		vout&0xff, (vout>>8)&0xff, (vout>>16)&0xff, (vout>>24)&0xff)
+	valueHex := fmt.Sprintf("%02x%02x%02x%02x%02x%02x%02x%02x",
+		valueSat&0xff, (valueSat>>8)&0xff, (valueSat>>16)&0xff, (valueSat>>24)&0xff,
+		(valueSat>>32)&0xff, (valueSat>>40)&0xff, (valueSat>>48)&0xff, (valueSat>>56)&0xff)
+	return "02000000" + "01" +
+		hash + indexHex + "00" + "ffffffff" +
+		"01" + valueHex + "16" + addrScript + "00000000"
+}
+
 // reqStringParam extracts the string at index idx from the params array of a request.
 func reqStringParam(req map[string]json.RawMessage, idx int) string {
 	var params []json.RawMessage
@@ -711,9 +763,10 @@ func TestGetTxBlockTime(t *testing.T) {
 		case "server.version":
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid, "vin": []any{}, "vout": []any{},
-				"blockheight": 100, "confirmations": 1, "blocktime": 0,
+			writeResponse(conn, reqID(req), addrTxHex)
+		case "blockchain.scripthash.get_history":
+			writeResponse(conn, reqID(req), []map[string]any{
+				{"tx_hash": txid, "height": 100},
 			})
 		case "blockchain.block.header":
 			writeResponse(conn, reqID(req), fakeBlockHeader)
@@ -740,8 +793,6 @@ func TestGetTxBlockTime(t *testing.T) {
 func TestGetTxs(t *testing.T) {
 	const addr = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
 	const txid = "deadbeef"
-	// P2WPKH script for the address above (mainnet).
-	const addrScript = "0014e8df018c7e326cc253faac7e46cdc51e68542c42"
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
 		switch reqMethod(req) {
@@ -752,18 +803,7 @@ func TestGetTxs(t *testing.T) {
 				{"tx_hash": txid, "height": 100},
 			})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid,
-				"vin":  []any{},
-				"vout": []any{
-					map[string]any{
-						"n":            0,
-						"scriptpubkey": map[string]any{"hex": addrScript},
-						"value":        0.001,
-					},
-				},
-				"blockheight": 100, "confirmations": 1, "blocktime": 0,
-			})
+			writeResponse(conn, reqID(req), addrTxHex)
 		case "blockchain.block.header":
 			writeResponse(conn, reqID(req), fakeBlockHeader)
 		}
@@ -830,7 +870,6 @@ func TestGetUtxos(t *testing.T) {
 // TestGetTxOutspends verifies that GetTxOutspends identifies the spending transaction
 // by scanning the scripthash history of each output.
 func TestGetTxOutspends(t *testing.T) {
-	const parentTxid = "parent_tx"
 	const spenderTxid = "spender_tx"
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
@@ -840,35 +879,9 @@ func TestGetTxOutspends(t *testing.T) {
 		case "blockchain.transaction.get":
 			switch reqStringParam(req, 0) {
 			case parentTxid:
-				writeResponse(conn, reqID(req), map[string]any{
-					"txid": parentTxid,
-					"vin":  []any{},
-					"vout": []any{
-						map[string]any{
-							"n":            0,
-							"scriptpubkey": map[string]any{"hex": "51"},
-							"value":        0.001,
-						},
-					},
-					"blockheight": 100, "confirmations": 1, "blocktime": 0,
-				})
+				writeResponse(conn, reqID(req), minimalTxHex)
 			case spenderTxid:
-				writeResponse(conn, reqID(req), map[string]any{
-					"txid": spenderTxid,
-					"vin": []any{
-						map[string]any{
-							"txid": parentTxid,
-							"vout": 0,
-							"prevout": map[string]any{
-								"n":            0,
-								"scriptpubkey": map[string]any{"hex": "51"},
-								"value":        0.001,
-							},
-						},
-					},
-					"vout":        []any{},
-					"blockheight": 101, "confirmations": 1, "blocktime": 0,
-				})
+				writeResponse(conn, reqID(req), spendingTxHex(parentTxid, 0))
 			}
 		case "blockchain.scripthash.get_history":
 			writeResponse(conn, reqID(req), []map[string]any{
@@ -1164,7 +1177,7 @@ func TestSpentUTXOEventHasSpentBy(t *testing.T) {
 			listunspentCount++
 			if listunspentCount == 1 {
 				writeResponse(conn, reqID(req), []map[string]any{
-					{"tx_hash": "existtx", "tx_pos": 0, "value": 3000, "height": 100},
+					{"tx_hash": existTxid, "tx_pos": 0, "value": 3000, "height": 100},
 				})
 			} else {
 				writeResponse(conn, reqID(req), []any{})
@@ -1176,42 +1189,15 @@ func TestSpentUTXOEventHasSpentBy(t *testing.T) {
 			}
 			writeResponse(conn, reqID(req), nil)
 		case "blockchain.transaction.get":
-			txid := reqStringParam(req, 0)
-			if txid == "existtx" {
-				writeResponse(conn, reqID(req), map[string]any{
-					"txid": "existtx",
-					"vin":  []any{},
-					"vout": []any{
-						map[string]any{
-							"n":            0,
-							"scriptpubkey": map[string]any{"hex": "51"},
-							"value":        0.003,
-						},
-					},
-					"blockheight": 100, "confirmations": 1, "blocktime": 0,
-				})
-			} else {
-				// spender_tx has an input spending existtx:0.
-				writeResponse(conn, reqID(req), map[string]any{
-					"txid": spenderTxid,
-					"vin": []any{
-						map[string]any{
-							"txid": "existtx",
-							"vout": 0,
-							"prevout": map[string]any{
-								"n":            0,
-								"scriptpubkey": map[string]any{"hex": "51"},
-								"value":        0.003,
-							},
-						},
-					},
-					"vout":        []any{},
-					"blockheight": 101, "confirmations": 1, "blocktime": 0,
-				})
+			switch reqStringParam(req, 0) {
+			case existTxid:
+				writeResponse(conn, reqID(req), minimalTxHex)
+			case spenderTxid:
+				writeResponse(conn, reqID(req), spendingTxHex(existTxid, 0))
 			}
 		case "blockchain.scripthash.get_history":
 			writeResponse(conn, reqID(req), []map[string]any{
-				{"tx_hash": "existtx", "height": 100},
+				{"tx_hash": existTxid, "height": 100},
 				{"tx_hash": spenderTxid, "height": 101},
 			})
 		}
@@ -1253,7 +1239,7 @@ func TestSpentUTXOEventHasSpentBy(t *testing.T) {
 	case event := <-eventCh:
 		require.NoError(t, event.Error)
 		require.Len(t, event.SpentUtxos, 1, "expected a spent UTXO event")
-		require.Equal(t, "existtx", event.SpentUtxos[0].Txid)
+		require.Equal(t, existTxid, event.SpentUtxos[0].Txid)
 		require.Equal(t, spenderTxid, event.SpentUtxos[0].SpentBy,
 			"SpentBy must be populated via GetTxOutspends")
 	case <-time.After(2 * time.Second):
@@ -1266,7 +1252,6 @@ func TestSpentUTXOEventHasSpentBy(t *testing.T) {
 // is 123456788.99..., which truncation would convert to 123456788 instead of 123456789.
 func TestGetTxsAmountPrecision(t *testing.T) {
 	const addr = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
-	const addrScript = "0014e8df018c7e326cc253faac7e46cdc51e68542c42"
 	const txid = "precisiontx"
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
@@ -1278,19 +1263,7 @@ func TestGetTxsAmountPrecision(t *testing.T) {
 				{"tx_hash": txid, "height": 0},
 			})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid,
-				"vin":  []any{},
-				"vout": []any{
-					map[string]any{
-						"n":            0,
-						"scriptpubkey": map[string]any{"hex": addrScript},
-						// 1.23456789 BTC * 1e8 = 123456788.999... without rounding
-						"value": 1.23456789,
-					},
-				},
-				"blockheight": 0, "confirmations": 0, "blocktime": 0,
-			})
+			writeResponse(conn, reqID(req), precisionTxHex)
 		}
 	})
 
@@ -1315,7 +1288,6 @@ func TestGetTxsAmountPrecision(t *testing.T) {
 // BlockTime=0 is the sentinel value used by callers to detect unconfirmed transactions.
 func TestGetTxsUnconfirmed(t *testing.T) {
 	const addr = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
-	const addrScript = "0014e8df018c7e326cc253faac7e46cdc51e68542c42"
 	const txid = "mempooltx"
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
@@ -1327,18 +1299,7 @@ func TestGetTxsUnconfirmed(t *testing.T) {
 				{"tx_hash": txid, "height": 0},
 			})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid,
-				"vin":  []any{},
-				"vout": []any{
-					map[string]any{
-						"n":            0,
-						"scriptpubkey": map[string]any{"hex": addrScript},
-						"value":        0.001,
-					},
-				},
-				"blockheight": -1, "confirmations": 0, "blocktime": 0,
-			})
+			writeResponse(conn, reqID(req), addrTxHex)
 		}
 	})
 
@@ -1359,15 +1320,17 @@ func TestGetTxsUnconfirmed(t *testing.T) {
 		"unconfirmed tx must have BlockTime=0, not -1")
 }
 
-// TestGetTxsInputFields verifies that input prevout fields (Txid, Vout, Address, Amount, Script)
-// are all populated from the verbose transaction response, matching mempool explorer behavior.
+// TestGetTxsInputFields verifies that input prevout fields (Txid, Vout) are populated
+// from the decoded raw transaction. Script/Address/Amount are not available because
+// electrs-esplora does not support verbose transactions.
 func TestGetTxsInputFields(t *testing.T) {
 	const addr = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
-	const addrScript = "0014e8df018c7e326cc253faac7e46cdc51e68542c42"
 	const spendingTxid = "spendingtx"
-	const prevTxid = "prevtx"
 	const prevVout = uint32(2)
-	const prevAmountBTC = 0.0005 // 50000 sats
+
+	// inputTxHex encodes prevTxid ("eeee...ee") as the prevout hash. Since all bytes
+	// are identical, byte-reversal is a no-op, so Hash.String() == prevTxid.
+	spendingHex := inputTxHex(prevTxid, prevVout, 50000)
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
 		switch reqMethod(req) {
@@ -1378,28 +1341,7 @@ func TestGetTxsInputFields(t *testing.T) {
 				{"tx_hash": spendingTxid, "height": 0},
 			})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": spendingTxid,
-				"vin": []any{
-					map[string]any{
-						"txid": prevTxid,
-						"vout": prevVout,
-						"prevout": map[string]any{
-							"n":            prevVout,
-							"scriptpubkey": map[string]any{"hex": addrScript},
-							"value":        prevAmountBTC,
-						},
-					},
-				},
-				"vout": []any{
-					map[string]any{
-						"n":            0,
-						"scriptpubkey": map[string]any{"hex": addrScript},
-						"value":        0.00049,
-					},
-				},
-				"blockheight": -1, "confirmations": 0, "blocktime": 0,
-			})
+			writeResponse(conn, reqID(req), spendingHex)
 		}
 	})
 
@@ -1420,11 +1362,6 @@ func TestGetTxsInputFields(t *testing.T) {
 	in := txs[0].Vin[0]
 	require.Equal(t, prevTxid, in.Txid, "Input.Txid must match prevout tx")
 	require.Equal(t, prevVout, in.Vout, "Input.Vout must match prevout index")
-	require.Equal(t, addrScript, in.Script, "Input.Output.Script must be prevout script hex")
-	require.Equal(t, "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", in.Address,
-		"Input.Output.Address must be derived from prevout script")
-	require.Equal(t, uint64(50000), in.Amount,
-		"Input.Output.Amount must be prevout value in satoshis")
 }
 
 // TestGetTxBlockTimeUnconfirmed verifies that GetTxBlockTime returns (false, 0, nil)
@@ -1437,9 +1374,10 @@ func TestGetTxBlockTimeUnconfirmed(t *testing.T) {
 		case "server.version":
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid, "vin": []any{}, "vout": []any{},
-				"blockheight": -1, "confirmations": 0, "blocktime": 0,
+			writeResponse(conn, reqID(req), minimalTxHex)
+		case "blockchain.scripthash.get_history":
+			writeResponse(conn, reqID(req), []map[string]any{
+				{"tx_hash": txid, "height": 0},
 			})
 		}
 	})
@@ -1460,12 +1398,12 @@ func TestGetTxBlockTimeUnconfirmed(t *testing.T) {
 		"unconfirmed tx must return blocktime=0, consistent with GetTxs and GetUtxos")
 }
 
-// TestGetTxBlockTimeUsesVerboseBlocktime verifies that when the verbose tx response
-// includes a non-zero blocktime, GetTxBlockTime uses it directly without an extra
-// blockchain.block.header RPC call.
+// TestGetTxBlockTimeUsesVerboseBlocktime verifies that GetTxBlockTime always calls
+// blockchain.block.header to get the block timestamp for confirmed transactions.
+// (The previous optimization that skipped the header fetch when verbose TX had blocktime
+// no longer applies because electrs-esplora does not support verbose transactions.)
 func TestGetTxBlockTimeUsesVerboseBlocktime(t *testing.T) {
 	const txid = "confirmedtx"
-	const expectedBlocktime = int64(1700000000)
 	blockHeaderCalled := false
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
@@ -1473,9 +1411,10 @@ func TestGetTxBlockTimeUsesVerboseBlocktime(t *testing.T) {
 		case "server.version":
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid, "vin": []any{}, "vout": []any{},
-				"blockheight": 800000, "confirmations": 10, "blocktime": expectedBlocktime,
+			writeResponse(conn, reqID(req), addrTxHex)
+		case "blockchain.scripthash.get_history":
+			writeResponse(conn, reqID(req), []map[string]any{
+				{"tx_hash": txid, "height": 100},
 			})
 		case "blockchain.block.header":
 			blockHeaderCalled = true
@@ -1495,12 +1434,9 @@ func TestGetTxBlockTimeUsesVerboseBlocktime(t *testing.T) {
 	confirmed, blocktime, err := exp.GetTxBlockTime(txid)
 	require.NoError(t, err)
 	require.True(t, confirmed)
-	require.Equal(t, expectedBlocktime, blocktime)
-	require.False(
-		t,
-		blockHeaderCalled,
-		"blockchain.block.header must not be called when verbose tx has blocktime",
-	)
+	require.Equal(t, fakeBlockTime, blocktime)
+	require.True(t, blockHeaderCalled,
+		"blockchain.block.header must be called for confirmed tx")
 }
 
 // TestGetTxOutspendsUnspent verifies that an output with no spenders returns
@@ -1513,18 +1449,7 @@ func TestGetTxOutspendsUnspent(t *testing.T) {
 		case "server.version":
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid,
-				"vin":  []any{},
-				"vout": []any{
-					map[string]any{
-						"n":            0,
-						"scriptpubkey": map[string]any{"hex": "51"},
-						"value":        0.001,
-					},
-				},
-				"blockheight": 100, "confirmations": 1, "blocktime": 0,
-			})
+			writeResponse(conn, reqID(req), minimalTxHex)
 		case "blockchain.scripthash.get_history":
 			// Only the creating tx — no spenders.
 			writeResponse(conn, reqID(req), []map[string]any{
@@ -1552,7 +1477,6 @@ func TestGetTxOutspendsUnspent(t *testing.T) {
 // TestGetTxOutspendsMultipleOutputs verifies per-output tracking when a tx has multiple
 // outputs and only one is spent — the spent vout index must match the spender's input.
 func TestGetTxOutspendsMultipleOutputs(t *testing.T) {
-	const txid = "multivout"
 	const spenderTxid = "spender"
 
 	// GetTxOutspends processes outputs in index order (0, 1), so the first
@@ -1565,55 +1489,25 @@ func TestGetTxOutspendsMultipleOutputs(t *testing.T) {
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
 			switch reqStringParam(req, 0) {
-			case txid:
-				writeResponse(conn, reqID(req), map[string]any{
-					"txid": txid,
-					"vin":  []any{},
-					"vout": []any{
-						map[string]any{
-							"n":            0,
-							"scriptpubkey": map[string]any{"hex": "51"},
-							"value":        0.001,
-						},
-						map[string]any{
-							"n":            1,
-							"scriptpubkey": map[string]any{"hex": "52"},
-							"value":        0.002,
-						},
-					},
-					"blockheight": 100, "confirmations": 1, "blocktime": 0,
-				})
+			case multivoutTxid:
+				writeResponse(conn, reqID(req), twoOutputTxHex)
 			case spenderTxid:
-				// spenderTxid spends vout 0 only.
-				writeResponse(conn, reqID(req), map[string]any{
-					"txid": spenderTxid,
-					"vin": []any{
-						map[string]any{
-							"txid": txid,
-							"vout": 0,
-							"prevout": map[string]any{
-								"n":            0,
-								"scriptpubkey": map[string]any{"hex": "51"},
-								"value":        0.001,
-							},
-						},
-					},
-					"vout":        []any{},
-					"blockheight": 101, "confirmations": 1, "blocktime": 0,
-				})
+				// spendingTxHex encodes multivoutTxid as the prevout hash; since all
+				// bytes are identical ("dd"), Hash.String() == multivoutTxid.
+				writeResponse(conn, reqID(req), spendingTxHex(multivoutTxid, 0))
 			}
 		case "blockchain.scripthash.get_history":
 			historyCallCount++
 			if historyCallCount == 1 {
-				// First call is for vout 0 — it has a spender.
+				// First call is for vout 0 (OP_1 script) — it has a spender.
 				writeResponse(conn, reqID(req), []map[string]any{
-					{"tx_hash": txid, "height": 100},
+					{"tx_hash": multivoutTxid, "height": 100},
 					{"tx_hash": spenderTxid, "height": 101},
 				})
 			} else {
-				// Second call is for vout 1 — no spenders.
+				// Second call is for vout 1 (OP_2 script) — no spenders.
 				writeResponse(conn, reqID(req), []map[string]any{
-					{"tx_hash": txid, "height": 100},
+					{"tx_hash": multivoutTxid, "height": 100},
 				})
 			}
 		}
@@ -1628,7 +1522,7 @@ func TestGetTxOutspendsMultipleOutputs(t *testing.T) {
 	exp.Start()
 	defer exp.Stop()
 
-	outspends, err := exp.GetTxOutspends(txid)
+	outspends, err := exp.GetTxOutspends(multivoutTxid)
 	require.NoError(t, err)
 	require.Len(t, outspends, 2)
 	require.True(t, outspends[0].Spent, "vout 0 must be spent")

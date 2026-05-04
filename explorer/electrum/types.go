@@ -13,7 +13,11 @@ type jsonRPCRequest struct {
 type jsonRPCResponse struct {
 	ID     uint64          `json:"id"`
 	Result json.RawMessage `json:"result"`
-	Error  *jsonRPCError   `json:"error"`
+	// Error is kept as RawMessage because electrs-esplora sends a plain string
+	// while the JSON-RPC spec and ElectrumX send a {code, message} object.
+	// Parsing is deferred to parseRPCError so listen() never drops valid responses
+	// due to an unexpected error-field type.
+	Error json.RawMessage `json:"error"`
 }
 
 type jsonRPCError struct {
@@ -39,29 +43,4 @@ type electrumUTXO struct {
 	TxPos  uint32 `json:"tx_pos"`
 	Value  uint64 `json:"value"`
 	Height int64  `json:"height"`
-}
-
-type electrumVerboseTx struct {
-	Txid string             `json:"txid"`
-	Vin  []electrumTxInput  `json:"vin"`
-	Vout []electrumTxOutput `json:"vout"`
-	// BlockHeight is -1 for unconfirmed transactions.
-	BlockHeight   int64 `json:"blockheight"`
-	Confirmations int   `json:"confirmations"`
-	Blocktime     int64 `json:"blocktime"`
-}
-
-type electrumTxInput struct {
-	TxID    string           `json:"txid"`
-	Vout    uint32           `json:"vout"`
-	Prevout electrumTxOutput `json:"prevout"`
-}
-
-type electrumTxOutput struct {
-	N            uint32 `json:"n"`
-	ScriptPubKey struct {
-		Hex string `json:"hex"`
-	} `json:"scriptpubkey"`
-	// Value is in BTC for verbose transactions.
-	Value float64 `json:"value"`
 }

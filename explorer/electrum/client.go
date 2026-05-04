@@ -186,9 +186,20 @@ func (c *electrumClient) close() {
 	}
 	c.cycleMu.Unlock()
 
-	if conn := c.getConn(); conn != nil {
+	// Acquire writeMu before closing so that any concurrent request() that
+	// already holds writeMu and called getConn() finishes its Write before we
+	// close. Without this, conn.Write and conn.Close race, causing "use of
+	// closed network connection" errors in the caller.
+	c.writeMu.Lock()
+	c.connMu.Lock()
+	conn := c.conn
+	c.conn = nil
+	c.connMu.Unlock()
+	if conn != nil {
 		conn.Close() // nolint
 	}
+	c.writeMu.Unlock()
+
 	c.pendMu.Lock()
 	for id, ch := range c.pending {
 		close(ch)
@@ -373,7 +384,28 @@ func (c *electrumClient) reconnect() error {
 			// Cancel the cycle first so listen() won't trigger another reconnect
 			// when we close the connection below.
 			cancelCycle()
+			// Close under writeMu so any concurrent request() that already called
+			// getConn() and is waiting for writeMu sees the conn closed (write
+			// error) rather than silently writing to a dead socket. Setting
+			// c.conn = nil first ensures getConn() returns nil to new callers once
+			// writeMu is released.
+			c.writeMu.Lock()
+			c.connMu.Lock()
+			if c.conn == conn {
+				c.conn = nil
+			}
+			c.connMu.Unlock()
 			conn.Close() // nolint
+			c.writeMu.Unlock()
+			// Drain requests that arrived after the initial drain at the top of
+			// this function (e.g., requests that wrote to conn before handshake
+			// failed). Fail them immediately instead of letting them time out.
+			c.pendMu.Lock()
+			for id, ch := range c.pending {
+				close(ch)
+				delete(c.pending, id)
+			}
+			c.pendMu.Unlock()
 			continue
 		}
 
@@ -427,11 +459,12 @@ func (c *electrumClient) request(method string, params []any) (json.RawMessage, 
 		c.pendMu.Unlock()
 	}()
 
+	c.writeMu.Lock()
 	conn := c.getConn()
 	if conn == nil {
+		c.writeMu.Unlock()
 		return nil, fmt.Errorf("not connected")
 	}
-	c.writeMu.Lock()
 	_, err = conn.Write(data)
 	c.writeMu.Unlock()
 	if err != nil {
@@ -447,8 +480,8 @@ func (c *electrumClient) request(method string, params []any) (json.RawMessage, 
 		if !ok {
 			return nil, fmt.Errorf("connection closed waiting for %s", method)
 		}
-		if resp.Error != nil {
-			return nil, fmt.Errorf("electrum error %d: %s", resp.Error.Code, resp.Error.Message)
+		if rpcErr := parseRPCError(resp.Error); rpcErr != nil {
+			return nil, fmt.Errorf("electrum error %d: %s", rpcErr.Code, rpcErr.Message)
 		}
 		return resp.Result, nil
 	}

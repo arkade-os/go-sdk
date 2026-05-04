@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -28,10 +29,18 @@ import (
 )
 
 const (
-	password    = "secret"
-	serverUrl   = "127.0.0.1:7070"
-	explorerUrl = "tcp://127.0.0.1:50001"
+	password  = "secret"
+	serverUrl = "127.0.0.1:7070"
 )
+
+var explorerUrl = func() string {
+	if u := os.Getenv("ARK_ELECTRUM_URL"); u != "" {
+		return u
+	}
+	return "tcp://127.0.0.1:50001"
+}()
+
+var esploraUrl = os.Getenv("ARK_ESPLORA_URL")
 
 func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkClient {
 	t.Helper()
@@ -39,12 +48,16 @@ func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkCli
 	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
 	require.NoError(t, err)
 
+	initOpts := []sdk.InitOption{sdk.WithElectrumExplorer(explorerUrl)}
+	if esploraUrl != "" {
+		initOpts = append(initOpts, sdk.WithElectrumPackageBroadcastURL(esploraUrl))
+	}
 	err = arkClient.Init(
 		t.Context(),
 		serverUrl,
 		seed,
 		password,
-		sdk.WithElectrumExplorer(explorerUrl),
+		initOpts...,
 	)
 	require.NoError(t, err)
 

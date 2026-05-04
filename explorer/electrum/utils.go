@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -15,6 +16,33 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	log "github.com/sirupsen/logrus"
 )
+
+// parseRPCError interprets a JSON-RPC error value. ElectrumX sends a standard
+// {"code": N, "message": "..."} object; electrs-esplora sends a plain string
+// (e.g. "sendrawtransaction RPC error: {...}"). Both are accepted; nil is
+// returned when raw is absent or null so callers can use a nil check.
+func parseRPCError(raw json.RawMessage) *jsonRPCError {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var obj jsonRPCError
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		return &obj
+	}
+	// electrs-esplora: error is a plain string, possibly embedding JSON like
+	// "sendrawtransaction RPC error: {\"code\":-22,\"message\":\"...\"}".
+	var msg string
+	if err := json.Unmarshal(raw, &msg); err == nil {
+		if i := strings.Index(msg, "{"); i >= 0 {
+			var inner jsonRPCError
+			if err := json.Unmarshal([]byte(msg[i:]), &inner); err == nil && inner.Code != 0 {
+				return &inner
+			}
+		}
+		return &jsonRPCError{Message: msg}
+	}
+	return &jsonRPCError{Message: string(raw)}
+}
 
 // addressToScripthash converts a Bitcoin address to the ElectrumX scripthash format:
 // SHA256(outputScript) with bytes reversed (little-endian), hex-encoded.

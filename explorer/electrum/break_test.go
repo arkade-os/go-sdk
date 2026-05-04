@@ -81,22 +81,14 @@ func TestBreak_GetAddressesEventsLeaksWhenTrackerOff(t *testing.T) {
 // "output is unspent".
 func TestBreak_GetTxOutspendsHidesRPCError(t *testing.T) {
 	const txid = "tgt"
+	// Minimal non-segwit TX: 1 input (null outpoint), 1 output (OP_1 script = 0x51).
+	const minimalTxHex = "020000000100000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01e803000000000000015100000000"
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
 		switch reqMethod(req) {
 		case "server.version":
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid, "vin": []any{},
-				"vout": []any{
-					map[string]any{
-						"n":            0,
-						"scriptpubkey": map[string]any{"hex": "51"},
-						"value":        0.001,
-					},
-				},
-				"blockheight": 100, "confirmations": 1, "blocktime": 0,
-			})
+			writeResponse(conn, reqID(req), minimalTxHex)
 		case "blockchain.scripthash.get_history":
 			resp := fmt.Sprintf(
 				`{"id":%d,"error":{"code":-32603,"message":"internal error"}}`+"\n",
@@ -159,19 +151,25 @@ func TestBreak_StartIsIdempotent(t *testing.T) {
 		"Start() spawned %d TCP connections; second connection leaked", conns.Load())
 }
 
-// TestBreak_GetTxBlockTimeUnconfirmedSentinelMismatch documents that the
-// unconfirmed sentinel disagrees across explorer methods (-1 here, 0 elsewhere).
-func TestBreak_GetTxBlockTimeUnconfirmedSentinelMismatch(t *testing.T) {
+// TestBreak_GetTxBlockTimeUnconfirmedReturnsZero verifies that GetTxBlockTime
+// returns blocktime=0 for an unconfirmed transaction, consistent with GetTxs
+// and GetUtxos. electrs-esplora does not support verbose transactions, so we
+// derive confirmation status from blockchain.scripthash.get_history instead.
+func TestBreak_GetTxBlockTimeUnconfirmedReturnsZero(t *testing.T) {
 	const txid = "u"
+	// Minimal non-segwit TX: 1 input (null outpoint), 1 P2WPKH output (20 zero bytes).
+	const minimalTxHex = "020000000100000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01e803000000000000160014000000000000000000000000000000000000000000000000"
 
 	serverURL := startMockServer(t, func(conn net.Conn, req map[string]json.RawMessage) {
 		switch reqMethod(req) {
 		case "server.version":
 			writeResponse(conn, reqID(req), []string{"mock", "1.4"})
 		case "blockchain.transaction.get":
-			writeResponse(conn, reqID(req), map[string]any{
-				"txid": txid, "vin": []any{}, "vout": []any{},
-				"blockheight": -1, "confirmations": 0, "blocktime": 0,
+			writeResponse(conn, reqID(req), minimalTxHex)
+		case "blockchain.scripthash.get_history":
+			// height=0 means unconfirmed in the electrum protocol.
+			writeResponse(conn, reqID(req), []any{
+				map[string]any{"tx_hash": txid, "height": 0},
 			})
 		}
 	})
@@ -182,14 +180,10 @@ func TestBreak_GetTxBlockTimeUnconfirmedSentinelMismatch(t *testing.T) {
 	exp.Start()
 	defer exp.Stop()
 
-	_, bt, err := exp.GetTxBlockTime(txid)
+	confirmed, bt, err := exp.GetTxBlockTime(txid)
 	require.NoError(t, err)
-	require.Equal(
-		t,
-		int64(0),
-		bt,
-		"GetUtxos/GetTxs report BlockTime=0 for unconfirmed; GetTxBlockTime must match (returns -1)",
-	)
+	require.False(t, confirmed, "unconfirmed tx must report confirmed=false")
+	require.Equal(t, int64(0), bt, "unconfirmed tx must report blocktime=0")
 }
 
 // TestBreak_PendingRequestHangsOnDisconnect verifies that an in-flight request

@@ -34,3 +34,16 @@ func WithTLSConfig(cfg *tls.Config) Option {
 		svc.client.tlsConfig = cfg
 	}
 }
+
+// WithEsploraURL sets an esplora-compatible REST base URL used exclusively for
+// broadcasting transaction packages (multiple transactions submitted as a
+// single unit via POST /txs/package). This is required when broadcasting v3
+// transactions that carry a P2A (pay-to-anchor) output with zero fee: Bitcoin
+// Core rejects them individually via sendrawtransaction but accepts them via
+// submitpackage. When not set, Broadcast falls back to individual electrum
+// broadcasts (which will fail for zero-fee v3 parent transactions).
+func WithEsploraURL(url string) Option {
+	return func(svc *explorerSvc) {
+		svc.esploraURL = url
+	}
+}

@@ -8,8 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
-	"math"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -34,9 +35,10 @@ type addressState struct {
 }
 
 type explorerSvc struct {
-	client    *electrumClient
-	serverURL string
-	netParams *chaincfg.Params
+	client     *electrumClient
+	serverURL  string
+	esploraURL string // optional HTTP REST base URL for package broadcasts
+	netParams  *chaincfg.Params
 
 	noTracking   bool
 	pollInterval time.Duration
@@ -251,6 +253,16 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 	if len(txs) == 0 {
 		return "", fmt.Errorf("no txs to broadcast")
 	}
+
+	// When broadcasting a package (multiple transactions), use the esplora REST
+	// /txs/package endpoint if configured. This is required for v3 transactions
+	// that carry a zero-fee P2A anchor output: Bitcoin Core's sendrawtransaction
+	// rejects them individually, but submitpackage (which /txs/package calls)
+	// accepts the parent+child together.
+	if len(txs) > 1 && e.esploraURL != "" {
+		return e.broadcastPackage(txs...)
+	}
+
 	var firstTxid string
 	for i, tx := range txs {
 		txHex, txid, err := parseBitcoinTx(tx)
@@ -289,6 +301,47 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 	return firstTxid, nil
 }
 
+// broadcastPackage submits multiple transactions as a single package via the
+// esplora REST API (POST /txs/package → Bitcoin Core submitpackage). This is
+// the only way to broadcast a zero-fee v3 parent with a CPFP child that
+// provides the fee.
+func (e *explorerSvc) broadcastPackage(txs ...string) (string, error) {
+	hexes := make([]string, 0, len(txs))
+	firstTxid := ""
+	for i, tx := range txs {
+		txHex, txid, err := parseBitcoinTx(tx)
+		if err != nil {
+			return "", fmt.Errorf("tx %d: %w", i, err)
+		}
+		hexes = append(hexes, txHex)
+		if i == 0 {
+			firstTxid = txid
+		}
+		e.setCacheTx(txid, txHex)
+	}
+
+	body, err := json.Marshal(hexes)
+	if err != nil {
+		return "", fmt.Errorf("package marshal: %w", err)
+	}
+
+	url := strings.TrimRight(e.esploraURL, "/") + "/txs/package"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body)) // nolint
+	if err != nil {
+		return "", fmt.Errorf("package broadcast: %w", err)
+	}
+	defer resp.Body.Close() // nolint
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("package broadcast failed (%d): %s", resp.StatusCode, respBody)
+	}
+
+	// The response is a JSON object describing per-tx results. We don't parse
+	// it in detail — success is indicated by a 200 status. Return the first txid.
+	return firstTxid, nil
+}
+
 func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 	sh, err := addressToScripthash(addr, e.netParams)
 	if err != nil {
@@ -305,20 +358,20 @@ func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 
 	txs := make([]explorer.Tx, 0, len(history))
 	for _, entry := range history {
-		vtx, err := e.getVerboseTx(entry.TxHash)
+		txHex, err := e.GetTxHex(entry.TxHash)
+		if err != nil {
+			return nil, err
+		}
+		tx, err := decodeBitcoinTx(txHex)
 		if err != nil {
 			return nil, err
 		}
 		confirmed := entry.Height > 0
 		var blocktime int64
 		if confirmed {
-			if vtx.Blocktime > 0 {
-				blocktime = vtx.Blocktime
-			} else {
-				blocktime, _ = e.blockTimestamp(entry.Height)
-			}
+			blocktime, _ = e.blockTimestamp(entry.Height)
 		}
-		txs = append(txs, verboseTxToExplorerTx(vtx, blocktime, confirmed, e.netParams))
+		txs = append(txs, wireTxToExplorerTx(entry.TxHash, tx, blocktime, confirmed, e.netParams))
 	}
 	return txs, nil
 }
@@ -327,19 +380,24 @@ func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 // There is no direct ElectrumX equivalent; this resolves by scanning
 // the scripthash history of each output.
 func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error) {
-	vtx, err := e.getVerboseTx(txid)
+	txHex, err := e.GetTxHex(txid)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]explorer.SpentStatus, len(vtx.Vout))
-	for i, out := range vtx.Vout {
-		if out.ScriptPubKey.Hex == "" {
+	tx, err := decodeBitcoinTx(txHex)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]explorer.SpentStatus, len(tx.TxOut))
+	for i, out := range tx.TxOut {
+		script := hex.EncodeToString(out.PkScript)
+		if script == "" {
 			continue
 		}
-		sh, err := scriptToScripthash(out.ScriptPubKey.Hex)
+		sh, err := scriptToScripthash(script)
 		if err != nil {
 			log.WithError(err).
-				Debugf("electrum: scriptToScripthash failed for output %d of %s (script %s)", i, txid, out.ScriptPubKey.Hex)
+				Debugf("electrum: scriptToScripthash failed for output %d of %s", i, txid)
 			continue
 		}
 		histResult, err := e.client.request("blockchain.scripthash.get_history", []any{sh})
@@ -356,12 +414,17 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error
 			if entry.TxHash == txid {
 				continue
 			}
-			spendingTx, err := e.getVerboseTx(entry.TxHash)
+			spendingHex, err := e.GetTxHex(entry.TxHash)
 			if err != nil {
 				continue
 			}
-			for _, vin := range spendingTx.Vin {
-				if vin.TxID == txid && vin.Vout == uint32(i) {
+			spendingTx, err := decodeBitcoinTx(spendingHex)
+			if err != nil {
+				continue
+			}
+			for _, vin := range spendingTx.TxIn {
+				if vin.PreviousOutPoint.Hash.String() == txid &&
+					vin.PreviousOutPoint.Index == uint32(i) {
 					result[i] = explorer.SpentStatus{Spent: true, SpentBy: entry.TxHash}
 					break
 				}
@@ -436,21 +499,44 @@ func (e *explorerSvc) GetRedeemedVtxosBalance(
 }
 
 func (e *explorerSvc) GetTxBlockTime(txid string) (confirmed bool, blocktime int64, err error) {
-	vtx, err := e.getVerboseTx(txid)
+	// electrs-esplora does not support verbose transactions, so we decode the
+	// raw TX to get an output script, then look up the tx in the scripthash
+	// history to determine block height.
+	txHex, err := e.GetTxHex(txid)
 	if err != nil {
 		return false, 0, err
 	}
-	if vtx.Confirmations == 0 || vtx.BlockHeight <= 0 {
+	tx, err := decodeBitcoinTx(txHex)
+	if err != nil {
+		return false, 0, err
+	}
+	if len(tx.TxOut) == 0 {
 		return false, 0, nil
 	}
-	if vtx.Blocktime > 0 {
-		return true, vtx.Blocktime, nil
-	}
-	bt, err := e.blockTimestamp(vtx.BlockHeight)
+	script := hex.EncodeToString(tx.TxOut[0].PkScript)
+	sh, err := scriptToScripthash(script)
 	if err != nil {
 		return false, 0, err
 	}
-	return true, bt, nil
+	histResult, err := e.client.request("blockchain.scripthash.get_history", []any{sh})
+	if err != nil {
+		return false, 0, err
+	}
+	var history []electrumHistoryEntry
+	if err := json.Unmarshal(histResult, &history); err != nil {
+		return false, 0, err
+	}
+	for _, entry := range history {
+		if entry.TxHash != txid || entry.Height <= 0 {
+			continue
+		}
+		bt, err := e.blockTimestamp(entry.Height)
+		if err != nil {
+			return false, 0, err
+		}
+		return true, bt, nil
+	}
+	return false, 0, nil
 }
 
 func (e *explorerSvc) GetFeeRate() (float64, error) {
@@ -734,13 +820,54 @@ func (e *explorerSvc) listUnspent(scripthash string) ([]electrumUTXO, error) {
 	return utxos, json.Unmarshal(raw, &utxos)
 }
 
-func (e *explorerSvc) getVerboseTx(txid string) (*electrumVerboseTx, error) {
-	result, err := e.client.request("blockchain.transaction.get", []any{txid, true})
+// decodeBitcoinTx deserializes a hex-encoded raw Bitcoin transaction.
+func decodeBitcoinTx(txHex string) (*wire.MsgTx, error) {
+	b, err := hex.DecodeString(txHex)
 	if err != nil {
 		return nil, err
 	}
-	var vtx electrumVerboseTx
-	return &vtx, json.Unmarshal(result, &vtx)
+	tx := wire.NewMsgTx(wire.TxVersion)
+	if err := tx.Deserialize(bytes.NewReader(b)); err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+// wireTxToExplorerTx converts a decoded wire.MsgTx into the explorer.Tx format.
+// Input prevout fields (script, address, amount) are not populated because
+// electrs-esplora does not support verbose transactions.
+func wireTxToExplorerTx(
+	txid string,
+	tx *wire.MsgTx,
+	blocktime int64,
+	confirmed bool,
+	params *chaincfg.Params,
+) explorer.Tx {
+	vins := make([]explorer.Input, 0, len(tx.TxIn))
+	for _, in := range tx.TxIn {
+		vins = append(vins, explorer.Input{
+			Txid: in.PreviousOutPoint.Hash.String(),
+			Vout: in.PreviousOutPoint.Index,
+		})
+	}
+	vouts := make([]explorer.Output, 0, len(tx.TxOut))
+	for _, out := range tx.TxOut {
+		script := hex.EncodeToString(out.PkScript)
+		vouts = append(vouts, explorer.Output{
+			Script:  script,
+			Address: scriptToAddress(script, params),
+			Amount:  uint64(out.Value),
+		})
+	}
+	return explorer.Tx{
+		Txid: txid,
+		Vin:  vins,
+		Vout: vouts,
+		Status: explorer.ConfirmedStatus{
+			Confirmed: confirmed,
+			BlockTime: blocktime,
+		},
+	}
 }
 
 // blockTimestamp returns the Unix timestamp of a block at the given height by
@@ -780,41 +907,4 @@ func addrToScript(addr string, params *chaincfg.Params) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(script), nil
-}
-
-func verboseTxToExplorerTx(
-	vtx *electrumVerboseTx,
-	blocktime int64,
-	confirmed bool,
-	params *chaincfg.Params,
-) explorer.Tx {
-	vins := make([]explorer.Input, 0, len(vtx.Vin))
-	for _, in := range vtx.Vin {
-		vins = append(vins, explorer.Input{
-			Output: explorer.Output{
-				Script:  in.Prevout.ScriptPubKey.Hex,
-				Address: scriptToAddress(in.Prevout.ScriptPubKey.Hex, params),
-				Amount:  uint64(math.Round(in.Prevout.Value * 1e8)),
-			},
-			Txid: in.TxID,
-			Vout: in.Vout,
-		})
-	}
-	vouts := make([]explorer.Output, 0, len(vtx.Vout))
-	for _, out := range vtx.Vout {
-		vouts = append(vouts, explorer.Output{
-			Script:  out.ScriptPubKey.Hex,
-			Address: scriptToAddress(out.ScriptPubKey.Hex, params),
-			Amount:  uint64(math.Round(out.Value * 1e8)),
-		})
-	}
-	return explorer.Tx{
-		Txid: vtx.Txid,
-		Vin:  vins,
-		Vout: vouts,
-		Status: explorer.ConfirmedStatus{
-			Confirmed: confirmed,
-			BlockTime: blocktime,
-		},
-	}
 }

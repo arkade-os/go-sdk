@@ -61,8 +61,23 @@ func applyInitOptions(opts ...InitOption) (*initOptions, error) {
 	return o, nil
 }
 
+// WithElectrumPackageBroadcastURL sets an esplora-compatible REST base URL used
+// when broadcasting transaction packages via the electrum explorer. Required for
+// zero-fee v3 transactions (Ark commitment TXs with P2A anchors) that Bitcoin
+// Core rejects via sendrawtransaction but accepts via submitpackage.
+func WithElectrumPackageBroadcastURL(url string) InitOption {
+	return func(o *initOptions) error {
+		if url == "" {
+			return fmt.Errorf("esplora url cannot be empty")
+		}
+		o.electrumEsploraURL = url
+		return nil
+	}
+}
+
 type initOptions struct {
-	explorerUrl string
+	explorerUrl        string
+	electrumEsploraURL string
 }
 
 func newDefaultInitOptions() *initOptions {
