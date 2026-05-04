@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
 )
 
 func newDefaultHDWallet(datadir string) (wallet.WalletService, error) {
@@ -159,16 +158,6 @@ func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
 		return spentByVtxos[0]
 	}
 	return types.Vtxo{}
-}
-
-func toOutputScript(onchainAddress string, network arklib.Network) ([]byte, error) {
-	netParams := toBitcoinNetwork(network)
-	rcvAddr, err := btcutil.DecodeAddress(onchainAddress, &netParams)
-	if err != nil {
-		return nil, err
-	}
-
-	return txscript.PayToAddrScript(rcvAddr)
 }
 
 func toOnchainAddress(arkAddress string, network arklib.Network) string {

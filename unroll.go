@@ -20,21 +20,16 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	allVtxos, err := a.getSpendableVtxos(ctx, true)
+	vtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return err
 	}
 
-	if len(allVtxos) == 0 {
+	if len(vtxos) == 0 {
 		return fmt.Errorf("no vtxos to unroll")
 	}
 
-	vtxos := make([]clientTypes.Vtxo, 0, len(allVtxos))
-	for _, vtxo := range allVtxos {
-		vtxos = append(vtxos, vtxo.Vtxo)
-	}
-
-	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos))
+	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(vtxos))
 	if err != nil {
 		return err
 	}
@@ -47,8 +42,8 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		}
 
 		parentTxid := parentTx.TxID()
-		vtxosToUpdate := make([]clientTypes.Vtxo, 0, len(allVtxos))
-		for _, vtxo := range allVtxos {
+		vtxosToUpdate := make([]clientTypes.Vtxo, 0, len(vtxos))
+		for _, vtxo := range vtxos {
 			if vtxo.Txid == parentTxid {
 				v := vtxo.Vtxo
 				v.Unrolled = true

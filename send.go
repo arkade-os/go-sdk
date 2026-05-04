@@ -48,7 +48,7 @@ func (a *arkClient) SendOffChain(
 	}
 
 	outAmount := uint64(0)
-	for _, r := range receivers {
+	for _, r := range clone {
 		outAmount += r.Amount
 	}
 	inAmount := uint64(0)

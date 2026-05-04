@@ -96,7 +96,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		return fmt.Errorf("unlock: get config: %w", err)
 	}
 	mgr, err := contract.NewManager(
-		a.store.ContractStore(), cfg.Network, a.ArkClient.Transport(),
+		a.store.ContractStore(), cfg.Network, a.Transport(),
 	)
 	if err != nil {
 		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {

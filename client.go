@@ -905,18 +905,12 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Netw
 		log.WithError(err).Error("failed to get contracts for offchain addresses")
 		return
 	}
-
-	type addressInfo struct {
-		tapscripts []string
-		delay      arklib.RelativeLocktime
-	}
 	addresses := make([]string, 0, len(boardingContracts)+len(offchainContracts))
 
 	// Listen for boarding addresses to catch "boarding" events
 	for _, contract := range boardingContracts {
 		addresses = append(addresses, contract.Address)
 	}
-
 	// Listen for offchain addresses to catch "unrolling" events
 	for _, contract := range offchainContracts {
 		addresses = append(addresses, toOnchainAddress(contract.Address, network))

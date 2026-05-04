@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
@@ -82,27 +80,6 @@ func faucetOffchain(
 	wg.Wait()
 
 	return vtxo
-}
-
-func findOffchainAddressByScript(
-	t *testing.T, addrs []clientTypes.Address, scriptHex string,
-) clientTypes.Address {
-	t.Helper()
-
-	for _, addr := range addrs {
-		decodedAddr, err := arklib.DecodeAddressV0(addr.Address)
-		require.NoError(t, err)
-
-		pkScript, err := decodedAddr.GetPkScript()
-		require.NoError(t, err)
-
-		if hex.EncodeToString(pkScript) == scriptHex {
-			return addr
-		}
-	}
-
-	t.Fatalf("offchain address with script %s not found", scriptHex)
-	return clientTypes.Address{}
 }
 
 func generateNote(t *testing.T, amount uint64) string {

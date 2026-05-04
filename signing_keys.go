@@ -2,9 +2,7 @@ package arksdk
 
 import (
 	"context"
-	"encoding/hex"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 )
@@ -37,7 +35,10 @@ func (a *arkClient) getKeysForVtxos(
 	return a.getKeys(ctx, scripts)
 }
 
-func (a *arkClient) getKeysForUtxos(ctx context.Context, utxos []clientTypes.Utxo) (map[string]string, error) {
+func (a *arkClient) getKeysForUtxos(
+	ctx context.Context,
+	utxos []clientTypes.Utxo,
+) (map[string]string, error) {
 	scripts := make([]string, 0, len(utxos))
 	for _, utxo := range utxos {
 		scripts = append(scripts, utxo.Script)
@@ -67,22 +68,4 @@ func (a *arkClient) getKeys(ctx context.Context, scripts []string) (map[string]s
 		}
 	}
 	return keys, nil
-}
-
-func addSigningKeyForOnchainAddress(
-	keys map[string]string,
-	address, keyID string,
-	network arklib.Network,
-) error {
-	if keyID == "" {
-		return nil
-	}
-
-	script, err := toOutputScript(address, network)
-	if err != nil {
-		return err
-	}
-
-	keys[hex.EncodeToString(script)] = keyID
-	return nil
 }

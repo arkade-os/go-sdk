@@ -3,8 +3,6 @@ package arksdk
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
@@ -14,8 +12,6 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
-
-var errContractManagerNotReady = fmt.Errorf("contract manager not ready")
 
 func (a *arkClient) GetAddresses(ctx context.Context) (
 	onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
@@ -254,10 +250,4 @@ func (a *arkClient) getOffchainBalance(ctx context.Context) (
 	}
 
 	return
-}
-
-func getIndex(path string) uint32 {
-	str := strings.Split(path, "/")
-	idx, _ := strconv.ParseUint(str[len(str)-1], 10, 32)
-	return uint32(idx)
 }

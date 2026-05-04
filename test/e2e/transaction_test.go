@@ -559,22 +559,3 @@ func TestOffchainTx(t *testing.T) {
 		}, 30*time.Second, 500*time.Millisecond)
 	})
 }
-
-func findAddrForVtxo(
-	t *testing.T,
-	addrs []clientTypes.Address,
-	vtxo clientTypes.Vtxo,
-) clientTypes.Address {
-	t.Helper()
-	for _, addr := range addrs {
-		decoded, err := arklib.DecodeAddressV0(addr.Address)
-		require.NoError(t, err)
-		pkscript, err := decoded.GetPkScript()
-		require.NoError(t, err)
-		if hex.EncodeToString(pkscript) == vtxo.Script {
-			return addr
-		}
-	}
-	t.Fatalf("no offchain address matches vtxo script %s", vtxo.Script)
-	return clientTypes.Address{}
-}
