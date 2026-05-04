@@ -1427,8 +1427,8 @@ func TestGetTxsInputFields(t *testing.T) {
 		"Input.Output.Amount must be prevout value in satoshis")
 }
 
-// TestGetTxBlockTimeUnconfirmed verifies that GetTxBlockTime returns (false, -1, nil)
-// for an unconfirmed transaction, matching mempool explorer behavior.
+// TestGetTxBlockTimeUnconfirmed verifies that GetTxBlockTime returns (false, 0, nil)
+// for an unconfirmed transaction. 0 is the same sentinel used by GetTxs and GetUtxos.
 func TestGetTxBlockTimeUnconfirmed(t *testing.T) {
 	const txid = "mempooltx"
 
@@ -1456,8 +1456,8 @@ func TestGetTxBlockTimeUnconfirmed(t *testing.T) {
 	confirmed, blocktime, err := exp.GetTxBlockTime(txid)
 	require.NoError(t, err)
 	require.False(t, confirmed)
-	require.Equal(t, int64(-1), blocktime,
-		"unconfirmed tx must return blocktime=-1, matching mempool behavior")
+	require.Equal(t, int64(0), blocktime,
+		"unconfirmed tx must return blocktime=0, consistent with GetTxs and GetUtxos")
 }
 
 // TestGetTxBlockTimeUsesVerboseBlocktime verifies that when the verbose tx response

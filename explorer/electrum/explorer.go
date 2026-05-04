@@ -1,13 +1,5 @@
-// Package electrum_explorer provides an Explorer implementation backed by an
-// ElectrumX server over TCP or SSL. It is modeled on the ocean project's
-// electrum blockchain scanner and requires no third-party ElectrumX library.
-//
-// Known limitations vs the mempool.space explorer:
-//   - Broadcast of multiple txs is sequential, not atomic.
-//   - UnsubscribeForAddresses removes the address locally only; ElectrumX has no unsubscribe wire message.
-//   - OnchainAddressEvent.Replacements is always empty (ElectrumX has no RBF notification).
-//   - GetConnectionCount always returns 1 (single multiplexed TCP connection).
-//   - GetTxOutspends is O(outputs × history length) rather than a dedicated endpoint.
+// See doc.go for the package-level overview, lifecycle, reconnection model,
+// and restart/restore semantics.
 package electrum_explorer
 
 import (
@@ -50,21 +42,27 @@ type explorerSvc struct {
 	pollInterval time.Duration
 
 	subscribedMu  sync.RWMutex
-	subscribedMap map[string]*addressState // address → state
+	subscribedMap map[string]*addressState // address => state
+	// subscribingSet holds addresses currently being subscribed (reservation
+	// held while the RPC is in flight). Protected by subscribedMu. Prevents
+	// concurrent goroutines from racing to subscribe the same address, which
+	// would orphan notification channels and cause Stop() to deadlock.
+	subscribingSet map[string]struct{}
 
 	// notifWg tracks the per-address goroutines spawned in SubscribeForAddresses.
 	// Stop() waits on this before returning to ensure no goroutine outlives the svc.
 	notifWg sync.WaitGroup
 
-	// reverse lookup: scripthash → address
+	// reverse lookup: scripthash => address
 	scripthashToAddr   map[string]string
 	scripthashToAddrMu sync.RWMutex
 
+	startOnce    sync.Once
 	stopTracking func()
 	listeners    *listeners
 
 	cacheMu sync.RWMutex
-	cache   map[string]string // txid → hex; bounded to txCacheMaxSize entries
+	cache   map[string]string // txid => hex; bounded to txCacheMaxSize entries
 }
 
 const txCacheMaxSize = 1024
@@ -84,14 +82,13 @@ func NewExplorer(serverURL string, net arklib.Network, opts ...Option) (explorer
 		noTracking:       true, // default off; WithTracker(true) enables
 		pollInterval:     10 * time.Second,
 		subscribedMap:    make(map[string]*addressState),
+		subscribingSet:   make(map[string]struct{}),
 		scripthashToAddr: make(map[string]string),
+		listeners:        newListeners(), // always initialised so GetAddressesEvents channels are closed on Stop
 		cache:            make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(svc)
-	}
-	if !svc.noTracking {
-		svc.listeners = newListeners()
 	}
 	return svc, nil
 }
@@ -112,26 +109,53 @@ func networkToChainParams(net arklib.Network) *chaincfg.Params {
 	}
 }
 
+// Start dials the ElectrumX server, performs the server.version handshake,
+// and (if tracking is enabled via WithTracker(true)) launches the poll loop
+// over subscribed addresses.
+//
+// If the initial connect fails Start does NOT return an error; it logs a
+// warning and spawns a background goroutine that retries via the same
+// exponential-backoff reconnect path used after a mid-life disconnect.
+//
+// Concurrency: idempotent. Concurrent Start() calls are safe; only the
+// first call dials and launches goroutines.
 func (e *explorerSvc) Start() {
-	if err := e.client.connect(); err != nil {
-		log.WithError(err).Warn("electrum explorer: initial connect failed, retrying in background")
-		go func() {
-			if err := e.client.reconnect(); err != nil {
-				log.WithError(err).Error("electrum explorer: background reconnect failed")
-			}
-		}()
-	}
+	e.startOnce.Do(func() {
+		if err := e.client.connect(); err != nil {
+			log.WithError(err).
+				Warn("electrum explorer: initial connect failed, retrying in background")
+			go func() {
+				if err := e.client.reconnect(); err != nil {
+					log.WithError(err).Error("electrum explorer: background reconnect failed")
+				}
+			}()
+		}
 
-	if e.noTracking || e.stopTracking != nil {
-		return
-	}
+		if e.noTracking {
+			return
+		}
 
-	stopCh := make(chan struct{})
-	e.stopTracking = sync.OnceFunc(func() { close(stopCh) })
-	go e.pollLoop(stopCh)
-	log.Debug("electrum explorer: started")
+		stopCh := make(chan struct{})
+		e.stopTracking = sync.OnceFunc(func() { close(stopCh) })
+		go e.pollLoop(stopCh)
+		log.Debug("electrum explorer: started")
+	})
 }
 
+// Stop terminates the explorer in this order:
+//
+//  1. Closes the poll-loop stop channel; pollLoop returns on its next tick.
+//  2. Calls client.shutdown(); cancels the root context, closes the live
+//     conn, and drains in-flight pending requests so callers fail fast.
+//  3. Calls unsubscribeLocal for every subscribed address; closes each
+//     per-address notif channel, causing the per-address consumer goroutine
+//     spawned in SubscribeForAddresses to exit.
+//  4. Waits on notifWg until every per-address consumer has exited.
+//  5. Clears the listeners hub; closes every consumer event channel.
+//
+// Concurrency: not safe to call concurrently with itself. Safe to call
+// concurrently with one-shot RPC methods (GetTxHex, etc.); those will see
+// "connection closed" errors as part of step 2.
 func (e *explorerSvc) Stop() {
 	if e.stopTracking != nil {
 		e.stopTracking()
@@ -150,9 +174,7 @@ func (e *explorerSvc) Stop() {
 
 	e.notifWg.Wait()
 
-	if e.listeners != nil {
-		e.listeners.clear()
-	}
+	e.listeners.clear()
 
 	e.scripthashToAddrMu.Lock()
 	e.scripthashToAddr = make(map[string]string)
@@ -185,9 +207,7 @@ func (e *explorerSvc) IsAddressSubscribed(address string) bool {
 
 func (e *explorerSvc) GetAddressesEvents() <-chan types.OnchainAddressEvent {
 	ch := make(chan types.OnchainAddressEvent, 8)
-	if e.listeners != nil {
-		e.listeners.add(ch)
-	}
+	e.listeners.add(ch)
 	return ch
 }
 
@@ -324,8 +344,7 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error
 		}
 		histResult, err := e.client.request("blockchain.scripthash.get_history", []any{sh})
 		if err != nil {
-			log.WithError(err).Debugf("electrum: get_history failed for output %d of %s", i, txid)
-			continue
+			return nil, fmt.Errorf("get_history for output %d of %s: %w", i, txid, err)
 		}
 		var history []electrumHistoryEntry
 		if err := json.Unmarshal(histResult, &history); err != nil {
@@ -419,17 +438,17 @@ func (e *explorerSvc) GetRedeemedVtxosBalance(
 func (e *explorerSvc) GetTxBlockTime(txid string) (confirmed bool, blocktime int64, err error) {
 	vtx, err := e.getVerboseTx(txid)
 	if err != nil {
-		return false, -1, err
+		return false, 0, err
 	}
 	if vtx.Confirmations == 0 || vtx.BlockHeight <= 0 {
-		return false, -1, nil
+		return false, 0, nil
 	}
 	if vtx.Blocktime > 0 {
 		return true, vtx.Blocktime, nil
 	}
 	bt, err := e.blockTimestamp(vtx.BlockHeight)
 	if err != nil {
-		return false, -1, err
+		return false, 0, err
 	}
 	return true, bt, nil
 }
@@ -458,33 +477,44 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		return nil
 	}
 	for _, addr := range addresses {
-		e.subscribedMu.RLock()
+		// Reserve the address slot before doing expensive work. subscribingSet
+		// prevents a second concurrent goroutine from racing through subscribe
+		// for the same address, which would orphan notification channels and
+		// cause Stop() to deadlock on notifWg.Wait().
+		e.subscribedMu.Lock()
 		_, already := e.subscribedMap[addr]
-		e.subscribedMu.RUnlock()
-		if already {
+		_, inFlight := e.subscribingSet[addr]
+		if already || inFlight {
+			e.subscribedMu.Unlock()
 			continue
 		}
+		e.subscribingSet[addr] = struct{}{}
+		e.subscribedMu.Unlock()
 
 		sh, err := addressToScripthash(addr, e.netParams)
 		if err != nil {
+			e.subscribedMu.Lock()
+			delete(e.subscribingSet, addr)
+			e.subscribedMu.Unlock()
 			return fmt.Errorf("invalid address %s: %w", addr, err)
 		}
 		initialUTXOs, err := e.listUnspent(sh)
 		if err != nil {
+			e.subscribedMu.Lock()
+			delete(e.subscribingSet, addr)
+			e.subscribedMu.Unlock()
 			return fmt.Errorf("failed to get initial utxos for %s: %w", addr, err)
 		}
 		notifCh, err := e.client.subscribe(sh)
 		if err != nil {
+			e.subscribedMu.Lock()
+			delete(e.subscribingSet, addr)
+			e.subscribedMu.Unlock()
 			return fmt.Errorf("failed to subscribe for %s: %w", addr, err)
 		}
 
 		e.subscribedMu.Lock()
-		if _, already := e.subscribedMap[addr]; already {
-			// Another concurrent caller subscribed this address between our check and now.
-			e.subscribedMu.Unlock()
-			e.client.unsubscribeLocal(sh)
-			continue
-		}
+		delete(e.subscribingSet, addr)
 		state := &addressState{scripthash: sh, utxos: initialUTXOs, notifCh: notifCh}
 		e.subscribedMap[addr] = state
 		e.subscribedMu.Unlock()
