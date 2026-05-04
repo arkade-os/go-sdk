@@ -31,9 +31,7 @@ type contractStore struct {
 	lock *sync.Mutex
 }
 
-func NewContractStore(
-	dir string, logger badger.Logger, assetStore types.AssetStore,
-) (types.ContractStore, error) {
+func NewContractStore(dir string, logger badger.Logger) (types.ContractStore, error) {
 	if dir != "" {
 		dir = filepath.Join(dir, contractStoreDir)
 	}

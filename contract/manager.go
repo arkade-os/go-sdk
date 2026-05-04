@@ -139,8 +139,8 @@ func (m *managerImpl) GetKeyIDUsedForLatestContract(
 		}
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	handler, ok := m.handlers[contractType]
 	if !ok {

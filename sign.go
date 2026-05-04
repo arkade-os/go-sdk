@@ -27,7 +27,7 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 	scripts := make([]string, 0, len(ptx.Inputs))
 	for i, v := range ptx.Inputs {
 		if v.WitnessUtxo == nil {
-			return "", fmt.Errorf("missing prevoutfor input %d", i)
+			return "", fmt.Errorf("missing prevout for input %d", i)
 		}
 		scripts = append(scripts, hex.EncodeToString(v.WitnessUtxo.PkScript))
 	}

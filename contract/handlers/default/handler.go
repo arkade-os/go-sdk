@@ -182,7 +182,7 @@ func (h *defaultHandler) GetKeyRefs(contract types.Contract) (map[string]string,
 	}
 	taprootKey, _, err := rawCheckpointScript.TapTree()
 	if err != nil {
-		return nil, fmt.Errorf("failed to compue checkpoint script taproot key: %w", err)
+		return nil, fmt.Errorf("failed to compute checkpoint script taproot key: %w", err)
 	}
 
 	checkpointScript, err := script.P2TRScript(taprootKey)

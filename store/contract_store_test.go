@@ -20,7 +20,7 @@ const (
 var (
 	testContractCreatedAt = time.Unix(1746143068, 0)
 
-	// Active, onchain, key index 0.
+	// Active, offchain, key index 0.
 	testContractA = types.Contract{
 		Type:      types.ContractTypeDefault,
 		Label:     "first",
@@ -54,7 +54,7 @@ var (
 		},
 	}
 
-	// Inactive, offchain, key index 2.
+	// Inactive, onchain, key index 2.
 	testContractC = types.Contract{
 		Type:      types.ContractTypeDefault,
 		Label:     "third",
@@ -275,7 +275,7 @@ func TestContractStoreGetLatestContract(t *testing.T) {
 				got, err := s.GetLatestContract(ctx, types.ContractTypeDefault, false)
 				require.NoError(t, err)
 				require.NotNil(t, got)
-				// Highest owner_key_index (m/0/1) -> testContractC.
+				// Highest owner_key_index (m/0/1) -> testContractB.
 				require.Equal(t, testContractB.Script, got.Script)
 			})
 

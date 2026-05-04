@@ -99,6 +99,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.store.ContractStore(), cfg.Network, a.ArkClient.Transport(),
 	)
 	if err != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: get config: %w (rollback lock failed: %v)", err, lockErr)
+		}
 		return fmt.Errorf("failed to init contract manager: %w", err)
 	}
 

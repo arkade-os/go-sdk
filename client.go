@@ -1069,7 +1069,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Netw
 						continue
 					}
 					if len(contracts) <= 0 {
-						log.WithError(err).Warnf("contract not found for utxo %s", u.Outpoint)
+						log.Warnf("contract not found for utxo %s", u.Outpoint)
 						continue
 					}
 

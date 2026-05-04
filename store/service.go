@@ -67,7 +67,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			if err != nil {
 				return nil, err
 			}
-			contractStore, err = kvstore.NewContractStore(dir, nil, assetStore)
+			contractStore, err = kvstore.NewContractStore(dir, nil)
 		case types.SQLStore:
 			dbFile := filepath.Join(dir, sqliteDbFile)
 			db, err := sqlstore.OpenDb(dbFile)
