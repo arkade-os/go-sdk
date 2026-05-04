@@ -26,7 +26,7 @@ func seedConfigStore(t *testing.T, datadir string) {
 		SignerPubKey:  privKey.PubKey(),
 		ForfeitPubKey: privKey.PubKey(),
 		Network:       arklib.BitcoinRegTest,
-		ExplorerURL:   "http://127.0.0.1:3000",
+		ExplorerURL:   "tcp://127.0.0.1:50001",
 	}
 	require.NoError(t, c.GetConfigStore().AddData(t.Context(), cfg))
 }

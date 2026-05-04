@@ -30,7 +30,7 @@ import (
 const (
 	password    = "secret"
 	serverUrl   = "127.0.0.1:7070"
-	explorerUrl = "http://127.0.0.1:3000"
+	explorerUrl = "tcp://127.0.0.1:50001"
 )
 
 func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkClient {
@@ -39,7 +39,13 @@ func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkCli
 	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
 	require.NoError(t, err)
 
-	err = arkClient.Init(t.Context(), serverUrl, seed, password)
+	err = arkClient.Init(
+		t.Context(),
+		serverUrl,
+		seed,
+		password,
+		sdk.WithElectrumExplorer(explorerUrl),
+	)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
