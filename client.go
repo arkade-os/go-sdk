@@ -41,9 +41,10 @@ var (
 type arkClient struct {
 	client.ArkClient
 
-	verbose     bool
-	store       types.Store
-	clientStore clientTypes.Store
+	verbose         bool
+	store           types.Store
+	clientStore     clientTypes.Store
+	contractManager contract.Manager
 
 	syncMu *sync.Mutex
 	// TODO drop the channel
@@ -58,14 +59,10 @@ type arkClient struct {
 	logMu             *sync.Mutex
 	lastUpdate        time.Time
 	hdGapLimit        uint32
-	onchainRegistry   *onchainAddressRegistry
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
-
-	cmMu            sync.RWMutex
-	contractManager contract.Manager
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
@@ -133,7 +130,6 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
-		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
 	return client, nil
@@ -231,22 +227,9 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
-		onchainRegistry:   newOnchainAddressRegistry(),
 	}
 
 	return client, nil
-}
-
-func (a *arkClient) ContractManager() contract.Manager {
-	return a.contractMgr()
-}
-
-// contractMgr returns the current contract manager under a read lock.
-// Callers must treat a nil return as "wallet is locked".
-func (a *arkClient) contractMgr() contract.Manager {
-	a.cmMu.RLock()
-	defer a.cmMu.RUnlock()
-	return a.contractManager
 }
 
 func (a *arkClient) Explorer() explorer.Explorer {
@@ -259,6 +242,10 @@ func (a *arkClient) Indexer() indexer.Indexer {
 
 func (a *arkClient) Client() transport.TransportClient {
 	return a.Transport()
+}
+
+func (a *arkClient) ContractManager() contract.Manager {
+	return a.contractManager
 }
 
 func (a *arkClient) GetConfigStore() clientTypes.ConfigStore {
@@ -395,20 +382,6 @@ func (a *arkClient) resetSyncStateForUnlock() {
 	a.syncCh = make(chan error)
 }
 
-func (a *arkClient) walletHasKeys(ctx context.Context) (bool, error) {
-	walletSvc := a.Wallet()
-	if walletSvc == nil {
-		return false, ErrNotInitialized
-	}
-
-	keys, err := walletSvc.ListKeys(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	return len(keys) > 0, nil
-}
-
 func (a *arkClient) refreshDb(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -419,76 +392,120 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	updateTime := time.Now()
-	opts := []client.ListVtxosOption{}
-	if !a.lastUpdate.IsZero() {
-		updateUnix := updateTime.Unix()
-		lastUpdateUnix := a.lastUpdate.Unix()
-		if updateUnix > lastUpdateUnix {
-			opts = append(opts, client.WithTimeRange(updateUnix, lastUpdateUnix))
-		}
-	}
-
-	spendableVtxos := make([]clientTypes.Vtxo, 0)
-	spentVtxos := make([]clientTypes.Vtxo, 0)
-	hasKeys, err := a.walletHasKeys(ctx)
+	contracts, err := a.contractManager.GetContracts(ctx)
 	if err != nil {
 		return err
 	}
-	if hasKeys {
-		// Fetch new and spent vtxos.
-		spendableVtxos, spentVtxos, err = a.ArkClient.ListVtxos(ctx, opts...)
+	boardingContracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
+	if err != nil {
+		return err
+	}
+
+	if len(contracts)+len(boardingContracts) <= 0 {
+		return nil
+	}
+
+	updateTime := time.Now()
+	var spendableVtxos, spentVtxos []clientTypes.Vtxo
+	// Fetch new and spent vtxos in time range, or full list at startup.
+	if len(contracts) > 0 {
+		scripts := make([]string, 0, len(contracts))
+		for _, contract := range contracts {
+			scripts = append(scripts, contract.Script)
+		}
+		opts := []indexer.GetVtxosOption{indexer.WithScripts(scripts)}
+		if !a.lastUpdate.IsZero() {
+			updateUnix := updateTime.Unix()
+			lastUpdateUnix := a.lastUpdate.Unix()
+			if updateUnix > lastUpdateUnix {
+				opts = append(opts, indexer.WithTimeRange(updateUnix, lastUpdateUnix))
+			}
+		}
+
+		res, err := a.Indexer().GetVtxos(ctx, opts...)
 		if err != nil {
 			return err
 		}
-	}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	// Fetch new and spent utxos.
-	allUtxos, err := a.getTrackedOnchainUtxos(ctx)
-	if err != nil {
-		return err
-	}
-
-	spendableUtxos := make([]clientTypes.Utxo, 0, len(allUtxos))
-	spentUtxos := make([]clientTypes.Utxo, 0, len(allUtxos))
-	commitmentTxsToIgnore := make(map[string]struct{})
-	for _, utxo := range allUtxos {
-		if utxo.Spent {
-			spentUtxos = append(spentUtxos, utxo)
-			commitmentTxsToIgnore[utxo.SpentBy] = struct{}{}
-			continue
+		for _, vtxo := range res.Vtxos {
+			if vtxo.Spent || vtxo.Unrolled {
+				spentVtxos = append(spentVtxos, vtxo)
+				continue
+			}
+			spendableVtxos = append(spendableVtxos, vtxo)
 		}
-		spendableUtxos = append(spendableUtxos, utxo)
 	}
 
-	// Rebuild tx history.
-	unconfirmedTxs := make([]clientTypes.Transaction, 0)
-	confirmedTxs := make([]clientTypes.Transaction, 0)
-	for _, u := range allUtxos {
-		tx := clientTypes.Transaction{
-			TransactionKey: clientTypes.TransactionKey{
-				BoardingTxid: u.Txid,
-			},
-			Amount:    u.Amount,
-			Type:      clientTypes.TxReceived,
-			CreatedAt: u.CreatedAt,
-			SettledBy: u.SpentBy,
-			Hex:       u.Tx,
+	var (
+		spendableUtxos, spentUtxos []clientTypes.Utxo
+		onchainHistory             []clientTypes.Transaction
+		commitmentTxsToIgnore      = make(map[string]struct{})
+	)
+	if len(boardingContracts) > 0 {
+		// Fetch new and spent boarding utxos.
+		type params struct {
+			exitDelay  arklib.RelativeLocktime
+			tapscripts []string
+		}
+		boardingAddresses := make([]string, 0, len(boardingContracts))
+		addrParams := make(map[string]params, len(boardingContracts))
+		for _, contract := range boardingContracts {
+			boardingAddresses = append(boardingAddresses, contract.Address)
+			exitDelay, err := a.contractManager.GetExitDelay(ctx, contract)
+			if err != nil {
+				return err
+			}
+			tapscripts, err := a.contractManager.GetTapscripts(ctx, contract)
+			if err != nil {
+				return err
+			}
+			addrParams[contract.Script] = params{*exitDelay, tapscripts}
 		}
 
-		if u.CreatedAt.IsZero() {
-			unconfirmedTxs = append(unconfirmedTxs, tx)
-			continue
+		utxos, err := a.Explorer().GetUtxos(boardingAddresses)
+		if err != nil {
+			return err
 		}
-		confirmedTxs = append(confirmedTxs, tx)
-	}
 
-	onchainHistory := append(unconfirmedTxs, confirmedTxs...)
+		allUtxos := make([]clientTypes.Utxo, 0, len(utxos))
+		for _, utxo := range utxos {
+			params := addrParams[utxo.Script]
+			allUtxos = append(allUtxos, utxo.ToUtxo(params.exitDelay, params.tapscripts))
+		}
+
+		for _, utxo := range allUtxos {
+			if utxo.Spent {
+				spentUtxos = append(spentUtxos, utxo)
+				commitmentTxsToIgnore[utxo.SpentBy] = struct{}{}
+				continue
+			}
+			spendableUtxos = append(spendableUtxos, utxo)
+		}
+
+		// Rebuild tx history.
+		unconfirmedTxs := make([]clientTypes.Transaction, 0)
+		confirmedTxs := make([]clientTypes.Transaction, 0)
+		for _, u := range allUtxos {
+			tx := clientTypes.Transaction{
+				TransactionKey: clientTypes.TransactionKey{
+					BoardingTxid: u.Txid,
+				},
+				Amount:    u.Amount,
+				Type:      clientTypes.TxReceived,
+				CreatedAt: u.CreatedAt,
+				SettledBy: u.SpentBy,
+				Hex:       u.Tx,
+			}
+
+			if u.CreatedAt.IsZero() {
+				unconfirmedTxs = append(unconfirmedTxs, tx)
+				continue
+			}
+			confirmedTxs = append(confirmedTxs, tx)
+		}
+
+		onchainHistory = append(unconfirmedTxs, confirmedTxs...)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -816,34 +833,26 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				return
 			}
 
-			mgr := a.contractMgr()
+			mgr := a.contractManager
 			if mgr == nil {
 				continue
 			}
-			if err := mgr.Load(ctx); err != nil {
-				log.WithError(err).Warn("failed to sync contracts in ark tx listener")
-			}
-			contracts, err := mgr.GetContracts(ctx)
+			offchainContracts, err := mgr.GetContracts(ctx)
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				log.WithError(err).Error("failed to get contracts for ark tx listener")
 				continue
 			}
 
-			myPubkeys := make(map[string]struct{})
-			for _, c := range contracts {
-				if c.IsOnchain {
-					continue // only offchain contracts carry ark addresses
-				}
-				// nolint
-				decoded, _ := arklib.DecodeAddressV0(c.Address)
-				if decoded != nil {
-					pubkey := hex.EncodeToString(schnorr.SerializePubKey(decoded.VtxoTapKey))
-					myPubkeys[pubkey] = struct{}{}
-				}
+			myScripts := make(map[string]struct{})
+			for _, contract := range offchainContracts {
+				myScripts[contract.Script] = struct{}{}
 			}
 
 			if event.CommitmentTx != nil {
-				if err := a.handleCommitmentTx(ctx, myPubkeys, event.CommitmentTx); err != nil {
+				if err := a.handleCommitmentTx(ctx, myScripts, event.CommitmentTx); err != nil {
 					if ctx.Err() != nil {
 						return
 					}
@@ -853,7 +862,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			}
 
 			if event.ArkTx != nil {
-				if err := a.handleArkTx(ctx, myPubkeys, event.ArkTx); err != nil {
+				if err := a.handleArkTx(ctx, myScripts, event.ArkTx); err != nil {
 					if ctx.Err() != nil {
 						return
 					}
@@ -877,33 +886,23 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 	}
 }
 
-func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
-	wallet := a.Wallet()
-	if wallet == nil {
-		// Should be unreachable
-		log.Error("failed to listen for onchain txs, wallet is nil")
-		return
-	}
+func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Network) {
 	explorer := a.ArkClient.Explorer()
 	if explorer == nil {
 		// Should be unreachable
 		log.Error("failed to listen for onchain txs, explorer is nil")
 		return
 	}
-	cfg, err := a.GetConfigData(ctx)
+
+	boardingContracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
 	if err != nil {
-		// Should be unreachable
-		log.WithError(err).Error("failed to get config data")
+		log.WithError(err).Error("failed to get contracts for boarding addresses")
 		return
 	}
 
-	mgr := a.contractMgr()
-	if mgr == nil {
-		return
-	}
-	contracts, err := mgr.GetContracts(ctx)
+	offchainContracts, err := a.contractManager.GetContracts(ctx)
 	if err != nil {
-		log.WithError(err).Error("failed to get contracts for onchain listener")
+		log.WithError(err).Error("failed to get contracts for offchain addresses")
 		return
 	}
 
@@ -911,63 +910,17 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		tapscripts []string
 		delay      arklib.RelativeLocktime
 	}
-	addresses := make([]string, 0)
-	addressByScript := make(map[string]addressInfo, 0)
+	addresses := make([]string, 0, len(boardingContracts)+len(offchainContracts))
 
-	populateContract := func(c contract.Contract) []string {
-		addr := c.Address
-		if !c.IsOnchain {
-			// Offchain (VTXO) contract: subscribe to the onchain equivalent for
-			// unroll detection — a spent VTXO appears as an onchain output.
-			onchainEquiv, err := toOnchainAddress(addr, cfg.Network)
-			if err != nil {
-				log.WithError(err).Error("failed to convert ark address to onchain address")
-				return nil
-			}
-			addr = onchainEquiv
-		}
-		sc, err := toOutputScript(addr, cfg.Network)
-		if err != nil {
-			log.WithError(err).Error("failed to get pk script for contract address")
-			return nil
-		}
-		delay, err := c.GetDelay()
-		if err != nil {
-			// Plain onchain contracts (e.g. TypeDefaultOnchain) have no CSV exit
-			// delay — they are immediately spendable. Boarding and VTXO contracts
-			// must have a delay, so skip those if the param is missing or malformed.
-			if c.IsOnchain && c.Type != contract.TypeDefaultBoarding {
-				delay = arklib.RelativeLocktime{}
-			} else {
-				log.WithError(err).Errorf("skipping contract %s: invalid exit delay", c.Script)
-				return nil
-			}
-		}
-		addressByScript[hex.EncodeToString(sc)] = addressInfo{
-			tapscripts: c.GetTapscripts(),
-			delay:      delay,
-		}
-		return []string{addr}
+	// Listen for boarding addresses to catch "boarding" events
+	for _, contract := range boardingContracts {
+		addresses = append(addresses, contract.Address)
 	}
 
-	for _, c := range contracts {
-		addresses = append(addresses, populateContract(c)...)
+	// Listen for offchain addresses to catch "unrolling" events
+	for _, contract := range offchainContracts {
+		addresses = append(addresses, toOnchainAddress(contract.Address, network))
 	}
-
-	newContractCh := make(chan contract.Contract, 8)
-	unsub := mgr.OnContractEvent(func(e contract.Event) {
-		if e.Type == "contract_created" {
-			select {
-			case newContractCh <- e.Contract:
-			default:
-				log.Warn(
-					"newContractCh full, address subscription dropped for contract ",
-					e.Contract.Script,
-				)
-			}
-		}
-	})
-	defer unsub()
 
 	if err := explorer.SubscribeForAddresses(addresses); err != nil {
 		log.WithError(err).Error("failed to subscribe for onchain addresses")
@@ -985,15 +938,6 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(err).Error("failed to unsubscribe for onchain addresses")
 			}
 			return
-		case c := <-newContractCh:
-			newAddrs := populateContract(c)
-			if len(newAddrs) > 0 {
-				if err := explorer.SubscribeForAddresses(newAddrs); err != nil {
-					log.WithError(err).Error("failed to subscribe for new contract addresses")
-				} else {
-					addresses = append(addresses, newAddrs...)
-				}
-			}
 		case update := <-ch:
 			// TODO: we may want to forward this error so the user can try to reconnect.
 			if update.Error != nil {
@@ -1117,26 +1061,44 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			if len(update.NewUtxos) > 0 {
 				utxosToAdd := make([]clientTypes.Utxo, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
-					address, ok := addressByScript[u.Script]
-					if !ok {
-						log.WithField("script", u.Script).
-							WithField("outpoint", u.Outpoint).
-							Error("failed to find address for new utxo")
+					contracts, err := a.contractManager.GetContracts(
+						ctx, contract.WithScripts([]string{u.Script}),
+					)
+					if err != nil {
+						log.WithError(err).Warnf("failed to get contract for utxo %s", u.Outpoint)
+						continue
+					}
+					if len(contracts) <= 0 {
+						log.WithError(err).Warnf("contract not found for utxo %s", u.Outpoint)
 						continue
 					}
 
 					txHex, err := explorer.GetTxHex(u.Txid)
 					if err != nil {
-						log.WithField("txid", u.Txid).
-							WithError(err).
-							Error("failed to get boarding utxo transaction")
+						log.WithError(err).Warnf("failed to fetch tx for utxo %s", u.Outpoint)
+						continue
+					}
+
+					exitDelay, err := a.contractManager.GetExitDelay(ctx, contracts[0])
+					if err != nil {
+						log.WithError(err).Warnf(
+							"failed to get exit delay for utxo %s", u.Outpoint,
+						)
+						continue
+					}
+
+					tapscripts, err := a.contractManager.GetTapscripts(ctx, contracts[0])
+					if err != nil {
+						log.WithError(err).Warnf(
+							"failed to get tapscripts for utxo %s", u.Outpoint,
+						)
 						continue
 					}
 
 					var spendableAt time.Time
 					if !u.CreatedAt.IsZero() {
 						spendableAt = u.CreatedAt.Add(
-							time.Duration(address.delay.Seconds()) * time.Second,
+							time.Duration(exitDelay.Seconds()) * time.Second,
 						)
 					}
 
@@ -1144,11 +1106,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						Outpoint:    u.Outpoint,
 						Amount:      u.Amount,
 						Script:      u.Script,
-						Delay:       address.delay,
-						Spent:       false,
-						SpentBy:     "",
+						Delay:       *exitDelay,
 						Tx:          txHex,
-						Tapscripts:  address.tapscripts,
+						Tapscripts:  tapscripts,
 						CreatedAt:   u.CreatedAt,
 						SpendableAt: spendableAt,
 					})
@@ -1273,7 +1233,7 @@ func (a *arkClient) periodicRefreshDb(ctx context.Context) {
 }
 
 func (a *arkClient) handleCommitmentTx(
-	ctx context.Context, myPubkeys map[string]struct{}, commitmentTx *transport.TxNotification,
+	ctx context.Context, myScripts map[string]struct{}, commitmentTx *transport.TxNotification,
 ) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
@@ -1284,9 +1244,7 @@ func (a *arkClient) handleCommitmentTx(
 	txsToSettle := make([]string, 0)
 
 	for _, vtxo := range commitmentTx.SpendableVtxos {
-		// remove opcodes from P2TR script
-		tapkey := vtxo.Script[4:]
-		if _, ok := myPubkeys[tapkey]; ok {
+		if _, ok := myScripts[vtxo.Script]; ok {
 			vtxosToAdd = append(vtxosToAdd, vtxo)
 		}
 	}
@@ -1295,8 +1253,7 @@ func (a *arkClient) handleCommitmentTx(
 	spentVtxos := make([]clientTypes.Outpoint, 0, len(commitmentTx.SpentVtxos))
 	indexedSpentVtxos := make(map[clientTypes.Outpoint]clientTypes.Vtxo)
 	for _, vtxo := range commitmentTx.SpentVtxos {
-		tapkey := vtxo.Script[4:]
-		if _, ok := myPubkeys[tapkey]; ok {
+		if _, ok := myScripts[vtxo.Script]; ok {
 			spentVtxos = append(spentVtxos, clientTypes.Outpoint{
 				Txid: vtxo.Txid,
 				VOut: vtxo.VOut,
@@ -1448,7 +1405,7 @@ func (a *arkClient) handleCommitmentTx(
 }
 
 func (a *arkClient) handleArkTx(
-	ctx context.Context, myPubkeys map[string]struct{}, arkTx *transport.TxNotification,
+	ctx context.Context, myScripts map[string]struct{}, arkTx *transport.TxNotification,
 ) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
@@ -1470,9 +1427,7 @@ func (a *arkClient) handleArkTx(
 	txsToAdd := make([]clientTypes.Transaction, 0)
 
 	for _, vtxo := range arkTx.SpendableVtxos {
-		// remove opcodes from P2TR script
-		tapkey := vtxo.Script[4:]
-		if _, ok := myPubkeys[tapkey]; ok {
+		if _, ok := myScripts[vtxo.Script]; ok {
 			vtxosToAdd = append(vtxosToAdd, vtxo)
 		}
 	}
@@ -1636,193 +1591,6 @@ func (a *arkClient) safeCheck() error {
 	return nil
 }
 
-func (a *arkClient) getAllBoardingUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
-	if a.contractManager == nil {
-		return nil, ErrNotInitialized
-	}
-	explorer := a.ArkClient.Explorer()
-	if explorer == nil {
-		return nil, fmt.Errorf("explorer not initialized")
-	}
-
-	contracts, err := a.contractManager.GetContracts(
-		ctx,
-		contract.WithType(contract.TypeDefaultBoarding),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	utxos := []clientTypes.Utxo{}
-	for _, c := range contracts {
-		delay, err := c.GetDelay()
-		if err != nil {
-			log.WithError(err).Errorf("skipping boarding contract %s: invalid exit delay", c.Script)
-			continue
-		}
-		tapscripts := c.GetTapscripts()
-		txs, err := explorer.GetTxs(c.Address)
-		if err != nil {
-			return nil, err
-		}
-		for _, tx := range txs {
-			for i, vout := range tx.Vout {
-				if vout.Address == c.Address {
-					createdAt := time.Time{}
-					utxoTime := time.Now()
-					if tx.Status.Confirmed {
-						createdAt = time.Unix(tx.Status.BlockTime, 0)
-						utxoTime = time.Unix(tx.Status.BlockTime, 0)
-					}
-
-					txHex, err := explorer.GetTxHex(tx.Txid)
-					if err != nil {
-						return nil, err
-					}
-					spentStatuses, err := explorer.GetTxOutspends(tx.Txid)
-					if err != nil {
-						return nil, err
-					}
-					spent := false
-					spentBy := ""
-					if len(spentStatuses) > i {
-						if spentStatuses[i].Spent {
-							spent = true
-							spentBy = spentStatuses[i].SpentBy
-						}
-					}
-
-					utxos = append(utxos, clientTypes.Utxo{
-						Outpoint: clientTypes.Outpoint{
-							Txid: tx.Txid,
-							VOut: uint32(i),
-						},
-						Amount: vout.Amount,
-						Script: vout.Script,
-						Delay:  delay,
-						SpendableAt: utxoTime.Add(
-							time.Duration(delay.Seconds()) * time.Second,
-						),
-						CreatedAt:  createdAt,
-						Tapscripts: tapscripts,
-						Spent:      spent,
-						SpentBy:    spentBy,
-						Tx:         txHex,
-					})
-				}
-			}
-		}
-	}
-
-	return utxos, nil
-}
-
-func (a *arkClient) getTrackedOnchainUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
-	wallet := a.Wallet()
-	if wallet == nil {
-		return nil, ErrNotInitialized
-	}
-	explorer := a.ArkClient.Explorer()
-	if explorer == nil {
-		return nil, fmt.Errorf("explorer not initialized")
-	}
-
-	cfg, err := a.GetConfigData(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	onchainAddrs, _, boardingAddrs, redemptionAddrs, err := a.ArkClient.GetAddresses(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	utxos := []clientTypes.Utxo{}
-	for _, addr := range onchainAddrs {
-		onchainUtxos, err := a.addressTxHistoryToUtxos(
-			addr, nil, arklib.RelativeLocktime{}, explorer,
-		)
-		if err != nil {
-			return nil, err
-		}
-		utxos = append(utxos, onchainUtxos...)
-	}
-
-	for _, addr := range boardingAddrs {
-		boardingUtxos, err := a.addressTxHistoryToUtxos(
-			addr.Address, addr.Tapscripts, cfg.BoardingExitDelay, explorer,
-		)
-		if err != nil {
-			return nil, err
-		}
-		utxos = append(utxos, boardingUtxos...)
-	}
-
-	for _, addr := range redemptionAddrs {
-		redemptionUtxos, err := a.addressTxHistoryToUtxos(
-			addr.Address, addr.Tapscripts, cfg.UnilateralExitDelay, explorer,
-		)
-		if err != nil {
-			return nil, err
-		}
-		utxos = append(utxos, redemptionUtxos...)
-	}
-
-	return utxos, nil
-}
-
-func (a *arkClient) addressTxHistoryToUtxos(
-	address string,
-	tapscripts []string,
-	delay arklib.RelativeLocktime,
-	explorerSvc explorer.Explorer,
-) ([]clientTypes.Utxo, error) {
-	txs, err := explorerSvc.GetTxs(address)
-	if err != nil {
-		return nil, err
-	}
-
-	utxos := make([]clientTypes.Utxo, 0)
-	for _, tx := range txs {
-		txHex, err := explorerSvc.GetTxHex(tx.Txid)
-		if err != nil {
-			return nil, err
-		}
-
-		spentStatuses, err := explorerSvc.GetTxOutspends(tx.Txid)
-		if err != nil {
-			return nil, err
-		}
-
-		for i, vout := range tx.Vout {
-			if vout.Address != address {
-				continue
-			}
-
-			explorerUtxo := explorer.Utxo{
-				Txid:   tx.Txid,
-				Vout:   uint32(i),
-				Amount: vout.Amount,
-				Script: vout.Script,
-				Status: tx.Status,
-			}
-
-			utxo := explorerUtxo.ToUtxo(delay, tapscripts)
-			utxo.Script = vout.Script
-			utxo.Tx = txHex
-
-			if len(spentStatuses) > i {
-				utxo.Spent = spentStatuses[i].Spent
-				utxo.SpentBy = spentStatuses[i].SpentBy
-			}
-
-			utxos = append(utxos, utxo)
-		}
-	}
-
-	return utxos, nil
-}
-
 func (i *arkClient) vtxosToTxs(
 	ctx context.Context,
 	spendable, spent []clientTypes.Vtxo, commitmentTxsToIgnore map[string]struct{},
@@ -1975,14 +1743,6 @@ func (i *arkClient) vtxosToTxs(
 func (a *arkClient) saveSendTransaction(
 	ctx context.Context, res client.OffchainTxRes,
 ) error {
-	// Sync any keys the client-lib derived internally (e.g. change addresses)
-	// so that the output filter below recognises the new vtxos.
-	if a.contractManager != nil {
-		if err := a.contractManager.Load(ctx); err != nil {
-			log.Warnf("failed to sync contracts before saving send tx: %s", err)
-		}
-	}
-
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
@@ -2286,69 +2046,4 @@ func (a *arkClient) saveBatchTransaction(
 	}
 
 	return nil
-}
-
-type trackedAddressInfo struct {
-	tapscripts []string
-	delay      arklib.RelativeLocktime
-}
-
-type onchainAddressRegistry struct {
-	mu              sync.RWMutex
-	addresses       map[string]struct{}
-	addressByScript map[string]trackedAddressInfo
-}
-
-func newOnchainAddressRegistry() *onchainAddressRegistry {
-	return &onchainAddressRegistry{
-		addresses:       make(map[string]struct{}),
-		addressByScript: make(map[string]trackedAddressInfo),
-	}
-}
-
-func (a *arkClient) registerTrackedOnchainAddress(
-	address string,
-	info trackedAddressInfo,
-	subscribe bool,
-	network arklib.Network,
-) error {
-	script, err := toOutputScript(address, network)
-	if err != nil {
-		return err
-	}
-
-	scriptHex := hex.EncodeToString(script)
-
-	a.onchainRegistry.mu.Lock()
-	_, alreadyTracked := a.onchainRegistry.addresses[address]
-	a.onchainRegistry.addresses[address] = struct{}{}
-	a.onchainRegistry.addressByScript[scriptHex] = info
-	a.onchainRegistry.mu.Unlock()
-
-	if subscribe && !alreadyTracked {
-		if err := a.Explorer().SubscribeForAddresses([]string{address}); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (a *arkClient) trackedOnchainAddresses() []string {
-	a.onchainRegistry.mu.RLock()
-	defer a.onchainRegistry.mu.RUnlock()
-
-	addresses := make([]string, 0, len(a.onchainRegistry.addresses))
-	for address := range a.onchainRegistry.addresses {
-		addresses = append(addresses, address)
-	}
-	return addresses
-}
-
-func (a *arkClient) lookupTrackedAddressByScript(script string) (trackedAddressInfo, bool) {
-	a.onchainRegistry.mu.RLock()
-	defer a.onchainRegistry.mu.RUnlock()
-
-	info, ok := a.onchainRegistry.addressByScript[script]
-	return info, ok
 }

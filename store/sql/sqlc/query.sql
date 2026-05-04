@@ -125,3 +125,42 @@ WHERE txid = :txid AND vout = :vout;
 
 -- name: CleanUtxos :exec
 DELETE FROM utxo;
+
+-- name: InsertContract :exec
+INSERT INTO contract (
+    script, type, label, address, is_onchain, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, extra_params, metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SelectAllContracts :many
+SELECT * FROM contract WHERE is_onchain = :is_onchain;
+
+-- name: SelectContractsByScripts :many
+SELECT * FROM contract
+WHERE script IN (sqlc.slice('scripts'));
+
+-- name: SelectContractsByType :many
+SELECT * FROM contract
+WHERE type = :type;
+
+-- name: SelectContractsByState :many
+SELECT * FROM contract
+WHERE state = :state;
+
+-- name: SelectContractsByKeyIndexes :many
+SELECT * FROM contract
+WHERE owner_key_index IN (sqlc.slice('indexes'));
+
+-- name: SelectLatestContractByType :one
+SELECT * FROM contract
+WHERE type = :type AND is_onchain = :is_onchain
+ORDER BY owner_key_index DESC
+LIMIT 1;
+
+-- name: UpdateContractState :execrows
+UPDATE contract
+SET
+    state = :state
+WHERE script = :script;
+
+-- name: CleanContracts :exec
+DELETE FROM contract;

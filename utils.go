@@ -171,22 +171,15 @@ func toOutputScript(onchainAddress string, network arklib.Network) ([]byte, erro
 	return txscript.PayToAddrScript(rcvAddr)
 }
 
-func toOnchainAddress(arkAddress string, network arklib.Network) (string, error) {
+func toOnchainAddress(arkAddress string, network arklib.Network) string {
 	netParams := toBitcoinNetwork(network)
 
-	decodedAddr, err := arklib.DecodeAddressV0(arkAddress)
-	if err != nil {
-		return "", err
-	}
-
+	// nolint
+	decodedAddr, _ := arklib.DecodeAddressV0(arkAddress)
 	witnessProgram := schnorr.SerializePubKey(decodedAddr.VtxoTapKey)
-
-	addr, err := btcutil.NewAddressTaproot(witnessProgram, &netParams)
-	if err != nil {
-		return "", err
-	}
-
-	return addr.String(), nil
+	// nolint
+	addr, _ := btcutil.NewAddressTaproot(witnessProgram, &netParams)
+	return addr.String()
 }
 
 func toBitcoinNetwork(net arklib.Network) chaincfg.Params {

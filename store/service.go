@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/arkade-os/go-sdk/contract"
 	kvstore "github.com/arkade-os/go-sdk/store/kv"
 	sqlstore "github.com/arkade-os/go-sdk/store/sql"
 	"github.com/arkade-os/go-sdk/types"
@@ -29,7 +28,7 @@ type service struct {
 	vtxoStore     types.VtxoStore
 	txStore       types.TransactionStore
 	assetStore    types.AssetStore
-	contractStore contract.ContractStore
+	contractStore types.ContractStore
 }
 
 type Config struct {
@@ -43,7 +42,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		vtxoStore     types.VtxoStore
 		txStore       types.TransactionStore
 		assetStore    types.AssetStore
-		contractStore contract.ContractStore
+		contractStore types.ContractStore
 		err           error
 
 		dir = storeConfig.BaseDir
@@ -65,6 +64,10 @@ func NewStore(storeConfig Config) (types.Store, error) {
 				return nil, err
 			}
 			txStore, err = kvstore.NewTransactionStore(dir, nil, assetStore)
+			if err != nil {
+				return nil, err
+			}
+			contractStore, err = kvstore.NewContractStore(dir, nil, assetStore)
 		case types.SQLStore:
 			dbFile := filepath.Join(dir, sqliteDbFile)
 			db, err := sqlstore.OpenDb(dbFile)
@@ -121,7 +124,7 @@ func (s *service) AssetStore() types.AssetStore {
 	return s.assetStore
 }
 
-func (s *service) ContractStore() contract.ContractStore {
+func (s *service) ContractStore() types.ContractStore {
 	return s.contractStore
 }
 
@@ -160,5 +163,8 @@ func (s *service) Close() {
 	}
 	if s.assetStore != nil {
 		s.assetStore.Close()
+	}
+	if s.contractStore != nil {
+		s.contractStore.Close()
 	}
 }

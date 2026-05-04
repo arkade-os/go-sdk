@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/go-sdk/contract"
 )
 
 type Store interface {
@@ -15,7 +14,7 @@ type Store interface {
 	AssetStore() AssetStore
 	// ContractStore returns the contract persistence layer.
 	// Returns nil for store backends that do not persist contracts (e.g. kv, in-memory).
-	ContractStore() contract.ContractStore
+	ContractStore() ContractStore
 	Clean(ctx context.Context)
 	Close()
 }
@@ -66,6 +65,22 @@ type VtxoStore interface {
 type AssetStore interface {
 	GetAsset(ctx context.Context, assetId string) (*types.AssetInfo, error)
 	UpsertAsset(ctx context.Context, asset types.AssetInfo) error
+	Clean(ctx context.Context) error
+	Close()
+}
+
+type ContractStore interface {
+	AddContract(ctx context.Context, c Contract) error
+	ListContracts(ctx context.Context, onchain bool) ([]Contract, error)
+	GetLatestContract(
+		ctx context.Context, contractType ContractType, onchain bool,
+	) (*Contract, error)
+	GetContractsByScripts(ctx context.Context, scripts []string) ([]Contract, error)
+	GetContractsByState(ctx context.Context, state ContractState) ([]Contract, error)
+	GetContractsByType(ctx context.Context, contractType ContractType) ([]Contract, error)
+	GetOnchainContracts(ctx context.Context) ([]Contract, error)
+	GetContractsByKeyIDs(ctx context.Context, keyIDs []string) ([]Contract, error)
+	UpdateContractState(ctx context.Context, script string, state ContractState) error
 	Clean(ctx context.Context) error
 	Close()
 }

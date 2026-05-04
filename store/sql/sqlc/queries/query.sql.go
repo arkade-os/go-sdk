@@ -29,6 +29,15 @@ func (q *Queries) CleanAssets(ctx context.Context) error {
 	return err
 }
 
+const cleanContracts = `-- name: CleanContracts :exec
+DELETE FROM contract
+`
+
+func (q *Queries) CleanContracts(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, cleanContracts)
+	return err
+}
+
 const cleanTxs = `-- name: CleanTxs :exec
 DELETE FROM tx
 `
@@ -88,6 +97,47 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 		arg.VtxoVout,
 		arg.AssetID,
 		arg.Amount,
+	)
+	return err
+}
+
+const insertContract = `-- name: InsertContract :exec
+INSERT INTO contract (
+    script, type, label, address, is_onchain, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, extra_params, metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertContractParams struct {
+	Script        string
+	Type          string
+	Label         sql.NullString
+	Address       string
+	IsOnchain     bool
+	State         string
+	CreatedAt     int64
+	OwnerKeyIndex int64
+	OwnerKey      string
+	SignerKey     string
+	ExitDelay     int64
+	ExtraParams   sql.NullString
+	Metadata      sql.NullString
+}
+
+func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) error {
+	_, err := q.db.ExecContext(ctx, insertContract,
+		arg.Script,
+		arg.Type,
+		arg.Label,
+		arg.Address,
+		arg.IsOnchain,
+		arg.State,
+		arg.CreatedAt,
+		arg.OwnerKeyIndex,
+		arg.OwnerKey,
+		arg.SignerKey,
+		arg.ExitDelay,
+		arg.ExtraParams,
+		arg.Metadata,
 	)
 	return err
 }
@@ -245,6 +295,47 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 	return err
 }
 
+const selectAllContracts = `-- name: SelectAllContracts :many
+SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract WHERE is_onchain = ?1
+`
+
+func (q *Queries) SelectAllContracts(ctx context.Context, isOnchain bool) ([]Contract, error) {
+	rows, err := q.db.QueryContext(ctx, selectAllContracts, isOnchain)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.OwnerKeyIndex,
+			&i.OwnerKey,
+			&i.SignerKey,
+			&i.ExitDelay,
+			&i.IsOnchain,
+			&i.ExtraParams,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectAllTxs = `-- name: SelectAllTxs :many
 SELECT txid, txid_type, amount, type, settled, created_at, hex, settled_by, asset_packet FROM tx
 `
@@ -374,6 +465,227 @@ func (q *Queries) SelectAsset(ctx context.Context, assetID string) (Asset, error
 	row := q.db.QueryRowContext(ctx, selectAsset, assetID)
 	var i Asset
 	err := row.Scan(&i.AssetID, &i.ControlAssetID, &i.Metadata)
+	return i, err
+}
+
+const selectContractsByKeyIndexes = `-- name: SelectContractsByKeyIndexes :many
+SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+WHERE owner_key_index IN (/*SLICE:indexes*/?)
+`
+
+func (q *Queries) SelectContractsByKeyIndexes(ctx context.Context, indexes []int64) ([]Contract, error) {
+	query := selectContractsByKeyIndexes
+	var queryParams []interface{}
+	if len(indexes) > 0 {
+		for _, v := range indexes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:indexes*/?", strings.Repeat(",?", len(indexes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:indexes*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.OwnerKeyIndex,
+			&i.OwnerKey,
+			&i.SignerKey,
+			&i.ExitDelay,
+			&i.IsOnchain,
+			&i.ExtraParams,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectContractsByScripts = `-- name: SelectContractsByScripts :many
+SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+WHERE script IN (/*SLICE:scripts*/?)
+`
+
+func (q *Queries) SelectContractsByScripts(ctx context.Context, scripts []string) ([]Contract, error) {
+	query := selectContractsByScripts
+	var queryParams []interface{}
+	if len(scripts) > 0 {
+		for _, v := range scripts {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:scripts*/?", strings.Repeat(",?", len(scripts))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:scripts*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.OwnerKeyIndex,
+			&i.OwnerKey,
+			&i.SignerKey,
+			&i.ExitDelay,
+			&i.IsOnchain,
+			&i.ExtraParams,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectContractsByState = `-- name: SelectContractsByState :many
+SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+WHERE state = ?1
+`
+
+func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]Contract, error) {
+	rows, err := q.db.QueryContext(ctx, selectContractsByState, state)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.OwnerKeyIndex,
+			&i.OwnerKey,
+			&i.SignerKey,
+			&i.ExitDelay,
+			&i.IsOnchain,
+			&i.ExtraParams,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectContractsByType = `-- name: SelectContractsByType :many
+SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+WHERE type = ?1
+`
+
+func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Contract, error) {
+	rows, err := q.db.QueryContext(ctx, selectContractsByType, type_)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.OwnerKeyIndex,
+			&i.OwnerKey,
+			&i.SignerKey,
+			&i.ExitDelay,
+			&i.IsOnchain,
+			&i.ExtraParams,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectLatestContractByType = `-- name: SelectLatestContractByType :one
+SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+WHERE type = ?1 AND is_onchain = ?2
+ORDER BY owner_key_index DESC
+LIMIT 1
+`
+
+type SelectLatestContractByTypeParams struct {
+	Type      string
+	IsOnchain bool
+}
+
+func (q *Queries) SelectLatestContractByType(ctx context.Context, arg SelectLatestContractByTypeParams) (Contract, error) {
+	row := q.db.QueryRowContext(ctx, selectLatestContractByType, arg.Type, arg.IsOnchain)
+	var i Contract
+	err := row.Scan(
+		&i.Script,
+		&i.Type,
+		&i.Label,
+		&i.Address,
+		&i.State,
+		&i.CreatedAt,
+		&i.OwnerKeyIndex,
+		&i.OwnerKey,
+		&i.SignerKey,
+		&i.ExitDelay,
+		&i.IsOnchain,
+		&i.ExtraParams,
+		&i.Metadata,
+	)
 	return i, err
 }
 
@@ -634,6 +946,26 @@ type UnrollVtxoParams struct {
 func (q *Queries) UnrollVtxo(ctx context.Context, arg UnrollVtxoParams) error {
 	_, err := q.db.ExecContext(ctx, unrollVtxo, arg.Txid, arg.Vout)
 	return err
+}
+
+const updateContractState = `-- name: UpdateContractState :execrows
+UPDATE contract
+SET
+    state = ?1
+WHERE script = ?2
+`
+
+type UpdateContractStateParams struct {
+	State  string
+	Script string
+}
+
+func (q *Queries) UpdateContractState(ctx context.Context, arg UpdateContractStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateContractState, arg.State, arg.Script)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateTx = `-- name: UpdateTx :exec

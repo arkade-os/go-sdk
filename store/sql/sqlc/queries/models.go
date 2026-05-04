@@ -40,6 +40,22 @@ type AssetVtxoVw struct {
 	AssetAmount     sql.NullInt64
 }
 
+type Contract struct {
+	Script        string
+	Type          string
+	Label         sql.NullString
+	Address       string
+	State         string
+	CreatedAt     int64
+	OwnerKeyIndex int64
+	OwnerKey      string
+	SignerKey     string
+	ExitDelay     int64
+	IsOnchain     bool
+	ExtraParams   sql.NullString
+	Metadata      sql.NullString
+}
+
 type Tx struct {
 	Txid        string
 	TxidType    string

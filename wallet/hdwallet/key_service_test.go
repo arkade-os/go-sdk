@@ -188,8 +188,7 @@ func TestGetAllKeyRefs(t *testing.T) {
 			require.NoError(t, err)
 
 			refs := provider.GetAllKeyRefs()
-			require.Len(t, refs, 1)
-			require.Equal(t, "m/0/3", refs[0].Id)
+			require.Empty(t, refs)
 		})
 	})
 }
@@ -206,10 +205,10 @@ func TestLoadState(t *testing.T) {
 			provider := newHDKeyService(createTestMasterKey(t))
 			_, err := provider.DeriveKeyAt("m/0/0")
 			require.NoError(t, err)
-			require.NotEmpty(t, provider.GetAllKeyRefs())
+			require.NotEmpty(t, provider.derivedKeyCache)
 
 			require.NoError(t, provider.LoadState(walletstore.State{NextIndex: 5}))
-			require.Empty(t, provider.GetAllKeyRefs())
+			require.Empty(t, provider.derivedKeyCache)
 		})
 	})
 }

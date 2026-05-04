@@ -3,269 +3,227 @@ package contract
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
-	"time"
 
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/contract/handlers"
+	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
+	log "github.com/sirupsen/logrus"
 )
 
-// Manager manages the lifecycle of contracts derived from wallet keys.
-type Manager interface {
-	// Load loads contracts for all existing keys; call after wallet unlock.
-	Load(ctx context.Context) error
-	// NewDefault returns the most recently created active offchain (TypeDefault)
-	// contract, or creates one with a fresh wallet key if none exists. Boarding
-	// and onchain contracts for the same key are derived and persisted as a
-	// side effect; retrieve them via GetContracts with a KeyID filter.
-	//
-	// Address reuse is intentional here: the Ark server already knows all VTXOs
-	// and their scripts, so rotating keys per request does not improve privacy
-	// against the server. A stable boarding address is also preferable for
-	// deposit UX. Per-payment key derivation (e.g. for HTLC-style contracts)
-	// will be introduced via the handler registry in a follow-up PR.
-	NewDefault(ctx context.Context) (*Contract, error)
-	// GetContracts returns all contracts matching the given options.
-	// Pass no options to return all contracts.
-	GetContracts(ctx context.Context, opts ...FilterOption) ([]Contract, error)
-	// GetContractsForVtxos returns the contracts whose Script matches any of the
-	// provided vtxo script hex strings. Unknown scripts are silently omitted.
-	GetContractsForVtxos(ctx context.Context, scripts []string) ([]Contract, error)
-	// OnContractEvent registers a callback; returns an unsubscribe func.
-	OnContractEvent(cb func(Event)) func()
-	// Close releases resources and clears the in-memory contract map.
-	Close() error
-}
-
-// NewManager returns a Manager that keeps contracts in memory and optionally
-// persists them via store (pass nil to use in-memory only).
-// Call Load after unlocking the wallet to populate from existing keys.
-func NewManager(ks Keystore, cfg *clientTypes.Config, store ContractStore) Manager {
-	return &managerImpl{
-		ks:        ks,
-		cfg:       cfg,
-		store:     store,
-		contracts: make(map[string]Contract),
-		cbs:       make(map[int]func(Event)),
-	}
-}
+const logPrefix = "contract manager:"
 
 type managerImpl struct {
-	ks    Keystore            // wallet key operations (new / get / list)
-	cfg   *clientTypes.Config // server config used by the default handler
-	store ContractStore       // nil = in-memory only
-
-	mu        sync.RWMutex
-	contracts map[string]Contract // scriptHex → Contract (write-through cache)
-
-	defaultCreateMu sync.Mutex // serializes the check-mint-persist sequence in NewDefault
-
-	cbMu   sync.RWMutex
-	cbs    map[int]func(Event) // event subscribers, keyed by monotonic ID
-	cbNext int                 // next subscriber ID
+	store   types.ContractStore
+	network arklib.Network
+	// TODO: this must become a registry so that users can register their custom handlers at will.
+	handlers map[types.ContractType]handlers.Handler
+	mu       sync.RWMutex
 }
 
-func (m *managerImpl) Load(ctx context.Context) error {
-	// Seed in-memory cache from the persistent store.
-	if m.store != nil {
-		stored, err := m.store.ListContracts(ctx, Filter{})
-		if err != nil {
-			return fmt.Errorf("bootstrap: load contracts from store: %w", err)
-		}
-		m.mu.Lock()
-		for _, c := range stored {
-			m.contracts[c.Script] = c
-		}
-		m.mu.Unlock()
+func NewManager(
+	store types.ContractStore, network arklib.Network, client client.TransportClient,
+) (Manager, error) {
+	// TODO: 1. support also delegate and vhtlc handlers
+	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
+	handlers := map[types.ContractType]handlers.Handler{
+		types.ContractTypeDefault: defaultHandler.NewHandler(client, network),
 	}
-
-	// Derive contracts for any wallet keys that don't already have one.
-	h := &DefaultHandler{}
-	keys, err := m.ks.ListKeys(ctx)
-	if err != nil {
-		return err
-	}
-	for _, key := range keys {
-		// Check which contract types already exist for this key. We expect all
-		// three (offchain, boarding, onchain). If any are missing — e.g. because a
-		// previous NewDefault call persisted the offchain contract and then crashed
-		// before writing the siblings then re-derive the full set and persist only the
-		// missing contracts. DeriveContracts is deterministic so this is safe.
-		existing, err := m.GetContracts(ctx, WithKeyID(key.Id))
-		if err != nil {
-			return err
-		}
-		existingByType := make(map[string]bool, len(existing))
-		for _, c := range existing {
-			existingByType[c.Type] = true
-		}
-		if existingByType[TypeDefault] && existingByType[TypeDefaultBoarding] &&
-			existingByType[TypeDefaultOnchain] {
-			continue
-		}
-		contracts, err := h.DeriveContracts(ctx, key, m.cfg)
-		if err != nil {
-			return fmt.Errorf("bootstrap: derive contracts for key %s: %w", key.Id, err)
-		}
-		for _, c := range contracts {
-			if existingByType[c.Type] {
-				continue // already persisted; don't overwrite label/state/metadata
-			}
-			if err := m.persistAndCache(ctx, *c); err != nil {
-				return fmt.Errorf("bootstrap: persist contract for key %s: %w", key.Id, err)
-			}
-		}
-	}
-	return nil
+	return &managerImpl{
+		store:    store,
+		handlers: handlers,
+		network:  network,
+		mu:       sync.RWMutex{},
+	}, nil
 }
 
-func (m *managerImpl) NewDefault(ctx context.Context) (*Contract, error) {
-	m.defaultCreateMu.Lock()
-	defer m.defaultCreateMu.Unlock()
-
-	existing, err := m.GetContracts(ctx,
-		WithType(TypeDefault),
-		WithState(StateActive),
-		WithIsOnchain(false),
-	)
-	if err != nil {
-		return nil, err
+func (m *managerImpl) NewContract(
+	ctx context.Context,
+	contractType types.ContractType, keyRef wallet.KeyRef, opts ...ContractOption,
+) (*types.Contract, error) {
+	if len(contractType) <= 0 {
+		return nil, fmt.Errorf("missing contract type")
 	}
-	if len(existing) > 0 {
-		// Reuse the most recent active contract. All three address facets
-		// (offchain, boarding, onchain) come from the same key, so the caller
-		// receives the same addresses on every request. See the interface comment
-		// on NewDefault for why this is intentional.
-		latest := existing[0]
-		for _, c := range existing[1:] {
-			if c.CreatedAt.After(latest.CreatedAt) {
-				latest = c
-			}
+	if len(keyRef.Id) <= 0 {
+		return nil, fmt.Errorf("missing public key id")
+	}
+	if keyRef.PubKey == nil {
+		return nil, fmt.Errorf("missing public key")
+	}
+
+	o := newDefaultContractOption()
+	for _, opt := range opts {
+		if err := opt.applyContract(o); err != nil {
+			return nil, fmt.Errorf("invalid contract option: %w", err)
 		}
-		return &latest, nil
 	}
 
-	key, err := m.ks.NewKey(ctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	handler, ok := m.handlers[contractType]
+	if !ok {
+		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
+	}
+
+	contract, err := handler.NewContract(ctx, keyRef, toHandlerOpts(o)...)
 	if err != nil {
 		return nil, err
 	}
-	if key == nil {
-		return nil, fmt.Errorf("keystore returned nil key")
+	contract.Label = o.label
+
+	if o.dryRun {
+		return contract, nil
 	}
-	contracts, err := (&DefaultHandler{}).DeriveContracts(ctx, *key, m.cfg)
-	if err != nil {
-		return nil, err
+
+	if err := m.store.AddContract(ctx, *contract); err != nil {
+		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
-	now := time.Now()
-	var offchain *Contract
-	for _, c := range contracts {
-		c.CreatedAt = now
-		if err := m.persistAndCache(ctx, *c); err != nil {
+
+	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
+
+	return contract, nil
+}
+
+func (m *managerImpl) GetSupportedContractTypes(_ context.Context) []types.ContractType {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return slices.Collect(maps.Keys(m.handlers))
+}
+
+func (m *managerImpl) GetContracts(
+	ctx context.Context, opts ...FilterOption,
+) ([]types.Contract, error) {
+	f := newDefaultFilter()
+	for _, opt := range opts {
+		if err := opt.applyFilter(f); err != nil {
 			return nil, err
 		}
-		m.emit(Event{Type: "contract_created", Contract: *c})
-		if c.Type == TypeDefault {
-			offchain = c
-		}
 	}
-	if offchain == nil {
-		return nil, fmt.Errorf("DeriveContracts did not return an offchain contract")
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	switch {
+	case len(f.scripts) > 0:
+		return m.store.GetContractsByScripts(ctx, f.scripts)
+	case len(f.state) > 0:
+		return m.store.GetContractsByState(ctx, f.state)
+	case len(f.keyIDs) > 0:
+		return m.store.GetContractsByKeyIDs(ctx, f.keyIDs)
+	case len(f.contractType) > 0:
+		return m.store.GetContractsByType(ctx, f.contractType)
+	case f.isOnchain:
+		return m.store.GetOnchainContracts(ctx)
+	default:
+		return m.store.ListContracts(ctx, false)
 	}
-	return offchain, nil
 }
 
-func (m *managerImpl) persistAndCache(ctx context.Context, c Contract) error {
-	if m.store != nil {
-		if err := m.store.UpsertContract(ctx, c); err != nil {
-			return fmt.Errorf("persist contract: %w", err)
-		}
+func (m *managerImpl) GetKeyIDUsedForLatestContract(
+	ctx context.Context, contractType types.ContractType, opts ...ContractOption,
+) (string, error) {
+	if len(contractType) <= 0 {
+		return "", fmt.Errorf("missing contract type")
 	}
-	m.mu.Lock()
-	m.contracts[c.Script] = c
-	m.mu.Unlock()
-	return nil
-}
-
-func (m *managerImpl) GetContracts(ctx context.Context, opts ...FilterOption) ([]Contract, error) {
-	f := &Filter{}
+	o := newDefaultContractOption()
 	for _, opt := range opts {
-		opt(f)
+		if err := opt.applyContract(o); err != nil {
+			return "", fmt.Errorf("invalid contract option: %w", err)
+		}
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var result []Contract
-	for _, c := range m.contracts {
-		if f.Type != nil && c.Type != *f.Type {
-			continue
-		}
-		if f.State != nil && string(c.State) != *f.State {
-			continue
-		}
-		if f.Script != nil && c.Script != *f.Script {
-			continue
-		}
-		if f.IsOnchain != nil && c.IsOnchain != *f.IsOnchain {
-			continue
-		}
-		if f.KeyID != nil && c.Params[ParamKeyID] != *f.KeyID {
-			continue
-		}
-		result = append(result, c)
-	}
-	return result, nil
-}
 
-func (m *managerImpl) GetContractsForVtxos(
-	ctx context.Context,
-	scripts []string,
-) ([]Contract, error) {
-	lookup := make(map[string]struct{}, len(scripts))
-	for _, s := range scripts {
-		lookup[s] = struct{}{}
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var result []Contract
-	for _, c := range m.contracts {
-		if _, ok := lookup[c.Script]; ok {
-			result = append(result, c)
-		}
-	}
-	return result, nil
-}
-
-func (m *managerImpl) OnContractEvent(cb func(Event)) func() {
-	m.cbMu.Lock()
-	idx := m.cbNext
-	m.cbNext++
-	m.cbs[idx] = cb
-	m.cbMu.Unlock()
-	return func() {
-		m.cbMu.Lock()
-		delete(m.cbs, idx)
-		m.cbMu.Unlock()
-	}
-}
-
-func (m *managerImpl) Close() error {
 	m.mu.Lock()
-	m.contracts = make(map[string]Contract)
-	m.mu.Unlock()
+	defer m.mu.Unlock()
 
-	m.cbMu.Lock()
-	m.cbs = make(map[int]func(Event))
-	m.cbMu.Unlock()
+	handler, ok := m.handlers[contractType]
+	if !ok {
+		return "", fmt.Errorf("unsupported contract type: %s", contractType)
+	}
+	contract, err := m.store.GetLatestContract(ctx, contractType, o.isOnchain)
+	if err != nil {
+		return "", err
+	}
+	if contract == nil {
+		return "", nil
+	}
+	keyRef, err := handler.GetKeyRef(*contract)
+	if err != nil {
+		return "", err
+	}
+	return keyRef.Id, nil
+}
 
+func (m *managerImpl) GetKeyRefs(
+	_ context.Context, contract types.Contract,
+) (map[string]string, error) {
+	handler, ok := m.handlers[contract.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
+	}
+
+	return handler.GetKeyRefs(contract)
+}
+
+func (m *managerImpl) GetSignerKey(
+	_ context.Context, contract types.Contract,
+) (*btcec.PublicKey, error) {
+	handler, ok := m.handlers[contract.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
+	}
+	return handler.GetSignerKey(contract)
+}
+
+func (m *managerImpl) GetExitDelay(
+	_ context.Context, contract types.Contract,
+) (*arklib.RelativeLocktime, error) {
+	handler, ok := m.handlers[contract.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
+	}
+	return handler.GetExitDelay(contract)
+}
+
+func (m *managerImpl) GetTapscripts(_ context.Context, contract types.Contract) ([]string, error) {
+	handler, ok := m.handlers[contract.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
+	}
+	return handler.GetTapscripts(contract)
+}
+
+func (m *managerImpl) Clean(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.store.Clean(ctx); err != nil {
+		return err
+	}
+
+	log.Debugf("%s cleaned contract store", logPrefix)
 	return nil
 }
 
-func (m *managerImpl) emit(e Event) {
-	m.cbMu.RLock()
-	cbs := make([]func(Event), 0, len(m.cbs))
-	for _, cb := range m.cbs {
-		cbs = append(cbs, cb)
+func (m *managerImpl) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.store.Close()
+
+	log.Debugf("%s closed contract store", logPrefix)
+}
+
+func toHandlerOpts(opts *contractOption) []handlers.ContractOption {
+	handlerOpts := make([]handlers.ContractOption, 0)
+	if opts.isOnchain {
+		handlerOpts = append(handlerOpts, handlers.WithIsOnchain())
 	}
-	m.cbMu.RUnlock()
-	for _, cb := range cbs {
-		cb(e)
-	}
+	return handlerOpts
 }

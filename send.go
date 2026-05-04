@@ -2,11 +2,11 @@ package arksdk
 
 import (
 	"context"
-	"fmt"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -27,12 +27,12 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", err
 	}
 
-	// ensure asset-carrying receivers have at least dust sats as a carrier
+	// Ensure asset-carrying receivers have at least dust sats as a carrier
 	clone := make([]clientTypes.Receiver, len(receivers))
 	copy(clone, receivers)
 	dust := cfg.Dust
@@ -42,17 +42,32 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	res, err := a.ArkClient.SendOffChain(
-		ctx,
-		clone,
+	opts := []client.SendOption{
 		client.WithVtxos(vtxos),
-		client.WithKeys(signingKeys),
-	)
+		client.WithKeys(signingKeyRefs),
+	}
+
+	outAmount := uint64(0)
+	for _, r := range receivers {
+		outAmount += r.Amount
+	}
+	inAmount := uint64(0)
+	for _, v := range vtxos {
+		inAmount += v.Amount
+	}
+	if inAmount > outAmount {
+		addr, err := a.newOffchainAddress(ctx)
+		if err != nil {
+			return "", err
+		}
+		opts = append(opts, client.WithReceiver(addr))
+	}
+
+	res, err := a.ArkClient.SendOffChain(ctx, clone, opts...)
 	if err != nil {
 		return "", err
 	}
 
-	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 	if err := a.saveSendTransaction(ctx, *res); err != nil {
 		return "", err
 	}
@@ -63,15 +78,6 @@ func (a *arkClient) SendOffChain(
 func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
 ) ([]clientTypes.VtxoWithTapTree, error) {
-	// The client-lib derives new HD keys internally (e.g. for change addresses)
-	// without informing the contract manager. Load syncs any missing contracts
-	// for newly derived keys before we filter vtxos by known contracts.
-	if a.contractManager != nil {
-		if err := a.contractManager.Load(ctx); err != nil {
-			return nil, fmt.Errorf("sync contracts: %w", err)
-		}
-	}
-
 	a.dbMu.Lock()
 	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
 	a.dbMu.Unlock()
@@ -89,26 +95,33 @@ func (a *arkClient) getSpendableVtxos(
 		scripts = append(scripts, v.Script)
 	}
 
-	contracts, err := a.contractManager.GetContractsForVtxos(ctx, scripts)
+	contracts, err := a.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
 	if err != nil {
 		return nil, err
 	}
 
-	contractsByScript := make(map[string]contract.Contract, len(contracts))
+	contractsByScript := make(map[string]types.Contract, len(contracts))
 	for _, c := range contracts {
 		contractsByScript[c.Script] = c
 	}
 
 	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(eligible))
 	for _, v := range eligible {
-		c, ok := contractsByScript[v.Script]
+		contract, ok := contractsByScript[v.Script]
 		if !ok {
 			log.Debugf("skipping vtxo %s: no matching contract", v.Script)
 			continue
 		}
+
+		tapscripts, err := a.contractManager.GetTapscripts(ctx, contract)
+		if err != nil {
+			log.WithError(err).Warnf("failed to get tapscripts for contract %s", contract.Script)
+			continue
+		}
+
 		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
 			Vtxo:       v,
-			Tapscripts: c.GetTapscripts(),
+			Tapscripts: tapscripts,
 		})
 	}
 

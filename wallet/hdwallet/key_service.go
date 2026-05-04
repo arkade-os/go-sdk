@@ -77,13 +77,13 @@ func (p *keyService) GetNextKeyIndex() uint32 {
 	return p.nextKeyIndex
 }
 
-// GetAllKeyRefs returns references for all derived keys.
+// GetAllKeyRefs returns references for all keys derived with NewKey.
 func (p *keyService) GetAllKeyRefs() []wallet.KeyRef {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	refs := make([]wallet.KeyRef, 0, len(p.derivedKeyCache))
-	for index := range p.derivedKeyCache {
+	refs := make([]wallet.KeyRef, 0, p.nextKeyIndex)
+	for index := uint32(0); index < p.nextKeyIndex; index++ {
 		// nolint
 		key, _ := p.deriveKeyAtIndex(index)
 		if key != nil {

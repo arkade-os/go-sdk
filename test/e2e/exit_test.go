@@ -22,9 +22,7 @@ func TestCollaborativeExit(t *testing.T) {
 			bob := setupClient(t, "")
 
 			// Faucet Alice
-			aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			faucetOffchain(t, alice, aliceFaucetAddr, 0.001)
+			faucetOffchain(t, alice, 0.001)
 
 			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
@@ -37,7 +35,10 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
-			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
+			// Alice sends to bob's boarding address just for sake of testing.
+			// This way, we can wait for an event for bob's utxo event and ensure he received the
+			// expected event
+			bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOnchainAddr)
 
@@ -80,8 +81,9 @@ func TestCollaborativeExit(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
-			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
-			require.Equal(t, 21000, int(bobBalance.OnchainBalance.SpendableAmount))
+			require.Empty(t, bobBalance.OnchainBalance.SpendableAmount)
+			require.Len(t, bobBalance.OnchainBalance.LockedAmount, 1)
+			require.Equal(t, 21000, int(bobBalance.OnchainBalance.LockedAmount[0].Amount))
 		})
 
 		// In this test Alice sends all to Bob'c onchain address without (VTXO) change
@@ -91,9 +93,7 @@ func TestCollaborativeExit(t *testing.T) {
 			bob := setupClient(t, "")
 
 			// Faucet Alice
-			aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			faucetOffchain(t, alice, aliceFaucetAddr, 0.00021)
+			faucetOffchain(t, alice, 0.00021)
 
 			aliceBalance, err := alice.Balance(ctx)
 			require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestCollaborativeExit(t *testing.T) {
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
 			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
-			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
+			bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOnchainAddr)
 
@@ -149,7 +149,8 @@ func TestCollaborativeExit(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, bobBalance)
 			require.Zero(t, int(bobBalance.OffchainBalance.Total))
-			require.Equal(t, 21000, int(bobBalance.OnchainBalance.SpendableAmount))
+			require.Len(t, bobBalance.OnchainBalance.LockedAmount, 1)
+			require.Equal(t, 21000, int(bobBalance.OnchainBalance.LockedAmount[0].Amount))
 		})
 	})
 
@@ -165,15 +166,11 @@ func TestCollaborativeExit(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, aliceBoardingAddr)
 
-			aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, aliceOffchainAddr)
-
 			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOnchainAddr)
 
-			faucetOffchain(t, alice, aliceOffchainAddr, 0.00021)
+			faucetOffchain(t, alice, 0.00021)
 			aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
 			faucetOnchain(t, aliceBoardingAddr, 0.001)
 
@@ -196,11 +193,8 @@ func TestUnilateralExit(t *testing.T) {
 		alice := setupClient(t, "")
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
-		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
 
-		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		vtxoToUnroll := faucetOffchain(t, alice, aliceOffchainAddr, 0.00021)
+		vtxoToUnroll := faucetOffchain(t, alice, 0.00021)
 		aliceVtxoEvent := <-aliceVtxoCh
 		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 
@@ -210,14 +204,8 @@ func TestUnilateralExit(t *testing.T) {
 
 		// Faucet onchain addr to cover network fees for the unroll.
 		faucetOnchain(t, aliceOnchainAddr, 0.0001)
-
-		// next event received by alice utxo channel should be the added event
-		// related to the faucet
-		aliceUtxoEvent := <-aliceUtxoCh
-		require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
-		require.Len(t, aliceUtxoEvent.Utxos, 1)
-		aliceUtxo := aliceUtxoEvent.Utxos[0]
-		require.Equal(t, 10000, int(aliceUtxo.Amount))
+		// Give the explorer time to catch up
+		time.Sleep(5 * time.Second)
 
 		for {
 			err = alice.Unroll(ctx)
@@ -279,9 +267,7 @@ func TestUnilateralExit(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 
-		aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceFaucetAddr, 0.001)
+		faucetOffchain(t, alice, 0.001)
 
 		bob := setupClient(t, "")
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
@@ -310,14 +296,8 @@ func TestUnilateralExit(t *testing.T) {
 		vtxoToUnroll := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 21000, int(vtxoToUnroll.Amount))
 
-		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 		faucetOnchain(t, bobOnchainAddr, 0.0001)
-
-		bobUtxoEvent := <-bobUtxoCh
-		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
-		require.Len(t, bobUtxoEvent.Utxos, 1)
-		bobUtxo := bobUtxoEvent.Utxos[0]
-		require.Equal(t, 10000, int(bobUtxo.Amount))
+		time.Sleep(5 * time.Second)
 
 		for {
 			err = bob.Unroll(ctx)
