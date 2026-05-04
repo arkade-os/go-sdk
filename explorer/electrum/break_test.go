@@ -184,8 +184,12 @@ func TestBreak_GetTxBlockTimeUnconfirmedSentinelMismatch(t *testing.T) {
 
 	_, bt, err := exp.GetTxBlockTime(txid)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), bt,
-		"GetUtxos/GetTxs report BlockTime=0 for unconfirmed; GetTxBlockTime must match (returns -1)")
+	require.Equal(
+		t,
+		int64(0),
+		bt,
+		"GetUtxos/GetTxs report BlockTime=0 for unconfirmed; GetTxBlockTime must match (returns -1)",
+	)
 }
 
 // TestBreak_PendingRequestHangsOnDisconnect verifies that an in-flight request
