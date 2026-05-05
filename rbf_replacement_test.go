@@ -46,8 +46,8 @@ func TestMatchReplacementOutputs(t *testing.T) {
 
 		replacements := matchReplacementOutputs(storedUtxos, newTxid, replacementTx)
 		require.Len(t, replacements, 1)
-		require.Equal(t, clientTypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].From)
-		require.Equal(t, clientTypes.Outpoint{Txid: newTxid, VOut: 1}, replacements[0].To)
+		require.Equal(t, clientTypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].from)
+		require.Equal(t, clientTypes.Outpoint{Txid: newTxid, VOut: 1}, replacements[0].to)
 	})
 
 	t.Run("reordered outputs maps to correct index", func(t *testing.T) {
@@ -79,8 +79,8 @@ func TestMatchReplacementOutputs(t *testing.T) {
 
 		// The boarding output moved from index 1 to index 0.
 		// The replacement must map (oldTxid, 1) → (newTxid, 0), NOT (newTxid, 1).
-		require.Equal(t, clientTypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].From)
-		require.Equal(t, clientTypes.Outpoint{Txid: newTxid, VOut: 0}, replacements[0].To,
+		require.Equal(t, clientTypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].from)
+		require.Equal(t, clientTypes.Outpoint{Txid: newTxid, VOut: 0}, replacements[0].to,
 			"should match by script, not by output index")
 	})
 
@@ -145,7 +145,7 @@ func TestMatchReplacementOutputs(t *testing.T) {
 
 		fromTo := make(map[clientTypes.Outpoint]clientTypes.Outpoint)
 		for _, r := range replacements {
-			fromTo[r.From] = r.To
+			fromTo[r.from] = r.to
 		}
 
 		// scriptA: old vout=0 → new vout=1

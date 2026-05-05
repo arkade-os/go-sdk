@@ -1033,20 +1033,24 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 
 					// Collect all stored UTXOs belonging to the replaced
 					// transaction by probing each output index.
-					storedUtxos := make([]clientTypes.Utxo, 0)
+					outpoints := make([]clientTypes.Outpoint, 0)
 					for i := range tx.TxOut {
 						outpoint := clientTypes.Outpoint{
 							Txid: replacedTxid,
 							VOut: uint32(i),
 						}
-						a.dbMu.Lock()
-						utxos, err := utxoStore.GetUtxos(
-							ctx, []clientTypes.Outpoint{outpoint},
-						)
-						a.dbMu.Unlock()
-						if err == nil {
-							storedUtxos = append(storedUtxos, utxos...)
-						}
+
+						outpoints = append(outpoints, outpoint)
+					}
+
+					a.dbMu.Lock()
+					storedUtxos, err := utxoStore.GetUtxos(
+						ctx, outpoints,
+					)
+					a.dbMu.Unlock()
+					if err != nil {
+						log.WithError(err).Error("failed to get stored utxos")
+						continue
 					}
 
 					// Match stored UTXOs to replacement tx outputs by script
@@ -1057,14 +1061,14 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					)
 					for _, r := range utxoReplacements {
 						a.dbMu.Lock()
-						err := utxoStore.ReplaceUtxo(ctx, r.From, r.To)
+						err := utxoStore.ReplaceUtxo(ctx, r.from, r.to)
 						a.dbMu.Unlock()
 						if err != nil {
 							log.WithError(err).Error("failed to replace boarding utxo")
 						} else {
 							log.Debugf(
 								"replaced utxo: %v:%v with %v:%v",
-								r.From.Txid, r.From.VOut, r.To.Txid, r.To.VOut,
+								r.from.Txid, r.from.VOut, r.to.Txid, r.to.VOut,
 							)
 						}
 					}
@@ -2196,8 +2200,8 @@ func (a *arkClient) lookupTrackedAddressByScript(script string) (trackedAddressI
 // utxoReplacement represents a mapping from an old UTXO outpoint to its
 // replacement outpoint after an RBF (Replace-By-Fee) transaction.
 type utxoReplacement struct {
-	From clientTypes.Outpoint
-	To   clientTypes.Outpoint
+	from clientTypes.Outpoint
+	to   clientTypes.Outpoint
 }
 
 // matchReplacementOutputs maps stored UTXOs from a replaced transaction to the
@@ -2220,8 +2224,8 @@ func matchReplacementOutputs(
 			}
 			if hex.EncodeToString(txOut.PkScript) == stored.Script {
 				replacements = append(replacements, utxoReplacement{
-					From: stored.Outpoint,
-					To: clientTypes.Outpoint{
+					from: stored.Outpoint,
+					to: clientTypes.Outpoint{
 						Txid: replacementTxid,
 						VOut: uint32(newIdx),
 					},
