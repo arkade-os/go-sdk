@@ -179,7 +179,10 @@ func (s *utxoStore) DeleteUtxos(
 	for _, op := range outpoints {
 		var utxo clientTypes.Utxo
 		if err := s.db.Get(op.String(), &utxo); err != nil {
-			continue
+			if errors.Is(err, badgerhold.ErrNotFound) {
+				continue
+			}
+			return -1, err
 		}
 		if err := s.db.Delete(op.String(), &utxo); err != nil {
 			return -1, err

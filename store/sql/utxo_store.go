@@ -261,6 +261,9 @@ func (r *utxoRepository) DeleteUtxos(
 				Txid: utxo.Txid,
 				Vout: int64(utxo.VOut),
 			}); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
 				return err
 			}
 		}
