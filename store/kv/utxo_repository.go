@@ -192,7 +192,6 @@ func (s *utxoStore) DeleteUtxos(
 	return deleted, nil
 }
 
-
 func (s *utxoStore) GetAllUtxos(
 	_ context.Context,
 ) (spendable, spent []clientTypes.Utxo, err error) {
