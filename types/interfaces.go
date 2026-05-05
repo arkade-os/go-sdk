@@ -37,6 +37,7 @@ type UtxoStore interface {
 	DeleteUtxos(ctx context.Context, outpoints []types.Outpoint) (int, error)
 	GetAllUtxos(ctx context.Context) (spendable, spent []types.Utxo, err error)
 	GetUtxos(ctx context.Context, keys []types.Outpoint) ([]types.Utxo, error)
+	GetUtxosByTxid(ctx context.Context, txid string) ([]types.Utxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan UtxoEvent
 	Close()

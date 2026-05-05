@@ -1035,22 +1035,8 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 
 					utxoStore := a.store.UtxoStore()
 
-					// Collect all stored UTXOs belonging to the replaced
-					// transaction by probing each output index.
-					outpoints := make([]clientTypes.Outpoint, 0)
-					for i := range tx.TxOut {
-						outpoint := clientTypes.Outpoint{
-							Txid: replacedTxid,
-							VOut: uint32(i),
-						}
-
-						outpoints = append(outpoints, outpoint)
-					}
-
 					a.dbMu.Lock()
-					storedUtxos, err := utxoStore.GetUtxos(
-						ctx, outpoints,
-					)
+					storedUtxos, err := utxoStore.GetUtxosByTxid(ctx, replacedTxid)
 					a.dbMu.Unlock()
 					if err != nil {
 						log.WithError(err).Error("failed to get stored utxos")
