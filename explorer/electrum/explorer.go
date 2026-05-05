@@ -437,39 +437,41 @@ func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error
 	return result, nil
 }
 
-func (e *explorerSvc) GetUtxos(addr string) ([]explorer.Utxo, error) {
-	sh, err := addressToScripthash(addr, e.netParams)
-	if err != nil {
-		return nil, err
-	}
-	script, err := addrToScript(addr, e.netParams)
-	if err != nil {
-		return nil, err
-	}
-	electrumUtxos, err := e.listUnspent(sh)
-	if err != nil {
-		return nil, err
-	}
+func (e *explorerSvc) GetUtxos(addresses []string) ([]explorer.Utxo, error) {
 	btCache := make(map[int64]int64)
-	utxos := make([]explorer.Utxo, 0, len(electrumUtxos))
-	for _, u := range electrumUtxos {
-		var blocktime int64
-		confirmed := u.Height > 0
-		if confirmed {
-			if t, ok := btCache[u.Height]; ok {
-				blocktime = t
-			} else {
-				blocktime, _ = e.blockTimestamp(u.Height)
-				btCache[u.Height] = blocktime
-			}
+	var utxos []explorer.Utxo
+	for _, addr := range addresses {
+		sh, err := addressToScripthash(addr, e.netParams)
+		if err != nil {
+			return nil, err
 		}
-		utxos = append(utxos, explorer.Utxo{
-			Txid:   u.TxHash,
-			Vout:   u.TxPos,
-			Amount: u.Value,
-			Script: script,
-			Status: explorer.ConfirmedStatus{Confirmed: confirmed, BlockTime: blocktime},
-		})
+		script, err := addrToScript(addr, e.netParams)
+		if err != nil {
+			return nil, err
+		}
+		electrumUtxos, err := e.listUnspent(sh)
+		if err != nil {
+			return nil, err
+		}
+		for _, u := range electrumUtxos {
+			var blocktime int64
+			confirmed := u.Height > 0
+			if confirmed {
+				if t, ok := btCache[u.Height]; ok {
+					blocktime = t
+				} else {
+					blocktime, _ = e.blockTimestamp(u.Height)
+					btCache[u.Height] = blocktime
+				}
+			}
+			utxos = append(utxos, explorer.Utxo{
+				Txid:   u.TxHash,
+				Vout:   u.TxPos,
+				Amount: u.Value,
+				Script: script,
+				Status: explorer.ConfirmedStatus{Confirmed: confirmed, BlockTime: blocktime},
+			})
+		}
 	}
 	return utxos, nil
 }
@@ -477,7 +479,7 @@ func (e *explorerSvc) GetUtxos(addr string) ([]explorer.Utxo, error) {
 func (e *explorerSvc) GetRedeemedVtxosBalance(
 	addr string, unilateralExitDelay arklib.RelativeLocktime,
 ) (spendableBalance uint64, lockedBalance map[int64]uint64, err error) {
-	utxos, err := e.GetUtxos(addr)
+	utxos, err := e.GetUtxos([]string{addr})
 	if err != nil {
 		return
 	}

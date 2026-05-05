@@ -856,7 +856,7 @@ func TestGetUtxos(t *testing.T) {
 	exp.Start()
 	defer exp.Stop()
 
-	utxos, err := exp.GetUtxos(addr)
+	utxos, err := exp.GetUtxos([]string{addr})
 	require.NoError(t, err)
 	require.Len(t, utxos, 1)
 	require.Equal(t, txid, utxos[0].Txid)
@@ -1557,7 +1557,7 @@ func TestGetUtxosUnconfirmed(t *testing.T) {
 	exp.Start()
 	defer exp.Stop()
 
-	utxos, err := exp.GetUtxos(addr)
+	utxos, err := exp.GetUtxos([]string{addr})
 	require.NoError(t, err)
 	require.Len(t, utxos, 1)
 	require.False(t, utxos[0].Status.Confirmed, "unconfirmed UTXO must have Confirmed=false")
