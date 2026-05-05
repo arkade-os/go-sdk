@@ -540,14 +540,7 @@ func waitForTxEvent(
 // a key whose ONLY activity is a boarding UTXO (never any offchain VTXO at
 // the matching offchain script). After dumping the seed and restoring into a
 // fresh client, discovery must still find the key so the boarding UTXO is reachable.
-//
-// This currently exposes review issue H1: discoverHDWalletKeys only checks
-// offchain VTXO activity, so boarding-only funded keys are missed.
 func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
-	// flaky test
-	t.Skip(
-		"boarding-only key discovery not yet supported: discoverHDWalletKeys only scans offchain VTXOs, not boarding addresses (review H1)",
-	)
 	ctx := t.Context()
 
 	alice := setupClient(t, "")
@@ -579,8 +572,7 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 		}
 		return sumLockedAmounts(balance.OnchainBalance.LockedAmount) >= uint64(boardingAmount*1e8)
 	}, 30*time.Second, 500*time.Millisecond,
-		"restored wallet did not recover the boarding-only funded key — "+
-			"this is review H1: discoverHDWalletKeys only scans offchain VTXOs")
+		"restored wallet did not recover the boarding-only funded key")
 }
 
 func sumVtxoAmounts(vtxos []clientTypes.Vtxo) uint64 {

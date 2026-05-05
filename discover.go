@@ -12,11 +12,14 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 )
 
 // discoverHDWalletKeys walks the BIP32 child range, batched by gapLimit,
-// querying the indexer for each batch's offchain VTXO scripts. Discovery
-// stops as soon as `gapLimit` consecutive unused indices have been seen.
+// querying both the indexer (offchain VTXOs) and the explorer (boarding
+// address tx history) for each batch. Discovery stops as soon as `gapLimit`
+// consecutive unused indices have been seen across both sources.
 // All keys up to and including the highest used index are then allocated
 // via NewKey so the wallet's tracked-keys view matches discovery.
 //
@@ -50,14 +53,26 @@ func (a *arkClient) discoverHDWalletKeys(ctx context.Context) (bool, error) {
 			return false, err
 		}
 
-		used, err := a.queryUsedScripts(ctx, scripts)
+		boardingAddrs, err := a.deriveBoardingAddressBatch(ctx, w, cfg, nextIdx, gapLimit)
+		if err != nil {
+			return false, err
+		}
+
+		offchainUsed, err := a.queryUsedScripts(ctx, scripts)
+		if err != nil {
+			return false, err
+		}
+
+		boardingUsed, err := a.queryUsedBoardingAddresses(boardingAddrs)
 		if err != nil {
 			return false, err
 		}
 
 		for i, scriptHex := range scripts {
 			idx := nextIdx + uint32(i)
-			if _, isUsed := used[scriptHex]; isUsed {
+			_, inOffchain := offchainUsed[scriptHex]
+			_, inBoarding := boardingUsed[boardingAddrs[i]]
+			if inOffchain || inBoarding {
 				lastUsedIdx = int64(idx)
 				consecutiveUnused = 0
 				continue
@@ -105,6 +120,36 @@ func (a *arkClient) deriveOffchainScriptsBatch(
 	return scripts, nil
 }
 
+// deriveBoardingAddressBatch derives `count` consecutive boarding taproot
+// addresses starting at `start`, using the boarding VtxoScript
+// (BoardingExitDelay), returning each address string in order.
+func (a *arkClient) deriveBoardingAddressBatch(
+	ctx context.Context, w wallet.WalletService, cfg *clientTypes.Config, start, count uint32,
+) ([]string, error) {
+	netParams := toBitcoinNetwork(cfg.Network)
+	addrs := make([]string, 0, count)
+	for i := uint32(0); i < count; i++ {
+		keyID := fmt.Sprintf("m/0/%d", start+i)
+		keyRef, err := w.GetKey(ctx, keyID)
+		if err != nil {
+			return nil, err
+		}
+		boardingScript := arkscript.NewDefaultVtxoScript(
+			keyRef.PubKey, cfg.SignerPubKey, cfg.BoardingExitDelay,
+		)
+		tapKey, _, err := boardingScript.TapTree()
+		if err != nil {
+			return nil, err
+		}
+		addr, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(tapKey), &netParams)
+		if err != nil {
+			return nil, err
+		}
+		addrs = append(addrs, addr.EncodeAddress())
+	}
+	return addrs, nil
+}
+
 // queryUsedScripts queries the indexer for any VTXO activity on the given
 // scripts and returns the set of scripts that have at least one VTXO.
 func (a *arkClient) queryUsedScripts(
@@ -120,6 +165,28 @@ func (a *arkClient) queryUsedScripts(
 	used := make(map[string]struct{}, len(res.Vtxos))
 	for _, v := range res.Vtxos {
 		used[v.Script] = struct{}{}
+	}
+	return used, nil
+}
+
+// queryUsedBoardingAddresses checks the explorer for any transaction history
+// on each of the given boarding addresses and returns the subset that have at
+// least one transaction. Returns an empty set (not an error) when no explorer
+// is configured.
+func (a *arkClient) queryUsedBoardingAddresses(addrs []string) (map[string]struct{}, error) {
+	used := make(map[string]struct{})
+	exp := a.Explorer()
+	if exp == nil {
+		return used, nil
+	}
+	for _, addr := range addrs {
+		txs, err := exp.GetTxs(addr)
+		if err != nil {
+			return nil, err
+		}
+		if len(txs) > 0 {
+			used[addr] = struct{}{}
+		}
 	}
 	return used, nil
 }
