@@ -501,6 +501,48 @@ func (q *Queries) SelectUtxo(ctx context.Context, arg SelectUtxoParams) (Utxo, e
 	return i, err
 }
 
+const selectUtxosByTxid = `-- name: SelectUtxosByTxid :many
+SELECT txid, vout, script, amount, spent_by, spent, tapscripts, spendable_at, created_at, delay_value, delay_type, tx
+FROM utxo
+WHERE txid = ?1
+`
+
+func (q *Queries) SelectUtxosByTxid(ctx context.Context, txid string) ([]Utxo, error) {
+	rows, err := q.db.QueryContext(ctx, selectUtxosByTxid, txid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Utxo
+	for rows.Next() {
+		var i Utxo
+		if err := rows.Scan(
+			&i.Txid,
+			&i.Vout,
+			&i.Script,
+			&i.Amount,
+			&i.SpentBy,
+			&i.Spent,
+			&i.Tapscripts,
+			&i.SpendableAt,
+			&i.CreatedAt,
+			&i.DelayValue,
+			&i.DelayType,
+			&i.Tx,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectVtxo = `-- name: SelectVtxo :many
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount
 FROM asset_vtxo_vw

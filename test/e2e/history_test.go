@@ -132,6 +132,8 @@ func TestTransactionHistory(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
+	time.Sleep(10 * time.Second)
+
 	// should receive the ark tx event
 	event = <-aliceTxChan
 	require.Equal(t, types.TxsAdded, event.Type)

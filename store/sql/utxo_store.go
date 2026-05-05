@@ -243,6 +243,52 @@ func (r *utxoRepository) SpendUtxos(
 	return len(spentUtxos), nil
 }
 
+func (r *utxoRepository) DeleteUtxos(
+	ctx context.Context, outpoints []clientTypes.Outpoint,
+) (int, error) {
+	existing, err := r.GetUtxos(ctx, outpoints)
+	if err != nil {
+		return -1, err
+	}
+	if len(existing) == 0 {
+		return 0, nil
+	}
+
+	txBody := func(querierWithTx *queries.Queries) error {
+		for _, utxo := range existing {
+			if err := querierWithTx.DeleteUtxo(ctx, queries.DeleteUtxoParams{
+				Txid: utxo.Txid,
+				Vout: int64(utxo.VOut),
+			}); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				return err
+			}
+		}
+		return nil
+	}
+	if err := execTx(ctx, r.db, txBody); err != nil {
+		return -1, err
+	}
+	return len(existing), nil
+}
+
+func (r *utxoRepository) GetUtxosByTxid(
+	ctx context.Context, txid string,
+) ([]clientTypes.Utxo, error) {
+	rows, err := r.querier.SelectUtxosByTxid(ctx, txid)
+	if err != nil {
+		return nil, err
+	}
+
+	utxos := make([]clientTypes.Utxo, 0, len(rows))
+	for _, row := range rows {
+		utxos = append(utxos, rowToUtxo(row))
+	}
+	return utxos, nil
+}
+
 func (r *utxoRepository) ConfirmUtxos(
 	ctx context.Context, confirmedUtxosMap map[clientTypes.Outpoint]int64,
 ) (int, error) {

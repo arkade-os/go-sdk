@@ -488,6 +488,75 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 			require.Equal(t, testSpendUtxoKeys[u.Outpoint], u.SpentBy)
 		}
 	})
+
+	t.Run("get utxos by txid", func(t *testing.T) {
+		sharedTxid := "1111111111111111111111111111111111111111111111111111111111111111"
+		extra := []clientTypes.Utxo{
+			{
+				Outpoint:   clientTypes.Outpoint{Txid: sharedTxid, VOut: 0},
+				Script:     "0000000000000000000000000000000000000000000000000000000000000002",
+				Amount:     500,
+				Tapscripts: []string{"aaaa"},
+				Tx:         "deadbeef",
+				Delay:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 1},
+			},
+			{
+				Outpoint:   clientTypes.Outpoint{Txid: sharedTxid, VOut: 1},
+				Script:     "0000000000000000000000000000000000000000000000000000000000000003",
+				Amount:     600,
+				Tapscripts: []string{"bbbb"},
+				Tx:         "deadbeef",
+				Delay:      arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 1},
+			},
+		}
+		n, err := storeSvc.AddUtxos(ctx, extra)
+		require.NoError(t, err)
+		require.Equal(t, 2, n)
+
+		fetched, err := storeSvc.GetUtxosByTxid(ctx, sharedTxid)
+		require.NoError(t, err)
+		require.Len(t, fetched, 2)
+		gotVouts := map[uint32]bool{}
+		for _, u := range fetched {
+			require.Equal(t, sharedTxid, u.Txid)
+			gotVouts[u.VOut] = true
+		}
+		require.True(t, gotVouts[0] && gotVouts[1])
+
+		fetched, err = storeSvc.GetUtxosByTxid(
+			ctx,
+			"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		)
+		require.NoError(t, err)
+		require.Empty(t, fetched)
+
+		deleted, err := storeSvc.DeleteUtxos(ctx, []clientTypes.Outpoint{
+			{Txid: sharedTxid, VOut: 0},
+			{Txid: sharedTxid, VOut: 1},
+		})
+		require.NoError(t, err)
+		require.Equal(t, 2, deleted)
+	})
+
+	t.Run("delete utxos", func(t *testing.T) {
+		spendable, spent, err := storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(spendable))
+		require.Equal(t, 1, len(spent))
+
+		count, err := storeSvc.DeleteUtxos(ctx, []clientTypes.Outpoint{spendable[0].Outpoint})
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+
+		spendable, spent, err = storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Empty(t, spendable)
+		require.Equal(t, 1, len(spent))
+
+		count, err = storeSvc.DeleteUtxos(ctx, []clientTypes.Outpoint{testUtxoKeys[1]})
+		require.NoError(t, err)
+		require.Zero(t, count)
+	})
 }
 
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {

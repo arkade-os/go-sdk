@@ -24,10 +24,16 @@ import (
 // via NewKey so the wallet's tracked-keys view matches discovery.
 //
 // Returns true if at least one key was discovered.
-// TODO: Drop this file in https://github.com/arkade-os/go-sdk/pull/145
 func (a *arkClient) discoverHDWalletKeys(ctx context.Context) (bool, error) {
 	w := a.Wallet()
 	if w == nil {
+		return false, nil
+	}
+
+	// Discovery only applies to HD wallets. Single-key wallets have a fixed
+	// key set and their GetKey ignores the keyID, which would cause the gap-
+	// limit loop to run forever (every index returns the same used key).
+	if w.GetType() != hdwallet.Type {
 		return false, nil
 	}
 

@@ -119,6 +119,11 @@ SELECT *
 FROM utxo
 WHERE txid = :txid AND vout = :vout;
 
+-- name: SelectUtxosByTxid :many
+SELECT *
+FROM utxo
+WHERE txid = :txid;
+
 -- name: DeleteUtxo :exec
 DELETE FROM utxo
 WHERE txid = :txid AND vout = :vout;

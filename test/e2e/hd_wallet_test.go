@@ -276,20 +276,17 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 			sumVtxoAmounts(spendable) == wantOffchainTotal
 	}, 30*time.Second, 500*time.Millisecond)
 
-	// Check total onchain balance. The locked/spendable split is timing-sensitive
-	// because the boarding (30 s) and unilateral-exit (10 s) delays expire well
-	// within the test's runtime, so we assert the total instead.
-	const wantTotalOnchain = uint64(23_000 + 21_000 + 22_000 + 31_000 + 32_000)
+	const wantOnchainSpendable = uint64(23_000)
+	const wantLockedOnchain = uint64(106_000)
 	require.Eventually(t, func() bool {
 		balance, err := aliceClientHD.Balance(ctx)
 		if err != nil {
 			return false
 		}
 
-		totalOnchain := balance.OnchainBalance.SpendableAmount +
-			sumLockedAmounts(balance.OnchainBalance.LockedAmount)
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
-			totalOnchain == wantTotalOnchain
+			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable &&
+			sumLockedAmounts(balance.OnchainBalance.LockedAmount) == wantLockedOnchain
 	}, 60*time.Second, 500*time.Millisecond)
 }
 
