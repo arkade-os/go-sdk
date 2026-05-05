@@ -21,6 +21,7 @@ type ArkClient interface {
 	Explorer() explorer.Explorer
 	Indexer() indexer.Indexer
 	Client() transport.TransportClient
+	Store() types.Store
 
 	GetVersion() string
 	GetConfigStore() clientTypes.ConfigStore

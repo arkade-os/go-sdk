@@ -245,6 +245,10 @@ func (a *arkClient) Client() transport.TransportClient {
 	return a.Transport()
 }
 
+func (a *arkClient) Store() types.Store {
+	return a.store
+}
+
 func (a *arkClient) GetConfigStore() clientTypes.ConfigStore {
 	return a.clientStore.ConfigStore()
 }
