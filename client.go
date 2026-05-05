@@ -913,9 +913,17 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		}
 	}
 
-	if err := explorer.SubscribeForAddresses(addresses); err != nil {
-		log.WithError(err).Error("failed to subscribe for onchain addresses")
-		return
+	for {
+		if err := explorer.SubscribeForAddresses(addresses); err == nil {
+			break
+		} else {
+			log.WithError(err).Warn("failed to subscribe for onchain addresses, retrying...")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
 	}
 
 	ch := explorer.GetAddressesEvents()
