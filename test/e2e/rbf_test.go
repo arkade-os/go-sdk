@@ -20,14 +20,15 @@ import (
 func TestSettleAfterRBFBumpFee(t *testing.T) {
 	ctx := t.Context()
 	client := setupClient(t, "")
-	balance, err := client.Balance(ctx)
-	require.NoError(t, err)
-	require.Equal(t, int(balance.OffchainBalance.Total), 0)
 
 	// Get the boarding address.
 	boardingAddr, err := client.NewBoardingAddress(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, boardingAddr)
+
+	balance, err := client.Balance(ctx)
+	require.NoError(t, err)
+	require.Zero(t, int(balance.OffchainBalance.Total))
 
 	// Create a dedicated Bitcoin Core wallet for RBF testing with low fee rate.
 	walletName := fmt.Sprintf("rbftest_%d", time.Now().UnixNano())
@@ -61,9 +62,7 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	const numBoardingTxs = 5
 	for range numBoardingTxs {
 		txidOut, err := rpc("-named", "sendtoaddress",
-			fmt.Sprintf("address=%s", boardingAddr),
-			"amount=0.001",
-			"replaceable=true",
+			fmt.Sprintf("address=%s", boardingAddr), "amount=0.001", "replaceable=true",
 		)
 		require.NoError(t, err)
 		origTxid := strings.TrimSpace(txidOut)
@@ -92,6 +91,5 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	// Verify balance reflects the settled funds.
 	balance, err = client.Balance(ctx)
 	require.NoError(t, err)
-	require.Greater(t, int(balance.OffchainBalance.Total), 0,
-		"balance should be positive after settling bumped boarding UTXOs")
+	require.Greater(t, int(balance.OffchainBalance.Total), 0)
 }
