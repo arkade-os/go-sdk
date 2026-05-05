@@ -58,7 +58,7 @@ regtestdown:
 	@docker compose -f test/docker/docker-compose.yml down
 
 integrationtest:
-	@ARK_ELECTRUM_URL=$${ARK_ELECTRUM_URL:-tcp://127.0.0.1:50000} ARK_ESPLORA_URL=$${ARK_ESPLORA_URL:-http://localhost:3000} go test -v -count=1 -race -timeout 40m ./test/e2e
+	@ARK_ELECTRUM_URL=$${ARK_ELECTRUM_URL:-tcp://127.0.0.1:50001} ARK_ESPLORA_URL=$${ARK_ESPLORA_URL:-http://localhost:3000} go test -v -count=1 -race -timeout 40m ./test/e2e
 
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:
