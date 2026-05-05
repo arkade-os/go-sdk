@@ -222,6 +222,9 @@ func (c *electrumClient) shutdown() {
 // the recovery, e.g. after a failed handshake) or the client context is done.
 func (c *electrumClient) listen(ctx context.Context) {
 	conn := c.getConn()
+	if conn == nil {
+		return
+	}
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, maxScannerBytes), maxScannerBytes)
 	for scanner.Scan() {
