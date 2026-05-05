@@ -86,8 +86,6 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	// Wait for the SDK to detect the confirmed UTXOs, then settle.
 	require.Eventually(t, func() bool {
 		_, err := client.Settle(ctx)
-		if err != nil {
-		}
 		return err == nil
 	}, 60*time.Second, 2*time.Second, "settle should succeed after RBF bumpfee")
 
