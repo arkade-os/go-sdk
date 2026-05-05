@@ -1031,28 +1031,41 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 
 					utxoStore := a.store.UtxoStore()
 
-					for outputIndex := range tx.TxOut {
-						replacedUtxo := clientTypes.Outpoint{
+					// Collect all stored UTXOs belonging to the replaced
+					// transaction by probing each output index.
+					storedUtxos := make([]clientTypes.Utxo, 0)
+					for i := range tx.TxOut {
+						outpoint := clientTypes.Outpoint{
 							Txid: replacedTxid,
-							VOut: uint32(outputIndex),
+							VOut: uint32(i),
 						}
-
 						a.dbMu.Lock()
 						utxos, err := utxoStore.GetUtxos(
-							ctx, []clientTypes.Outpoint{replacedUtxo},
+							ctx, []clientTypes.Outpoint{outpoint},
 						)
 						a.dbMu.Unlock()
-						if err == nil && len(utxos) > 0 {
-							a.dbMu.Lock()
-							err := utxoStore.ReplaceUtxo(ctx, replacedUtxo, clientTypes.Outpoint{
-								Txid: replacementTxid,
-								VOut: uint32(outputIndex),
-							})
-							a.dbMu.Unlock()
-							if err != nil {
-								log.WithError(err).Error("failed to replace boarding utxo")
-								continue
-							}
+						if err == nil {
+							storedUtxos = append(storedUtxos, utxos...)
+						}
+					}
+
+					// Match stored UTXOs to replacement tx outputs by script
+					// rather than by index. bumpfee can reorder outputs so a
+					// naive index-based mapping would point to the wrong output.
+					utxoReplacements := matchReplacementOutputs(
+						storedUtxos, replacementTxid, &tx,
+					)
+					for _, r := range utxoReplacements {
+						a.dbMu.Lock()
+						err := utxoStore.ReplaceUtxo(ctx, r.From, r.To)
+						a.dbMu.Unlock()
+						if err != nil {
+							log.WithError(err).Error("failed to replace boarding utxo")
+						} else {
+							log.Debugf(
+								"replaced utxo: %v:%v with %v:%v",
+								r.From.Txid, r.From.VOut, r.To.Txid, r.To.VOut,
+							)
 						}
 					}
 				}
@@ -2178,4 +2191,45 @@ func (a *arkClient) lookupTrackedAddressByScript(script string) (trackedAddressI
 
 	info, ok := a.onchainRegistry.addressByScript[script]
 	return info, ok
+}
+
+// utxoReplacement represents a mapping from an old UTXO outpoint to its
+// replacement outpoint after an RBF (Replace-By-Fee) transaction.
+type utxoReplacement struct {
+	From clientTypes.Outpoint
+	To   clientTypes.Outpoint
+}
+
+// matchReplacementOutputs maps stored UTXOs from a replaced transaction to the
+// corresponding outputs in the replacement transaction by matching on script
+// (pkScript). This correctly handles cases where Bitcoin Core's bumpfee
+// reorders outputs, which would break a naive index-based mapping.
+func matchReplacementOutputs(
+	storedUtxos []clientTypes.Utxo,
+	replacementTxid string,
+	replacementTx *wire.MsgTx,
+) []utxoReplacement {
+	replacements := make([]utxoReplacement, 0, len(storedUtxos))
+	// Track which new outputs have been matched to avoid double-mapping.
+	matched := make(map[uint32]bool)
+
+	for _, stored := range storedUtxos {
+		for newIdx, txOut := range replacementTx.TxOut {
+			if matched[uint32(newIdx)] {
+				continue
+			}
+			if hex.EncodeToString(txOut.PkScript) == stored.Script {
+				replacements = append(replacements, utxoReplacement{
+					From: stored.Outpoint,
+					To: clientTypes.Outpoint{
+						Txid: replacementTxid,
+						VOut: uint32(newIdx),
+					},
+				})
+				matched[uint32(newIdx)] = true
+				break
+			}
+		}
+	}
+	return replacements
 }

@@ -28,6 +28,13 @@ func (a *arkClient) discoverHDWalletKeys(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
+	// Discovery only applies to HD wallets. Single-key wallets have a fixed
+	// key set and their GetKey ignores the keyID, which would cause the gap-
+	// limit loop to run forever (every index returns the same used key).
+	if w.GetType() != hdwallet.Type {
+		return false, nil
+	}
+
 	gapLimit := a.hdGapLimit
 	if gapLimit == 0 {
 		gapLimit = hdwallet.DefaultGapLimit
