@@ -316,3 +316,25 @@ func generateBlocks(n int) error {
 	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
 	return err
 }
+
+func recvUtxoEvent(t *testing.T, ch <-chan types.UtxoEvent) types.UtxoEvent {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for utxo event")
+		return types.UtxoEvent{}
+	}
+}
+
+func recvVtxoEvent(t *testing.T, ch <-chan types.VtxoEvent) types.VtxoEvent {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for vtxo event")
+		return types.VtxoEvent{}
+	}
+}
