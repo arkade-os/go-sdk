@@ -246,6 +246,7 @@ func (r *utxoRepository) SpendUtxos(
 func (r *utxoRepository) DeleteUtxos(
 	ctx context.Context, outpoints []clientTypes.Outpoint,
 ) (int, error) {
+	// Check which outpoints actually exist before deleting.
 	existing, err := r.GetUtxos(ctx, outpoints)
 	if err != nil {
 		return -1, err
@@ -272,21 +273,6 @@ func (r *utxoRepository) DeleteUtxos(
 		return -1, err
 	}
 	return len(existing), nil
-}
-
-func (r *utxoRepository) GetUtxosByTxid(
-	ctx context.Context, txid string,
-) ([]clientTypes.Utxo, error) {
-	rows, err := r.querier.SelectUtxosByTxid(ctx, txid)
-	if err != nil {
-		return nil, err
-	}
-
-	utxos := make([]clientTypes.Utxo, 0, len(rows))
-	for _, row := range rows {
-		utxos = append(utxos, rowToUtxo(row))
-	}
-	return utxos, nil
 }
 
 func (r *utxoRepository) ConfirmUtxos(
@@ -364,6 +350,21 @@ func (r *utxoRepository) GetAllUtxos(
 		}
 	}
 	return
+}
+
+func (r *utxoRepository) GetUtxosByTxid(
+	ctx context.Context, txid string,
+) ([]clientTypes.Utxo, error) {
+	rows, err := r.querier.SelectUtxosByTxid(ctx, txid)
+	if err != nil {
+		return nil, err
+	}
+
+	utxos := make([]clientTypes.Utxo, 0, len(rows))
+	for _, row := range rows {
+		utxos = append(utxos, rowToUtxo(row))
+	}
+	return utxos, nil
 }
 
 func (r *utxoRepository) GetUtxos(

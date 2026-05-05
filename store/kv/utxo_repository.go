@@ -192,15 +192,6 @@ func (s *utxoStore) DeleteUtxos(
 	return deleted, nil
 }
 
-func (s *utxoStore) GetUtxosByTxid(
-	_ context.Context, txid string,
-) ([]clientTypes.Utxo, error) {
-	var utxos []clientTypes.Utxo
-	if err := s.db.Find(&utxos, badgerhold.Where("Txid").Eq(txid)); err != nil {
-		return nil, err
-	}
-	return utxos, nil
-}
 
 func (s *utxoStore) GetAllUtxos(
 	_ context.Context,
@@ -218,6 +209,16 @@ func (s *utxoStore) GetAllUtxos(
 		}
 	}
 	return
+}
+
+func (s *utxoStore) GetUtxosByTxid(
+	_ context.Context, txid string,
+) ([]clientTypes.Utxo, error) {
+	var utxos []clientTypes.Utxo
+	if err := s.db.Find(&utxos, badgerhold.Where("Txid").Eq(txid)); err != nil {
+		return nil, err
+	}
+	return utxos, nil
 }
 
 func (s *utxoStore) GetUtxos(
