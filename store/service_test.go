@@ -488,6 +488,29 @@ func testUtxoStore(t *testing.T, storeSvc types.UtxoStore, storeType string) {
 			require.Equal(t, testSpendUtxoKeys[u.Outpoint], u.SpentBy)
 		}
 	})
+
+	t.Run("delete utxos", func(t *testing.T) {
+		spendable, spent, err := storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, len(spendable))
+		require.Equal(t, 1, len(spent))
+
+		// Delete the remaining spendable utxo.
+		count, err := storeSvc.DeleteUtxos(ctx, []clientTypes.Outpoint{spendable[0].Outpoint})
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+
+		// Should be gone.
+		spendable, spent, err = storeSvc.GetAllUtxos(ctx)
+		require.NoError(t, err)
+		require.Empty(t, spendable)
+		require.Equal(t, 1, len(spent))
+
+		// Deleting again should be a no-op.
+		count, err = storeSvc.DeleteUtxos(ctx, []clientTypes.Outpoint{testUtxoKeys[1]})
+		require.NoError(t, err)
+		require.Zero(t, count)
+	})
 }
 
 func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {

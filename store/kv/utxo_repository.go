@@ -172,6 +172,23 @@ func (s *utxoStore) SpendUtxos(
 	return len(spentUtxos), nil
 }
 
+func (s *utxoStore) DeleteUtxos(
+	_ context.Context, outpoints []clientTypes.Outpoint,
+) (int, error) {
+	deleted := 0
+	for _, op := range outpoints {
+		var utxo clientTypes.Utxo
+		if err := s.db.Get(op.String(), &utxo); err != nil {
+			continue
+		}
+		if err := s.db.Delete(op.String(), &utxo); err != nil {
+			return -1, err
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 func (s *utxoStore) GetAllUtxos(
 	_ context.Context,
 ) (spendable, spent []clientTypes.Utxo, err error) {

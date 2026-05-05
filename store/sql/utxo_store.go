@@ -243,6 +243,35 @@ func (r *utxoRepository) SpendUtxos(
 	return len(spentUtxos), nil
 }
 
+func (r *utxoRepository) DeleteUtxos(
+	ctx context.Context, outpoints []clientTypes.Outpoint,
+) (int, error) {
+	// Check which outpoints actually exist before deleting.
+	existing, err := r.GetUtxos(ctx, outpoints)
+	if err != nil {
+		return -1, err
+	}
+	if len(existing) == 0 {
+		return 0, nil
+	}
+
+	txBody := func(querierWithTx *queries.Queries) error {
+		for _, utxo := range existing {
+			if err := querierWithTx.DeleteUtxo(ctx, queries.DeleteUtxoParams{
+				Txid: utxo.Txid,
+				Vout: int64(utxo.VOut),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := execTx(ctx, r.db, txBody); err != nil {
+		return -1, err
+	}
+	return len(existing), nil
+}
+
 func (r *utxoRepository) ConfirmUtxos(
 	ctx context.Context, confirmedUtxosMap map[clientTypes.Outpoint]int64,
 ) (int, error) {
