@@ -232,6 +232,10 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	return client, nil
 }
 
+func (a *arkClient) Store() types.Store {
+	return a.store
+}
+
 func (a *arkClient) Explorer() explorer.Explorer {
 	return a.ArkClient.Explorer()
 }
@@ -1025,28 +1029,31 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Netw
 
 					utxoStore := a.store.UtxoStore()
 
-					for outputIndex := range tx.TxOut {
-						replacedUtxo := clientTypes.Outpoint{
-							Txid: replacedTxid,
-							VOut: uint32(outputIndex),
-						}
+					a.dbMu.Lock()
+					storedUtxos, err := utxoStore.GetUtxosByTxid(ctx, replacedTxid)
+					a.dbMu.Unlock()
+					if err != nil {
+						log.WithError(err).Error("failed to get stored utxos")
+						continue
+					}
 
+					// Match stored UTXOs to replacement tx outputs by script
+					// rather than by index. bumpfee can reorder outputs so a
+					// naive index-based mapping would point to the wrong output.
+					utxoReplacements := matchReplacementOutputs(
+						storedUtxos, replacementTxid, &tx,
+					)
+					for _, r := range utxoReplacements {
 						a.dbMu.Lock()
-						utxos, err := utxoStore.GetUtxos(
-							ctx, []clientTypes.Outpoint{replacedUtxo},
-						)
+						err := utxoStore.ReplaceUtxo(ctx, r.from, r.to)
 						a.dbMu.Unlock()
-						if err == nil && len(utxos) > 0 {
-							a.dbMu.Lock()
-							err := utxoStore.ReplaceUtxo(ctx, replacedUtxo, clientTypes.Outpoint{
-								Txid: replacementTxid,
-								VOut: uint32(outputIndex),
-							})
-							a.dbMu.Unlock()
-							if err != nil {
-								log.WithError(err).Error("failed to replace boarding utxo")
-								continue
-							}
+						if err != nil {
+							log.WithError(err).Error("failed to replace boarding utxo")
+						} else {
+							log.Debugf(
+								"replaced utxo: %v:%v with %v:%v",
+								r.from.Txid, r.from.VOut, r.to.Txid, r.to.VOut,
+							)
 						}
 					}
 				}

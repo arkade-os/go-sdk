@@ -1,6 +1,7 @@
 package arksdk
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"time"
@@ -8,6 +9,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
@@ -15,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/wire"
 )
 
 func newDefaultHDWallet(datadir string) (wallet.WalletService, error) {
@@ -207,4 +210,45 @@ func networkFromString(net string) arklib.Network {
 	default:
 		return arklib.Bitcoin
 	}
+}
+
+// utxoReplacement represents a mapping from an old UTXO outpoint to its
+// replacement outpoint after an RBF (Replace-By-Fee) transaction.
+type utxoReplacement struct {
+	from clientTypes.Outpoint
+	to   clientTypes.Outpoint
+}
+
+// matchReplacementOutputs maps stored UTXOs from a replaced transaction to the
+// corresponding outputs in the replacement transaction by matching on script
+// (pkScript). This correctly handles cases where Bitcoin Core's bumpfee
+// reorders outputs, which would break a naive index-based mapping.
+func matchReplacementOutputs(
+	storedUtxos []clientTypes.Utxo,
+	replacementTxid string,
+	replacementTx *wire.MsgTx,
+) []utxoReplacement {
+	replacements := make([]utxoReplacement, 0, len(storedUtxos))
+	// Track which new outputs have been matched to avoid double-mapping.
+	matched := make(map[uint32]bool)
+
+	for _, stored := range storedUtxos {
+		for newIdx, txOut := range replacementTx.TxOut {
+			if matched[uint32(newIdx)] {
+				continue
+			}
+			if hex.EncodeToString(txOut.PkScript) == stored.Script {
+				replacements = append(replacements, utxoReplacement{
+					from: stored.Outpoint,
+					to: clientTypes.Outpoint{
+						Txid: replacementTxid,
+						VOut: uint32(newIdx),
+					},
+				})
+				matched[uint32(newIdx)] = true
+				break
+			}
+		}
+	}
+	return replacements
 }

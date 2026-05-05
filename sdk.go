@@ -18,6 +18,7 @@ import (
 var Version string
 
 type ArkClient interface {
+	Store() types.Store
 	Wallet() wallet.WalletService
 	Explorer() explorer.Explorer
 	Indexer() indexer.Indexer
