@@ -20,12 +20,14 @@ import (
 func TestSettleAfterRBFBumpFee(t *testing.T) {
 	ctx := t.Context()
 	client := setupClient(t, "")
+	balance, err := client.Balance(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int(balance.OffchainBalance.Total), 0)
 
 	// Get the boarding address.
 	boardingAddr, err := client.NewBoardingAddress(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, boardingAddr)
-	t.Logf("boarding address: %s", boardingAddr)
 
 	// Create a dedicated Bitcoin Core wallet for RBF testing with low fee rate.
 	walletName := fmt.Sprintf("rbftest_%d", time.Now().UnixNano())
@@ -57,7 +59,7 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	// next send (otherwise sendtoaddress fails due to insufficient funds).
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	const numBoardingTxs = 5
-	for i := range numBoardingTxs {
+	for range numBoardingTxs {
 		txidOut, err := rpc("-named", "sendtoaddress",
 			fmt.Sprintf("address=%s", boardingAddr),
 			"amount=0.001",
@@ -65,7 +67,6 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 		)
 		require.NoError(t, err)
 		origTxid := strings.TrimSpace(txidOut)
-		t.Logf("boarding tx %d original: %s", i+1, origTxid)
 
 		// Bump the fee — this creates a replacement tx that may reorder outputs.
 		bumpOut, err := rpc("bumpfee", origTxid)
@@ -77,7 +78,6 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 		// Strip ANSI escape codes that nigiri injects via terminal coloring.
 		cleanBump := ansiRe.ReplaceAllString(strings.TrimSpace(bumpOut), "")
 		require.NoError(t, json.Unmarshal([]byte(cleanBump), &bumpResp))
-		t.Logf("boarding tx %d bumped:   %s", i+1, bumpResp.Txid)
 
 		// Mine so the wallet's change is confirmed for the next iteration.
 		require.NoError(t, generateBlocks(1))
@@ -87,7 +87,6 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, err := client.Settle(ctx)
 		if err != nil {
-			t.Logf("settle attempt: %v", err)
 		}
 		return err == nil
 	}, 60*time.Second, 2*time.Second, "settle should succeed after RBF bumpfee")
@@ -95,9 +94,8 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	t.Log("settle succeeded after RBF bumpfee")
 
 	// Verify balance reflects the settled funds.
-	balance, err := client.Balance(ctx)
+	balance, err = client.Balance(ctx)
 	require.NoError(t, err)
 	require.Greater(t, int(balance.OffchainBalance.Total), 0,
 		"balance should be positive after settling bumped boarding UTXOs")
-	t.Logf("offchain balance after settle: %d sats", balance.OffchainBalance.Total)
 }
