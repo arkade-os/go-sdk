@@ -3,6 +3,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,10 +22,9 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	client := setupClient(t, "")
 
 	// Get the boarding address.
-	_, _, boardingAddrs, _, err := client.GetAddresses(ctx)
+	boardingAddr, err := client.NewBoardingAddress(ctx)
 	require.NoError(t, err)
-	require.NotEmpty(t, boardingAddrs)
-	boardingAddr := boardingAddrs[0].Address
+	require.NotEmpty(t, boardingAddr)
 	t.Logf("boarding address: %s", boardingAddr)
 
 	// Create a dedicated Bitcoin Core wallet for RBF testing with low fee rate.
@@ -52,7 +52,10 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	_, err = rpc("settxfee", "0.00001000")
 	require.NoError(t, err)
 
-	// Send 5 boarding transactions, each RBF-bumped before mining.
+	// Send 5 boarding transactions, each RBF-bumped and mined individually.
+	// Mining after each bump ensures the wallet has a confirmed UTXO for the
+	// next send (otherwise sendtoaddress fails due to insufficient funds).
+	ansiRe := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	const numBoardingTxs = 5
 	for i := range numBoardingTxs {
 		txidOut, err := rpc("-named", "sendtoaddress",
@@ -71,12 +74,14 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 		var bumpResp struct {
 			Txid string `json:"txid"`
 		}
-		require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(bumpOut)), &bumpResp))
+		// Strip ANSI escape codes that nigiri injects via terminal coloring.
+		cleanBump := ansiRe.ReplaceAllString(strings.TrimSpace(bumpOut), "")
+		require.NoError(t, json.Unmarshal([]byte(cleanBump), &bumpResp))
 		t.Logf("boarding tx %d bumped:   %s", i+1, bumpResp.Txid)
-	}
 
-	// Mine all replacement transactions.
-	require.NoError(t, generateBlocks(1))
+		// Mine so the wallet's change is confirmed for the next iteration.
+		require.NoError(t, generateBlocks(1))
+	}
 
 	// Wait for the SDK to detect the confirmed UTXOs, then settle.
 	require.Eventually(t, func() bool {
