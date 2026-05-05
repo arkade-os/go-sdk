@@ -89,8 +89,6 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 		return err == nil
 	}, 60*time.Second, 2*time.Second, "settle should succeed after RBF bumpfee")
 
-	t.Log("settle succeeded after RBF bumpfee")
-
 	// Verify balance reflects the settled funds.
 	balance, err = client.Balance(ctx)
 	require.NoError(t, err)
