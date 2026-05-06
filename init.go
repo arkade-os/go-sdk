@@ -123,12 +123,16 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		}
 
 		err := a.refreshDb(ctx)
+		// Register the explorer listener before signaling IsSynced so events fired
+		// immediately after (e.g. from NewBoardingAddress) are not dropped before
+		// listenForOnchainTxs can start consuming.
+		explorerCh := a.Explorer().GetAddressesEvents()
 		a.syncCh <- err
 		close(a.syncCh)
 
 		// start listening to stream events
 		go a.listenForArkTxs(ctx)
-		go a.listenForOnchainTxs(ctx)
+		go a.listenForOnchainTxs(ctx, explorerCh)
 		go a.listenDbEvents(ctx)
 
 		// start periodic refresh db

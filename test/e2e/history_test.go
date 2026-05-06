@@ -171,6 +171,10 @@ func TestTransactionHistory(t *testing.T) {
 	require.Len(t, history, 1)
 	requireTxEqual(t, offchainReceivedTx, history[0], "")
 
+	// bob settles to get a non-recoverable VTXO before sending
+	_, err = bob.Settle(ctx)
+	require.NoError(t, err)
+
 	// bob sends funds to alice
 	arkTxid, err = bob.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     aliceOffchainAddr,

@@ -175,9 +175,8 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	}
 
 	// client.LoadArkClient defaults to noTracking=true, which leaves the explorer's
-	// listeners field nil. When listenForOnchainTxs calls GetAddressesEvents() it
-	// dereferences that nil field and panics. Pre-create a tracking-enabled explorer
-	// from the stored config and inject it so the underlying call skips creating its own.
+	// listeners field nil. Pre-create a tracking-enabled explorer from the stored config
+	// and inject it so GetAddressesEvents() works correctly after Unlock.
 	cfgData, err := clientDb.ConfigStore().GetData(context.Background())
 	if err != nil {
 		return nil, err
@@ -850,7 +849,10 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 	}
 }
 
-func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
+func (a *arkClient) listenForOnchainTxs(
+	ctx context.Context,
+	ch <-chan clientTypes.OnchainAddressEvent,
+) {
 	wallet := a.Wallet()
 	if wallet == nil {
 		// Should be unreachable
@@ -929,8 +931,6 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 		case <-time.After(3 * time.Second):
 		}
 	}
-
-	ch := explorer.GetAddressesEvents()
 
 	log.Debugf("subscribed for %d addresses", len(addresses))
 	for {
