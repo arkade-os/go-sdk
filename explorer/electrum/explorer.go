@@ -516,6 +516,7 @@ func (e *explorerSvc) GetTxBlockTime(txid string) (confirmed bool, blocktime int
 	if len(tx.TxOut) == 0 {
 		return false, 0, nil
 	}
+	// Ark txs always have a spendable output first, so TxOut[0] is never OP_RETURN.
 	script := hex.EncodeToString(tx.TxOut[0].PkScript)
 	sh, err := scriptToScripthash(script)
 	if err != nil {

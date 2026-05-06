@@ -192,10 +192,23 @@ Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) 
   - mnemonic seed phrase for the HD wallet
 - `password` — password used to encrypt and protect the wallet.
 - `opts` — optional functional options:
-  - `WithExplorerURL(url string)` — override the default mempool explorer URL for the network.
+  - `WithExplorerURL(url string)` — override the default explorer URL for the network.
   - `WithElectrumExplorer(serverURL string)` — use an ElectrumX server instead of mempool.space. The URL must start with `tcp://` (plaintext) or `ssl://` (TLS). Mutually exclusive with `WithExplorerURL`.
+  - `WithElectrumPackageBroadcastURL(url string)` — set an esplora-compatible REST URL for broadcasting transaction packages (required for zero-fee v3 / P2A anchor transactions). Only valid when using `WithElectrumExplorer`.
   - `WithWallet(wallet wallet.WalletService)` — supply a custom wallet implementation instead of the built-in single-key wallet.
   - `WithHDWallet(store hdwallet.Store)` — use the built-in HD wallet implementation backed by the provided config store.
+
+**Default explorer URLs per network:**
+
+| Network  | Default explorer |
+|----------|-----------------|
+| mainnet  | `https://mempool.space/api` (mempool.space) |
+| testnet  | `https://mempool.space/testnet/api` (mempool.space) |
+| signet   | `https://mempool.space/signet/api` (mempool.space) |
+| mutinynet | `https://mutinynet.com/api` (mempool.space) |
+| regtest  | `tcp://127.0.0.1:50001` (ElectrumX) |
+
+> **Regtest migration note:** the regtest default changed from `http://127.0.0.1:3000` (esplora) to `tcp://127.0.0.1:50001` (ElectrumX). If your regtest setup uses an esplora server instead, pass `WithExplorerURL("http://127.0.0.1:3000")` (or your actual URL) to `Init` to restore the previous behaviour.
 
 Note: Always keep your seed and password secure. Never share them or store them in plaintext.
 
