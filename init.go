@@ -11,7 +11,6 @@ import (
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract"
-	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -222,7 +221,7 @@ func (a *arkClient) scanContracts(
 	// allocated.
 	var startIdx uint32
 	if currentLastUsedKeyID != "" {
-		currentIdx, err := utils.ParseDerivationIndex(currentLastUsedKeyID)
+		currentIdx, err := a.Wallet().GetKeyIndex(ctx, currentLastUsedKeyID)
 		if err != nil {
 			return fmt.Errorf("failed to parse latest key id: %w", err)
 		}
@@ -320,7 +319,7 @@ func (a *arkClient) scanBoardingContracts(
 	// allocated.
 	var startIdx uint32
 	if currentLastUsedKeyID != "" {
-		currentIdx, err := utils.ParseDerivationIndex(currentLastUsedKeyID)
+		currentIdx, err := a.Wallet().GetKeyIndex(ctx, currentLastUsedKeyID)
 		if err != nil {
 			return fmt.Errorf("failed to parse latest key id: %w", err)
 		}

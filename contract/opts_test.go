@@ -225,7 +225,7 @@ func TestWithKeyIDFilter(t *testing.T) {
 					WithKeyIds([]string{"k1"}),
 					WithKeyIds([]string{"k2"}),
 				},
-				expectError: "key ID filter already set",
+				expectError: "key id filter already set",
 			},
 			{
 				name: "conflicts with type",

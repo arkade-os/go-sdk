@@ -8,7 +8,6 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
-	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -191,7 +190,7 @@ func (a *arkClient) newAddress(ctx context.Context, isOnchain bool) (string, err
 		return "", err
 	}
 
-	nextKeyID, err := utils.NextKeyID(keyId)
+	nextKeyID, err := a.Wallet().NextKeyId(ctx, keyId)
 	if err != nil {
 		return "", fmt.Errorf("failed to compute next key index: %w", err)
 	}
