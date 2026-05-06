@@ -96,9 +96,11 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}()
 
 	bgCtx, cancel := context.WithCancel(context.Background())
+	a.goroutineWg.Add(1)
 	a.stopFn = cancel
-
 	go func() {
+		defer a.goroutineWg.Done()
+
 		a.Explorer().Start()
 
 		ctx := bgCtx
@@ -119,7 +121,12 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.syncCh <- err
 		close(a.syncCh)
 
+		if err != nil {
+			return
+		}
+
 		// start listening to stream events
+		a.goroutineWg.Add(4)
 		go a.listenForArkTxs(ctx)
 		go a.listenForOnchainTxs(ctx)
 		go a.listenDbEvents(ctx)
@@ -145,6 +152,7 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	if a.stopFn != nil {
 		a.stopFn()
+		a.goroutineWg.Wait()
 	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
