@@ -9,14 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	contractOwnerKeyIDParam = "keyID"
-	contractOwnerKeyParam   = "ownerKey"
-	contractSignerKeyParam  = "signerKey"
-	contractExitDelayParam  = "exitDelay"
-	contractIsOnchainParam  = "isOnchain"
-)
-
 var (
 	testContractCreatedAt = time.Unix(1746143068, 0)
 
@@ -29,11 +21,11 @@ var (
 		State:     types.ContractStateActive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			contractOwnerKeyIDParam: "m/0/0",
-			contractOwnerKeyParam:   "0102030405",
-			contractSignerKeyParam:  "06070809",
-			contractExitDelayParam:  "144",
-			contractIsOnchainParam:  "false",
+			types.ContractParamOwnerKeyId: "m/0/0",
+			types.ContractParamOwnerKey:   "0102030405",
+			types.ContractParamSignerKey:  "06070809",
+			types.ContractParamExitDelay:  "144",
+			types.ContractParamIsOnchain:  "false",
 		},
 	}
 
@@ -46,11 +38,11 @@ var (
 		State:     types.ContractStateActive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			contractOwnerKeyIDParam: "m/0/1",
-			contractOwnerKeyParam:   "0a0b0c0d0e",
-			contractSignerKeyParam:  "0f101112",
-			contractExitDelayParam:  "288",
-			contractIsOnchainParam:  "false",
+			types.ContractParamOwnerKeyId: "m/0/1",
+			types.ContractParamOwnerKey:   "0a0b0c0d0e",
+			types.ContractParamSignerKey:  "0f101112",
+			types.ContractParamExitDelay:  "288",
+			types.ContractParamIsOnchain:  "false",
 		},
 	}
 
@@ -63,11 +55,11 @@ var (
 		State:     types.ContractStateInactive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			contractOwnerKeyIDParam: "m/0/2",
-			contractOwnerKeyParam:   "131415",
-			contractSignerKeyParam:  "161718",
-			contractExitDelayParam:  "144",
-			contractIsOnchainParam:  "true",
+			types.ContractParamOwnerKeyId: "m/0/2",
+			types.ContractParamOwnerKey:   "131415",
+			types.ContractParamSignerKey:  "161718",
+			types.ContractParamExitDelay:  "144",
+			types.ContractParamIsOnchain:  "true",
 		},
 	}
 
@@ -80,13 +72,13 @@ var (
 		State:     types.ContractStateActive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			contractOwnerKeyIDParam: "m/0/4",
-			contractOwnerKeyParam:   "deadbeef",
-			contractSignerKeyParam:  "cafebabe",
-			contractExitDelayParam:  "144",
-			contractIsOnchainParam:  "false",
-			"extra1":                "value1",
-			"extra2":                "value2",
+			types.ContractParamOwnerKeyId: "m/0/4",
+			types.ContractParamOwnerKey:   "deadbeef",
+			types.ContractParamSignerKey:  "cafebabe",
+			types.ContractParamExitDelay:  "144",
+			types.ContractParamIsOnchain:  "false",
+			"extra1":                      "value1",
+			"extra2":                      "value2",
 		},
 		// JSON-decoded numbers land as float64 — use it directly so SQL/JSON
 		// round-trip matches the in-memory KV path.
@@ -143,73 +135,73 @@ func TestContractStoreAddContract(t *testing.T) {
 				{
 					name: "missing ownerKey",
 					params: map[string]string{
-						contractOwnerKeyIDParam: "m/0/0",
-						contractSignerKeyParam:  "06070809",
-						contractExitDelayParam:  "144",
-						contractIsOnchainParam:  "false",
+						types.ContractParamOwnerKeyId: "m/0/0",
+						types.ContractParamSignerKey:  "06070809",
+						types.ContractParamExitDelay:  "144",
+						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing ownerKey param",
 				},
 				{
 					name: "missing keyID",
 					params: map[string]string{
-						contractOwnerKeyParam:  "0102030405",
-						contractSignerKeyParam: "06070809",
-						contractExitDelayParam: "144",
-						contractIsOnchainParam: "false",
+						types.ContractParamOwnerKey:  "0102030405",
+						types.ContractParamSignerKey: "06070809",
+						types.ContractParamExitDelay: "144",
+						types.ContractParamIsOnchain: "false",
 					},
-					expectedError: "missing keyID param",
+					expectedError: "missing ownerKeyId param",
 				},
 				{
 					name: "missing signerKey",
 					params: map[string]string{
-						contractOwnerKeyParam:   "0102030405",
-						contractOwnerKeyIDParam: "m/0/0",
-						contractExitDelayParam:  "144",
-						contractIsOnchainParam:  "false",
+						types.ContractParamOwnerKey:   "0102030405",
+						types.ContractParamOwnerKeyId: "m/0/0",
+						types.ContractParamExitDelay:  "144",
+						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing signerKey param",
 				},
 				{
 					name: "missing exitDelay",
 					params: map[string]string{
-						contractOwnerKeyParam:   "0102030405",
-						contractOwnerKeyIDParam: "m/0/0",
-						contractSignerKeyParam:  "06070809",
-						contractIsOnchainParam:  "false",
+						types.ContractParamOwnerKey:   "0102030405",
+						types.ContractParamOwnerKeyId: "m/0/0",
+						types.ContractParamSignerKey:  "06070809",
+						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing exitDelay param",
 				},
 				{
 					name: "invalid keyID",
 					params: map[string]string{
-						contractOwnerKeyParam:   "0102030405",
-						contractOwnerKeyIDParam: "m/0/notanumber",
-						contractSignerKeyParam:  "06070809",
-						contractExitDelayParam:  "144",
-						contractIsOnchainParam:  "false",
+						types.ContractParamOwnerKey:   "0102030405",
+						types.ContractParamOwnerKeyId: "m/0/notanumber",
+						types.ContractParamSignerKey:  "06070809",
+						types.ContractParamExitDelay:  "144",
+						types.ContractParamIsOnchain:  "false",
 					},
-					expectedError: "invalid keyID param",
+					expectedError: "invalid ownerKeyId param",
 				},
 				{
 					name: "invalid exitDelay",
 					params: map[string]string{
-						contractOwnerKeyParam:   "0102030405",
-						contractOwnerKeyIDParam: "m/0/0",
-						contractSignerKeyParam:  "06070809",
-						contractExitDelayParam:  "notanumber",
-						contractIsOnchainParam:  "false",
+						types.ContractParamOwnerKey:   "0102030405",
+						types.ContractParamOwnerKeyId: "m/0/0",
+						types.ContractParamSignerKey:  "06070809",
+						types.ContractParamExitDelay:  "notanumber",
+						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "invalid exitDelay param",
 				},
 				{
 					name: "invalid isOnchain",
 					params: map[string]string{
-						contractOwnerKeyParam:   "0102030405",
-						contractOwnerKeyIDParam: "m/0/0",
-						contractSignerKeyParam:  "06070809",
-						contractExitDelayParam:  "144",
-						contractIsOnchainParam:  "notabool",
+						types.ContractParamOwnerKey:   "0102030405",
+						types.ContractParamOwnerKeyId: "m/0/0",
+						types.ContractParamSignerKey:  "06070809",
+						types.ContractParamExitDelay:  "144",
+						types.ContractParamIsOnchain:  "notabool",
 					},
 					expectedError: "invalid isOnchain param",
 				},
@@ -314,8 +306,8 @@ func TestContractStoreGetLatestContract(t *testing.T) {
 				other := cloneContract(testContractC)
 				other.Script = "0000000000000000000000000000000000000000000000000000000000000099"
 				other.Type = altType
-				other.Params[contractOwnerKeyIDParam] = "m/0/9"
-				other.Params[contractIsOnchainParam] = "true"
+				other.Params[types.ContractParamOwnerKeyId] = "m/0/9"
+				other.Params[types.ContractParamIsOnchain] = "true"
 				require.NoError(t, s.AddContract(ctx, other))
 
 				got, err := s.GetLatestContract(ctx, types.ContractTypeDefault, true)

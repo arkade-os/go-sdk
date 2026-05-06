@@ -18,12 +18,6 @@ import (
 )
 
 const (
-	handlerOwnerKeyIDParam = "keyID"
-	handlerOwnerKeyParam   = "ownerKey"
-	handlerSignerKeyParam  = "signerKey"
-	handlerExitDelayParam  = "exitDelay"
-	handlerIsOnchainParam  = "isOnchain"
-
 	offchainMode = "offchain"
 	onchainMode  = "onchain"
 
@@ -63,29 +57,29 @@ func TestHandlerNewContract(t *testing.T) {
 							require.NotEmpty(t, c.Script)
 							require.NotEmpty(t, c.Address)
 							require.False(t, c.CreatedAt.IsZero())
-							require.Equal(t, keyRef.Id, c.Params[handlerOwnerKeyIDParam])
+							require.Equal(t, keyRef.Id, c.Params[types.ContractParamOwnerKeyId])
 							require.Equal(
 								t,
 								hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
-								c.Params[handlerOwnerKeyParam],
+								c.Params[types.ContractParamOwnerKey],
 							)
-							require.NotEmpty(t, c.Params[handlerSignerKeyParam])
+							require.NotEmpty(t, c.Params[types.ContractParamSignerKey])
 
 							switch mode {
 							case offchainMode:
-								require.Equal(t, "false", c.Params[handlerIsOnchainParam])
+								require.Equal(t, "false", c.Params[types.ContractParamIsOnchain])
 								require.Equal(
 									t,
 									strconv.FormatInt(testUnilateralExitDelay, 10),
-									c.Params[handlerExitDelayParam],
+									c.Params[types.ContractParamExitDelay],
 								)
 								require.Contains(t, c.Address, testNetwork.Addr)
 							case onchainMode:
-								require.Equal(t, "true", c.Params[handlerIsOnchainParam])
+								require.Equal(t, "true", c.Params[types.ContractParamIsOnchain])
 								require.Equal(
 									t,
 									strconv.FormatInt(testBoardingExitDelay, 10),
-									c.Params[handlerExitDelayParam],
+									c.Params[types.ContractParamExitDelay],
 								)
 								require.Contains(t, c.Address, "bcrt1p")
 							}
@@ -196,35 +190,35 @@ func TestHandlerGetKeyRef(t *testing.T) {
 					},
 					{
 						name:          "missing keyID",
-						params:        map[string]string{handlerOwnerKeyParam: "abcd"},
+						params:        map[string]string{types.ContractParamOwnerKey: "abcd"},
 						expectedError: "missing owner key ID",
 					},
 					{
 						name: "empty key ID",
 						params: map[string]string{
-							handlerOwnerKeyIDParam: "",
-							handlerOwnerKeyParam:   "abcd",
+							types.ContractParamOwnerKeyId: "",
+							types.ContractParamOwnerKey:   "abcd",
 						},
 						expectedError: "empty owner key ID",
 					},
 					{
 						name:          "missing owner key",
-						params:        map[string]string{handlerOwnerKeyIDParam: "m/0/0"},
+						params:        map[string]string{types.ContractParamOwnerKeyId: "m/0/0"},
 						expectedError: "missing owner key",
 					},
 					{
 						name: "invalid owner key format",
 						params: map[string]string{
-							handlerOwnerKeyIDParam: "m/0/0",
-							handlerOwnerKeyParam:   "nothex",
+							types.ContractParamOwnerKeyId: "m/0/0",
+							types.ContractParamOwnerKey:   "nothex",
 						},
 						expectedError: "invalid owner key format",
 					},
 					{
 						name: "invalid owner key",
 						params: map[string]string{
-							handlerOwnerKeyIDParam: "m/0/0",
-							handlerOwnerKeyParam:   hex.EncodeToString([]byte{0x00, 0x01}),
+							types.ContractParamOwnerKeyId: "m/0/0",
+							types.ContractParamOwnerKey:   hex.EncodeToString([]byte{0x00, 0x01}),
 						},
 						expectedError: "invalid owner key",
 					},
@@ -266,7 +260,7 @@ func TestHandlerGetSignerKey(t *testing.T) {
 							require.NotNil(t, signer)
 							require.Equal(
 								t,
-								c.Params[handlerSignerKeyParam],
+								c.Params[types.ContractParamSignerKey],
 								hex.EncodeToString(schnorr.SerializePubKey(signer)),
 							)
 						})
@@ -293,20 +287,20 @@ func TestHandlerGetSignerKey(t *testing.T) {
 					},
 					{
 						name:          "missing signer key",
-						params:        map[string]string{handlerOwnerKeyIDParam: "m/0/0"},
+						params:        map[string]string{types.ContractParamOwnerKeyId: "m/0/0"},
 						expectedError: "missing signer key",
 					},
 					{
 						name: "invalid signer key format",
 						params: map[string]string{
-							handlerSignerKeyParam: "nothex",
+							types.ContractParamSignerKey: "nothex",
 						},
 						expectedError: "invalid signer key format",
 					},
 					{
 						name: "invalid signer key",
 						params: map[string]string{
-							handlerSignerKeyParam: hex.EncodeToString([]byte{0x00, 0x01}),
+							types.ContractParamSignerKey: hex.EncodeToString([]byte{0x00, 0x01}),
 						},
 						expectedError: "invalid signer key",
 					},
@@ -381,13 +375,13 @@ func TestHandlerGetExitDelay(t *testing.T) {
 					},
 					{
 						name:          "missing exit delay",
-						params:        map[string]string{handlerOwnerKeyIDParam: "m/0/0"},
+						params:        map[string]string{types.ContractParamOwnerKeyId: "m/0/0"},
 						expectedError: "missing exit delay",
 					},
 					{
 						name: "invalid exit delay format",
 						params: map[string]string{
-							handlerExitDelayParam: "notanumber",
+							types.ContractParamExitDelay: "notanumber",
 						},
 						expectedError: "invalid exit delay format",
 					},
@@ -448,14 +442,14 @@ func TestHandlerGetTapscripts(t *testing.T) {
 				// inner getter (KeyRef / SignerKey / ExitDelay) is the one that fails.
 				validParams := func() map[string]string {
 					return map[string]string{
-						handlerOwnerKeyIDParam: "m/0/0",
-						handlerOwnerKeyParam: hex.EncodeToString(
+						types.ContractParamOwnerKeyId: "m/0/0",
+						types.ContractParamOwnerKey: hex.EncodeToString(
 							schnorr.SerializePubKey(newTestPubKey(t)),
 						),
-						handlerSignerKeyParam: hex.EncodeToString(
+						types.ContractParamSignerKey: hex.EncodeToString(
 							schnorr.SerializePubKey(newTestPubKey(t)),
 						),
-						handlerExitDelayParam: "144",
+						types.ContractParamExitDelay: "144",
 					}
 				}
 
@@ -466,17 +460,17 @@ func TestHandlerGetTapscripts(t *testing.T) {
 				}{
 					{
 						name:          "missing key ID",
-						mutate:        func(p map[string]string) { delete(p, handlerOwnerKeyIDParam) },
+						mutate:        func(p map[string]string) { delete(p, types.ContractParamOwnerKeyId) },
 						expectedError: "failed to get key reference",
 					},
 					{
 						name:          "missing signer key",
-						mutate:        func(p map[string]string) { delete(p, handlerSignerKeyParam) },
+						mutate:        func(p map[string]string) { delete(p, types.ContractParamSignerKey) },
 						expectedError: "failed to get signer key",
 					},
 					{
 						name:          "missing exit delay",
-						mutate:        func(p map[string]string) { delete(p, handlerExitDelayParam) },
+						mutate:        func(p map[string]string) { delete(p, types.ContractParamExitDelay) },
 						expectedError: "failed to get exit delay",
 					},
 				}

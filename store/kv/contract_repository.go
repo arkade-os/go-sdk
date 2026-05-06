@@ -19,11 +19,6 @@ import (
 
 const (
 	contractStoreDir = "contracts"
-	ownerKeyIDParam  = "keyID"
-	ownerKeyParam    = "ownerKey"
-	signerKeyParam   = "signerKey"
-	exitDelayParam   = "exitDelay"
-	isOnchainParam   = "isOnchain"
 )
 
 type contractStore struct {
@@ -189,11 +184,11 @@ type contractDTO struct {
 
 func (c contractDTO) parse() types.Contract {
 	params := map[string]string{
-		ownerKeyParam:   c.OwnerKey,
-		ownerKeyIDParam: fmt.Sprintf("m/0/%d", c.OwnerKeyIndex),
-		signerKeyParam:  c.SignerKey,
-		exitDelayParam:  strconv.Itoa(int(c.ExitDelay.Seconds())),
-		isOnchainParam:  strconv.FormatBool(c.IsOnchain),
+		types.ContractParamOwnerKey:   c.OwnerKey,
+		types.ContractParamOwnerKeyId: fmt.Sprintf("m/0/%d", c.OwnerKeyIndex),
+		types.ContractParamSignerKey:  c.SignerKey,
+		types.ContractParamExitDelay:  strconv.Itoa(int(c.ExitDelay.Seconds())),
+		types.ContractParamIsOnchain:  strconv.FormatBool(c.IsOnchain),
 	}
 	for k, v := range c.ExtraParams {
 		params[k] = v
@@ -211,39 +206,40 @@ func (c contractDTO) parse() types.Contract {
 }
 
 func toContractDTO(contract types.Contract) (*contractDTO, error) {
-	if _, ok := contract.Params[ownerKeyParam]; !ok {
-		return nil, fmt.Errorf("missing %s param", ownerKeyParam)
+	if _, ok := contract.Params[types.ContractParamOwnerKey]; !ok {
+		return nil, fmt.Errorf("missing %s param", types.ContractParamOwnerKey)
 	}
-	if _, ok := contract.Params[ownerKeyIDParam]; !ok {
-		return nil, fmt.Errorf("missing %s param", ownerKeyIDParam)
+	if _, ok := contract.Params[types.ContractParamOwnerKeyId]; !ok {
+		return nil, fmt.Errorf("missing %s param", types.ContractParamOwnerKeyId)
 	}
-	if _, ok := contract.Params[signerKeyParam]; !ok {
-		return nil, fmt.Errorf("missing %s param", signerKeyParam)
+	if _, ok := contract.Params[types.ContractParamSignerKey]; !ok {
+		return nil, fmt.Errorf("missing %s param", types.ContractParamSignerKey)
 	}
-	if _, ok := contract.Params[exitDelayParam]; !ok {
-		return nil, fmt.Errorf("missing %s param", exitDelayParam)
+	if _, ok := contract.Params[types.ContractParamExitDelay]; !ok {
+		return nil, fmt.Errorf("missing %s param", types.ContractParamExitDelay)
 	}
 
-	ownerKeyIndex, err := utils.ParseDerivationIndex(contract.Params[ownerKeyIDParam])
+	ownerKeyIndex, err := utils.ParseDerivationIndex(contract.Params[types.ContractParamOwnerKeyId])
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s param: %w", ownerKeyIDParam, err)
+		return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamOwnerKeyId, err)
 	}
-	exitDelay, err := utils.ParseDelay(contract.Params[exitDelayParam])
+	exitDelay, err := utils.ParseDelay(contract.Params[types.ContractParamExitDelay])
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s param: %w", exitDelayParam, err)
+		return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamExitDelay, err)
 	}
 	var isOnchain bool
-	if val, ok := contract.Params[isOnchainParam]; ok {
+	if val, ok := contract.Params[types.ContractParamIsOnchain]; ok {
 		isOnchain, err = strconv.ParseBool(val)
 		if err != nil {
-			return nil, fmt.Errorf("invalid %s param: %w", isOnchainParam, err)
+			return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamIsOnchain, err)
 		}
 	}
 
 	extraParams := make(map[string]string)
 	for k, v := range contract.Params {
-		if k != ownerKeyParam && k != ownerKeyIDParam && k != signerKeyParam &&
-			k != exitDelayParam && k != isOnchainParam {
+		if k != types.ContractParamOwnerKey && k != types.ContractParamOwnerKeyId &&
+			k != types.ContractParamSignerKey && k != types.ContractParamExitDelay &&
+			k != types.ContractParamIsOnchain {
 			extraParams[k] = v
 		}
 	}
@@ -254,9 +250,9 @@ func toContractDTO(contract types.Contract) (*contractDTO, error) {
 		Address:       contract.Address,
 		State:         string(contract.State),
 		CreatedAt:     contract.CreatedAt.Unix(),
-		OwnerKey:      contract.Params[ownerKeyParam],
+		OwnerKey:      contract.Params[types.ContractParamOwnerKey],
 		OwnerKeyIndex: ownerKeyIndex,
-		SignerKey:     contract.Params[signerKeyParam],
+		SignerKey:     contract.Params[types.ContractParamSignerKey],
 		ExitDelay:     *exitDelay,
 		ExtraParams:   extraParams,
 		IsOnchain:     isOnchain,

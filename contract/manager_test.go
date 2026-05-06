@@ -26,8 +26,8 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, types.ContractStateActive, c.State)
 			require.NotEmpty(t, c.Script)
 			require.NotEmpty(t, c.Address)
-			require.Equal(t, "false", c.Params[managerIsOnchainParam])
-			require.Equal(t, keyRef.Id, c.Params[managerOwnerKeyIDParam])
+			require.Equal(t, "false", c.Params[types.ContractParamIsOnchain])
+			require.Equal(t, keyRef.Id, c.Params[types.ContractParamOwnerKeyId])
 
 			// Persisted exactly once.
 			persisted, err := store.GetContractsByScripts(t.Context(), []string{c.Script})
@@ -44,7 +44,7 @@ func TestManagerNewContract(t *testing.T) {
 				t.Context(), types.ContractTypeDefault, keyRef, contract.WithIsOnchain(),
 			)
 			require.NoError(t, err)
-			require.Equal(t, "true", c.Params[managerIsOnchainParam])
+			require.Equal(t, "true", c.Params[types.ContractParamIsOnchain])
 			require.Contains(t, c.Address, "bcrt1p")
 
 			persisted, err := store.GetOnchainContracts(t.Context())

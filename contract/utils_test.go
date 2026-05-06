@@ -17,9 +17,6 @@ import (
 )
 
 const (
-	managerOwnerKeyIDParam = "keyID"
-	managerIsOnchainParam  = "isOnchain"
-
 	testUnilateralExitDelay int64 = 144
 	testBoardingExitDelay   int64 = 1024
 	testCheckpointTapscript       = "03a80040b27520dfcaec558c7e78cf3e38b898ba8a43cfb5727266bae32c5c5b3aeb32c558aa0bac"

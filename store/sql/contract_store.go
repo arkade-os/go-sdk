@@ -16,14 +16,6 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-const (
-	ownerKeyIDParam = "keyID"
-	ownerKeyParam   = "ownerKey"
-	signerKeyParam  = "signerKey"
-	exitDelayParam  = "exitDelay"
-	isOnchainParam  = "isOnchain"
-)
-
 type contractStore struct {
 	db      *sql.DB
 	querier *queries.Queries
@@ -39,39 +31,40 @@ func NewContractStore(db *sql.DB) types.ContractStore {
 }
 
 func (v *contractStore) AddContract(ctx context.Context, contract types.Contract) error {
-	if _, ok := contract.Params[ownerKeyParam]; !ok {
-		return fmt.Errorf("missing %s param", ownerKeyParam)
+	if _, ok := contract.Params[types.ContractParamOwnerKey]; !ok {
+		return fmt.Errorf("missing %s param", types.ContractParamOwnerKey)
 	}
-	if _, ok := contract.Params[ownerKeyIDParam]; !ok {
-		return fmt.Errorf("missing %s param", ownerKeyIDParam)
+	if _, ok := contract.Params[types.ContractParamOwnerKeyId]; !ok {
+		return fmt.Errorf("missing %s param", types.ContractParamOwnerKeyId)
 	}
-	if _, ok := contract.Params[signerKeyParam]; !ok {
-		return fmt.Errorf("missing %s param", signerKeyParam)
+	if _, ok := contract.Params[types.ContractParamSignerKey]; !ok {
+		return fmt.Errorf("missing %s param", types.ContractParamSignerKey)
 	}
-	if _, ok := contract.Params[exitDelayParam]; !ok {
-		return fmt.Errorf("missing %s param", exitDelayParam)
+	if _, ok := contract.Params[types.ContractParamExitDelay]; !ok {
+		return fmt.Errorf("missing %s param", types.ContractParamExitDelay)
 	}
 
-	ownerKeyIndex, err := utils.ParseDerivationIndex(contract.Params[ownerKeyIDParam])
+	ownerKeyIndex, err := utils.ParseDerivationIndex(contract.Params[types.ContractParamOwnerKeyId])
 	if err != nil {
-		return fmt.Errorf("invalid %s param: %w", ownerKeyIDParam, err)
+		return fmt.Errorf("invalid %s param: %w", types.ContractParamOwnerKeyId, err)
 	}
-	exitDelay, err := utils.ParseDelay(contract.Params[exitDelayParam])
+	exitDelay, err := utils.ParseDelay(contract.Params[types.ContractParamExitDelay])
 	if err != nil {
-		return fmt.Errorf("invalid %s param: %w", exitDelayParam, err)
+		return fmt.Errorf("invalid %s param: %w", types.ContractParamExitDelay, err)
 	}
 	var isOnchain bool
-	if val, ok := contract.Params[isOnchainParam]; ok {
+	if val, ok := contract.Params[types.ContractParamIsOnchain]; ok {
 		isOnchain, err = strconv.ParseBool(val)
 		if err != nil {
-			return fmt.Errorf("invalid %s param: %w", isOnchainParam, err)
+			return fmt.Errorf("invalid %s param: %w", types.ContractParamIsOnchain, err)
 		}
 	}
 
 	extraParams := make(map[string]string)
 	for k, v := range contract.Params {
-		if k != ownerKeyParam && k != ownerKeyIDParam && k != signerKeyParam &&
-			k != exitDelayParam && k != isOnchainParam {
+		if k != types.ContractParamOwnerKey && k != types.ContractParamOwnerKeyId &&
+			k != types.ContractParamSignerKey && k != types.ContractParamExitDelay &&
+			k != types.ContractParamIsOnchain {
 			extraParams[k] = v
 		}
 	}
@@ -102,8 +95,8 @@ func (v *contractStore) AddContract(ctx context.Context, contract types.Contract
 		State:         string(contract.State),
 		CreatedAt:     contract.CreatedAt.Unix(),
 		OwnerKeyIndex: int64(ownerKeyIndex),
-		OwnerKey:      contract.Params[ownerKeyParam],
-		SignerKey:     contract.Params[signerKeyParam],
+		OwnerKey:      contract.Params[types.ContractParamOwnerKey],
+		SignerKey:     contract.Params[types.ContractParamSignerKey],
 		ExitDelay:     exitDelay.Seconds(),
 		IsOnchain:     isOnchain,
 		ExtraParams:   sql.NullString{String: extraParamsStr, Valid: len(extraParamsStr) > 0},
@@ -266,11 +259,11 @@ func toContract(row queries.Contract) types.Contract {
 		// nolint:errcheck
 		json.Unmarshal([]byte(row.ExtraParams.String), &params)
 	}
-	params[ownerKeyParam] = row.OwnerKey
-	params[ownerKeyIDParam] = fmt.Sprintf("m/0/%d", row.OwnerKeyIndex)
-	params[signerKeyParam] = row.SignerKey
-	params[exitDelayParam] = strconv.Itoa(int(row.ExitDelay))
-	params[isOnchainParam] = strconv.FormatBool(row.IsOnchain)
+	params[types.ContractParamOwnerKey] = row.OwnerKey
+	params[types.ContractParamOwnerKeyId] = fmt.Sprintf("m/0/%d", row.OwnerKeyIndex)
+	params[types.ContractParamSignerKey] = row.SignerKey
+	params[types.ContractParamExitDelay] = strconv.Itoa(int(row.ExitDelay))
+	params[types.ContractParamIsOnchain] = strconv.FormatBool(row.IsOnchain)
 	metadata := make(map[string]string)
 	if row.Metadata.Valid {
 		// nolint:errcheck

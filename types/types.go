@@ -123,3 +123,12 @@ type Contract struct {
 	CreatedAt time.Time
 	Metadata  map[string]string
 }
+
+// Well-known contract params that are mandatory for all contract types
+const (
+	ContractParamOwnerKey   = "ownerKey"
+	ContractParamOwnerKeyId = "ownerKeyId"
+	ContractParamSignerKey  = "signerKey"
+	ContractParamExitDelay  = "exitDelay"
+	ContractParamIsOnchain  = "isOnchain"
+)
