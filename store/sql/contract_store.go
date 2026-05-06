@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -44,10 +43,6 @@ func (v *contractStore) AddContract(ctx context.Context, contract types.Contract
 		return fmt.Errorf("missing %s param", types.ContractParamExitDelay)
 	}
 
-	ownerKeyIndex, err := utils.ParseDerivationIndex(contract.Params[types.ContractParamOwnerKeyId])
-	if err != nil {
-		return fmt.Errorf("invalid %s param: %w", types.ContractParamOwnerKeyId, err)
-	}
 	exitDelay, err := utils.ParseDelay(contract.Params[types.ContractParamExitDelay])
 	if err != nil {
 		return fmt.Errorf("invalid %s param: %w", types.ContractParamExitDelay, err)
@@ -88,19 +83,19 @@ func (v *contractStore) AddContract(ctx context.Context, contract types.Contract
 	}
 	metadata := string(metadataBytes)
 	if err := v.querier.InsertContract(ctx, queries.InsertContractParams{
-		Script:        contract.Script,
-		Type:          string(contract.Type),
-		Label:         sql.NullString{String: contract.Label, Valid: len(contract.Label) > 0},
-		Address:       contract.Address,
-		State:         string(contract.State),
-		CreatedAt:     contract.CreatedAt.Unix(),
-		OwnerKeyIndex: int64(ownerKeyIndex),
-		OwnerKey:      contract.Params[types.ContractParamOwnerKey],
-		SignerKey:     contract.Params[types.ContractParamSignerKey],
-		ExitDelay:     exitDelay.Seconds(),
-		IsOnchain:     isOnchain,
-		ExtraParams:   sql.NullString{String: extraParamsStr, Valid: len(extraParamsStr) > 0},
-		Metadata:      sql.NullString{String: metadata, Valid: len(metadata) > 0},
+		Script:      contract.Script,
+		Type:        string(contract.Type),
+		Label:       sql.NullString{String: contract.Label, Valid: len(contract.Label) > 0},
+		Address:     contract.Address,
+		State:       string(contract.State),
+		CreatedAt:   contract.CreatedAt.Unix(),
+		OwnerKeyID:  contract.Params[types.ContractParamOwnerKeyId],
+		OwnerKey:    contract.Params[types.ContractParamOwnerKey],
+		SignerKey:   contract.Params[types.ContractParamSignerKey],
+		ExitDelay:   exitDelay.Seconds(),
+		IsOnchain:   isOnchain,
+		ExtraParams: sql.NullString{String: extraParamsStr, Valid: len(extraParamsStr) > 0},
+		Metadata:    sql.NullString{String: metadata, Valid: len(metadata) > 0},
 	}); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
 			return fmt.Errorf("contract %s already exists", contract.Script)
@@ -120,25 +115,6 @@ func (v *contractStore) ListContracts(ctx context.Context, onchain bool) ([]type
 		contracts = append(contracts, toContract(row))
 	}
 	return contracts, nil
-}
-
-func (v *contractStore) GetLatestContract(
-	ctx context.Context, contractType types.ContractType, isOnchain bool,
-) (*types.Contract, error) {
-	row, err := v.querier.SelectLatestContractByType(
-		ctx, queries.SelectLatestContractByTypeParams{
-			Type:      string(contractType),
-			IsOnchain: isOnchain,
-		},
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	contract := toContract(row)
-	return &contract, nil
 }
 
 func (v *contractStore) GetContractsByScripts(
@@ -195,19 +171,10 @@ func (v *contractStore) GetOnchainContracts(ctx context.Context) ([]types.Contra
 	return contracts, nil
 }
 
-func (v *contractStore) GetContractsByKeyIDs(
-	ctx context.Context, keyIDs []string,
+func (v *contractStore) GetContractsByKeyIds(
+	ctx context.Context, keyIds []string,
 ) ([]types.Contract, error) {
-	indexes := make([]int64, 0, len(keyIDs))
-	for _, keyID := range keyIDs {
-		index, err := utils.ParseDerivationIndex(keyID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid key ID %s: %w", keyID, err)
-		}
-		indexes = append(indexes, int64(index))
-	}
-
-	rows, err := v.querier.SelectContractsByKeyIndexes(ctx, indexes)
+	rows, err := v.querier.SelectContractsByKeyIDs(ctx, keyIds)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +227,7 @@ func toContract(row queries.Contract) types.Contract {
 		json.Unmarshal([]byte(row.ExtraParams.String), &params)
 	}
 	params[types.ContractParamOwnerKey] = row.OwnerKey
-	params[types.ContractParamOwnerKeyId] = fmt.Sprintf("m/0/%d", row.OwnerKeyIndex)
+	params[types.ContractParamOwnerKeyId] = row.OwnerKeyID
 	params[types.ContractParamSignerKey] = row.SignerKey
 	params[types.ContractParamExitDelay] = strconv.Itoa(int(row.ExitDelay))
 	params[types.ContractParamIsOnchain] = strconv.FormatBool(row.IsOnchain)

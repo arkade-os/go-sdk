@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"sync"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -19,16 +20,27 @@ import (
 
 const logPrefix = "contract manager:"
 
+// keyIndexResolver is the subset of wallet.WalletService the manager needs to
+// reason about contract ordering by derivation index. Kept unexported so the
+// manager owns its dependency surface and we can grow it as needed.
+type keyIndexResolver interface {
+	GetKeyIndex(ctx context.Context, id string) (uint32, error)
+}
+
 type managerImpl struct {
-	store   types.ContractStore
-	network arklib.Network
+	store    types.ContractStore
+	resolver keyIndexResolver
+	network  arklib.Network
 	// TODO: this must become a registry so that users can register their custom handlers at will.
 	handlers map[types.ContractType]handlers.Handler
 	mu       sync.RWMutex
 }
 
 func NewManager(
-	store types.ContractStore, network arklib.Network, client client.TransportClient,
+	store types.ContractStore,
+	network arklib.Network,
+	client client.TransportClient,
+	resolver keyIndexResolver,
 ) (Manager, error) {
 	// TODO: 1. support also delegate and vhtlc handlers
 	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
@@ -37,6 +49,7 @@ func NewManager(
 	}
 	return &managerImpl{
 		store:    store,
+		resolver: resolver,
 		handlers: handlers,
 		network:  network,
 		mu:       sync.RWMutex{},
@@ -115,8 +128,8 @@ func (m *managerImpl) GetContracts(
 		return m.store.GetContractsByScripts(ctx, f.scripts)
 	case len(f.state) > 0:
 		return m.store.GetContractsByState(ctx, f.state)
-	case len(f.keyIDs) > 0:
-		return m.store.GetContractsByKeyIDs(ctx, f.keyIDs)
+	case len(f.keyIds) > 0:
+		return m.store.GetContractsByKeyIds(ctx, f.keyIds)
 	case len(f.contractType) > 0:
 		return m.store.GetContractsByType(ctx, f.contractType)
 	case f.isOnchain:
@@ -126,7 +139,7 @@ func (m *managerImpl) GetContracts(
 	}
 }
 
-func (m *managerImpl) GetKeyIDUsedForLatestContract(
+func (m *managerImpl) GetLatestContractKeyId(
 	ctx context.Context, contractType types.ContractType, opts ...ContractOption,
 ) (string, error) {
 	if len(contractType) <= 0 {
@@ -146,18 +159,45 @@ func (m *managerImpl) GetKeyIDUsedForLatestContract(
 	if !ok {
 		return "", fmt.Errorf("unsupported contract type: %s", contractType)
 	}
-	contract, err := m.store.GetLatestContract(ctx, contractType, o.isOnchain)
+	contracts, err := m.store.GetContractsByType(ctx, contractType)
 	if err != nil {
 		return "", err
 	}
-	if contract == nil {
-		return "", nil
+
+	var (
+		latestKeyID    string
+		latestKeyIndex uint32
+		found          bool
+	)
+	for _, c := range contracts {
+		var isOnchain bool
+		if val, ok := c.Params[types.ContractParamIsOnchain]; ok {
+			isOnchain, err = strconv.ParseBool(val)
+			if err != nil {
+				return "", fmt.Errorf(
+					"invalid %s param format: epxected bool, got %s",
+					types.ContractParamIsOnchain, val,
+				)
+			}
+			if isOnchain != o.isOnchain {
+				continue
+			}
+		}
+		keyRef, err := handler.GetKeyRef(c)
+		if err != nil {
+			return "", err
+		}
+		index, err := m.resolver.GetKeyIndex(ctx, keyRef.Id)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve key index for id %s: %w", keyRef.Id, err)
+		}
+		if !found || index > latestKeyIndex {
+			latestKeyID = keyRef.Id
+			latestKeyIndex = index
+			found = true
+		}
 	}
-	keyRef, err := handler.GetKeyRef(*contract)
-	if err != nil {
-		return "", err
-	}
-	return keyRef.Id, nil
+	return latestKeyID, nil
 }
 
 func (m *managerImpl) GetKeyRefs(

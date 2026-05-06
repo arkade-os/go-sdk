@@ -143,7 +143,7 @@ func TestContractStoreAddContract(t *testing.T) {
 					expectedError: "missing ownerKey param",
 				},
 				{
-					name: "missing keyID",
+					name: "missing key id",
 					params: map[string]string{
 						types.ContractParamOwnerKey:  "0102030405",
 						types.ContractParamSignerKey: "06070809",
@@ -171,17 +171,6 @@ func TestContractStoreAddContract(t *testing.T) {
 						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing exitDelay param",
-				},
-				{
-					name: "invalid keyID",
-					params: map[string]string{
-						types.ContractParamOwnerKey:   "0102030405",
-						types.ContractParamOwnerKeyId: "m/0/notanumber",
-						types.ContractParamSignerKey:  "06070809",
-						types.ContractParamExitDelay:  "144",
-						types.ContractParamIsOnchain:  "false",
-					},
-					expectedError: "invalid ownerKeyId param",
 				},
 				{
 					name: "invalid exitDelay",
@@ -252,75 +241,6 @@ func TestContractStoreListContracts(t *testing.T) {
 				got, err := s.ListContracts(ctx, true)
 				require.NoError(t, err)
 				require.Len(t, got, 1)
-			})
-		})
-	})
-}
-
-func TestContractStoreGetLatestContract(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			ctx := t.Context()
-			seedContracts(t, s, testContractA, testContractB, testContractC)
-
-			t.Run("offchain", func(t *testing.T) {
-				got, err := s.GetLatestContract(ctx, types.ContractTypeDefault, false)
-				require.NoError(t, err)
-				require.NotNil(t, got)
-				// Highest owner_key_index (m/0/1) -> testContractB.
-				require.Equal(t, testContractB.Script, got.Script)
-			})
-
-			t.Run("onchain", func(t *testing.T) {
-				got, err := s.GetLatestContract(ctx, types.ContractTypeDefault, true)
-				require.NoError(t, err)
-				require.NotNil(t, got)
-				// Highest owner_key_index (m/0/2) -> testContractC.
-				require.Equal(t, testContractC.Script, got.Script)
-			})
-
-			t.Run("empty", func(t *testing.T) {
-				cases := []struct {
-					contractType types.ContractType
-				}{
-					{""},
-					{"unknown"},
-				}
-
-				for _, c := range cases {
-					got, err := s.GetLatestContract(ctx, c.contractType, false)
-					require.NoError(t, err)
-					require.Nil(t, got)
-
-					got, err = s.GetLatestContract(ctx, c.contractType, true)
-					require.NoError(t, err)
-					require.Nil(t, got)
-				}
-			})
-
-			t.Run("filters by type", func(t *testing.T) {
-				// Add a contract of a different type with a higher key index than
-				// any existing one — must NOT be returned when filtering by the
-				// default type.
-				altType := types.ContractType("alt")
-				other := cloneContract(testContractC)
-				other.Script = "0000000000000000000000000000000000000000000000000000000000000099"
-				other.Type = altType
-				other.Params[types.ContractParamOwnerKeyId] = "m/0/9"
-				other.Params[types.ContractParamIsOnchain] = "true"
-				require.NoError(t, s.AddContract(ctx, other))
-
-				got, err := s.GetLatestContract(ctx, types.ContractTypeDefault, true)
-				require.NoError(t, err)
-				require.NotNil(t, got)
-				require.Equal(t, types.ContractTypeDefault, got.Type)
-				require.Equal(t, testContractC.Script, got.Script)
-
-				gotAlt, err := s.GetLatestContract(ctx, altType, true)
-				require.NoError(t, err)
-				require.NotNil(t, gotAlt)
-				require.Equal(t, altType, gotAlt.Type)
-				require.Equal(t, other.Script, gotAlt.Script)
 			})
 		})
 	})
@@ -463,39 +383,15 @@ func TestContractStoreGetContractsByKeyIDs(t *testing.T) {
 			seedContracts(t, s, testContractA, testContractC)
 
 			t.Run("non empty", func(t *testing.T) {
-				got, err := s.GetContractsByKeyIDs(ctx, []string{"m/0/0", "m/0/2"})
+				got, err := s.GetContractsByKeyIds(ctx, []string{"m/0/0", "m/0/2"})
 				require.NoError(t, err)
 				require.Len(t, got, 2)
 			})
 
 			t.Run("empty", func(t *testing.T) {
-				got, err := s.GetContractsByKeyIDs(ctx, []string{"m/0/1"})
+				got, err := s.GetContractsByKeyIds(ctx, []string{"m/0/1"})
 				require.NoError(t, err)
 				require.Empty(t, got)
-			})
-		})
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			ctx := t.Context()
-
-			t.Run("invalid key id", func(t *testing.T) {
-				cases := []struct {
-					keyIDs []string
-				}{
-					{[]string{"m/0/notanumber"}},
-					{[]string{"m/0/0'"}},
-					{[]string{""}},
-					{[]string{"m/0/0", "m/0/notanumber"}},
-				}
-
-				for _, c := range cases {
-					got, err := s.GetContractsByKeyIDs(ctx, c.keyIDs)
-					require.Error(t, err)
-					require.ErrorContains(t, err, "invalid key ID")
-					require.Nil(t, got)
-				}
 			})
 		})
 	})

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS contract (
   address TEXT NOT NULL,
   state TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  owner_key_index INTEGER NOT NULL,
+  owner_key_id TEXT NOT NULL,
   owner_key TEXT NOT NULL,
   signer_key TEXT NOT NULL,
   exit_delay INTEGER NOT NULL,

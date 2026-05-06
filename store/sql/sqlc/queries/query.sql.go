@@ -103,24 +103,24 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 
 const insertContract = `-- name: InsertContract :exec
 INSERT INTO contract (
-    script, type, label, address, is_onchain, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, extra_params, metadata
+    script, type, label, address, is_onchain, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertContractParams struct {
-	Script        string
-	Type          string
-	Label         sql.NullString
-	Address       string
-	IsOnchain     bool
-	State         string
-	CreatedAt     int64
-	OwnerKeyIndex int64
-	OwnerKey      string
-	SignerKey     string
-	ExitDelay     int64
-	ExtraParams   sql.NullString
-	Metadata      sql.NullString
+	Script      string
+	Type        string
+	Label       sql.NullString
+	Address     string
+	IsOnchain   bool
+	State       string
+	CreatedAt   int64
+	OwnerKeyID  string
+	OwnerKey    string
+	SignerKey   string
+	ExitDelay   int64
+	ExtraParams sql.NullString
+	Metadata    sql.NullString
 }
 
 func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) error {
@@ -132,7 +132,7 @@ func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) 
 		arg.IsOnchain,
 		arg.State,
 		arg.CreatedAt,
-		arg.OwnerKeyIndex,
+		arg.OwnerKeyID,
 		arg.OwnerKey,
 		arg.SignerKey,
 		arg.ExitDelay,
@@ -296,7 +296,7 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 }
 
 const selectAllContracts = `-- name: SelectAllContracts :many
-SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract WHERE is_onchain = ?1
+SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract WHERE is_onchain = ?1
 `
 
 func (q *Queries) SelectAllContracts(ctx context.Context, isOnchain bool) ([]Contract, error) {
@@ -315,7 +315,7 @@ func (q *Queries) SelectAllContracts(ctx context.Context, isOnchain bool) ([]Con
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyIndex,
+			&i.OwnerKeyID,
 			&i.OwnerKey,
 			&i.SignerKey,
 			&i.ExitDelay,
@@ -468,21 +468,21 @@ func (q *Queries) SelectAsset(ctx context.Context, assetID string) (Asset, error
 	return i, err
 }
 
-const selectContractsByKeyIndexes = `-- name: SelectContractsByKeyIndexes :many
-SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
-WHERE owner_key_index IN (/*SLICE:indexes*/?)
+const selectContractsByKeyIDs = `-- name: SelectContractsByKeyIDs :many
+SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+WHERE owner_key_id IN (/*SLICE:key_ids*/?)
 `
 
-func (q *Queries) SelectContractsByKeyIndexes(ctx context.Context, indexes []int64) ([]Contract, error) {
-	query := selectContractsByKeyIndexes
+func (q *Queries) SelectContractsByKeyIDs(ctx context.Context, keyIds []string) ([]Contract, error) {
+	query := selectContractsByKeyIDs
 	var queryParams []interface{}
-	if len(indexes) > 0 {
-		for _, v := range indexes {
+	if len(keyIds) > 0 {
+		for _, v := range keyIds {
 			queryParams = append(queryParams, v)
 		}
-		query = strings.Replace(query, "/*SLICE:indexes*/?", strings.Repeat(",?", len(indexes))[1:], 1)
+		query = strings.Replace(query, "/*SLICE:key_ids*/?", strings.Repeat(",?", len(keyIds))[1:], 1)
 	} else {
-		query = strings.Replace(query, "/*SLICE:indexes*/?", "NULL", 1)
+		query = strings.Replace(query, "/*SLICE:key_ids*/?", "NULL", 1)
 	}
 	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
@@ -499,7 +499,7 @@ func (q *Queries) SelectContractsByKeyIndexes(ctx context.Context, indexes []int
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyIndex,
+			&i.OwnerKeyID,
 			&i.OwnerKey,
 			&i.SignerKey,
 			&i.ExitDelay,
@@ -521,7 +521,7 @@ func (q *Queries) SelectContractsByKeyIndexes(ctx context.Context, indexes []int
 }
 
 const selectContractsByScripts = `-- name: SelectContractsByScripts :many
-SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
 WHERE script IN (/*SLICE:scripts*/?)
 `
 
@@ -551,7 +551,7 @@ func (q *Queries) SelectContractsByScripts(ctx context.Context, scripts []string
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyIndex,
+			&i.OwnerKeyID,
 			&i.OwnerKey,
 			&i.SignerKey,
 			&i.ExitDelay,
@@ -573,7 +573,7 @@ func (q *Queries) SelectContractsByScripts(ctx context.Context, scripts []string
 }
 
 const selectContractsByState = `-- name: SelectContractsByState :many
-SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
 WHERE state = ?1
 `
 
@@ -593,7 +593,7 @@ func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]C
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyIndex,
+			&i.OwnerKeyID,
 			&i.OwnerKey,
 			&i.SignerKey,
 			&i.ExitDelay,
@@ -615,7 +615,7 @@ func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]C
 }
 
 const selectContractsByType = `-- name: SelectContractsByType :many
-SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
 WHERE type = ?1
 `
 
@@ -635,7 +635,7 @@ func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Co
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyIndex,
+			&i.OwnerKeyID,
 			&i.OwnerKey,
 			&i.SignerKey,
 			&i.ExitDelay,
@@ -654,39 +654,6 @@ func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Co
 		return nil, err
 	}
 	return items, nil
-}
-
-const selectLatestContractByType = `-- name: SelectLatestContractByType :one
-SELECT script, type, label, address, state, created_at, owner_key_index, owner_key, signer_key, exit_delay, is_onchain, extra_params, metadata FROM contract
-WHERE type = ?1 AND is_onchain = ?2
-ORDER BY owner_key_index DESC
-LIMIT 1
-`
-
-type SelectLatestContractByTypeParams struct {
-	Type      string
-	IsOnchain bool
-}
-
-func (q *Queries) SelectLatestContractByType(ctx context.Context, arg SelectLatestContractByTypeParams) (Contract, error) {
-	row := q.db.QueryRowContext(ctx, selectLatestContractByType, arg.Type, arg.IsOnchain)
-	var i Contract
-	err := row.Scan(
-		&i.Script,
-		&i.Type,
-		&i.Label,
-		&i.Address,
-		&i.State,
-		&i.CreatedAt,
-		&i.OwnerKeyIndex,
-		&i.OwnerKey,
-		&i.SignerKey,
-		&i.ExitDelay,
-		&i.IsOnchain,
-		&i.ExtraParams,
-		&i.Metadata,
-	)
-	return i, err
 }
 
 const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many

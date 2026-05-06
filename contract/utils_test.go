@@ -3,6 +3,9 @@ package contract_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -45,7 +48,9 @@ func newTestManager(t *testing.T) (contract.Manager, types.ContractStore) {
 		},
 	}
 
-	mgr, err := contract.NewManager(svc.ContractStore(), testNetwork, transport)
+	mgr, err := contract.NewManager(
+		svc.ContractStore(), testNetwork, transport, &mockKeyResolver{},
+	)
 	require.NoError(t, err)
 	t.Cleanup(mgr.Close)
 
@@ -154,3 +159,20 @@ func (m *mockTransportClient) OverwriteStreamTopics(
 }
 
 func (m *mockTransportClient) Close() {}
+
+// mockKeyResolver implements the contract package's keyIndexResolver. It mirrors
+// the HD wallet behavior of returning the trailing path component as the index.
+type mockKeyResolver struct{}
+
+func (m *mockKeyResolver) GetKeyIndex(_ context.Context, id string) (uint32, error) {
+	parts := strings.Split(id, "/")
+	if len(parts) == 0 {
+		return 0, fmt.Errorf("empty key id")
+	}
+	last := parts[len(parts)-1]
+	idx, err := strconv.ParseUint(last, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse %q: %w", last, err)
+	}
+	return uint32(idx), nil
+}

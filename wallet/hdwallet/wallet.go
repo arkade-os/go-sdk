@@ -230,15 +230,22 @@ func (w *service) IsLocked() bool {
 	return w.locked
 }
 
-func (w *service) NextIndex(ctx context.Context) (uint32, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+func (w *service) NextKeyId(_ context.Context, id string) (string, error) {
+	path, err := parseDerivationIndex(id)
+	if err != nil {
+		return "", err
+	}
+	index := path[len(path)-1]
+	nextIndex := index + 1
+	return w.keyProvider.derivationPath(nextIndex), nil
+}
 
-	if err := w.safeCheck(); err != nil {
+func (w *service) GetKeyIndex(_ context.Context, id string) (uint32, error) {
+	path, err := parseDerivationIndex(id)
+	if err != nil {
 		return 0, err
 	}
-
-	return w.keyProvider.GetNextKeyIndex(), nil
+	return path[len(path)-1], nil
 }
 
 func (w *service) Dump(_ context.Context) (string, error) {

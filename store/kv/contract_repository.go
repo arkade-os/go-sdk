@@ -60,21 +60,6 @@ func (s *contractStore) ListContracts(ctx context.Context, onchain bool) ([]type
 	return s.find(ctx, query)
 }
 
-func (s *contractStore) GetLatestContract(
-	ctx context.Context, contractType types.ContractType, onchain bool,
-) (*types.Contract, error) {
-	query := badgerhold.Where("Type").Eq(string(contractType)).
-		And("IsOnchain").Eq(onchain).SortBy("OwnerKeyIndex").Reverse()
-	contracts, err := s.find(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	if len(contracts) == 0 {
-		return nil, nil
-	}
-	return &contracts[0], nil
-}
-
 func (s *contractStore) GetContractsByScripts(
 	ctx context.Context, scripts []string,
 ) ([]types.Contract, error) {
@@ -104,18 +89,14 @@ func (s *contractStore) GetOnchainContracts(ctx context.Context) ([]types.Contra
 	query := badgerhold.Where("IsOnchain").Eq(true)
 	return s.find(ctx, query)
 }
-func (s *contractStore) GetContractsByKeyIDs(
-	ctx context.Context, keyIDs []string,
+func (s *contractStore) GetContractsByKeyIds(
+	ctx context.Context, keyIds []string,
 ) ([]types.Contract, error) {
-	values := make([]interface{}, 0, len(keyIDs))
-	for _, keyID := range keyIDs {
-		index, err := utils.ParseDerivationIndex(keyID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid key ID %s: %w", keyID, err)
-		}
-		values = append(values, index)
+	values := make([]interface{}, 0, len(keyIds))
+	for _, keyId := range keyIds {
+		values = append(values, keyId)
 	}
-	query := badgerhold.Where("OwnerKeyIndex").In(values...)
+	query := badgerhold.Where("OwnerKeyId").In(values...)
 	return s.find(ctx, query)
 }
 
@@ -167,25 +148,25 @@ func (s *contractStore) Close() {
 }
 
 type contractDTO struct {
-	Type          string
-	Label         string
-	Script        string
-	Address       string
-	State         string
-	CreatedAt     int64
-	OwnerKey      string
-	OwnerKeyIndex uint32
-	SignerKey     string
-	ExitDelay     arklib.RelativeLocktime
-	IsOnchain     bool
-	ExtraParams   map[string]string
-	Metadata      map[string]string
+	Type        string
+	Label       string
+	Script      string
+	Address     string
+	State       string
+	CreatedAt   int64
+	OwnerKey    string
+	OwnerKeyId  string
+	SignerKey   string
+	ExitDelay   arklib.RelativeLocktime
+	IsOnchain   bool
+	ExtraParams map[string]string
+	Metadata    map[string]string
 }
 
 func (c contractDTO) parse() types.Contract {
 	params := map[string]string{
 		types.ContractParamOwnerKey:   c.OwnerKey,
-		types.ContractParamOwnerKeyId: fmt.Sprintf("m/0/%d", c.OwnerKeyIndex),
+		types.ContractParamOwnerKeyId: c.OwnerKeyId,
 		types.ContractParamSignerKey:  c.SignerKey,
 		types.ContractParamExitDelay:  strconv.Itoa(int(c.ExitDelay.Seconds())),
 		types.ContractParamIsOnchain:  strconv.FormatBool(c.IsOnchain),
@@ -219,10 +200,6 @@ func toContractDTO(contract types.Contract) (*contractDTO, error) {
 		return nil, fmt.Errorf("missing %s param", types.ContractParamExitDelay)
 	}
 
-	ownerKeyIndex, err := utils.ParseDerivationIndex(contract.Params[types.ContractParamOwnerKeyId])
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamOwnerKeyId, err)
-	}
 	exitDelay, err := utils.ParseDelay(contract.Params[types.ContractParamExitDelay])
 	if err != nil {
 		return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamExitDelay, err)
@@ -244,18 +221,18 @@ func toContractDTO(contract types.Contract) (*contractDTO, error) {
 		}
 	}
 	return &contractDTO{
-		Type:          string(contract.Type),
-		Label:         contract.Label,
-		Script:        contract.Script,
-		Address:       contract.Address,
-		State:         string(contract.State),
-		CreatedAt:     contract.CreatedAt.Unix(),
-		OwnerKey:      contract.Params[types.ContractParamOwnerKey],
-		OwnerKeyIndex: ownerKeyIndex,
-		SignerKey:     contract.Params[types.ContractParamSignerKey],
-		ExitDelay:     *exitDelay,
-		ExtraParams:   extraParams,
-		IsOnchain:     isOnchain,
-		Metadata:      contract.Metadata,
+		Type:        string(contract.Type),
+		Label:       contract.Label,
+		Script:      contract.Script,
+		Address:     contract.Address,
+		State:       string(contract.State),
+		CreatedAt:   contract.CreatedAt.Unix(),
+		OwnerKey:    contract.Params[types.ContractParamOwnerKey],
+		OwnerKeyId:  contract.Params[types.ContractParamOwnerKeyId],
+		SignerKey:   contract.Params[types.ContractParamSignerKey],
+		ExitDelay:   *exitDelay,
+		ExtraParams: extraParams,
+		IsOnchain:   isOnchain,
+		Metadata:    contract.Metadata,
 	}, nil
 }

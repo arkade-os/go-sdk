@@ -214,7 +214,7 @@ func TestManagerGetContracts(t *testing.T) {
 			a := newOffchainContract(t, mgr, "m/0/0")
 			_ = newOffchainContract(t, mgr, "m/0/1")
 
-			got, err := mgr.GetContracts(t.Context(), contract.WithKeyIDs([]string{"m/0/0"}))
+			got, err := mgr.GetContracts(t.Context(), contract.WithKeyIds([]string{"m/0/0"}))
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			require.Equal(t, a.Script, got[0].Script)
@@ -235,7 +235,7 @@ func TestManagerGetContracts(t *testing.T) {
 		t.Run("returns empty on no match", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			got, err := mgr.GetContracts(
-				t.Context(), contract.WithKeyIDs([]string{"m/9/9"}),
+				t.Context(), contract.WithKeyIds([]string{"m/9/9"}),
 			)
 			require.NoError(t, err)
 			require.Empty(t, got)
@@ -291,7 +291,7 @@ func TestManagerGetKeyIDUsedForLatestContract(t *testing.T) {
 			_ = newOffchainContract(t, mgr, "m/0/2")
 			_ = newOffchainContract(t, mgr, "m/0/1")
 
-			id, err := mgr.GetKeyIDUsedForLatestContract(t.Context(), types.ContractTypeDefault)
+			id, err := mgr.GetLatestContractKeyId(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.Equal(t, "m/0/2", id)
 		})
@@ -304,7 +304,7 @@ func TestManagerGetKeyIDUsedForLatestContract(t *testing.T) {
 			_ = newOnchainContract(t, mgr, "m/0/0")
 			_ = newOnchainContract(t, mgr, "m/0/2")
 
-			id, err := mgr.GetKeyIDUsedForLatestContract(
+			id, err := mgr.GetLatestContractKeyId(
 				t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
 			)
 			require.NoError(t, err)
@@ -313,7 +313,7 @@ func TestManagerGetKeyIDUsedForLatestContract(t *testing.T) {
 
 		t.Run("no contracts returns empty", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			id, err := mgr.GetKeyIDUsedForLatestContract(t.Context(), types.ContractTypeDefault)
+			id, err := mgr.GetLatestContractKeyId(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.Empty(t, id)
 		})
@@ -348,7 +348,7 @@ func TestManagerGetKeyIDUsedForLatestContract(t *testing.T) {
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
 				mgr, _ := newTestManager(t)
-				_, err := mgr.GetKeyIDUsedForLatestContract(t.Context(), f.contractType, f.opts...)
+				_, err := mgr.GetLatestContractKeyId(t.Context(), f.contractType, f.opts...)
 				require.ErrorContains(t, err, f.wantErrContains)
 			})
 		}
@@ -477,10 +477,10 @@ func TestManagerClean(t *testing.T) {
 	})
 }
 
-func newOffchainContract(t *testing.T, mgr contract.Manager, keyID string) types.Contract {
+func newOffchainContract(t *testing.T, mgr contract.Manager, keyId string) types.Contract {
 	t.Helper()
 	c, err := mgr.NewContract(
-		t.Context(), types.ContractTypeDefault, newTestKeyRefAt(t, keyID),
+		t.Context(), types.ContractTypeDefault, newTestKeyRefAt(t, keyId),
 	)
 	require.NoError(t, err)
 	// Distinct creation timestamps so SortBy clauses in store queries are
@@ -489,10 +489,10 @@ func newOffchainContract(t *testing.T, mgr contract.Manager, keyID string) types
 	return *c
 }
 
-func newOnchainContract(t *testing.T, mgr contract.Manager, keyID string) types.Contract {
+func newOnchainContract(t *testing.T, mgr contract.Manager, keyId string) types.Contract {
 	t.Helper()
 	c, err := mgr.NewContract(
-		t.Context(), types.ContractTypeDefault, newTestKeyRefAt(t, keyID),
+		t.Context(), types.ContractTypeDefault, newTestKeyRefAt(t, keyId),
 		contract.WithIsOnchain(),
 	)
 	require.NoError(t, err)

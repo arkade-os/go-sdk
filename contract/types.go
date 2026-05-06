@@ -23,9 +23,9 @@ type Manager interface {
 	// All filters are mutually exclusive, i.e. only one filter can be set at a time.
 	// Pass no options to return all contracts.
 	GetContracts(ctx context.Context, opts ...FilterOption) ([]types.Contract, error)
-	// GetKeyIDUsedForLatestContract returns the keyID of the latest contract of the given type,
+	// GetLatestContractKeyId returns the key id of the latest contract of the given type,
 	// or an empty string if no contract of that type exists.
-	GetKeyIDUsedForLatestContract(
+	GetLatestContractKeyId(
 		ctx context.Context, contractType types.ContractType, opts ...ContractOption,
 	) (string, error)
 	// GetKeyRefs returns a map script -> key ID for the given contract.
