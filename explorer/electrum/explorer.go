@@ -378,7 +378,8 @@ func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 
 // GetTxOutspends returns the spent status of each output of a transaction.
 // There is no direct ElectrumX equivalent; this resolves by scanning
-// the scripthash history of each output.
+// the scripthash history of each output. This is O(outputs × history_depth)
+// round-trips, which is acceptable for low-traffic Ark outputs.
 func (e *explorerSvc) GetTxOutspends(txid string) ([]explorer.SpentStatus, error) {
 	txHex, err := e.GetTxHex(txid)
 	if err != nil {

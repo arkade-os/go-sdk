@@ -52,6 +52,13 @@ func (a *arkClient) Init(
 	if explorerUrl == "" {
 		explorerUrl = defaultExplorerUrl[info.Network]
 	}
+	if initOpts.electrumEsploraURL != "" &&
+		!strings.HasPrefix(explorerUrl, "tcp://") &&
+		!strings.HasPrefix(explorerUrl, "ssl://") {
+		return fmt.Errorf(
+			"WithElectrumPackageBroadcastURL requires an electrum explorer URL (tcp:// or ssl://)",
+		)
+	}
 	var pollInterval time.Duration
 	if info.Network == arklib.BitcoinRegTest.Name {
 		pollInterval = 2 * time.Second

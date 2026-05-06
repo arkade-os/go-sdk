@@ -174,9 +174,9 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
 
-	// client.LoadArkClient defaults to noTracking=true, which leaves the explorer's
-	// listeners field nil. Pre-create a tracking-enabled explorer from the stored config
-	// and inject it so GetAddressesEvents() works correctly after Unlock.
+	// Pre-create a tracking-enabled explorer from the stored config and inject it
+	// so GetAddressesEvents() works correctly after Unlock. Pre-registering before
+	// the sync sequence avoids the event-drop race on boarding address creation.
 	cfgData, err := clientDb.ConfigStore().GetData(context.Background())
 	if err != nil {
 		return nil, err
