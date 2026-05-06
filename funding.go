@@ -2,7 +2,6 @@ package arksdk
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
@@ -60,7 +59,6 @@ func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-
 	return a.newOffchainAddress(ctx)
 }
 
@@ -68,17 +66,20 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	addr, err := a.newBoardingAddress(ctx)
+
+	contract, err := a.contractManager.NewContract(
+		ctx, types.ContractTypeDefault, contract.WithIsOnchain(),
+	)
 	if err != nil {
 		return "", err
 	}
 
 	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{addr}); err != nil {
+		if err := a.Explorer().SubscribeForAddresses([]string{contract.Address}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
 		}
 	}()
-	return addr, nil
+	return contract.Address, nil
 }
 
 func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
@@ -171,41 +172,11 @@ func (a *arkClient) ListVtxos(
 }
 
 func (a *arkClient) newOffchainAddress(ctx context.Context) (string, error) {
-	return a.newAddress(ctx, false)
-}
-
-func (a *arkClient) newBoardingAddress(ctx context.Context) (string, error) {
-	return a.newAddress(ctx, true)
-}
-
-func (a *arkClient) newAddress(ctx context.Context, isOnchain bool) (string, error) {
-	var opts []contract.ContractOption
-	if isOnchain {
-		opts = append(opts, contract.WithIsOnchain())
-	}
-	keyId, err := a.contractManager.GetLatestContractKeyId(
-		ctx, types.ContractTypeDefault, opts...,
-	)
+	contract, err := a.contractManager.NewContract(ctx, types.ContractTypeDefault)
 	if err != nil {
 		return "", err
 	}
 
-	nextKeyID, err := a.Wallet().NextKeyId(ctx, keyId)
-	if err != nil {
-		return "", fmt.Errorf("failed to compute next key index: %w", err)
-	}
-
-	keyRef, err := a.Wallet().GetKey(ctx, nextKeyID)
-	if err != nil {
-		return "", err
-	}
-
-	contract, err := a.contractManager.NewContract(
-		ctx, types.ContractTypeDefault, *keyRef, opts...,
-	)
-	if err != nil {
-		return "", err
-	}
 	return contract.Address, nil
 }
 

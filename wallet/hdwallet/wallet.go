@@ -231,6 +231,10 @@ func (w *service) IsLocked() bool {
 }
 
 func (w *service) NextKeyId(_ context.Context, id string) (string, error) {
+	if len(id) <= 0 {
+		return w.keyProvider.derivationPath(0), nil
+	}
+
 	path, err := parseDerivationIndex(id)
 	if err != nil {
 		return "", err
@@ -241,6 +245,10 @@ func (w *service) NextKeyId(_ context.Context, id string) (string, error) {
 }
 
 func (w *service) GetKeyIndex(_ context.Context, id string) (uint32, error) {
+	if len(id) <= 0 {
+		return 0, nil
+	}
+
 	path, err := parseDerivationIndex(id)
 	if err != nil {
 		return 0, err

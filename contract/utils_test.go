@@ -3,19 +3,23 @@ package contract_test
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
-	"strconv"
-	"strings"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
+	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
+	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,48 +27,46 @@ const (
 	testUnilateralExitDelay int64 = 144
 	testBoardingExitDelay   int64 = 1024
 	testCheckpointTapscript       = "03a80040b27520dfcaec558c7e78cf3e38b898ba8a43cfb5727266bae32c5c5b3aeb32c558aa0bac"
+	testPassword                  = "testpassword"
 )
 
 var testNetwork = arklib.BitcoinRegTest
 
-// newTestManager wires the contract manager with a real in-memory KV store
-// and a real default handler backed by a stubbed transport client. It returns
-// the manager and the underlying contract store so tests can seed fixtures or
-// assert side effects directly.
+// newTestManager wires a contract manager with a fresh in-memory KV store
+// and a brand-new mocked env. Tests that don't need to drive the mocks call
+// this; tests that do should reach for newTestManagerWithEnv instead.
 func newTestManager(t *testing.T) (contract.Manager, types.ContractStore) {
 	t.Helper()
+	_, mgr, store := newTestManagerWithEnv(t)
+	return mgr, store
+}
+
+// newTestManagerWithEnv builds the same manager + store as newTestManager
+// and additionally returns the mocked env it sits on top of. Use this when
+// the test needs to stage indexer responses or pre-derive scripts.
+func newTestManagerWithEnv(
+	t *testing.T,
+) (*mockedEnv, contract.Manager, types.ContractStore) {
+	t.Helper()
+
+	env := newMockedEnv(t)
 
 	svc, err := store.NewStore(store.Config{AppDataStoreType: types.KVStore})
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
 
-	signer := newTestPubKey(t)
-	transport := &mockTransportClient{
-		info: &client.Info{
-			SignerPubKey:        hex.EncodeToString(signer.SerializeCompressed()),
-			UnilateralExitDelay: testUnilateralExitDelay,
-			BoardingExitDelay:   testBoardingExitDelay,
-			CheckpointTapscript: testCheckpointTapscript,
-		},
-	}
-
-	mgr, err := contract.NewManager(
-		svc.ContractStore(), testNetwork, transport, &mockKeyResolver{},
-	)
+	mgr, err := contract.NewManager(contract.Args{
+		Store:       svc.ContractStore(),
+		KeyProvider: env.wsvc,
+		Client:      env.transport,
+		Indexer:     env.indexer,
+		Explorer:    env.explorer,
+		Network:     testNetwork,
+	})
 	require.NoError(t, err)
 	t.Cleanup(mgr.Close)
 
-	return mgr, svc.ContractStore()
-}
-
-func newTestKeyRef(t *testing.T) wallet.KeyRef {
-	t.Helper()
-	return wallet.KeyRef{Id: "m/0/0", PubKey: newTestPubKey(t)}
-}
-
-func newTestKeyRefAt(t *testing.T, id string) wallet.KeyRef {
-	t.Helper()
-	return wallet.KeyRef{Id: id, PubKey: newTestPubKey(t)}
+	return env, mgr, svc.ContractStore()
 }
 
 func newTestPubKey(t *testing.T) *btcec.PublicKey {
@@ -160,19 +162,102 @@ func (m *mockTransportClient) OverwriteStreamTopics(
 
 func (m *mockTransportClient) Close() {}
 
-// mockKeyResolver implements the contract package's keyIndexResolver. It mirrors
-// the HD wallet behavior of returning the trailing path component as the index.
-type mockKeyResolver struct{}
+// mockIndexer satisfies contract.offchainDataProvider. Tests that don't
+// exercise ScanContracts leave usedScripts nil and the mock returns an empty
+// response. Scan tests populate usedScripts (or set err) before scanning.
+//
+// The mock returns every configured script unconditionally — the manager only
+// matches against contracts in the current batch, so extra entries in the
+// response are ignored.
+type mockIndexer struct {
+	usedScripts map[string]struct{}
+	err         error
+}
 
-func (m *mockKeyResolver) GetKeyIndex(_ context.Context, id string) (uint32, error) {
-	parts := strings.Split(id, "/")
-	if len(parts) == 0 {
-		return 0, fmt.Errorf("empty key id")
+func (m *mockIndexer) GetVtxos(
+	_ context.Context, _ ...indexer.GetVtxosOption,
+) (*indexer.VtxosResponse, error) {
+	if m.err != nil {
+		return nil, m.err
 	}
-	last := parts[len(parts)-1]
-	idx, err := strconv.ParseUint(last, 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("parse %q: %w", last, err)
+	if len(m.usedScripts) == 0 {
+		return &indexer.VtxosResponse{}, nil
 	}
-	return uint32(idx), nil
+	vtxos := make([]clienttypes.Vtxo, 0, len(m.usedScripts))
+	for s := range m.usedScripts {
+		vtxos = append(vtxos, clienttypes.Vtxo{Script: s})
+	}
+	return &indexer.VtxosResponse{Vtxos: vtxos}, nil
+}
+
+// mockExplorer satisfies contract.onchainDataProvider with no-op responses.
+type mockExplorer struct{}
+
+func (m *mockExplorer) GetTxs(_ string) ([]explorer.Tx, error) { return nil, nil }
+
+// mockedEnv bundles the mocked dependencies the contract manager is built
+// on top of, so tests can stage indexer responses or pre-derive the same
+// contracts the manager would auto-derive at given key indices, without
+// reaching into manager internals. The manager itself is intentionally
+// not part of the env — see newTestManagerWithEnv for the wiring.
+type mockedEnv struct {
+	indexer   *mockIndexer
+	explorer  *mockExplorer
+	transport *mockTransportClient
+	wsvc      wallet.WalletService
+	derive    func(keyId string) types.Contract
+}
+
+func newMockedEnv(t *testing.T) *mockedEnv {
+	t.Helper()
+
+	signer := newTestPubKey(t)
+	transport := &mockTransportClient{
+		info: &client.Info{
+			SignerPubKey:        hex.EncodeToString(signer.SerializeCompressed()),
+			UnilateralExitDelay: testUnilateralExitDelay,
+			BoardingExitDelay:   testBoardingExitDelay,
+			CheckpointTapscript: testCheckpointTapscript,
+		},
+	}
+
+	wsvc, err := hdwallet.NewService(inmemorywalletstore.NewStore())
+	require.NoError(t, err)
+	_, err = wsvc.Create(t.Context(), chaincfg.RegressionNetParams, testPassword, "")
+	require.NoError(t, err)
+	_, err = wsvc.Unlock(t.Context(), testPassword)
+	require.NoError(t, err)
+
+	// Mirror the manager's offchain derivation: same wallet, same default
+	// handler. derive(keyId) yields the same contract the scan loop would
+	// produce when the next key it asks for happens to be keyId.
+	handler := defaultHandler.NewHandler(transport, testNetwork)
+	derive := func(keyId string) types.Contract {
+		t.Helper()
+		keyRef, err := wsvc.GetKey(t.Context(), keyId)
+		require.NoError(t, err)
+		c, err := handler.NewContract(t.Context(), *keyRef)
+		require.NoError(t, err)
+		return *c
+	}
+
+	return &mockedEnv{
+		indexer:   &mockIndexer{},
+		explorer:  &mockExplorer{},
+		transport: transport,
+		wsvc:      wsvc,
+		derive:    derive,
+	}
+}
+
+// markUsed configures the mock indexer to report the given key ids as used.
+// Each key id is resolved via derive() to the script the scan would generate.
+func (e *mockedEnv) markUsed(t *testing.T, keyIds ...string) {
+	t.Helper()
+	if e.indexer.usedScripts == nil {
+		e.indexer.usedScripts = make(map[string]struct{}, len(keyIds))
+	}
+	for _, k := range keyIds {
+		e.indexer.usedScripts[e.derive(k).Script] = struct{}{}
+	}
 }

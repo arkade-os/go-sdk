@@ -1,13 +1,13 @@
 package contract_test
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"testing"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -17,9 +17,8 @@ func TestManagerNewContract(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("offchain persisted", func(t *testing.T) {
 			mgr, store := newTestManager(t)
-			keyRef := newTestKeyRef(t)
 
-			c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault, keyRef)
+			c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, c)
 			require.Equal(t, types.ContractTypeDefault, c.Type)
@@ -27,7 +26,8 @@ func TestManagerNewContract(t *testing.T) {
 			require.NotEmpty(t, c.Script)
 			require.NotEmpty(t, c.Address)
 			require.Equal(t, "false", c.Params[types.ContractParamIsOnchain])
-			require.Equal(t, keyRef.Id, c.Params[types.ContractParamOwnerKeyId])
+			// Auto-derived from a fresh wallet, the first key is m/0/0.
+			require.Equal(t, "m/0/0", c.Params[types.ContractParamOwnerKeyId])
 
 			// Persisted exactly once.
 			persisted, err := store.GetContractsByScripts(t.Context(), []string{c.Script})
@@ -38,10 +38,9 @@ func TestManagerNewContract(t *testing.T) {
 
 		t.Run("onchain persisted", func(t *testing.T) {
 			mgr, store := newTestManager(t)
-			keyRef := newTestKeyRef(t)
 
 			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, keyRef, contract.WithIsOnchain(),
+				t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
 			)
 			require.NoError(t, err)
 			require.Equal(t, "true", c.Params[types.ContractParamIsOnchain])
@@ -55,10 +54,9 @@ func TestManagerNewContract(t *testing.T) {
 
 		t.Run("with label persisted", func(t *testing.T) {
 			mgr, store := newTestManager(t)
-			keyRef := newTestKeyRef(t)
 
 			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, keyRef, contract.WithLabel("my-label"),
+				t.Context(), types.ContractTypeDefault, contract.WithLabel("my-label"),
 			)
 			require.NoError(t, err)
 			require.Equal(t, "my-label", c.Label)
@@ -71,10 +69,9 @@ func TestManagerNewContract(t *testing.T) {
 
 		t.Run("dry run skips persistence", func(t *testing.T) {
 			mgr, store := newTestManager(t)
-			keyRef := newTestKeyRef(t)
 
 			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, keyRef, contract.WithDryRun(),
+				t.Context(), types.ContractTypeDefault, contract.WithDryRun(),
 			)
 			require.NoError(t, err)
 			require.NotNil(t, c)
@@ -84,48 +81,43 @@ func TestManagerNewContract(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, persisted)
 		})
+
+		t.Run("sequential offchain calls advance the key index", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			c0, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+			c1, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+			c2, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+
+			require.Equal(t, "m/0/0", c0.Params[types.ContractParamOwnerKeyId])
+			require.Equal(t, "m/0/1", c1.Params[types.ContractParamOwnerKeyId])
+			require.Equal(t, "m/0/2", c2.Params[types.ContractParamOwnerKeyId])
+		})
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
 			contractType    types.ContractType
-			keyRef          func(t *testing.T) wallet.KeyRef
 			opts            []contract.ContractOption
 			wantErrContains string
 		}{
 			{
 				name:            "missing contract type",
 				contractType:    "",
-				keyRef:          newTestKeyRef,
 				wantErrContains: "missing contract type",
-			},
-			{
-				name:         "missing key id",
-				contractType: types.ContractTypeDefault,
-				keyRef: func(t *testing.T) wallet.KeyRef {
-					return wallet.KeyRef{PubKey: newTestPubKey(t)}
-				},
-				wantErrContains: "missing public key id",
-			},
-			{
-				name:         "missing public key",
-				contractType: types.ContractTypeDefault,
-				keyRef: func(_ *testing.T) wallet.KeyRef {
-					return wallet.KeyRef{Id: "m/0/0"}
-				},
-				wantErrContains: "missing public key",
 			},
 			{
 				name:            "unsupported contract type",
 				contractType:    types.ContractType("vhtlc"),
-				keyRef:          newTestKeyRef,
 				wantErrContains: "unsupported contract type",
 			},
 			{
 				name:         "conflicting label option",
 				contractType: types.ContractTypeDefault,
-				keyRef:       newTestKeyRef,
 				opts: []contract.ContractOption{
 					contract.WithLabel("a"), contract.WithLabel("b"),
 				},
@@ -134,7 +126,6 @@ func TestManagerNewContract(t *testing.T) {
 			{
 				name:         "conflicting isOnchain option",
 				contractType: types.ContractTypeDefault,
-				keyRef:       newTestKeyRef,
 				opts: []contract.ContractOption{
 					contract.WithIsOnchain(), contract.WithIsOnchain(),
 				},
@@ -144,7 +135,7 @@ func TestManagerNewContract(t *testing.T) {
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
 				mgr, _ := newTestManager(t)
-				_, err := mgr.NewContract(t.Context(), f.contractType, f.keyRef(t), f.opts...)
+				_, err := mgr.NewContract(t.Context(), f.contractType, f.opts...)
 				require.ErrorContains(t, err, f.wantErrContains)
 			})
 		}
@@ -163,10 +154,10 @@ func TestManagerGetContracts(t *testing.T) {
 		// so the per-filter assertions are independent.
 		t.Run("no filter returns all offchain", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			off1 := newOffchainContract(t, mgr, "m/0/0")
-			off2 := newOffchainContract(t, mgr, "m/0/1")
+			off1 := newOffchainContract(t, mgr)
+			off2 := newOffchainContract(t, mgr)
 			// Boarding contracts are explicitly excluded from the no-filter listing.
-			_ = newOnchainContract(t, mgr, "m/0/2")
+			_ = newOnchainContract(t, mgr)
 
 			got, err := mgr.GetContracts(t.Context())
 			require.NoError(t, err)
@@ -175,8 +166,8 @@ func TestManagerGetContracts(t *testing.T) {
 
 		t.Run("by isOnchain", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			_ = newOffchainContract(t, mgr, "m/0/0")
-			on := newOnchainContract(t, mgr, "m/0/1")
+			_ = newOffchainContract(t, mgr)
+			on := newOnchainContract(t, mgr)
 
 			got, err := mgr.GetContracts(t.Context(), contract.WithIsOnchain())
 			require.NoError(t, err)
@@ -186,7 +177,7 @@ func TestManagerGetContracts(t *testing.T) {
 
 		t.Run("by type", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			c := newOffchainContract(t, mgr, "m/0/0")
+			c := newOffchainContract(t, mgr)
 
 			got, err := mgr.GetContracts(
 				t.Context(), contract.WithType(types.ContractTypeDefault),
@@ -198,9 +189,9 @@ func TestManagerGetContracts(t *testing.T) {
 
 		t.Run("by scripts", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			a := newOffchainContract(t, mgr, "m/0/0")
-			b := newOffchainContract(t, mgr, "m/0/1")
-			_ = newOffchainContract(t, mgr, "m/0/2")
+			a := newOffchainContract(t, mgr)
+			b := newOffchainContract(t, mgr)
+			_ = newOffchainContract(t, mgr)
 
 			got, err := mgr.GetContracts(
 				t.Context(), contract.WithScripts([]string{a.Script, b.Script}),
@@ -211,8 +202,8 @@ func TestManagerGetContracts(t *testing.T) {
 
 		t.Run("by key IDs", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			a := newOffchainContract(t, mgr, "m/0/0")
-			_ = newOffchainContract(t, mgr, "m/0/1")
+			a := newOffchainContract(t, mgr) // m/0/0
+			_ = newOffchainContract(t, mgr)  // m/0/1
 
 			got, err := mgr.GetContracts(t.Context(), contract.WithKeyIds([]string{"m/0/0"}))
 			require.NoError(t, err)
@@ -222,8 +213,8 @@ func TestManagerGetContracts(t *testing.T) {
 
 		t.Run("by state", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			_ = newOffchainContract(t, mgr, "m/0/0")
-			_ = newOffchainContract(t, mgr, "m/0/1")
+			_ = newOffchainContract(t, mgr)
+			_ = newOffchainContract(t, mgr)
 
 			got, err := mgr.GetContracts(
 				t.Context(), contract.WithState(types.ContractStateActive),
@@ -283,90 +274,17 @@ func TestManagerGetContracts(t *testing.T) {
 	})
 }
 
-func TestManagerGetKeyIDUsedForLatestContract(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		t.Run("offchain returns latest", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			_ = newOffchainContract(t, mgr, "m/0/0")
-			_ = newOffchainContract(t, mgr, "m/0/2")
-			_ = newOffchainContract(t, mgr, "m/0/1")
-
-			id, err := mgr.GetLatestContractKeyId(t.Context(), types.ContractTypeDefault)
-			require.NoError(t, err)
-			require.Equal(t, "m/0/2", id)
-		})
-
-		t.Run("onchain returns latest", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			// Mix of onchain and offchain — the WithIsOnchain flag must scope
-			// the lookup to onchain contracts only.
-			_ = newOffchainContract(t, mgr, "m/0/3")
-			_ = newOnchainContract(t, mgr, "m/0/0")
-			_ = newOnchainContract(t, mgr, "m/0/2")
-
-			id, err := mgr.GetLatestContractKeyId(
-				t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
-			)
-			require.NoError(t, err)
-			require.Equal(t, "m/0/2", id)
-		})
-
-		t.Run("no contracts returns empty", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			id, err := mgr.GetLatestContractKeyId(t.Context(), types.ContractTypeDefault)
-			require.NoError(t, err)
-			require.Empty(t, id)
-		})
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		fixtures := []struct {
-			name            string
-			contractType    types.ContractType
-			opts            []contract.ContractOption
-			wantErrContains string
-		}{
-			{
-				name:            "missing contract type",
-				contractType:    "",
-				wantErrContains: "missing contract type",
-			},
-			{
-				name:            "unsupported contract type",
-				contractType:    types.ContractType("vhtlc"),
-				wantErrContains: "unsupported contract type",
-			},
-			{
-				name:         "conflicting option",
-				contractType: types.ContractTypeDefault,
-				opts: []contract.ContractOption{
-					contract.WithIsOnchain(), contract.WithIsOnchain(),
-				},
-				wantErrContains: "isOnchain option is already set",
-			},
-		}
-		for _, f := range fixtures {
-			t.Run(f.name, func(t *testing.T) {
-				mgr, _ := newTestManager(t)
-				_, err := mgr.GetLatestContractKeyId(t.Context(), f.contractType, f.opts...)
-				require.ErrorContains(t, err, f.wantErrContains)
-			})
-		}
-	})
-}
-
 func TestManagerGetKeyRefs(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
-		keyRef := newTestKeyRef(t)
-		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault, keyRef)
+		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 		require.NoError(t, err)
 
 		refs, err := mgr.GetKeyRefs(t.Context(), *c)
 		require.NoError(t, err)
 		require.NotEmpty(t, refs)
 		values := slices.Collect(maps.Values(refs))
-		require.Contains(t, values, keyRef.Id)
+		require.Contains(t, values, c.Params[types.ContractParamOwnerKeyId])
 	})
 
 	t.Run("invalid", func(t *testing.T) {
@@ -380,7 +298,7 @@ func TestManagerGetKeyRefs(t *testing.T) {
 func TestManagerGetSignerKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
-		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault, newTestKeyRef(t))
+		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 		require.NoError(t, err)
 
 		signer, err := mgr.GetSignerKey(t.Context(), *c)
@@ -399,7 +317,7 @@ func TestManagerGetExitDelay(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("offchain", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
-			c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault, newTestKeyRef(t))
+			c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 
 			delay, err := mgr.GetExitDelay(t.Context(), *c)
@@ -412,8 +330,7 @@ func TestManagerGetExitDelay(t *testing.T) {
 		t.Run("onchain", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, newTestKeyRef(t),
-				contract.WithIsOnchain(),
+				t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
 			)
 			require.NoError(t, err)
 
@@ -434,7 +351,7 @@ func TestManagerGetExitDelay(t *testing.T) {
 func TestManagerGetTapscripts(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
-		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault, newTestKeyRef(t))
+		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 		require.NoError(t, err)
 
 		scripts, err := mgr.GetTapscripts(t.Context(), *c)
@@ -452,6 +369,122 @@ func TestManagerGetTapscripts(t *testing.T) {
 	})
 }
 
+func TestManagerScanContracts(t *testing.T) {
+	t.Run("offchain", func(t *testing.T) {
+		t.Run("fresh wallet with no usage stores nothing", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+
+		t.Run("usage at the very first key persists m/0/0", func(t *testing.T) {
+			// Pins the m/0/0-skip class of bug we hit during the manager
+			// rewrite: the inner loop's first NextKeyId("") must produce
+			// m/0/0 and that contract must end up in the store when the
+			// indexer flags it.
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.markUsed(t, "m/0/0")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{"m/0/0"}, ownerKeyIds(got))
+		})
+
+		t.Run("sparse hit inside one batch persists up to last used", func(t *testing.T) {
+			// gapLimit=5, only m/0/2 used. Verifies the persist loop pulls
+			// in the intermediate unused indices (0, 1) so the next
+			// NewContract starts from m/0/3 — i.e. lastUsedIdx anchors
+			// persistence, not the individual usage hits.
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.markUsed(t, "m/0/2")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.ElementsMatch(
+				t, []string{"m/0/0", "m/0/1", "m/0/2"}, ownerKeyIds(got),
+			)
+		})
+
+		t.Run("hits across multiple batches advance currentKeyId correctly", func(t *testing.T) {
+			// gapLimit=3, hits at 2, 4, 7 — each batch keeps consecutiveUnused
+			// below the threshold, so the scan walks past three batch
+			// boundaries before giving up. A bug where currentKeyId fails to
+			// chain across batches would either short-stop at batch 1 or
+			// re-derive the same indices.
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.markUsed(t, "m/0/2", "m/0/4", "m/0/7")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 3))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{
+				"m/0/0", "m/0/1", "m/0/2",
+				"m/0/3", "m/0/4", "m/0/5",
+				"m/0/6", "m/0/7",
+			}, ownerKeyIds(got))
+		})
+
+		t.Run("re-scan with no new usage is a no-op", func(t *testing.T) {
+			// init.go calls ScanContracts on every wallet unlock. With
+			// contracts already in the store (created via the public
+			// NewContract API), a second scan must not duplicate or drop
+			// anything when the indexer reports nothing new.
+			_, mgr, _ := newTestManagerWithEnv(t)
+			for i := 0; i < 5; i++ {
+				_, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 3))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{
+				"m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4",
+			}, ownerKeyIds(got))
+		})
+
+		t.Run("re-scan picks up new usage past the latest stored", func(t *testing.T) {
+			// Manager creates m/0/0..m/0/4 via NewContract; externally
+			// m/0/7 has been used since. The scan must resume strictly
+			// after m/0/4 (no re-deriving of existing rows) and persist
+			// m/0/5..m/0/7.
+			env, mgr, _ := newTestManagerWithEnv(t)
+			for i := 0; i < 5; i++ {
+				_, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+				require.NoError(t, err)
+			}
+			env.markUsed(t, "m/0/7")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 3))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{
+				"m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4",
+				"m/0/5", "m/0/6", "m/0/7",
+			}, ownerKeyIds(got))
+		})
+
+		t.Run("indexer error is propagated", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.indexer.err = errors.New("indexer down")
+
+			err := mgr.ScanContracts(t.Context(), 5)
+			require.ErrorContains(t, err, "indexer down")
+		})
+	})
+}
+
 func TestManagerClean(t *testing.T) {
 	t.Run("empty store", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
@@ -460,8 +493,8 @@ func TestManagerClean(t *testing.T) {
 
 	t.Run("seeded store ends empty and is idempotent", func(t *testing.T) {
 		mgr, store := newTestManager(t)
-		_ = newOffchainContract(t, mgr, "m/0/0")
-		_ = newOnchainContract(t, mgr, "m/0/1")
+		_ = newOffchainContract(t, mgr)
+		_ = newOnchainContract(t, mgr)
 
 		require.NoError(t, mgr.Clean(t.Context()))
 
@@ -477,11 +510,9 @@ func TestManagerClean(t *testing.T) {
 	})
 }
 
-func newOffchainContract(t *testing.T, mgr contract.Manager, keyId string) types.Contract {
+func newOffchainContract(t *testing.T, mgr contract.Manager) types.Contract {
 	t.Helper()
-	c, err := mgr.NewContract(
-		t.Context(), types.ContractTypeDefault, newTestKeyRefAt(t, keyId),
-	)
+	c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 	require.NoError(t, err)
 	// Distinct creation timestamps so SortBy clauses in store queries are
 	// deterministic across the test run.
@@ -489,11 +520,10 @@ func newOffchainContract(t *testing.T, mgr contract.Manager, keyId string) types
 	return *c
 }
 
-func newOnchainContract(t *testing.T, mgr contract.Manager, keyId string) types.Contract {
+func newOnchainContract(t *testing.T, mgr contract.Manager) types.Contract {
 	t.Helper()
 	c, err := mgr.NewContract(
-		t.Context(), types.ContractTypeDefault, newTestKeyRefAt(t, keyId),
-		contract.WithIsOnchain(),
+		t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
 	)
 	require.NoError(t, err)
 	time.Sleep(time.Millisecond)
@@ -504,6 +534,14 @@ func scriptsOf(cs ...types.Contract) []string {
 	out := make([]string, len(cs))
 	for i, c := range cs {
 		out[i] = c.Script
+	}
+	return out
+}
+
+func ownerKeyIds(cs []types.Contract) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.Params[types.ContractParamOwnerKeyId]
 	}
 	return out
 }
