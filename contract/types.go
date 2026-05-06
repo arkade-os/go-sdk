@@ -9,8 +9,8 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
@@ -28,16 +28,11 @@ type Manager interface {
 	// All filters are mutually exclusive, i.e. only one filter can be set at a time.
 	// Pass no options to return all contracts.
 	GetContracts(ctx context.Context, opts ...FilterOption) ([]types.Contract, error)
-	// GetKeyRefs returns a map script -> key ID for the given contract.
-	// If the contract is offchain, the map includes also an entry for the eventual checkpoint
-	// to be signed in an offchain tx.
-	GetKeyRefs(ctx context.Context, contract types.Contract) (map[string]string, error)
-	// GetSignerKey returns the signer key for the given contract.
-	GetSignerKey(ctx context.Context, contract types.Contract) (*btcec.PublicKey, error)
-	// GetTapscripts returns the tapscripts for the given contract.
-	GetTapscripts(ctx context.Context, contract types.Contract) ([]string, error)
-	// GetExitDelay returns the exit delay from the params of the given contract
-	GetExitDelay(ctx context.Context, contract types.Contract) (*arklib.RelativeLocktime, error)
+	// GetHandler returns the handler responsible for the given contract's type.
+	// Callers can then invoke handler methods (GetKeyRefs, GetSignerKey,
+	// GetTapscripts, GetExitDelay, …) directly. Errors when the contract type
+	// is not supported.
+	GetHandler(ctx context.Context, contract types.Contract) (handlers.Handler, error)
 	// Clean removes all contracts from the store. Must be used only at wallet reset.
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.

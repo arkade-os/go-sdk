@@ -14,7 +14,6 @@ import (
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -145,43 +144,17 @@ func (m *contractManager) GetContracts(
 	}
 }
 
-func (m *contractManager) GetKeyRefs(
+func (m *contractManager) GetHandler(
 	_ context.Context, contract types.Contract,
-) (map[string]string, error) {
+) (handlers.Handler, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	handler, ok := m.handlers[contract.Type]
 	if !ok {
 		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
 	}
-
-	return handler.GetKeyRefs(contract)
-}
-
-func (m *contractManager) GetSignerKey(
-	_ context.Context, contract types.Contract,
-) (*btcec.PublicKey, error) {
-	handler, ok := m.handlers[contract.Type]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
-	}
-	return handler.GetSignerKey(contract)
-}
-
-func (m *contractManager) GetExitDelay(
-	_ context.Context, contract types.Contract,
-) (*arklib.RelativeLocktime, error) {
-	handler, ok := m.handlers[contract.Type]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
-	}
-	return handler.GetExitDelay(contract)
-}
-
-func (m *contractManager) GetTapscripts(_ context.Context, contract types.Contract) ([]string, error) {
-	handler, ok := m.handlers[contract.Type]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
-	}
-	return handler.GetTapscripts(contract)
+	return handler, nil
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {

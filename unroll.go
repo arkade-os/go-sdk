@@ -171,11 +171,15 @@ func (a *arkClient) getMatureUtxos(ctx context.Context) ([]clientTypes.Utxo, err
 	for _, contract := range contracts {
 		addr := toOnchainAddress(contract.Address, cfg.Network)
 
-		exitDelay, err := a.contractManager.GetExitDelay(ctx, contract)
+		handler, err := a.contractManager.GetHandler(ctx, contract)
 		if err != nil {
 			return nil, err
 		}
-		tapscripts, err := a.contractManager.GetTapscripts(ctx, contract)
+		exitDelay, err := handler.GetExitDelay(contract)
+		if err != nil {
+			return nil, err
+		}
+		tapscripts, err := handler.GetTapscripts(contract)
 		if err != nil {
 			return nil, err
 		}

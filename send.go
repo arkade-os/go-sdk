@@ -113,7 +113,12 @@ func (a *arkClient) getSpendableVtxos(
 			continue
 		}
 
-		tapscripts, err := a.contractManager.GetTapscripts(ctx, contract)
+		handler, err := a.contractManager.GetHandler(ctx, contract)
+		if err != nil {
+			log.WithError(err).Warnf("failed to get handler for contract %s", contract.Script)
+			continue
+		}
+		tapscripts, err := handler.GetTapscripts(contract)
 		if err != nil {
 			log.WithError(err).Warnf("failed to get tapscripts for contract %s", contract.Script)
 			continue

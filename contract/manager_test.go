@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -274,98 +273,29 @@ func TestManagerGetContracts(t *testing.T) {
 	})
 }
 
-func TestManagerGetKeyRefs(t *testing.T) {
+func TestManagerGetHandler(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
 		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 		require.NoError(t, err)
 
-		refs, err := mgr.GetKeyRefs(t.Context(), *c)
+		handler, err := mgr.GetHandler(t.Context(), *c)
 		require.NoError(t, err)
-		require.NotEmpty(t, refs)
+		require.NotNil(t, handler)
+
+		// Smoke-check that the returned handler operates on the contract
+		// the manager just created — i.e. dispatch went to the right place.
+		refs, err := handler.GetKeyRefs(*c)
+		require.NoError(t, err)
 		values := slices.Collect(maps.Values(refs))
 		require.Contains(t, values, c.Params[types.ContractParamOwnerKeyId])
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
-		refs, err := mgr.GetKeyRefs(t.Context(), types.Contract{Type: "vhtlc"})
+		handler, err := mgr.GetHandler(t.Context(), types.Contract{Type: "vhtlc"})
 		require.ErrorContains(t, err, "unsupported contract type")
-		require.Nil(t, refs)
-	})
-}
-
-func TestManagerGetSignerKey(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		mgr, _ := newTestManager(t)
-		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
-		require.NoError(t, err)
-
-		signer, err := mgr.GetSignerKey(t.Context(), *c)
-		require.NoError(t, err)
-		require.NotNil(t, signer)
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		mgr, _ := newTestManager(t)
-		_, err := mgr.GetSignerKey(t.Context(), types.Contract{Type: "vhtlc"})
-		require.ErrorContains(t, err, "unsupported contract type")
-	})
-}
-
-func TestManagerGetExitDelay(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		t.Run("offchain", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
-			require.NoError(t, err)
-
-			delay, err := mgr.GetExitDelay(t.Context(), *c)
-			require.NoError(t, err)
-			require.NotNil(t, delay)
-			require.Equal(t, arklib.LocktimeTypeBlock, delay.Type)
-			require.Equal(t, uint32(testUnilateralExitDelay), delay.Value)
-		})
-
-		t.Run("onchain", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
-			)
-			require.NoError(t, err)
-
-			delay, err := mgr.GetExitDelay(t.Context(), *c)
-			require.NoError(t, err)
-			require.Equal(t, arklib.LocktimeTypeSecond, delay.Type)
-			require.Equal(t, uint32(testBoardingExitDelay), delay.Value)
-		})
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		mgr, _ := newTestManager(t)
-		_, err := mgr.GetExitDelay(t.Context(), types.Contract{Type: "vhtlc"})
-		require.ErrorContains(t, err, "unsupported contract type")
-	})
-}
-
-func TestManagerGetTapscripts(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		mgr, _ := newTestManager(t)
-		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
-		require.NoError(t, err)
-
-		scripts, err := mgr.GetTapscripts(t.Context(), *c)
-		require.NoError(t, err)
-		require.NotEmpty(t, scripts)
-		for _, s := range scripts {
-			require.NotEmpty(t, s)
-		}
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		mgr, _ := newTestManager(t)
-		_, err := mgr.GetTapscripts(t.Context(), types.Contract{Type: "vhtlc"})
-		require.ErrorContains(t, err, "unsupported contract type")
+		require.Nil(t, handler)
 	})
 }
 

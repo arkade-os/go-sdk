@@ -59,7 +59,11 @@ func (a *arkClient) getKeys(ctx context.Context, scripts []string) (map[string]s
 
 	keys := make(map[string]string)
 	for _, contract := range contracts {
-		contractKeys, err := a.contractManager.GetKeyRefs(ctx, contract)
+		handler, err := a.contractManager.GetHandler(ctx, contract)
+		if err != nil {
+			return nil, err
+		}
+		contractKeys, err := handler.GetKeyRefs(contract)
 		if err != nil {
 			return nil, err
 		}

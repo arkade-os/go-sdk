@@ -83,7 +83,12 @@ func (a *arkClient) finalizePendingTxs(
 
 	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(resp.Vtxos))
 	for _, vtxo := range resp.Vtxos {
-		tapscripts, err := a.contractManager.GetTapscripts(ctx, contractsByScript[vtxo.Script])
+		c := contractsByScript[vtxo.Script]
+		handler, err := a.contractManager.GetHandler(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		tapscripts, err := handler.GetTapscripts(c)
 		if err != nil {
 			return nil, err
 		}

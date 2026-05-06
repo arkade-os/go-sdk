@@ -455,11 +455,15 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		addrParams := make(map[string]params, len(boardingContracts))
 		for _, contract := range boardingContracts {
 			boardingAddresses = append(boardingAddresses, contract.Address)
-			exitDelay, err := a.contractManager.GetExitDelay(ctx, contract)
+			handler, err := a.contractManager.GetHandler(ctx, contract)
 			if err != nil {
 				return err
 			}
-			tapscripts, err := a.contractManager.GetTapscripts(ctx, contract)
+			exitDelay, err := handler.GetExitDelay(contract)
+			if err != nil {
+				return err
+			}
+			tapscripts, err := handler.GetTapscripts(contract)
 			if err != nil {
 				return err
 			}
@@ -1080,7 +1084,15 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Netw
 						continue
 					}
 
-					exitDelay, err := a.contractManager.GetExitDelay(ctx, contracts[0])
+					handler, err := a.contractManager.GetHandler(ctx, contracts[0])
+					if err != nil {
+						log.WithError(err).Warnf(
+							"failed to get handler for utxo %s", u.Outpoint,
+						)
+						continue
+					}
+
+					exitDelay, err := handler.GetExitDelay(contracts[0])
 					if err != nil {
 						log.WithError(err).Warnf(
 							"failed to get exit delay for utxo %s", u.Outpoint,
@@ -1088,7 +1100,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Netw
 						continue
 					}
 
-					tapscripts, err := a.contractManager.GetTapscripts(ctx, contracts[0])
+					tapscripts, err := handler.GetTapscripts(contracts[0])
 					if err != nil {
 						log.WithError(err).Warnf(
 							"failed to get tapscripts for utxo %s", u.Outpoint,

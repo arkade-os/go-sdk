@@ -287,7 +287,9 @@ func TestOffchainTx(t *testing.T) {
 
 		ctr := contracts[0]
 
-		tapscripts, err := contractManager.GetTapscripts(ctx, ctr)
+		handler, err := contractManager.GetHandler(ctx, ctr)
+		require.NoError(t, err)
+		tapscripts, err := handler.GetTapscripts(ctr)
 		require.NoError(t, err)
 		require.NotEmpty(t, tapscripts)
 
@@ -362,7 +364,7 @@ func TestOffchainTx(t *testing.T) {
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
 
-		signingKeys, err := contractManager.GetKeyRefs(ctx, ctr)
+		signingKeys, err := handler.GetKeyRefs(ctr)
 		require.NoError(t, err)
 		require.NotEmpty(t, signingKeys)
 
@@ -440,7 +442,9 @@ func TestOffchainTx(t *testing.T) {
 
 		ctr := contracts[0]
 
-		tapscripts, err := contractManager.GetTapscripts(ctx, ctr)
+		handler, err := contractManager.GetHandler(ctx, ctr)
+		require.NoError(t, err)
+		tapscripts, err := handler.GetTapscripts(ctr)
 		require.NoError(t, err)
 		require.NotEmpty(t, tapscripts)
 
@@ -515,7 +519,7 @@ func TestOffchainTx(t *testing.T) {
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
 
-		signingKeys, err := contractManager.GetKeyRefs(ctx, ctr)
+		signingKeys, err := handler.GetKeyRefs(ctr)
 		require.NoError(t, err)
 		require.NotEmpty(t, signingKeys)
 
