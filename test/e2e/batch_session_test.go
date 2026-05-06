@@ -252,12 +252,18 @@ func TestBatchSession(t *testing.T) {
 		require.Len(t, res.Vtxos, 1)
 		require.False(t, res.Vtxos[0].Swept)
 
-		// Make the offchain funds expire
-		err = generateBlocks(41)
+		// Make the offchain funds expire. ARKD_VTXO_TREE_EXPIRY=20 means 21 blocks
+		// minimum (1 to confirm + 20 to expire). Use 25 for a small buffer.
+		// Fewer blocks here means fewer electrum notifications, keeping CI's electrs
+		// responsive for subsequent tests.
+		err = generateBlocks(25)
 		require.NoError(t, err)
 
 		vtxoEvent = recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosSwept, vtxoEvent.Type)
+
+		// Allow electrs to finish indexing all block notifications before proceeding.
+		time.Sleep(10 * time.Second)
 
 		res, err = alice.Indexer().GetVtxos(t.Context(), opts)
 		require.NoError(t, err)
