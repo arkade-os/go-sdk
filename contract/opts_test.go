@@ -55,7 +55,7 @@ func TestWithTypeFilter(t *testing.T) {
 			{
 				name: "conflicts with key IDs",
 				opts: []FilterOption{
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 					WithType(types.ContractTypeDefault),
 				},
 				expectError: "a filter is already set",
@@ -118,7 +118,7 @@ func TestWithStateFilter(t *testing.T) {
 			{
 				name: "conflicts with key IDs",
 				opts: []FilterOption{
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 					WithState(types.ContractStateActive),
 				},
 				expectError: "a filter is already set",
@@ -186,7 +186,7 @@ func TestWithScriptsFilter(t *testing.T) {
 			{
 				name: "conflicts with key IDs",
 				opts: []FilterOption{
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 					WithScripts([]string{"a"}),
 				},
 				expectError: "a filter is already set",
@@ -203,14 +203,14 @@ func TestWithScriptsFilter(t *testing.T) {
 
 func TestWithKeyIDFilter(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		keyIDs := []string{"k1", "k2"}
-		f, err := applyFilterOptions(WithKeyIDs(keyIDs))
+		keyIds := []string{"k1", "k2"}
+		f, err := applyFilterOptions(WithKeyIds(keyIds))
 		require.NoError(t, err)
-		require.Equal(t, keyIDs, f.keyIDs)
+		require.Equal(t, keyIds, f.keyIds)
 
 		// mutating the input must not mutate the stored slice
-		keyIDs[0] = "mutated"
-		require.NotEqual(t, "mutated", f.keyIDs[0])
+		keyIds[0] = "mutated"
+		require.NotEqual(t, "mutated", f.keyIds[0])
 	})
 
 	t.Run("invalid", func(t *testing.T) {
@@ -222,8 +222,8 @@ func TestWithKeyIDFilter(t *testing.T) {
 			{
 				name: "already set",
 				opts: []FilterOption{
-					WithKeyIDs([]string{"k1"}),
-					WithKeyIDs([]string{"k2"}),
+					WithKeyIds([]string{"k1"}),
+					WithKeyIds([]string{"k2"}),
 				},
 				expectError: "key ID filter already set",
 			},
@@ -231,7 +231,7 @@ func TestWithKeyIDFilter(t *testing.T) {
 				name: "conflicts with type",
 				opts: []FilterOption{
 					WithType(types.ContractTypeDefault),
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 				},
 				expectError: "a filter is already set",
 			},
@@ -239,7 +239,7 @@ func TestWithKeyIDFilter(t *testing.T) {
 				name: "conflicts with state",
 				opts: []FilterOption{
 					WithState(types.ContractStateActive),
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 				},
 				expectError: "a filter is already set",
 			},
@@ -247,7 +247,7 @@ func TestWithKeyIDFilter(t *testing.T) {
 				name: "conflicts with scripts",
 				opts: []FilterOption{
 					WithScripts([]string{"a"}),
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 				},
 				expectError: "a filter is already set",
 			},
@@ -255,7 +255,7 @@ func TestWithKeyIDFilter(t *testing.T) {
 				name: "conflicts with isOnchain",
 				opts: []FilterOption{
 					WithIsOnchain(),
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 				},
 				expectError: "a filter is already set",
 			},
@@ -314,7 +314,7 @@ func TestWithIsOnchainAsFilter(t *testing.T) {
 			{
 				name: "conflicts with key IDs",
 				opts: []FilterOption{
-					WithKeyIDs([]string{"k"}),
+					WithKeyIds([]string{"k"}),
 					WithIsOnchain(),
 				},
 				expectError: "a filter is already set",

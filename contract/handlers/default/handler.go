@@ -130,7 +130,7 @@ func (h *defaultHandler) NewContract(
 }
 
 func (h *defaultHandler) GetKeyRefs(contract types.Contract) (map[string]string, error) {
-	rawScript, keyID, err := h.getScript(contract)
+	rawScript, keyId, err := h.getScript(contract)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (h *defaultHandler) GetKeyRefs(contract types.Contract) (map[string]string,
 	}
 
 	if isOnchain {
-		return map[string]string{contract.Script: keyID}, nil
+		return map[string]string{contract.Script: keyId}, nil
 	}
 
 	// For the offchain contract add also a key ref for the checkpoint script.
@@ -186,8 +186,8 @@ func (h *defaultHandler) GetKeyRefs(contract types.Contract) (map[string]string,
 	}
 
 	return map[string]string{
-		contract.Script:                      keyID,
-		hex.EncodeToString(checkpointScript): keyID,
+		contract.Script:                      keyId,
+		hex.EncodeToString(checkpointScript): keyId,
 	}, nil
 }
 
@@ -195,11 +195,11 @@ func (h *defaultHandler) GetKeyRef(contract types.Contract) (*wallet.KeyRef, err
 	if len(contract.Params) <= 0 {
 		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
 	}
-	keyID, ok := contract.Params[types.ContractParamOwnerKeyId]
+	keyId, ok := contract.Params[types.ContractParamOwnerKeyId]
 	if !ok {
 		return nil, fmt.Errorf("contract %s is missing owner key ID", contract.Script)
 	}
-	if len(keyID) <= 0 {
+	if len(keyId) <= 0 {
 		return nil, fmt.Errorf("contract %s has empty owner key ID", contract.Script)
 	}
 	key, ok := contract.Params[types.ContractParamOwnerKey]
@@ -214,7 +214,7 @@ func (h *defaultHandler) GetKeyRef(contract types.Contract) (*wallet.KeyRef, err
 	if err != nil {
 		return nil, fmt.Errorf("contract %s has invalid owner key: %w", contract.Script, err)
 	}
-	return &wallet.KeyRef{Id: keyID, PubKey: ownerKey}, nil
+	return &wallet.KeyRef{Id: keyId, PubKey: ownerKey}, nil
 }
 
 func (h *defaultHandler) GetExitDelay(contract types.Contract) (*arklib.RelativeLocktime, error) {

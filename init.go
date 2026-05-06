@@ -244,8 +244,8 @@ scan:
 		keyIndexByScript := make(map[string]uint32, a.hdGapLimit)
 		for k := range a.hdGapLimit {
 			idx := scanIdx + k
-			keyID := fmt.Sprintf("m/0/%d", idx)
-			keyRef, err := a.Wallet().GetKey(ctx, keyID)
+			keyId := fmt.Sprintf("m/0/%d", idx)
+			keyRef, err := a.Wallet().GetKey(ctx, keyId)
 			if err != nil {
 				return err
 			}
@@ -253,7 +253,7 @@ scan:
 				ctx, contractType, *keyRef, contract.WithDryRun(),
 			)
 			if err != nil {
-				return fmt.Errorf("failed to derive contract for key %s: %w", keyID, err)
+				return fmt.Errorf("failed to derive contract for key %s: %w", keyId, err)
 			}
 			contractBatch = append(contractBatch, *c)
 			keyIndexByScript[c.Script] = idx
@@ -305,7 +305,7 @@ func (a *arkClient) scanBoardingContracts(
 	ctx context.Context,
 ) error {
 	contractType := types.ContractTypeDefault
-	currentLastUsedKeyID, err := a.contractManager.GetKeyIDUsedForLatestContract(
+	currentLastUsedKeyID, err := a.contractManager.GetLatestContractKeyId(
 		ctx, contractType, contract.WithIsOnchain(),
 	)
 	if err != nil {
@@ -342,8 +342,8 @@ scan:
 		keyIndexByScript := make(map[string]uint32, a.hdGapLimit)
 		for k := range a.hdGapLimit {
 			idx := scanIdx + k
-			keyID := fmt.Sprintf("m/0/%d", idx)
-			keyRef, err := a.Wallet().GetKey(ctx, keyID)
+			keyId := fmt.Sprintf("m/0/%d", idx)
+			keyRef, err := a.Wallet().GetKey(ctx, keyId)
 			if err != nil {
 				return err
 			}
@@ -351,7 +351,7 @@ scan:
 				ctx, contractType, *keyRef, contract.WithIsOnchain(), contract.WithDryRun(),
 			)
 			if err != nil {
-				return fmt.Errorf("failed to derive contract for key %s: %w", keyID, err)
+				return fmt.Errorf("failed to derive contract for key %s: %w", keyId, err)
 			}
 			contractBatch = append(contractBatch, *c)
 			keyIndexByScript[c.Script] = idx

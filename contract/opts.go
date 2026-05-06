@@ -21,7 +21,7 @@ func WithType(contractType types.ContractType) FilterOption {
 		if f.contractType != "" {
 			return fmt.Errorf("contract type filter already set to %s", f.contractType)
 		}
-		if f.isOnchain || f.state != "" || len(f.scripts) != 0 || len(f.keyIDs) != 0 {
+		if f.isOnchain || f.state != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.contractType = contractType
@@ -34,7 +34,7 @@ func WithState(state types.ContractState) FilterOption {
 		if f.state != "" {
 			return fmt.Errorf("contract state filter already set to %s", f.state)
 		}
-		if f.isOnchain || f.contractType != "" || len(f.scripts) != 0 || len(f.keyIDs) != 0 {
+		if f.isOnchain || f.contractType != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.state = state
@@ -47,7 +47,7 @@ func WithScripts(scripts []string) FilterOption {
 		if len(f.scripts) != 0 {
 			return fmt.Errorf("contract scripts filter already set to %s", f.scripts)
 		}
-		if f.isOnchain || f.state != "" || f.contractType != "" || len(f.keyIDs) != 0 {
+		if f.isOnchain || f.state != "" || f.contractType != "" || len(f.keyIds) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.scripts = make([]string, len(scripts))
@@ -56,16 +56,16 @@ func WithScripts(scripts []string) FilterOption {
 	})
 }
 
-func WithKeyIDs(keyIDs []string) FilterOption {
+func WithKeyIds(keyIds []string) FilterOption {
 	return filterOptFn(func(f *filter) error {
-		if len(f.keyIDs) > 0 {
-			return fmt.Errorf("key ID filter already set to %s", f.keyIDs)
+		if len(f.keyIds) > 0 {
+			return fmt.Errorf("key id filter already set to %s", f.keyIds)
 		}
 		if f.isOnchain || f.state != "" || f.contractType != "" || len(f.scripts) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
-		f.keyIDs = make([]string, len(keyIDs))
-		copy(f.keyIDs, keyIDs)
+		f.keyIds = make([]string, len(keyIds))
+		copy(f.keyIds, keyIds)
 		return nil
 	})
 }
@@ -75,7 +75,7 @@ type filter struct {
 	state        types.ContractState
 	scripts      []string
 	isOnchain    bool
-	keyIDs       []string
+	keyIds       []string
 }
 
 func newDefaultFilter() *filter {
@@ -136,7 +136,7 @@ func (isOnchainOpt) applyFilter(f *filter) error {
 	if f.isOnchain {
 		return fmt.Errorf("isOnchain filter is already set")
 	}
-	if f.state != "" || f.contractType != "" || len(f.scripts) != 0 || len(f.keyIDs) != 0 {
+	if f.state != "" || f.contractType != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
 		return fmt.Errorf("a filter is already set")
 	}
 	f.isOnchain = true

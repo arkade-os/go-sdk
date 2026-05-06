@@ -266,7 +266,7 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	_, pubKey, keyID, err := w.keyProvider.GetNextKey()
+	_, pubKey, keyId, err := w.keyProvider.GetNextKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key: %w", err)
 	}
@@ -275,10 +275,10 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	return &wallet.KeyRef{Id: keyID, PubKey: pubKey}, nil
+	return &wallet.KeyRef{Id: keyId, PubKey: pubKey}, nil
 }
 
-func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error) {
+func (w *service) GetKey(_ context.Context, keyId string) (*wallet.KeyRef, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
@@ -286,16 +286,16 @@ func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error
 		return nil, err
 	}
 
-	if len(keyID) <= 0 {
+	if len(keyId) <= 0 {
 		return nil, fmt.Errorf("key id is required")
 	}
 
-	privKey, err := w.keyProvider.DeriveKeyAt(keyID)
+	privKey, err := w.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive key %q: %w", keyID, err)
+		return nil, fmt.Errorf("failed to derive key %q: %w", keyId, err)
 	}
 
-	return &wallet.KeyRef{Id: keyID, PubKey: privKey.PubKey()}, nil
+	return &wallet.KeyRef{Id: keyId, PubKey: privKey.PubKey()}, nil
 }
 
 func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
@@ -445,9 +445,9 @@ func (w *service) signTapscriptSpend(
 	inputIndex int,
 	txsighashes *txscript.TxSigHashes,
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
-	keyID string,
+	keyId string,
 ) error {
-	prvkey, err := w.keyProvider.DeriveKeyAt(keyID)
+	prvkey, err := w.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
 	}
@@ -532,7 +532,7 @@ func (w *service) signTaprootKeySpend(
 	inputIndex int,
 	txsighashes *txscript.TxSigHashes,
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
-	keyID string,
+	keyId string,
 ) error {
 	// Already signed, skip
 	if len(input.TaprootKeySpendSig) > 0 {
@@ -544,7 +544,7 @@ func (w *service) signTaprootKeySpend(
 		return fmt.Errorf("invalid taproot internal key on input %d: %w", inputIndex, err)
 	}
 
-	prvkey, err := w.keyProvider.DeriveKeyAt(keyID)
+	prvkey, err := w.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
 	}

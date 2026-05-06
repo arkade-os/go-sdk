@@ -29,24 +29,24 @@ func getBIP86RootPath(network chaincfg.Params) []uint32 {
 	}
 }
 
-func parseDerivationIndex(keyID string) ([]uint32, error) {
-	if keyID == "" {
+func parseDerivationIndex(keyId string) ([]uint32, error) {
+	if keyId == "" {
 		return nil, fmt.Errorf("key id is required")
 	}
-	if strings.Contains(keyID, "'") {
-		return nil, fmt.Errorf("derivation path %s contains forbidden hardened index", keyID)
+	if strings.Contains(keyId, "'") {
+		return nil, fmt.Errorf("derivation path %s contains forbidden hardened index", keyId)
 	}
 
-	if idx, err := strconv.ParseUint(keyID, 10, 32); err == nil {
+	if idx, err := strconv.ParseUint(keyId, 10, 32); err == nil {
 		return []uint32{defaultAccount, uint32(idx)}, nil
 	}
 
-	path := strings.TrimPrefix(keyID, "m/")
+	path := strings.TrimPrefix(keyId, "m/")
 	parts := strings.Split(path, "/")
 
 	idx, err := strconv.ParseUint(parts[len(parts)-1], 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse derivation index for path %s: %w", keyID, err)
+		return nil, fmt.Errorf("failed to parse derivation index for path %s: %w", keyId, err)
 	}
 
 	return []uint32{defaultAccount, uint32(idx)}, nil

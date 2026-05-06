@@ -184,14 +184,14 @@ func (a *arkClient) newAddress(ctx context.Context, isOnchain bool) (string, err
 	if isOnchain {
 		opts = append(opts, contract.WithIsOnchain())
 	}
-	keyID, err := a.contractManager.GetKeyIDUsedForLatestContract(
+	keyId, err := a.contractManager.GetLatestContractKeyId(
 		ctx, types.ContractTypeDefault, opts...,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	nextKeyID, err := utils.NextKeyID(keyID)
+	nextKeyID, err := utils.NextKeyID(keyId)
 	if err != nil {
 		return "", fmt.Errorf("failed to compute next key index: %w", err)
 	}

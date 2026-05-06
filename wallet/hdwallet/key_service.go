@@ -51,11 +51,11 @@ func (p *keyService) GetNextKey() (*btcec.PrivateKey, *btcec.PublicKey, string, 
 }
 
 // DeriveKeyAt derives the wallet keypair with the given key id.
-func (p *keyService) DeriveKeyAt(keyID string) (*btcec.PrivateKey, error) {
+func (p *keyService) DeriveKeyAt(keyId string) (*btcec.PrivateKey, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	path, err := parseDerivationIndex(keyID)
+	path, err := parseDerivationIndex(keyId)
 	if err != nil {
 		return nil, err
 	}

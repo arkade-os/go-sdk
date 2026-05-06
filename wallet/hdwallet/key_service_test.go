@@ -72,22 +72,22 @@ func TestDeriveKeyAt(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			keyID           string
+			keyId           string
 			wantErrContains string
 		}{
 			{
 				name:            "empty id",
-				keyID:           "",
+				keyId:           "",
 				wantErrContains: "key id is required",
 			},
 			{
 				name:            "hardened path",
-				keyID:           "m/0'/0",
+				keyId:           "m/0'/0",
 				wantErrContains: "forbidden hardened index",
 			},
 			{
 				name:            "malformed path",
-				keyID:           "m/0/abc",
+				keyId:           "m/0/abc",
 				wantErrContains: "failed to parse derivation index",
 			},
 		}
@@ -95,7 +95,7 @@ func TestDeriveKeyAt(t *testing.T) {
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
 				provider := newHDKeyService(createTestMasterKey(t))
-				_, err := provider.DeriveKeyAt(f.keyID)
+				_, err := provider.DeriveKeyAt(f.keyId)
 				require.ErrorContains(t, err, f.wantErrContains)
 			})
 		}
@@ -106,14 +106,14 @@ func TestGetNextKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		provider := newHDKeyService(createTestMasterKey(t))
 
-		priv0, _, keyID0, err := provider.GetNextKey()
+		priv0, _, keyId0, err := provider.GetNextKey()
 		require.NoError(t, err)
-		require.Equal(t, "m/0/0", keyID0)
+		require.Equal(t, "m/0/0", keyId0)
 		require.EqualValues(t, 1, provider.GetNextKeyIndex())
 
-		priv1, _, keyID1, err := provider.GetNextKey()
+		priv1, _, keyId1, err := provider.GetNextKey()
 		require.NoError(t, err)
-		require.Equal(t, "m/0/1", keyID1)
+		require.Equal(t, "m/0/1", keyId1)
 		require.EqualValues(t, 2, provider.GetNextKeyIndex())
 
 		// The key at index N matches DeriveKeyAt("m/0/N").

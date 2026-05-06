@@ -189,12 +189,12 @@ func TestHandlerGetKeyRef(t *testing.T) {
 						expectedError: "has no parameters",
 					},
 					{
-						name:          "missing keyID",
+						name:          "missing key id",
 						params:        map[string]string{types.ContractParamOwnerKey: "abcd"},
 						expectedError: "missing owner key ID",
 					},
 					{
-						name: "empty key ID",
+						name: "empty key id",
 						params: map[string]string{
 							types.ContractParamOwnerKeyId: "",
 							types.ContractParamOwnerKey:   "abcd",
