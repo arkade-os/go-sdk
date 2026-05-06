@@ -338,3 +338,14 @@ func recvVtxoEvent(t *testing.T, ch <-chan types.VtxoEvent) types.VtxoEvent {
 		return types.VtxoEvent{}
 	}
 }
+
+func recvTxEvent(t *testing.T, ch <-chan types.TransactionEvent) types.TransactionEvent {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for tx event")
+		return types.TransactionEvent{}
+	}
+}
