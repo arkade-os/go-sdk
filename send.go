@@ -109,7 +109,7 @@ func (a *arkClient) getSpendableVtxos(
 	for _, v := range eligible {
 		contract, ok := contractsByScript[v.Script]
 		if !ok {
-			log.Debugf("skipping vtxo %s: no matching contract", v.Script)
+			log.Warnf("skipping vtxo %s: no matching contract", v.Script)
 			continue
 		}
 
