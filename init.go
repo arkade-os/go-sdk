@@ -56,7 +56,7 @@ func (a *arkClient) Init(
 		!strings.HasPrefix(explorerUrl, "tcp://") &&
 		!strings.HasPrefix(explorerUrl, "ssl://") {
 		return fmt.Errorf(
-			"WithElectrumPackageBroadcastURL requires an electrum explorer URL (tcp:// or ssl://)",
+			"WithElectrumPackageBroadcastURL requires the main explorer to be an electrum node (set explorer URL to tcp:// or ssl://)",
 		)
 	}
 	var pollInterval time.Duration

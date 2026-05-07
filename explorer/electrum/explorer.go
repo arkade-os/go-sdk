@@ -306,18 +306,16 @@ func (e *explorerSvc) Broadcast(txs ...string) (string, error) {
 // the only way to broadcast a zero-fee v3 parent with a CPFP child that
 // provides the fee.
 func (e *explorerSvc) broadcastPackage(txs ...string) (string, error) {
+	type parsedTx struct{ txid, txHex string }
+	parsed := make([]parsedTx, 0, len(txs))
 	hexes := make([]string, 0, len(txs))
-	firstTxid := ""
 	for i, tx := range txs {
 		txHex, txid, err := parseBitcoinTx(tx)
 		if err != nil {
 			return "", fmt.Errorf("tx %d: %w", i, err)
 		}
 		hexes = append(hexes, txHex)
-		if i == 0 {
-			firstTxid = txid
-		}
-		e.setCacheTx(txid, txHex)
+		parsed = append(parsed, parsedTx{txid, txHex})
 	}
 
 	body, err := json.Marshal(hexes)
@@ -339,7 +337,10 @@ func (e *explorerSvc) broadcastPackage(txs ...string) (string, error) {
 
 	// The response is a JSON object describing per-tx results. We don't parse
 	// it in detail — success is indicated by a 200 status. Return the first txid.
-	return firstTxid, nil
+	for _, p := range parsed {
+		e.setCacheTx(p.txid, p.txHex)
+	}
+	return parsed[0].txid, nil
 }
 
 func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
@@ -502,8 +503,8 @@ func (e *explorerSvc) GetRedeemedVtxosBalance(
 }
 
 func (e *explorerSvc) GetTxBlockTime(txid string) (confirmed bool, blocktime int64, err error) {
-	// electrs-esplora does not support verbose transactions, so we decode the
-	// raw TX to get an output script, then look up the tx in the scripthash
+	// blockchain.transaction.get does not return blocktime directly, so we decode
+	// the raw TX to get an output script, then look up the tx in the scripthash
 	// history to determine block height.
 	txHex, err := e.GetTxHex(txid)
 	if err != nil {

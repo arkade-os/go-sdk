@@ -57,8 +57,9 @@ func TestBreak_ConcurrentSubscribeSameAddress(t *testing.T) {
 	}
 }
 
-// TestBreak_GetAddressesEventsLeaksWhenTrackerOff documents that calling
-// GetAddressesEvents on a no-tracker explorer returns a never-closed channel.
+// TestBreak_GetAddressesEventsLeaksWhenTrackerOff is a regression guard: before
+// the fix, GetAddressesEvents with tracker=false returned a channel that was
+// never closed by Stop(), leaking any consumer goroutine blocked on it.
 func TestBreak_GetAddressesEventsLeaksWhenTrackerOff(t *testing.T) {
 	exp, err := electrum_explorer.NewExplorer("tcp://127.0.0.1:1", arklib.Bitcoin,
 		electrum_explorer.WithTracker(false))
@@ -103,11 +104,12 @@ func TestBreak_GetTxOutspendsHidesRPCError(t *testing.T) {
 	exp.Start()
 	defer exp.Stop()
 
-	outspends, err := exp.GetTxOutspends(txid)
-	if err == nil {
-		require.NotEqual(t, false, outspends[0].Spent,
-			"RPC error reported as Spent=false — caller cannot distinguish error from unspent")
-	}
+	_, err = exp.GetTxOutspends(txid)
+	require.Error(
+		t,
+		err,
+		"RPC error must be surfaced — Spent=false is indistinguishable from unspent",
+	)
 }
 
 // TestBreak_StartIsIdempotent stresses concurrent Start() calls and asserts
