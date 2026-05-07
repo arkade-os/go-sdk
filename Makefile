@@ -1,4 +1,4 @@
-.PHONY: proto test vet lint migrate sqlc regtest regtestdown regtestclean
+.PHONY: proto test vet lint migrate sqlc regtest regtestdown regtestclean bump-regtest
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -58,6 +58,14 @@ regtestdown:
 regtestclean:
 	@echo "Cleaning regtest..."
 	@./regtest/clean-env.sh
+
+## bump-regtest: update the arkade-regtest submodule to its latest remote commit
+bump-regtest:
+	@echo "Bumping arkade-regtest submodule..."
+	@git submodule update --remote --merge regtest
+	@echo "arkade-regtest updated to $$(git -C regtest rev-parse HEAD)"
+	@echo "Review changes in regtest/ and .env.regtest, then commit with:"
+	@echo "  git add regtest && git commit -m 'chore: bump arkade-regtest submodule'"
 
 integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e

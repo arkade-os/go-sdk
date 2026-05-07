@@ -512,6 +512,14 @@ make regtestdown      # stop containers (preserves data)
 make regtestclean     # stop and remove all containers and volumes
 ```
 
+**Bumping the submodule** — when arkade-regtest has upstream updates:
+
+```sh
+make bump-regtest
+```
+
+This pulls the latest commit, prints the new revision, and reminds you to review any changes to `regtest/` and `.env.regtest` before committing.
+
 ## Full Example
 
 The snippet below shows the complete flow from client creation to an offchain send:
