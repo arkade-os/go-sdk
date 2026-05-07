@@ -95,6 +95,14 @@ func (a *arkClient) getSpendableVtxos(
 		scripts = append(scripts, v.Script)
 	}
 
+	// No eligible vtxos → nothing to look up. Skip the manager call so we
+	// don't hand contract.WithScripts an empty slice (which it rightly
+	// rejects as a programmer error). Callers (Unroll, Settle, …) already
+	// handle a (nil, nil) return as "no vtxos available".
+	if len(scripts) == 0 {
+		return nil, nil
+	}
+
 	contracts, err := a.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
 	if err != nil {
 		return nil, err
