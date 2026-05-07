@@ -133,8 +133,8 @@ DELETE FROM utxo;
 
 -- name: InsertContract :exec
 INSERT INTO contract (
-    script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    script, type, label, address, state, created_at, params, key_index, metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SelectAllContracts :many
 SELECT * FROM contract;
@@ -151,9 +151,9 @@ WHERE type = :type;
 SELECT * FROM contract
 WHERE state = :state;
 
--- name: SelectContractsByKeyIDs :many
+-- name: SelectLatestContractByType :one
 SELECT * FROM contract
-WHERE owner_key_id IN (sqlc.slice('key_ids'));
+WHERE type = :contract_type ORDER BY key_index DESC LIMIT 1;
 
 -- name: UpdateContractState :execrows
 UPDATE contract

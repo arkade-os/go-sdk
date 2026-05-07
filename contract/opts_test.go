@@ -44,14 +44,6 @@ func TestWithTypeFilter(t *testing.T) {
 				},
 				expectError: "a filter is already set",
 			},
-			{
-				name: "conflicts with key IDs",
-				opts: []FilterOption{
-					WithKeyIds([]string{"k"}),
-					WithType(types.ContractTypeDefault),
-				},
-				expectError: "a filter is already set",
-			},
 		}
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -95,14 +87,6 @@ func TestWithStateFilter(t *testing.T) {
 				name: "conflicts with scripts",
 				opts: []FilterOption{
 					WithScripts([]string{"abcd"}),
-					WithState(types.ContractStateActive),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with key IDs",
-				opts: []FilterOption{
-					WithKeyIds([]string{"k"}),
 					WithState(types.ContractStateActive),
 				},
 				expectError: "a filter is already set",
@@ -156,74 +140,6 @@ func TestWithScriptsFilter(t *testing.T) {
 				opts: []FilterOption{
 					WithState(types.ContractStateActive),
 					WithScripts([]string{"a"}),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with key IDs",
-				opts: []FilterOption{
-					WithKeyIds([]string{"k"}),
-					WithScripts([]string{"a"}),
-				},
-				expectError: "a filter is already set",
-			},
-		}
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := applyFilterOptions(tc.opts...)
-				require.ErrorContains(t, err, tc.expectError)
-			})
-		}
-	})
-}
-
-func TestWithKeyIDFilter(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		keyIds := []string{"k1", "k2"}
-		f, err := applyFilterOptions(WithKeyIds(keyIds))
-		require.NoError(t, err)
-		require.Equal(t, keyIds, f.keyIds)
-
-		// mutating the input must not mutate the stored slice
-		keyIds[0] = "mutated"
-		require.NotEqual(t, "mutated", f.keyIds[0])
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		testCases := []struct {
-			name        string
-			opts        []FilterOption
-			expectError string
-		}{
-			{
-				name: "already set",
-				opts: []FilterOption{
-					WithKeyIds([]string{"k1"}),
-					WithKeyIds([]string{"k2"}),
-				},
-				expectError: "key id filter already set",
-			},
-			{
-				name: "conflicts with type",
-				opts: []FilterOption{
-					WithType(types.ContractTypeDefault),
-					WithKeyIds([]string{"k"}),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with state",
-				opts: []FilterOption{
-					WithState(types.ContractStateActive),
-					WithKeyIds([]string{"k"}),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with scripts",
-				opts: []FilterOption{
-					WithScripts([]string{"a"}),
-					WithKeyIds([]string{"k"}),
 				},
 				expectError: "a filter is already set",
 			},

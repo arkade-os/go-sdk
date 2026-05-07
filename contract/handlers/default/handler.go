@@ -21,6 +21,10 @@ import (
 )
 
 const (
+	ownerKeyParam           = "ownerKey"
+	ownerKeyIdParam         = "ownerKeyId"
+	signerKeyParam          = "signerKey"
+	exitDelayParam          = "exitDelay"
 	checkpointExitPathParam = "checkpointExitPath"
 )
 
@@ -114,10 +118,10 @@ func (h *defaultHandler) NewContract(
 	}
 
 	params := map[string]string{
-		types.ContractParamOwnerKeyId: keyRef.Id,
-		types.ContractParamOwnerKey:   hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
-		types.ContractParamSignerKey:  hex.EncodeToString(schnorr.SerializePubKey(signerKey)),
-		types.ContractParamExitDelay:  strconv.FormatInt(delay, 10),
+		ownerKeyIdParam: keyRef.Id,
+		ownerKeyParam:   hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
+		signerKeyParam:  hex.EncodeToString(schnorr.SerializePubKey(signerKey)),
+		exitDelayParam:  strconv.FormatInt(delay, 10),
 	}
 
 	contractType := types.ContractTypeBoarding
@@ -194,14 +198,14 @@ func (h *defaultHandler) GetKeyRef(contract types.Contract) (*wallet.KeyRef, err
 	if len(contract.Params) <= 0 {
 		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
 	}
-	keyId, ok := contract.Params[types.ContractParamOwnerKeyId]
+	keyId, ok := contract.Params[ownerKeyIdParam]
 	if !ok {
 		return nil, fmt.Errorf("contract %s is missing owner key ID", contract.Script)
 	}
 	if len(keyId) <= 0 {
 		return nil, fmt.Errorf("contract %s has empty owner key ID", contract.Script)
 	}
-	key, ok := contract.Params[types.ContractParamOwnerKey]
+	key, ok := contract.Params[ownerKeyParam]
 	if !ok {
 		return nil, fmt.Errorf("contract %s is missing owner key", contract.Script)
 	}
@@ -220,7 +224,7 @@ func (h *defaultHandler) GetExitDelay(contract types.Contract) (*arklib.Relative
 	if len(contract.Params) <= 0 {
 		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
 	}
-	exitDelayStr, ok := contract.Params[types.ContractParamExitDelay]
+	exitDelayStr, ok := contract.Params[exitDelayParam]
 	if !ok {
 		return nil, fmt.Errorf("contract %s is missing exit delay", contract.Script)
 	}
@@ -245,7 +249,7 @@ func (h *defaultHandler) GetSignerKey(contract types.Contract) (*btcec.PublicKey
 	if len(contract.Params) <= 0 {
 		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
 	}
-	key, ok := contract.Params[types.ContractParamSignerKey]
+	key, ok := contract.Params[signerKeyParam]
 	if !ok {
 		return nil, fmt.Errorf("contract %s is missing signer key", contract.Script)
 	}

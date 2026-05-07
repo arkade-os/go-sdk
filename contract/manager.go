@@ -103,7 +103,13 @@ func (m *contractManager) NewContract(
 	}
 	contract.Label = o.label
 
-	if err := m.store.AddContract(ctx, *contract); err != nil {
+	keyRef, _ := handler.GetKeyRef(*contract)
+	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
@@ -136,8 +142,6 @@ func (m *contractManager) GetContracts(
 		return m.store.GetContractsByScripts(ctx, f.scripts)
 	case len(f.state) > 0:
 		return m.store.GetContractsByState(ctx, f.state)
-	case len(f.keyIds) > 0:
-		return m.store.GetContractsByKeyIds(ctx, f.keyIds)
 	case len(f.contractType) > 0:
 		return m.store.GetContractsByType(ctx, f.contractType)
 	default:
@@ -192,7 +196,7 @@ func (m *contractManager) scanContracts(
 	ctx context.Context, contractType types.ContractType,
 	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
 ) error {
-	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -204,10 +208,16 @@ func (m *contractManager) scanContracts(
 	// the last stored index, since everything up to it is already
 	// allocated.
 	var startIdx uint32
-	if currentLastUsedKeyID != "" {
-		currentIdx, err := m.keyProvider.GetKeyIndex(ctx, currentLastUsedKeyID)
+	var currentKeyId string
+	if contract != nil {
+		keyRef, err := handler.GetKeyRef(*contract)
 		if err != nil {
-			return fmt.Errorf("failed to parse latest key id: %w", err)
+			return fmt.Errorf("failed to get key rer for contract %s: %w", contract.Script, err)
+		}
+		currentKeyId = keyRef.Id
+		currentIdx, err := m.keyProvider.GetKeyIndex(ctx, currentKeyId)
+		if err != nil {
+			return fmt.Errorf("failed to parse key id for contract %s: %w", contract.Script, err)
 		}
 		startIdx = currentIdx + 1
 	}
@@ -218,7 +228,6 @@ func (m *contractManager) scanContracts(
 	const noUsage int64 = -1
 	var (
 		lastUsedIdx       = noUsage
-		currentKeyId      = currentLastUsedKeyID
 		consecutiveUnused uint32
 		contractByIndex   = make(map[uint32]types.Contract, gapLimit)
 	)
@@ -281,7 +290,7 @@ scan:
 	// highest used index (inclusive).
 	for i := startIdx; i <= uint32(lastUsedIdx); i++ {
 		contract := contractByIndex[i]
-		if err := m.store.AddContract(ctx, contract); err != nil {
+		if err := m.store.AddContract(ctx, contract, i); err != nil {
 			return fmt.Errorf("failed to store %s contract: %w", contractType, err)
 		}
 
@@ -294,58 +303,33 @@ func (m *contractManager) newContract(
 	ctx context.Context,
 	contractType types.ContractType, handler handlers.Handler,
 ) (*types.Contract, error) {
-	keyId, err := m.getLatestContractKeyId(ctx, contractType, handler)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}
 
-	nextKeyID, err := m.keyProvider.NextKeyId(ctx, keyId)
+	var keyId string
+	if contract != nil {
+		keyRef, err := handler.GetKeyRef(*contract)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to get key ref for contract %s: %w", contract.Script, err,
+			)
+		}
+		keyId = keyRef.Id
+	}
+
+	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute next key index: %w", err)
 	}
 
-	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyID)
+	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
 	}
 
 	return handler.NewContract(ctx, *keyRef)
-}
-
-func (m *contractManager) getLatestContractKeyId(
-	ctx context.Context,
-	contractType types.ContractType, handler handlers.Handler,
-) (string, error) {
-	if len(contractType) <= 0 {
-		return "", fmt.Errorf("missing contract type")
-	}
-
-	contracts, err := m.store.GetContractsByType(ctx, contractType)
-	if err != nil {
-		return "", err
-	}
-
-	var (
-		latestKeyID    string
-		latestKeyIndex uint32
-		found          bool
-	)
-	for _, c := range contracts {
-		keyRef, err := handler.GetKeyRef(c)
-		if err != nil {
-			return "", err
-		}
-		index, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve key index for id %s: %w", keyRef.Id, err)
-		}
-		if !found || index > latestKeyIndex {
-			latestKeyID = keyRef.Id
-			latestKeyIndex = index
-			found = true
-		}
-	}
-	return latestKeyID, nil
 }
 
 func (m *contractManager) findUsedContracts(

@@ -12,6 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	ownerKeyIdParam = "ownerKeyId"
+)
+
 func TestManagerNewContract(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("offchain persisted", func(t *testing.T) {
@@ -25,7 +29,7 @@ func TestManagerNewContract(t *testing.T) {
 			require.NotEmpty(t, c.Script)
 			require.NotEmpty(t, c.Address)
 			// Auto-derived from a fresh wallet, the first key is m/0/0.
-			require.Equal(t, "m/0/0", c.Params[types.ContractParamOwnerKeyId])
+			require.Equal(t, "m/0/0", c.Params[ownerKeyIdParam])
 
 			// Persisted exactly once.
 			persisted, err := store.GetContractsByScripts(t.Context(), []string{c.Script})
@@ -75,9 +79,9 @@ func TestManagerNewContract(t *testing.T) {
 			c2, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 
-			require.Equal(t, "m/0/0", c0.Params[types.ContractParamOwnerKeyId])
-			require.Equal(t, "m/0/1", c1.Params[types.ContractParamOwnerKeyId])
-			require.Equal(t, "m/0/2", c2.Params[types.ContractParamOwnerKeyId])
+			require.Equal(t, "m/0/0", c0.Params[ownerKeyIdParam])
+			require.Equal(t, "m/0/1", c1.Params[ownerKeyIdParam])
+			require.Equal(t, "m/0/2", c2.Params[ownerKeyIdParam])
 		})
 	})
 
@@ -180,17 +184,6 @@ func TestManagerGetContracts(t *testing.T) {
 			require.ElementsMatch(t, []string{a.Script, b.Script}, scriptsOf(got...))
 		})
 
-		t.Run("by key IDs", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			a := newOffchainContract(t, mgr) // m/0/0
-			_ = newOffchainContract(t, mgr)  // m/0/1
-
-			got, err := mgr.GetContracts(t.Context(), contract.WithKeyIds([]string{"m/0/0"}))
-			require.NoError(t, err)
-			require.Len(t, got, 1)
-			require.Equal(t, a.Script, got[0].Script)
-		})
-
 		t.Run("by state", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			_ = newOffchainContract(t, mgr)
@@ -201,15 +194,6 @@ func TestManagerGetContracts(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.Len(t, got, 2)
-		})
-
-		t.Run("returns empty on no match", func(t *testing.T) {
-			mgr, _ := newTestManager(t)
-			got, err := mgr.GetContracts(
-				t.Context(), contract.WithKeyIds([]string{"m/9/9"}),
-			)
-			require.NoError(t, err)
-			require.Empty(t, got)
 		})
 	})
 
@@ -269,7 +253,7 @@ func TestManagerGetHandler(t *testing.T) {
 		refs, err := handler.GetKeyRefs(*c)
 		require.NoError(t, err)
 		values := slices.Collect(maps.Values(refs))
-		require.Contains(t, values, c.Params[types.ContractParamOwnerKeyId])
+		require.Contains(t, values, c.Params[ownerKeyIdParam])
 	})
 
 	t.Run("invalid", func(t *testing.T) {
@@ -447,7 +431,7 @@ func scriptsOf(cs ...types.Contract) []string {
 func ownerKeyIds(cs []types.Contract) []string {
 	out := make([]string, len(cs))
 	for i, c := range cs {
-		out[i] = c.Params[types.ContractParamOwnerKeyId]
+		out[i] = c.Params[ownerKeyIdParam]
 	}
 	return out
 }

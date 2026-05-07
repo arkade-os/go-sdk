@@ -1,12 +1,22 @@
 package store_test
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	ownerKeyParam           = "ownerKey"
+	ownerKeyIdParam         = "ownerKeyId"
+	signerKeyParam          = "signerKey"
+	exitDelayParam          = "exitDelay"
+	checkpointExitPathParam = "checkpointExitPath"
 )
 
 var (
@@ -21,10 +31,10 @@ var (
 		State:     types.ContractStateActive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			types.ContractParamOwnerKeyId: "m/0/0",
-			types.ContractParamOwnerKey:   "0102030405",
-			types.ContractParamSignerKey:  "06070809",
-			types.ContractParamExitDelay:  "144",
+			ownerKeyIdParam: "m/0/0",
+			ownerKeyParam:   "0102030405",
+			signerKeyParam:  "06070809",
+			exitDelayParam:  "144",
 		},
 	}
 
@@ -37,10 +47,10 @@ var (
 		State:     types.ContractStateActive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			types.ContractParamOwnerKeyId: "m/0/1",
-			types.ContractParamOwnerKey:   "0a0b0c0d0e",
-			types.ContractParamSignerKey:  "0f101112",
-			types.ContractParamExitDelay:  "288",
+			ownerKeyIdParam: "m/0/1",
+			ownerKeyParam:   "0a0b0c0d0e",
+			signerKeyParam:  "0f101112",
+			exitDelayParam:  "288",
 		},
 	}
 
@@ -53,10 +63,10 @@ var (
 		State:     types.ContractStateInactive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			types.ContractParamOwnerKeyId: "m/0/2",
-			types.ContractParamOwnerKey:   "131415",
-			types.ContractParamSignerKey:  "161718",
-			types.ContractParamExitDelay:  "144",
+			ownerKeyIdParam: "m/0/2",
+			ownerKeyParam:   "131415",
+			signerKeyParam:  "161718",
+			exitDelayParam:  "144",
 		},
 	}
 
@@ -69,12 +79,12 @@ var (
 		State:     types.ContractStateActive,
 		CreatedAt: testContractCreatedAt,
 		Params: map[string]string{
-			types.ContractParamOwnerKeyId: "m/0/4",
-			types.ContractParamOwnerKey:   "deadbeef",
-			types.ContractParamSignerKey:  "cafebabe",
-			types.ContractParamExitDelay:  "144",
-			"extra1":                      "value1",
-			"extra2":                      "value2",
+			ownerKeyIdParam: "m/0/4",
+			ownerKeyParam:   "deadbeef",
+			signerKeyParam:  "cafebabe",
+			exitDelayParam:  "144",
+			"extra1":        "value1",
+			"extra2":        "value2",
 		},
 		// JSON-decoded numbers land as float64 — use it directly so SQL/JSON
 		// round-trip matches the in-memory KV path.
@@ -91,8 +101,8 @@ func TestContractStoreAddContract(t *testing.T) {
 			ctx := t.Context()
 
 			t.Run("multiple", func(t *testing.T) {
-				require.NoError(t, s.AddContract(ctx, testContractA))
-				require.NoError(t, s.AddContract(ctx, testContractB))
+				require.NoError(t, s.AddContract(ctx, testContractA, 0))
+				require.NoError(t, s.AddContract(ctx, testContractB, 1))
 
 				got, err := s.ListContracts(ctx)
 				require.NoError(t, err)
@@ -100,7 +110,7 @@ func TestContractStoreAddContract(t *testing.T) {
 			})
 
 			t.Run("round trip", func(t *testing.T) {
-				require.NoError(t, s.AddContract(ctx, testContractFull))
+				require.NoError(t, s.AddContract(ctx, testContractFull, 4))
 
 				got, err := s.GetContractsByScripts(ctx, []string{testContractFull.Script})
 				require.NoError(t, err)
@@ -123,76 +133,11 @@ func TestContractStoreAddContract(t *testing.T) {
 
 	t.Run("invalid", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			cases := []struct {
-				name          string
-				params        map[string]string
-				expectedError string
-			}{
-				{
-					name: "missing ownerKey",
-					params: map[string]string{
-						types.ContractParamOwnerKeyId: "m/0/0",
-						types.ContractParamSignerKey:  "06070809",
-						types.ContractParamExitDelay:  "144",
-					},
-					expectedError: "missing ownerKey param",
-				},
-				{
-					name: "missing key id",
-					params: map[string]string{
-						types.ContractParamOwnerKey:  "0102030405",
-						types.ContractParamSignerKey: "06070809",
-						types.ContractParamExitDelay: "144",
-					},
-					expectedError: "missing ownerKeyId param",
-				},
-				{
-					name: "missing signerKey",
-					params: map[string]string{
-						types.ContractParamOwnerKey:   "0102030405",
-						types.ContractParamOwnerKeyId: "m/0/0",
-						types.ContractParamExitDelay:  "144",
-					},
-					expectedError: "missing signerKey param",
-				},
-				{
-					name: "missing exitDelay",
-					params: map[string]string{
-						types.ContractParamOwnerKey:   "0102030405",
-						types.ContractParamOwnerKeyId: "m/0/0",
-						types.ContractParamSignerKey:  "06070809",
-					},
-					expectedError: "missing exitDelay param",
-				},
-				{
-					name: "invalid exitDelay",
-					params: map[string]string{
-						types.ContractParamOwnerKey:   "0102030405",
-						types.ContractParamOwnerKeyId: "m/0/0",
-						types.ContractParamSignerKey:  "06070809",
-						types.ContractParamExitDelay:  "notanumber",
-					},
-					expectedError: "invalid exitDelay param",
-				},
-			}
-
-			for _, c := range cases {
-				t.Run(c.name, func(t *testing.T) {
-					broken := cloneContract(testContractA)
-					broken.Script = "broken-" + c.name
-					broken.Params = c.params
-
-					err := s.AddContract(t.Context(), broken)
-					require.Error(t, err)
-					require.ErrorContains(t, err, c.expectedError)
-				})
-			}
-
 			t.Run("duplicated contract", func(t *testing.T) {
 				ctx := t.Context()
-				require.NoError(t, s.AddContract(ctx, testContractA))
+				require.NoError(t, s.AddContract(ctx, testContractA, 0))
 
-				err := s.AddContract(ctx, testContractA)
+				err := s.AddContract(ctx, testContractA, 0)
 				require.Error(t, err)
 				require.ErrorContains(t, err, "already exists")
 			})
@@ -331,23 +276,77 @@ func TestContractStoreGetContractsByType(t *testing.T) {
 	})
 }
 
-func TestContractStoreGetContractsByKeyIDs(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
+func TestContractStoreGetLatestContract(t *testing.T) {
+	t.Run("empty store returns nil", func(t *testing.T) {
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			got, err := s.GetLatestContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.Nil(t, got)
+		})
+	})
+
+	t.Run("returns nil for a type with no contracts", func(t *testing.T) {
+		// Even with contracts of a *different* type present, the requested
+		// type having no rows is not an error — the manager relies on
+		// (nil, nil) here to detect a fresh wallet.
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
 			ctx := t.Context()
-			seedContracts(t, s, testContractA, testContractC)
+			seedContracts(t, s, testContractA, testContractB)
 
-			t.Run("non empty", func(t *testing.T) {
-				got, err := s.GetContractsByKeyIds(ctx, []string{"m/0/0", "m/0/2"})
-				require.NoError(t, err)
-				require.Len(t, got, 2)
-			})
+			got, err := s.GetLatestContract(ctx, types.ContractTypeBoarding)
+			require.NoError(t, err)
+			require.Nil(t, got)
+		})
+	})
 
-			t.Run("empty", func(t *testing.T) {
-				got, err := s.GetContractsByKeyIds(ctx, []string{"m/0/1"})
-				require.NoError(t, err)
-				require.Empty(t, got)
-			})
+	t.Run("returns the only contract", func(t *testing.T) {
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			seedContracts(t, s, testContractA)
+
+			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, testContractA.Script, got.Script)
+		})
+	})
+
+	t.Run("returns highest key index even when inserted out of order", func(t *testing.T) {
+		// Insertion order is A (idx=0), Full (idx=4), B (idx=1). Latest by
+		// key_index is Full. The order is intentionally scrambled so a
+		// backend that returns by insertion order / rowid (i.e. ignores
+		// the key_index column) surfaces as a test failure here rather
+		// than going unnoticed because the manager happens to always
+		// create contracts in ascending key-index order.
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			seedContracts(t, s, testContractA, testContractFull, testContractB)
+
+			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, testContractFull.Script, got.Script)
+		})
+	})
+
+	t.Run("filters by contract type", func(t *testing.T) {
+		// Default and boarding contracts share the same key-index space
+		// in the underlying wallet, but each pool's "latest" is computed
+		// independently. Boarding's idx=2 must NOT promote it to "latest
+		// default" just because its index is higher.
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			seedContracts(t, s, testContractA, testContractB, testContractC)
+
+			latestDefault, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.NotNil(t, latestDefault)
+			require.Equal(t, testContractB.Script, latestDefault.Script)
+
+			latestBoarding, err := s.GetLatestContract(ctx, types.ContractTypeBoarding)
+			require.NoError(t, err)
+			require.NotNil(t, latestBoarding)
+			require.Equal(t, testContractC.Script, latestBoarding.Script)
 		})
 	})
 }
@@ -520,24 +519,14 @@ func forEachContractBackend(t *testing.T, fn func(t *testing.T, s types.Contract
 
 func seedContracts(t *testing.T, s types.ContractStore, contracts ...types.Contract) {
 	t.Helper()
+	getIndex := func(str string) uint32 {
+		ss := strings.Split(str, "/")
+		s := ss[len(ss)-1]
+		i, _ := strconv.ParseUint(s, 10, 32)
+		return uint32(i)
+	}
 	for _, c := range contracts {
-		require.NoError(t, s.AddContract(t.Context(), c))
+		index := getIndex(c.Params[ownerKeyIdParam])
+		require.NoError(t, s.AddContract(t.Context(), c, index))
 	}
-}
-
-// cloneContract returns a deep-enough copy of c so callers can mutate
-// Params/Metadata without polluting the shared fixtures.
-func cloneContract(c types.Contract) types.Contract {
-	out := c
-	out.Params = make(map[string]string, len(c.Params))
-	for k, v := range c.Params {
-		out.Params[k] = v
-	}
-	if c.Metadata != nil {
-		out.Metadata = make(map[string]string, len(c.Metadata))
-		for k, v := range c.Metadata {
-			out.Metadata[k] = v
-		}
-	}
-	return out
 }

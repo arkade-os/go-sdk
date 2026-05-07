@@ -21,7 +21,7 @@ func WithType(contractType types.ContractType) FilterOption {
 		if f.contractType != "" {
 			return fmt.Errorf("contract type filter already set to %s", f.contractType)
 		}
-		if f.state != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
+		if f.state != "" || len(f.scripts) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.contractType = contractType
@@ -34,7 +34,7 @@ func WithState(state types.ContractState) FilterOption {
 		if f.state != "" {
 			return fmt.Errorf("contract state filter already set to %s", f.state)
 		}
-		if f.contractType != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
+		if f.contractType != "" || len(f.scripts) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.state = state
@@ -47,7 +47,7 @@ func WithScripts(scripts []string) FilterOption {
 		if len(f.scripts) != 0 {
 			return fmt.Errorf("contract scripts filter already set to %s", f.scripts)
 		}
-		if f.state != "" || f.contractType != "" || len(f.keyIds) != 0 {
+		if f.state != "" || f.contractType != "" {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.scripts = make([]string, len(scripts))
@@ -56,25 +56,10 @@ func WithScripts(scripts []string) FilterOption {
 	})
 }
 
-func WithKeyIds(keyIds []string) FilterOption {
-	return filterOptFn(func(f *filter) error {
-		if len(f.keyIds) > 0 {
-			return fmt.Errorf("key id filter already set to %s", f.keyIds)
-		}
-		if f.state != "" || f.contractType != "" || len(f.scripts) != 0 {
-			return fmt.Errorf("a filter is already set")
-		}
-		f.keyIds = make([]string, len(keyIds))
-		copy(f.keyIds, keyIds)
-		return nil
-	})
-}
-
 type filter struct {
 	contractType types.ContractType
 	state        types.ContractState
 	scripts      []string
-	keyIds       []string
 }
 
 func newDefaultFilter() *filter {

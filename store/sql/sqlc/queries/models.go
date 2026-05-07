@@ -41,18 +41,15 @@ type AssetVtxoVw struct {
 }
 
 type Contract struct {
-	Script      string
-	Type        string
-	Label       sql.NullString
-	Address     string
-	State       string
-	CreatedAt   int64
-	OwnerKeyID  string
-	OwnerKey    string
-	SignerKey   string
-	ExitDelay   int64
-	ExtraParams sql.NullString
-	Metadata    sql.NullString
+	Script    string
+	Type      string
+	Label     sql.NullString
+	Address   string
+	State     string
+	CreatedAt int64
+	Params    string
+	KeyIndex  int64
+	Metadata  sql.NullString
 }
 
 type Tx struct {

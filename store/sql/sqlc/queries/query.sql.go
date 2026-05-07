@@ -103,23 +103,20 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 
 const insertContract = `-- name: InsertContract :exec
 INSERT INTO contract (
-    script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    script, type, label, address, state, created_at, params, key_index, metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertContractParams struct {
-	Script      string
-	Type        string
-	Label       sql.NullString
-	Address     string
-	State       string
-	CreatedAt   int64
-	OwnerKeyID  string
-	OwnerKey    string
-	SignerKey   string
-	ExitDelay   int64
-	ExtraParams sql.NullString
-	Metadata    sql.NullString
+	Script    string
+	Type      string
+	Label     sql.NullString
+	Address   string
+	State     string
+	CreatedAt int64
+	Params    string
+	KeyIndex  int64
+	Metadata  sql.NullString
 }
 
 func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) error {
@@ -130,11 +127,8 @@ func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) 
 		arg.Address,
 		arg.State,
 		arg.CreatedAt,
-		arg.OwnerKeyID,
-		arg.OwnerKey,
-		arg.SignerKey,
-		arg.ExitDelay,
-		arg.ExtraParams,
+		arg.Params,
+		arg.KeyIndex,
 		arg.Metadata,
 	)
 	return err
@@ -294,7 +288,7 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 }
 
 const selectAllContracts = `-- name: SelectAllContracts :many
-SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
 `
 
 func (q *Queries) SelectAllContracts(ctx context.Context) ([]Contract, error) {
@@ -313,11 +307,8 @@ func (q *Queries) SelectAllContracts(ctx context.Context) ([]Contract, error) {
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyID,
-			&i.OwnerKey,
-			&i.SignerKey,
-			&i.ExitDelay,
-			&i.ExtraParams,
+			&i.Params,
+			&i.KeyIndex,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -465,59 +456,8 @@ func (q *Queries) SelectAsset(ctx context.Context, assetID string) (Asset, error
 	return i, err
 }
 
-const selectContractsByKeyIDs = `-- name: SelectContractsByKeyIDs :many
-SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata FROM contract
-WHERE owner_key_id IN (/*SLICE:key_ids*/?)
-`
-
-func (q *Queries) SelectContractsByKeyIDs(ctx context.Context, keyIds []string) ([]Contract, error) {
-	query := selectContractsByKeyIDs
-	var queryParams []interface{}
-	if len(keyIds) > 0 {
-		for _, v := range keyIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:key_ids*/?", strings.Repeat(",?", len(keyIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:key_ids*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Contract
-	for rows.Next() {
-		var i Contract
-		if err := rows.Scan(
-			&i.Script,
-			&i.Type,
-			&i.Label,
-			&i.Address,
-			&i.State,
-			&i.CreatedAt,
-			&i.OwnerKeyID,
-			&i.OwnerKey,
-			&i.SignerKey,
-			&i.ExitDelay,
-			&i.ExtraParams,
-			&i.Metadata,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const selectContractsByScripts = `-- name: SelectContractsByScripts :many
-SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
 WHERE script IN (/*SLICE:scripts*/?)
 `
 
@@ -547,11 +487,8 @@ func (q *Queries) SelectContractsByScripts(ctx context.Context, scripts []string
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyID,
-			&i.OwnerKey,
-			&i.SignerKey,
-			&i.ExitDelay,
-			&i.ExtraParams,
+			&i.Params,
+			&i.KeyIndex,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -568,7 +505,7 @@ func (q *Queries) SelectContractsByScripts(ctx context.Context, scripts []string
 }
 
 const selectContractsByState = `-- name: SelectContractsByState :many
-SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
 WHERE state = ?1
 `
 
@@ -588,11 +525,8 @@ func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]C
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyID,
-			&i.OwnerKey,
-			&i.SignerKey,
-			&i.ExitDelay,
-			&i.ExtraParams,
+			&i.Params,
+			&i.KeyIndex,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -609,7 +543,7 @@ func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]C
 }
 
 const selectContractsByType = `-- name: SelectContractsByType :many
-SELECT script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata FROM contract
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
 WHERE type = ?1
 `
 
@@ -629,11 +563,8 @@ func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Co
 			&i.Address,
 			&i.State,
 			&i.CreatedAt,
-			&i.OwnerKeyID,
-			&i.OwnerKey,
-			&i.SignerKey,
-			&i.ExitDelay,
-			&i.ExtraParams,
+			&i.Params,
+			&i.KeyIndex,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -647,6 +578,28 @@ func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Co
 		return nil, err
 	}
 	return items, nil
+}
+
+const selectLatestContractByType = `-- name: SelectLatestContractByType :one
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
+WHERE type = ?1 ORDER BY key_index DESC LIMIT 1
+`
+
+func (q *Queries) SelectLatestContractByType(ctx context.Context, contractType string) (Contract, error) {
+	row := q.db.QueryRowContext(ctx, selectLatestContractByType, contractType)
+	var i Contract
+	err := row.Scan(
+		&i.Script,
+		&i.Type,
+		&i.Label,
+		&i.Address,
+		&i.State,
+		&i.CreatedAt,
+		&i.Params,
+		&i.KeyIndex,
+		&i.Metadata,
+	)
+	return i, err
 }
 
 const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
