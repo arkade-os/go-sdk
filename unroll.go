@@ -72,6 +72,10 @@ func (a *arkClient) CompleteUnroll(ctx context.Context, to string) (string, erro
 		return "", err
 	}
 
+	if len(utxos) <= 0 {
+		return "", fmt.Errorf("no mature utxos to claim")
+	}
+
 	unrolledVtxos := make([]clientTypes.VtxoWithTapTree, 0, len(utxos))
 	for _, utxo := range utxos {
 		unrolledVtxos = append(unrolledVtxos, clientTypes.VtxoWithTapTree{

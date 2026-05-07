@@ -235,7 +235,7 @@ func TestUnilateralExit(t *testing.T) {
 		err = generateBlocks(10)
 		require.NoError(t, err)
 
-		time.Sleep(20 * time.Second)
+		time.Sleep(25 * time.Second)
 
 		// Use a separate HD wallet to observe the onchain receive after CompleteUnroll.
 		bob := setupClient(t, "")
