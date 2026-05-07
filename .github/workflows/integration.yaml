@@ -31,10 +31,16 @@ jobs:
           key: nigiri-${{ hashFiles('regtest/.env.defaults', '.env.regtest') }}
 
       - name: Start regtest environment
-        run: make regtest
+        run: chmod +x regtest/*.sh regtest/helpers/*.sh && make regtest
 
       - name: Run tests
         run: make integrationtest
+
+      - name: Capture logs on failure
+        if: failure()
+        run: |
+          docker logs arkd 2>&1 || true
+          docker logs ark-wallet 2>&1 || true
 
       - name: Cleanup
         if: always()
