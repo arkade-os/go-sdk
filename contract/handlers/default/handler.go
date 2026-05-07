@@ -27,7 +27,6 @@ const (
 type defaultHandler struct {
 	network   arklib.Network
 	client    client.TransportClient
-	cache     *infoCache
 	isOnchain bool
 }
 
@@ -36,13 +35,16 @@ type defaultHandler struct {
 // The flag selects exit delay (UnilateralExitDelay vs BoardingExitDelay),
 // address encoding (Ark v0 vs taproot), produced contract type, and whether
 // a checkpoint exit path is attached.
+//
+// The transport client is expected to handle GetInfo caching itself — the
+// manager wraps it once and shares the cache across every handler so we
+// don't fan out one info-cache per handler kind.
 func NewHandler(
 	client client.TransportClient, network arklib.Network, isOnchain bool,
 ) handlers.Handler {
 	return &defaultHandler{
 		network:   network,
 		client:    client,
-		cache:     newInfoCache(5 * time.Minute),
 		isOnchain: isOnchain,
 	}
 }
@@ -285,13 +287,8 @@ func (h *defaultHandler) getScript(
 }
 
 func (h *defaultHandler) getInfo(ctx context.Context) (*client.Info, error) {
-	if cachedResp := h.cache.get(); cachedResp != nil {
-		return cachedResp, nil
-	}
-	resp, err := h.client.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	h.cache.set(resp)
-	return resp, nil
+	// Caching lives on the transport client wrapper installed by the
+	// manager — see contract.NewManager. This is a thin passthrough so
+	// the surrounding code reads the same as before.
+	return h.client.GetInfo(ctx)
 }

@@ -33,11 +33,16 @@ func NewManager(args Args) (Manager, error) {
 	if err := args.validate(); err != nil {
 		return nil, err
 	}
+	// Wrap the transport client once with a shared GetInfo cache so all
+	// handlers (default, boarding, and any future vhtlc/delegate kinds)
+	// reuse the same cached server info instead of fanning out a
+	// per-handler cache.
+	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
 	// TODO: 1. support also delegate and vhtlc handlers
 	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
 	handlers := map[types.ContractType]handlers.Handler{
-		types.ContractTypeDefault:  defaultHandler.NewHandler(args.Client, args.Network, false),
-		types.ContractTypeBoarding: defaultHandler.NewHandler(args.Client, args.Network, true),
+		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
+		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
 	}
 	return &contractManager{
 		store:       args.Store,
