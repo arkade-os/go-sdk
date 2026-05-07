@@ -495,12 +495,21 @@ See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sd
 
 ### Testing
 
-Run integration tests ([start nigiri](https://github.com/arkade-os/arkd/blob/e33bee6196586b5f4d6ed57abe071458f49ed7ed/README.md?plain=1#L263) if needed first):
+The integration test suite uses [arkade-regtest](https://github.com/ArkLabsHQ/arkade-regtest) as a git submodule to manage the full regtest stack (Nigiri + arkd + wallet).
+
+**First-time setup** — initialise the submodule after cloning:
 
 ```sh
-make regtest
-make integrationtest
-make regtestdown
+git submodule update --init
+```
+
+**Run the tests:**
+
+```sh
+make regtest          # start Nigiri + arkd + wallet, init and fund the arkd wallet, and wait until everything is ready
+make integrationtest  # run the e2e test suite
+make regtestdown      # stop containers (preserves data)
+make regtestclean     # stop and remove all containers and volumes
 ```
 
 ## Full Example
