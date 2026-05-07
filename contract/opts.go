@@ -21,7 +21,7 @@ func WithType(contractType types.ContractType) FilterOption {
 		if f.contractType != "" {
 			return fmt.Errorf("contract type filter already set to %s", f.contractType)
 		}
-		if f.isOnchain || f.state != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
+		if f.state != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.contractType = contractType
@@ -34,7 +34,7 @@ func WithState(state types.ContractState) FilterOption {
 		if f.state != "" {
 			return fmt.Errorf("contract state filter already set to %s", f.state)
 		}
-		if f.isOnchain || f.contractType != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
+		if f.contractType != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.state = state
@@ -47,7 +47,7 @@ func WithScripts(scripts []string) FilterOption {
 		if len(f.scripts) != 0 {
 			return fmt.Errorf("contract scripts filter already set to %s", f.scripts)
 		}
-		if f.isOnchain || f.state != "" || f.contractType != "" || len(f.keyIds) != 0 {
+		if f.state != "" || f.contractType != "" || len(f.keyIds) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.scripts = make([]string, len(scripts))
@@ -61,7 +61,7 @@ func WithKeyIds(keyIds []string) FilterOption {
 		if len(f.keyIds) > 0 {
 			return fmt.Errorf("key id filter already set to %s", f.keyIds)
 		}
-		if f.isOnchain || f.state != "" || f.contractType != "" || len(f.scripts) != 0 {
+		if f.state != "" || f.contractType != "" || len(f.scripts) != 0 {
 			return fmt.Errorf("a filter is already set")
 		}
 		f.keyIds = make([]string, len(keyIds))
@@ -74,7 +74,6 @@ type filter struct {
 	contractType types.ContractType
 	state        types.ContractState
 	scripts      []string
-	isOnchain    bool
 	keyIds       []string
 }
 
@@ -91,16 +90,6 @@ type contractOptFn func(*contractOption) error
 
 func (f contractOptFn) applyContract(o *contractOption) error { return f(o) }
 
-func WithDryRun() ContractOption {
-	return contractOptFn(func(o *contractOption) error {
-		if o.dryRun {
-			return fmt.Errorf("dry run option is already set")
-		}
-		o.dryRun = true
-		return nil
-	})
-}
-
 func WithLabel(label string) ContractOption {
 	return contractOptFn(func(o *contractOption) error {
 		if o.label != "" {
@@ -112,48 +101,9 @@ func WithLabel(label string) ContractOption {
 }
 
 type contractOption struct {
-	dryRun    bool
-	label     string
-	isOnchain bool
+	label string
 }
 
 func newDefaultContractOption() *contractOption {
 	return &contractOption{}
-}
-
-// IsOnchainOption is the intersection of every option family that accepts an
-// "isOnchain" flag. A single WithIsOnchain satisfies both FilterOption and
-// ContractOption — so the helper is defined once instead of duplicated per
-// family.
-type IsOnchainOption interface {
-	FilterOption
-	ContractOption
-}
-
-type isOnchainOpt struct{}
-
-func (isOnchainOpt) applyFilter(f *filter) error {
-	if f.isOnchain {
-		return fmt.Errorf("isOnchain filter is already set")
-	}
-	if f.state != "" || f.contractType != "" || len(f.scripts) != 0 || len(f.keyIds) != 0 {
-		return fmt.Errorf("a filter is already set")
-	}
-	f.isOnchain = true
-	return nil
-}
-
-func (isOnchainOpt) applyContract(o *contractOption) error {
-	if o.isOnchain {
-		return fmt.Errorf("isOnchain option is already set")
-	}
-	o.isOnchain = true
-	return nil
-}
-
-// WithIsOnchain marks the operation as onchain. It can be used both as a
-// FilterOption (in GetContracts) and as a ContractOption (in NewContract /
-// GetKeyIDUsedForLatestContract).
-func WithIsOnchain() IsOnchainOption {
-	return isOnchainOpt{}
 }

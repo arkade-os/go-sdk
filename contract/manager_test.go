@@ -24,7 +24,6 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, types.ContractStateActive, c.State)
 			require.NotEmpty(t, c.Script)
 			require.NotEmpty(t, c.Address)
-			require.Equal(t, "false", c.Params[types.ContractParamIsOnchain])
 			// Auto-derived from a fresh wallet, the first key is m/0/0.
 			require.Equal(t, "m/0/0", c.Params[types.ContractParamOwnerKeyId])
 
@@ -35,17 +34,17 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, c.Script, persisted[0].Script)
 		})
 
-		t.Run("onchain persisted", func(t *testing.T) {
+		t.Run("boarding persisted", func(t *testing.T) {
 			mgr, store := newTestManager(t)
 
-			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
-			)
+			c, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
 			require.NoError(t, err)
-			require.Equal(t, "true", c.Params[types.ContractParamIsOnchain])
+			require.Equal(t, types.ContractTypeBoarding, c.Type)
 			require.Contains(t, c.Address, "bcrt1p")
 
-			persisted, err := store.GetOnchainContracts(t.Context())
+			persisted, err := store.GetContractsByType(
+				t.Context(), types.ContractTypeBoarding,
+			)
 			require.NoError(t, err)
 			require.Len(t, persisted, 1)
 			require.Equal(t, c.Script, persisted[0].Script)
@@ -64,21 +63,6 @@ func TestManagerNewContract(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, persisted, 1)
 			require.Equal(t, "my-label", persisted[0].Label)
-		})
-
-		t.Run("dry run skips persistence", func(t *testing.T) {
-			mgr, store := newTestManager(t)
-
-			c, err := mgr.NewContract(
-				t.Context(), types.ContractTypeDefault, contract.WithDryRun(),
-			)
-			require.NoError(t, err)
-			require.NotNil(t, c)
-			require.NotEmpty(t, c.Script)
-
-			persisted, err := store.GetContractsByScripts(t.Context(), []string{c.Script})
-			require.NoError(t, err)
-			require.Empty(t, persisted)
 		})
 
 		t.Run("sequential offchain calls advance the key index", func(t *testing.T) {
@@ -122,14 +106,6 @@ func TestManagerNewContract(t *testing.T) {
 				},
 				wantErrContains: "label option is already set",
 			},
-			{
-				name:         "conflicting isOnchain option",
-				contractType: types.ContractTypeDefault,
-				opts: []contract.ContractOption{
-					contract.WithIsOnchain(), contract.WithIsOnchain(),
-				},
-				wantErrContains: "isOnchain option is already set",
-			},
 		}
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
@@ -144,31 +120,36 @@ func TestManagerNewContract(t *testing.T) {
 func TestManagerGetSupportedContractTypes(t *testing.T) {
 	mgr, _ := newTestManager(t)
 	supported := mgr.GetSupportedContractTypes(t.Context())
-	require.ElementsMatch(t, []types.ContractType{types.ContractTypeDefault}, supported)
+	require.ElementsMatch(
+		t,
+		[]types.ContractType{types.ContractTypeDefault, types.ContractTypeBoarding},
+		supported,
+	)
 }
 
 func TestManagerGetContracts(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		// Each subtest gets its own manager and seeds a known set of contracts
 		// so the per-filter assertions are independent.
-		t.Run("no filter returns all offchain", func(t *testing.T) {
+		t.Run("no filter returns all contracts of every type", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			off1 := newOffchainContract(t, mgr)
 			off2 := newOffchainContract(t, mgr)
-			// Boarding contracts are explicitly excluded from the no-filter listing.
-			_ = newOnchainContract(t, mgr)
+			board := newOnchainContract(t, mgr)
 
 			got, err := mgr.GetContracts(t.Context())
 			require.NoError(t, err)
-			require.ElementsMatch(t, scriptsOf(off1, off2), scriptsOf(got...))
+			require.ElementsMatch(t, scriptsOf(off1, off2, board), scriptsOf(got...))
 		})
 
-		t.Run("by isOnchain", func(t *testing.T) {
+		t.Run("by type returns boarding contracts only", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			_ = newOffchainContract(t, mgr)
 			on := newOnchainContract(t, mgr)
 
-			got, err := mgr.GetContracts(t.Context(), contract.WithIsOnchain())
+			got, err := mgr.GetContracts(
+				t.Context(), contract.WithType(types.ContractTypeBoarding),
+			)
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			require.Equal(t, on.Script, got[0].Script)
@@ -247,10 +228,10 @@ func TestManagerGetContracts(t *testing.T) {
 				wantErrContains: "a filter is already set",
 			},
 			{
-				name: "scripts and isOnchain combined",
+				name: "scripts and type combined",
 				opts: []contract.FilterOption{
 					contract.WithScripts([]string{"abcd"}),
-					contract.WithIsOnchain(),
+					contract.WithType(types.ContractTypeBoarding),
 				},
 				wantErrContains: "a filter is already set",
 			},
@@ -428,12 +409,9 @@ func TestManagerClean(t *testing.T) {
 
 		require.NoError(t, mgr.Clean(t.Context()))
 
-		offchain, err := store.ListContracts(t.Context(), false)
+		all, err := store.ListContracts(t.Context())
 		require.NoError(t, err)
-		require.Empty(t, offchain)
-		onchain, err := store.ListContracts(t.Context(), true)
-		require.NoError(t, err)
-		require.Empty(t, onchain)
+		require.Empty(t, all)
 
 		// Cleaning an already-clean store must be a no-op.
 		require.NoError(t, mgr.Clean(t.Context()))
@@ -452,9 +430,7 @@ func newOffchainContract(t *testing.T, mgr contract.Manager) types.Contract {
 
 func newOnchainContract(t *testing.T, mgr contract.Manager) types.Contract {
 	t.Helper()
-	c, err := mgr.NewContract(
-		t.Context(), types.ContractTypeDefault, contract.WithIsOnchain(),
-	)
+	c, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
 	require.NoError(t, err)
 	time.Sleep(time.Millisecond)
 	return *c

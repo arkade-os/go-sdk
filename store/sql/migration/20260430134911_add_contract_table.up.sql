@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS contract (
   owner_key TEXT NOT NULL,
   signer_key TEXT NOT NULL,
   exit_delay INTEGER NOT NULL,
-  is_onchain BOOLEAN NOT NULL,
   extra_params TEXT,
   metadata TEXT
 );

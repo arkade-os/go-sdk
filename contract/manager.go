@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -37,7 +36,8 @@ func NewManager(args Args) (Manager, error) {
 	// TODO: 1. support also delegate and vhtlc handlers
 	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
 	handlers := map[types.ContractType]handlers.Handler{
-		types.ContractTypeDefault: defaultHandler.NewHandler(args.Client, args.Network),
+		types.ContractTypeDefault:  defaultHandler.NewHandler(args.Client, args.Network, false),
+		types.ContractTypeBoarding: defaultHandler.NewHandler(args.Client, args.Network, true),
 	}
 	return &contractManager{
 		store:       args.Store,
@@ -55,11 +55,17 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	defer m.mu.Unlock()
 
 	for contractType, handler := range m.handlers {
-		if err := m.scanContracts(ctx, contractType, gapLimit, handler); err != nil {
-			return err
-		}
-		if contractType == types.ContractTypeDefault {
+		switch contractType {
+		case types.ContractTypeBoarding:
+			// Boarding (onchain) contracts are looked up via the explorer
+			// per-address; throttled to dodge rate limits.
 			if err := m.scanBoardingContracts(ctx, contractType, gapLimit, handler); err != nil {
+				return err
+			}
+		default:
+			// Offchain contracts are looked up via the indexer's batch
+			// GetVtxos endpoint.
+			if err := m.scanContracts(ctx, contractType, gapLimit, handler); err != nil {
 				return err
 			}
 		}
@@ -90,15 +96,11 @@ func (m *contractManager) NewContract(
 		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
 	}
 
-	contract, err := m.newContract(ctx, contractType, handler, o)
+	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
 		return nil, err
 	}
 	contract.Label = o.label
-
-	if o.dryRun {
-		return contract, nil
-	}
 
 	if err := m.store.AddContract(ctx, *contract); err != nil {
 		return nil, fmt.Errorf("failed to store contract: %w", err)
@@ -137,10 +139,8 @@ func (m *contractManager) GetContracts(
 		return m.store.GetContractsByKeyIds(ctx, f.keyIds)
 	case len(f.contractType) > 0:
 		return m.store.GetContractsByType(ctx, f.contractType)
-	case f.isOnchain:
-		return m.store.GetOnchainContracts(ctx)
 	default:
-		return m.store.ListContracts(ctx, false)
+		return m.store.ListContracts(ctx)
 	}
 }
 
@@ -182,8 +182,7 @@ func (m *contractManager) scanContracts(
 	ctx context.Context,
 	contractType types.ContractType, gapLimit uint32, handler handlers.Handler,
 ) error {
-	opts := newDefaultContractOption()
-	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler, opts)
+	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -282,11 +281,7 @@ func (m *contractManager) scanBoardingContracts(
 	ctx context.Context,
 	contractType types.ContractType, gapLimit uint32, handler handlers.Handler,
 ) error {
-	opts := newDefaultContractOption()
-	opts.isOnchain = true
-	handlerOpts := toHandlerOpts(opts)
-
-	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler, opts)
+	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -333,7 +328,7 @@ scan:
 			if err != nil {
 				return err
 			}
-			contract, err := handler.NewContract(ctx, *keyRef, handlerOpts...)
+			contract, err := handler.NewContract(ctx, *keyRef)
 			if err != nil {
 				return fmt.Errorf(
 					"failed to create boarding contract for key %s: %w", nextKeyId, err,
@@ -385,9 +380,9 @@ scan:
 
 func (m *contractManager) newContract(
 	ctx context.Context,
-	contractType types.ContractType, handler handlers.Handler, opts *contractOption,
+	contractType types.ContractType, handler handlers.Handler,
 ) (*types.Contract, error) {
-	keyId, err := m.getLatestContractKeyId(ctx, types.ContractTypeDefault, handler, opts)
+	keyId, err := m.getLatestContractKeyId(ctx, contractType, handler)
 	if err != nil {
 		return nil, err
 	}
@@ -402,12 +397,12 @@ func (m *contractManager) newContract(
 		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
 	}
 
-	return handler.NewContract(ctx, *keyRef, toHandlerOpts(opts)...)
+	return handler.NewContract(ctx, *keyRef)
 }
 
 func (m *contractManager) getLatestContractKeyId(
 	ctx context.Context,
-	contractType types.ContractType, handler handlers.Handler, o *contractOption,
+	contractType types.ContractType, handler handlers.Handler,
 ) (string, error) {
 	if len(contractType) <= 0 {
 		return "", fmt.Errorf("missing contract type")
@@ -424,19 +419,6 @@ func (m *contractManager) getLatestContractKeyId(
 		found          bool
 	)
 	for _, c := range contracts {
-		var isOnchain bool
-		if val, ok := c.Params[types.ContractParamIsOnchain]; ok {
-			isOnchain, err = strconv.ParseBool(val)
-			if err != nil {
-				return "", fmt.Errorf(
-					"invalid %s param format: epxected bool, got %s",
-					types.ContractParamIsOnchain, val,
-				)
-			}
-			if isOnchain != o.isOnchain {
-				continue
-			}
-		}
 		keyRef, err := handler.GetKeyRef(c)
 		if err != nil {
 			return "", err
@@ -498,12 +480,4 @@ func (m *contractManager) findUsedBoardingContracts(
 		}
 	}
 	return used, nil
-}
-
-func toHandlerOpts(opts *contractOption) []handlers.ContractOption {
-	handlerOpts := make([]handlers.ContractOption, 0)
-	if opts.isOnchain {
-		handlerOpts = append(handlerOpts, handlers.WithIsOnchain())
-	}
-	return handlerOpts
 }

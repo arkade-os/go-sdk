@@ -10,9 +10,7 @@ import (
 )
 
 type Handler interface {
-	NewContract(
-		ctx context.Context, keyRef wallet.KeyRef, opts ...ContractOption,
-	) (*types.Contract, error)
+	NewContract(ctx context.Context, keyRef wallet.KeyRef) (*types.Contract, error)
 	GetKeyRefs(contract types.Contract) (map[string]string, error)
 	GetKeyRef(contract types.Contract) (*wallet.KeyRef, error)
 	GetSignerKey(contract types.Contract) (*btcec.PublicKey, error)

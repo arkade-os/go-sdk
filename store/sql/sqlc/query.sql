@@ -133,11 +133,11 @@ DELETE FROM utxo;
 
 -- name: InsertContract :exec
 INSERT INTO contract (
-    script, type, label, address, is_onchain, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    script, type, label, address, state, created_at, owner_key_id, owner_key, signer_key, exit_delay, extra_params, metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SelectAllContracts :many
-SELECT * FROM contract WHERE is_onchain = :is_onchain;
+SELECT * FROM contract;
 
 -- name: SelectContractsByScripts :many
 SELECT * FROM contract

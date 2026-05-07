@@ -37,14 +37,6 @@ func TestWithTypeFilter(t *testing.T) {
 				expectError: "a filter is already set",
 			},
 			{
-				name: "conflicts with isOnchain",
-				opts: []FilterOption{
-					WithIsOnchain(),
-					WithType(types.ContractTypeDefault),
-				},
-				expectError: "a filter is already set",
-			},
-			{
 				name: "conflicts with scripts",
 				opts: []FilterOption{
 					WithScripts([]string{"abcd"}),
@@ -95,14 +87,6 @@ func TestWithStateFilter(t *testing.T) {
 				name: "conflicts with type",
 				opts: []FilterOption{
 					WithType(types.ContractTypeDefault),
-					WithState(types.ContractStateActive),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with isOnchain",
-				opts: []FilterOption{
-					WithIsOnchain(),
 					WithState(types.ContractStateActive),
 				},
 				expectError: "a filter is already set",
@@ -176,14 +160,6 @@ func TestWithScriptsFilter(t *testing.T) {
 				expectError: "a filter is already set",
 			},
 			{
-				name: "conflicts with isOnchain",
-				opts: []FilterOption{
-					WithIsOnchain(),
-					WithScripts([]string{"a"}),
-				},
-				expectError: "a filter is already set",
-			},
-			{
 				name: "conflicts with key IDs",
 				opts: []FilterOption{
 					WithKeyIds([]string{"k"}),
@@ -251,14 +227,6 @@ func TestWithKeyIDFilter(t *testing.T) {
 				},
 				expectError: "a filter is already set",
 			},
-			{
-				name: "conflicts with isOnchain",
-				opts: []FilterOption{
-					WithIsOnchain(),
-					WithKeyIds([]string{"k"}),
-				},
-				expectError: "a filter is already set",
-			},
 		}
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -266,79 +234,6 @@ func TestWithKeyIDFilter(t *testing.T) {
 				require.ErrorContains(t, err, tc.expectError)
 			})
 		}
-	})
-}
-
-func TestWithIsOnchainAsFilter(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		f, err := applyFilterOptions(WithIsOnchain())
-		require.NoError(t, err)
-		require.True(t, f.isOnchain)
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		testCases := []struct {
-			name        string
-			opts        []FilterOption
-			expectError string
-		}{
-			{
-				name:        "already set",
-				opts:        []FilterOption{WithIsOnchain(), WithIsOnchain()},
-				expectError: "isOnchain filter is already set",
-			},
-			{
-				name: "conflicts with type",
-				opts: []FilterOption{
-					WithType(types.ContractTypeDefault),
-					WithIsOnchain(),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with state",
-				opts: []FilterOption{
-					WithState(types.ContractStateActive),
-					WithIsOnchain(),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with scripts",
-				opts: []FilterOption{
-					WithScripts([]string{"a"}),
-					WithIsOnchain(),
-				},
-				expectError: "a filter is already set",
-			},
-			{
-				name: "conflicts with key IDs",
-				opts: []FilterOption{
-					WithKeyIds([]string{"k"}),
-					WithIsOnchain(),
-				},
-				expectError: "a filter is already set",
-			},
-		}
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := applyFilterOptions(tc.opts...)
-				require.ErrorContains(t, err, tc.expectError)
-			})
-		}
-	})
-}
-
-func TestWithDryRun(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		o, err := applyContractOptions(WithDryRun())
-		require.NoError(t, err)
-		require.True(t, o.dryRun)
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		_, err := applyContractOptions(WithDryRun(), WithDryRun())
-		require.ErrorContains(t, err, "dry run option is already set")
 	})
 }
 
@@ -353,44 +248,6 @@ func TestWithLabel(t *testing.T) {
 		_, err := applyContractOptions(WithLabel("a"), WithLabel("b"))
 		require.ErrorContains(t, err, "label option is already set")
 	})
-}
-
-func TestWithIsOnchainAsContractOption(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		o, err := applyContractOptions(WithIsOnchain())
-		require.NoError(t, err)
-		require.True(t, o.isOnchain)
-	})
-
-	t.Run("composes with other contract options", func(t *testing.T) {
-		o, err := applyContractOptions(WithIsOnchain(), WithLabel("x"), WithDryRun())
-		require.NoError(t, err)
-		require.True(t, o.isOnchain)
-		require.True(t, o.dryRun)
-		require.Equal(t, "x", o.label)
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		_, err := applyContractOptions(WithIsOnchain(), WithIsOnchain())
-		require.ErrorContains(t, err, "isOnchain option is already set")
-	})
-}
-
-// TestWithIsOnchainSatisfiesBothFamilies guarantees the shared option type can
-// be passed to both FilterOption and ContractOption variadic parameters at
-// compile time.
-func TestWithIsOnchainSatisfiesBothFamilies(t *testing.T) {
-	opt := WithIsOnchain()
-	var _ FilterOption = opt
-	var _ ContractOption = opt
-
-	f, err := applyFilterOptions(opt)
-	require.NoError(t, err)
-	require.True(t, f.isOnchain)
-
-	o, err := applyContractOptions(WithIsOnchain())
-	require.NoError(t, err)
-	require.True(t, o.isOnchain)
 }
 
 func applyFilterOptions(opts ...FilterOption) (*filter, error) {

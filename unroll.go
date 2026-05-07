@@ -11,6 +11,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
 	log "github.com/sirupsen/logrus"
 )
@@ -101,7 +102,9 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 		return "", err
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
+	contracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +130,9 @@ func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string
 		return "", err
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
+	contracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
 	if err != nil {
 		return "", err
 	}

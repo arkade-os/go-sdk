@@ -47,19 +47,11 @@ func (v *contractStore) AddContract(ctx context.Context, contract types.Contract
 	if err != nil {
 		return fmt.Errorf("invalid %s param: %w", types.ContractParamExitDelay, err)
 	}
-	var isOnchain bool
-	if val, ok := contract.Params[types.ContractParamIsOnchain]; ok {
-		isOnchain, err = strconv.ParseBool(val)
-		if err != nil {
-			return fmt.Errorf("invalid %s param: %w", types.ContractParamIsOnchain, err)
-		}
-	}
 
 	extraParams := make(map[string]string)
 	for k, v := range contract.Params {
 		if k != types.ContractParamOwnerKey && k != types.ContractParamOwnerKeyId &&
-			k != types.ContractParamSignerKey && k != types.ContractParamExitDelay &&
-			k != types.ContractParamIsOnchain {
+			k != types.ContractParamSignerKey && k != types.ContractParamExitDelay {
 			extraParams[k] = v
 		}
 	}
@@ -93,7 +85,6 @@ func (v *contractStore) AddContract(ctx context.Context, contract types.Contract
 		OwnerKey:    contract.Params[types.ContractParamOwnerKey],
 		SignerKey:   contract.Params[types.ContractParamSignerKey],
 		ExitDelay:   exitDelay.Seconds(),
-		IsOnchain:   isOnchain,
 		ExtraParams: sql.NullString{String: extraParamsStr, Valid: len(extraParamsStr) > 0},
 		Metadata:    sql.NullString{String: metadata, Valid: len(metadata) > 0},
 	}); err != nil {
@@ -105,8 +96,8 @@ func (v *contractStore) AddContract(ctx context.Context, contract types.Contract
 	return nil
 }
 
-func (v *contractStore) ListContracts(ctx context.Context, onchain bool) ([]types.Contract, error) {
-	rows, err := v.querier.SelectAllContracts(ctx, onchain)
+func (v *contractStore) ListContracts(ctx context.Context) ([]types.Contract, error) {
+	rows, err := v.querier.SelectAllContracts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -149,18 +140,6 @@ func (v *contractStore) GetContractsByType(
 	ctx context.Context, contractType types.ContractType,
 ) ([]types.Contract, error) {
 	rows, err := v.querier.SelectContractsByType(ctx, string(contractType))
-	if err != nil {
-		return nil, err
-	}
-	contracts := make([]types.Contract, 0, len(rows))
-	for _, row := range rows {
-		contracts = append(contracts, toContract(row))
-	}
-	return contracts, nil
-}
-
-func (v *contractStore) GetOnchainContracts(ctx context.Context) ([]types.Contract, error) {
-	rows, err := v.querier.SelectAllContracts(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +209,6 @@ func toContract(row queries.Contract) types.Contract {
 	params[types.ContractParamOwnerKeyId] = row.OwnerKeyID
 	params[types.ContractParamSignerKey] = row.SignerKey
 	params[types.ContractParamExitDelay] = strconv.Itoa(int(row.ExitDelay))
-	params[types.ContractParamIsOnchain] = strconv.FormatBool(row.IsOnchain)
 	metadata := make(map[string]string)
 	if row.Metadata.Valid {
 		// nolint:errcheck

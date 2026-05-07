@@ -229,9 +229,10 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 	require.NoError(t, err)
 
 	// Mirror the manager's offchain derivation: same wallet, same default
-	// handler. derive(keyId) yields the same contract the scan loop would
-	// produce when the next key it asks for happens to be keyId.
-	handler := defaultHandler.NewHandler(transport, testNetwork)
+	// handler (isOnchain=false). derive(keyId) yields the same contract the
+	// scan loop would produce when the next key it asks for happens to be
+	// keyId.
+	handler := defaultHandler.NewHandler(transport, testNetwork, false)
 	derive := func(keyId string) types.Contract {
 		t.Helper()
 		keyRef, err := wsvc.GetKey(t.Context(), keyId)

@@ -110,7 +110,8 @@ const (
 type ContractType string
 
 const (
-	ContractTypeDefault ContractType = "default"
+	ContractTypeDefault  ContractType = "default"
+	ContractTypeBoarding ContractType = "boarding"
 )
 
 type Contract struct {
@@ -130,5 +131,4 @@ const (
 	ContractParamOwnerKeyId = "ownerKeyId"
 	ContractParamSignerKey  = "signerKey"
 	ContractParamExitDelay  = "exitDelay"
-	ContractParamIsOnchain  = "isOnchain"
 )

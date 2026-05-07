@@ -55,9 +55,8 @@ func (s *contractStore) AddContract(ctx context.Context, contract types.Contract
 	return nil
 }
 
-func (s *contractStore) ListContracts(ctx context.Context, onchain bool) ([]types.Contract, error) {
-	query := badgerhold.Where("IsOnchain").Eq(onchain)
-	return s.find(ctx, query)
+func (s *contractStore) ListContracts(ctx context.Context) ([]types.Contract, error) {
+	return s.find(ctx, nil)
 }
 
 func (s *contractStore) GetContractsByScripts(
@@ -85,10 +84,6 @@ func (s *contractStore) GetContractsByType(
 	return s.find(ctx, query)
 }
 
-func (s *contractStore) GetOnchainContracts(ctx context.Context) ([]types.Contract, error) {
-	query := badgerhold.Where("IsOnchain").Eq(true)
-	return s.find(ctx, query)
-}
 func (s *contractStore) GetContractsByKeyIds(
 	ctx context.Context, keyIds []string,
 ) ([]types.Contract, error) {
@@ -158,7 +153,6 @@ type contractDTO struct {
 	OwnerKeyId  string
 	SignerKey   string
 	ExitDelay   arklib.RelativeLocktime
-	IsOnchain   bool
 	ExtraParams map[string]string
 	Metadata    map[string]string
 }
@@ -169,7 +163,6 @@ func (c contractDTO) parse() types.Contract {
 		types.ContractParamOwnerKeyId: c.OwnerKeyId,
 		types.ContractParamSignerKey:  c.SignerKey,
 		types.ContractParamExitDelay:  strconv.Itoa(int(c.ExitDelay.Seconds())),
-		types.ContractParamIsOnchain:  strconv.FormatBool(c.IsOnchain),
 	}
 	for k, v := range c.ExtraParams {
 		params[k] = v
@@ -204,19 +197,11 @@ func toContractDTO(contract types.Contract) (*contractDTO, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamExitDelay, err)
 	}
-	var isOnchain bool
-	if val, ok := contract.Params[types.ContractParamIsOnchain]; ok {
-		isOnchain, err = strconv.ParseBool(val)
-		if err != nil {
-			return nil, fmt.Errorf("invalid %s param: %w", types.ContractParamIsOnchain, err)
-		}
-	}
 
 	extraParams := make(map[string]string)
 	for k, v := range contract.Params {
 		if k != types.ContractParamOwnerKey && k != types.ContractParamOwnerKeyId &&
-			k != types.ContractParamSignerKey && k != types.ContractParamExitDelay &&
-			k != types.ContractParamIsOnchain {
+			k != types.ContractParamSignerKey && k != types.ContractParamExitDelay {
 			extraParams[k] = v
 		}
 	}
@@ -232,7 +217,6 @@ func toContractDTO(contract types.Contract) (*contractDTO, error) {
 		SignerKey:   contract.Params[types.ContractParamSignerKey],
 		ExitDelay:   *exitDelay,
 		ExtraParams: extraParams,
-		IsOnchain:   isOnchain,
 		Metadata:    contract.Metadata,
 	}, nil
 }

@@ -51,7 +51,6 @@ type Contract struct {
 	OwnerKey    string
 	SignerKey   string
 	ExitDelay   int64
-	IsOnchain   bool
 	ExtraParams sql.NullString
 	Metadata    sql.NullString
 }

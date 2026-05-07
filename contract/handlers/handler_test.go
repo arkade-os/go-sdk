@@ -27,72 +27,69 @@ const (
 	testBoardingExitDelay int64 = 1024
 )
 
-var (
-	testNetwork = arklib.BitcoinRegTest
-	contracts   = map[types.ContractType][]string{
-		types.ContractTypeDefault: {offchainMode, onchainMode},
-	}
-)
+var testNetwork = arklib.BitcoinRegTest
+
+// modeFixture is one row of the parametrization driving every TestHandler*:
+// each handler kind (offchain default vs onchain boarding) is built once via
+// the factory's isOnchain flag and is expected to produce contracts of the
+// matching type.
+type modeFixture struct {
+	name       string
+	isOnchain  bool
+	expectType types.ContractType
+}
+
+var modeFixtures = []modeFixture{
+	{name: offchainMode, isOnchain: false, expectType: types.ContractTypeDefault},
+	{name: onchainMode, isOnchain: true, expectType: types.ContractTypeBoarding},
+}
 
 func TestHandlerNewContract(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		for ct, modes := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				for _, mode := range modes {
-					t.Run(mode, func(t *testing.T) {
-						var opts []handlers.ContractOption
-						if mode == onchainMode {
-							opts = []handlers.ContractOption{handlers.WithIsOnchain()}
-						}
-						built, err := h.NewContract(t.Context(), keyRef, opts...)
-						require.NoError(t, err)
-						c := *built
+				built, err := h.NewContract(t.Context(), keyRef)
+				require.NoError(t, err)
+				c := *built
 
-						t.Run(mode, func(t *testing.T) {
-							require.Equal(t, ct, c.Type)
-							require.Equal(t, types.ContractStateActive, c.State)
-							require.NotEmpty(t, c.Script)
-							require.NotEmpty(t, c.Address)
-							require.False(t, c.CreatedAt.IsZero())
-							require.Equal(t, keyRef.Id, c.Params[types.ContractParamOwnerKeyId])
-							require.Equal(
-								t,
-								hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
-								c.Params[types.ContractParamOwnerKey],
-							)
-							require.NotEmpty(t, c.Params[types.ContractParamSignerKey])
+				require.Equal(t, mode.expectType, c.Type)
+				require.Equal(t, types.ContractStateActive, c.State)
+				require.NotEmpty(t, c.Script)
+				require.NotEmpty(t, c.Address)
+				require.False(t, c.CreatedAt.IsZero())
+				require.Equal(t, keyRef.Id, c.Params[types.ContractParamOwnerKeyId])
+				require.Equal(
+					t,
+					hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
+					c.Params[types.ContractParamOwnerKey],
+				)
+				require.NotEmpty(t, c.Params[types.ContractParamSignerKey])
 
-							switch mode {
-							case offchainMode:
-								require.Equal(t, "false", c.Params[types.ContractParamIsOnchain])
-								require.Equal(
-									t,
-									strconv.FormatInt(testUnilateralExitDelay, 10),
-									c.Params[types.ContractParamExitDelay],
-								)
-								require.Contains(t, c.Address, testNetwork.Addr)
-							case onchainMode:
-								require.Equal(t, "true", c.Params[types.ContractParamIsOnchain])
-								require.Equal(
-									t,
-									strconv.FormatInt(testBoardingExitDelay, 10),
-									c.Params[types.ContractParamExitDelay],
-								)
-								require.Contains(t, c.Address, "bcrt1p")
-							}
-						})
-					})
+				if mode.isOnchain {
+					require.Equal(
+						t,
+						strconv.FormatInt(testBoardingExitDelay, 10),
+						c.Params[types.ContractParamExitDelay],
+					)
+					require.Contains(t, c.Address, "bcrt1p")
+				} else {
+					require.Equal(
+						t,
+						strconv.FormatInt(testUnilateralExitDelay, 10),
+						c.Params[types.ContractParamExitDelay],
+					)
+					require.Contains(t, c.Address, testNetwork.Addr)
 				}
 			})
 		}
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		for ct := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
 				keyRef := newTestKeyRef(t)
 
 				cases := []struct {
@@ -124,7 +121,7 @@ func TestHandlerNewContract(t *testing.T) {
 					t.Run(c.name, func(t *testing.T) {
 						h := defaultHandler.NewHandler(
 							&mockTransportClient{info: c.info, infoErr: c.infoErr},
-							testNetwork,
+							testNetwork, mode.isOnchain,
 						)
 						got, err := h.NewContract(t.Context(), keyRef)
 						require.Error(t, err)
@@ -139,44 +136,34 @@ func TestHandlerNewContract(t *testing.T) {
 
 func TestHandlerGetKeyRef(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		for ct, modes := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				for _, mode := range modes {
-					t.Run(mode, func(t *testing.T) {
-						var opts []handlers.ContractOption
-						if mode == onchainMode {
-							opts = []handlers.ContractOption{handlers.WithIsOnchain()}
-						}
-						built, err := h.NewContract(t.Context(), keyRef, opts...)
-						require.NoError(t, err)
-						c := *built
+				built, err := h.NewContract(t.Context(), keyRef)
+				require.NoError(t, err)
+				c := *built
 
-						t.Run(mode, func(t *testing.T) {
-							ref, err := h.GetKeyRef(c)
-							require.NoError(t, err)
-							require.NotNil(t, ref)
-							require.Equal(t, keyRef.Id, ref.Id)
-							// Schnorr serialization is x-only and drops y-parity, so
-							// compare the canonical encodings, not the parsed *PublicKey.
-							require.Equal(
-								t,
-								schnorr.SerializePubKey(keyRef.PubKey),
-								schnorr.SerializePubKey(ref.PubKey),
-							)
-						})
-					})
-				}
+				ref, err := h.GetKeyRef(c)
+				require.NoError(t, err)
+				require.NotNil(t, ref)
+				require.Equal(t, keyRef.Id, ref.Id)
+				// Schnorr serialization is x-only and drops y-parity, so
+				// compare the canonical encodings, not the parsed *PublicKey.
+				require.Equal(
+					t,
+					schnorr.SerializePubKey(keyRef.PubKey),
+					schnorr.SerializePubKey(ref.PubKey),
+				)
 			})
 		}
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		for ct := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 
 				cases := []struct {
 					name          string
@@ -239,41 +226,31 @@ func TestHandlerGetKeyRef(t *testing.T) {
 
 func TestHandlerGetSignerKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		for ct, modes := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				for _, mode := range modes {
-					t.Run(mode, func(t *testing.T) {
-						var opts []handlers.ContractOption
-						if mode == onchainMode {
-							opts = []handlers.ContractOption{handlers.WithIsOnchain()}
-						}
-						built, err := h.NewContract(t.Context(), keyRef, opts...)
-						require.NoError(t, err)
-						c := *built
+				built, err := h.NewContract(t.Context(), keyRef)
+				require.NoError(t, err)
+				c := *built
 
-						t.Run(mode, func(t *testing.T) {
-							signer, err := h.GetSignerKey(c)
-							require.NoError(t, err)
-							require.NotNil(t, signer)
-							require.Equal(
-								t,
-								c.Params[types.ContractParamSignerKey],
-								hex.EncodeToString(schnorr.SerializePubKey(signer)),
-							)
-						})
-					})
-				}
+				signer, err := h.GetSignerKey(c)
+				require.NoError(t, err)
+				require.NotNil(t, signer)
+				require.Equal(
+					t,
+					c.Params[types.ContractParamSignerKey],
+					hex.EncodeToString(schnorr.SerializePubKey(signer)),
+				)
 			})
 		}
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		for ct := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 
 				cases := []struct {
 					name          string
@@ -323,45 +300,34 @@ func TestHandlerGetSignerKey(t *testing.T) {
 
 func TestHandlerGetExitDelay(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		for ct, modes := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				for _, mode := range modes {
-					t.Run(mode, func(t *testing.T) {
-						var opts []handlers.ContractOption
-						if mode == onchainMode {
-							opts = []handlers.ContractOption{handlers.WithIsOnchain()}
-						}
-						built, err := h.NewContract(t.Context(), keyRef, opts...)
-						require.NoError(t, err)
-						c := *built
+				built, err := h.NewContract(t.Context(), keyRef)
+				require.NoError(t, err)
+				c := *built
 
-						t.Run(mode, func(t *testing.T) {
-							delay, err := h.GetExitDelay(c)
-							require.NoError(t, err)
-							require.NotNil(t, delay)
+				delay, err := h.GetExitDelay(c)
+				require.NoError(t, err)
+				require.NotNil(t, delay)
 
-							switch mode {
-							case offchainMode:
-								require.Equal(t, arklib.LocktimeTypeBlock, delay.Type)
-								require.Equal(t, uint32(testUnilateralExitDelay), delay.Value)
-							case onchainMode:
-								require.Equal(t, arklib.LocktimeTypeSecond, delay.Type)
-								require.Equal(t, uint32(testBoardingExitDelay), delay.Value)
-							}
-						})
-					})
+				if mode.isOnchain {
+					require.Equal(t, arklib.LocktimeTypeSecond, delay.Type)
+					require.Equal(t, uint32(testBoardingExitDelay), delay.Value)
+				} else {
+					require.Equal(t, arklib.LocktimeTypeBlock, delay.Type)
+					require.Equal(t, uint32(testUnilateralExitDelay), delay.Value)
 				}
 			})
 		}
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		for ct := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 
 				cases := []struct {
 					name          string
@@ -404,39 +370,29 @@ func TestHandlerGetExitDelay(t *testing.T) {
 
 func TestHandlerGetTapscripts(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		for ct, modes := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				for _, mode := range modes {
-					t.Run(mode, func(t *testing.T) {
-						var opts []handlers.ContractOption
-						if mode == onchainMode {
-							opts = []handlers.ContractOption{handlers.WithIsOnchain()}
-						}
-						built, err := h.NewContract(t.Context(), keyRef, opts...)
-						require.NoError(t, err)
-						c := *built
+				built, err := h.NewContract(t.Context(), keyRef)
+				require.NoError(t, err)
+				c := *built
 
-						t.Run(mode, func(t *testing.T) {
-							scripts, err := h.GetTapscripts(c)
-							require.NoError(t, err)
-							require.NotEmpty(t, scripts)
-							for _, s := range scripts {
-								require.NotEmpty(t, s)
-							}
-						})
-					})
+				scripts, err := h.GetTapscripts(c)
+				require.NoError(t, err)
+				require.NotEmpty(t, scripts)
+				for _, s := range scripts {
+					require.NotEmpty(t, s)
 				}
 			})
 		}
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		for ct := range contracts {
-			t.Run(string(ct), func(t *testing.T) {
-				h := newTestHandler(t)
+		for _, mode := range modeFixtures {
+			t.Run(mode.name, func(t *testing.T) {
+				h := newTestHandler(t, mode.isOnchain)
 
 				// Each case strips a different required param so the corresponding
 				// inner getter (KeyRef / SignerKey / ExitDelay) is the one that fails.
@@ -492,10 +448,12 @@ func TestHandlerGetTapscripts(t *testing.T) {
 	})
 }
 
-func newTestHandler(t *testing.T) handlers.Handler {
+func newTestHandler(t *testing.T, isOnchain bool) handlers.Handler {
 	t.Helper()
 	info := newTestInfo(t, newTestPubKey(t))
-	return defaultHandler.NewHandler(&mockTransportClient{info: info}, testNetwork)
+	return defaultHandler.NewHandler(
+		&mockTransportClient{info: info}, testNetwork, isOnchain,
+	)
 }
 
 func newTestKeyRef(t *testing.T) wallet.KeyRef {

@@ -29,12 +29,16 @@ func (a *arkClient) GetAddresses(ctx context.Context) (
 		return nil, nil, nil, nil, err
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx)
+	contracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeDefault),
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	boardingContracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
+	boardingContracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -68,7 +72,7 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	}
 
 	contract, err := a.contractManager.NewContract(
-		ctx, types.ContractTypeDefault, contract.WithIsOnchain(),
+		ctx, types.ContractTypeBoarding,
 	)
 	if err != nil {
 		return "", err

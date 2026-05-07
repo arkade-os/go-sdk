@@ -25,21 +25,30 @@ const (
 )
 
 type defaultHandler struct {
-	network arklib.Network
-	client  client.TransportClient
-	cache   *infoCache
+	network   arklib.Network
+	client    client.TransportClient
+	cache     *infoCache
+	isOnchain bool
 }
 
-func NewHandler(client client.TransportClient, network arklib.Network) handlers.Handler {
+// NewHandler builds a handler for either the offchain default contract type
+// (isOnchain=false) or the onchain boarding contract type (isOnchain=true).
+// The flag selects exit delay (UnilateralExitDelay vs BoardingExitDelay),
+// address encoding (Ark v0 vs taproot), produced contract type, and whether
+// a checkpoint exit path is attached.
+func NewHandler(
+	client client.TransportClient, network arklib.Network, isOnchain bool,
+) handlers.Handler {
 	return &defaultHandler{
-		network: network,
-		client:  client,
-		cache:   newInfoCache(5 * time.Minute),
+		network:   network,
+		client:    client,
+		cache:     newInfoCache(5 * time.Minute),
+		isOnchain: isOnchain,
 	}
 }
 
 func (h *defaultHandler) NewContract(
-	ctx context.Context, keyRef wallet.KeyRef, contractOpts ...handlers.ContractOption,
+	ctx context.Context, keyRef wallet.KeyRef,
 ) (*types.Contract, error) {
 	info, err := h.getInfo(ctx)
 	if err != nil {
@@ -55,13 +64,8 @@ func (h *defaultHandler) NewContract(
 		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
 	}
 
-	o := handlers.NewDefaultContractOption()
-	for _, opt := range contractOpts {
-		opt(o)
-	}
-
 	delay := info.UnilateralExitDelay
-	if o.IsOnchain {
+	if h.isOnchain {
 		delay = info.BoardingExitDelay
 	}
 	exitDelay := arklib.RelativeLocktime{
@@ -86,7 +90,7 @@ func (h *defaultHandler) NewContract(
 	}
 
 	var addr string
-	if o.IsOnchain {
+	if h.isOnchain {
 		btcNetwork := utils.ToBitcoinNetwork(h.network)
 		address, err := btcutil.NewAddressTaproot(
 			schnorr.SerializePubKey(taprootKey), &btcNetwork,
@@ -112,15 +116,16 @@ func (h *defaultHandler) NewContract(
 		types.ContractParamOwnerKey:   hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
 		types.ContractParamSignerKey:  hex.EncodeToString(schnorr.SerializePubKey(signerKey)),
 		types.ContractParamExitDelay:  strconv.FormatInt(delay, 10),
-		types.ContractParamIsOnchain:  strconv.FormatBool(o.IsOnchain),
 	}
 
-	if !o.IsOnchain {
+	contractType := types.ContractTypeBoarding
+	if !h.isOnchain {
+		contractType = types.ContractTypeDefault
 		params[checkpointExitPathParam] = info.CheckpointTapscript
 	}
 
 	return &types.Contract{
-		Type:      types.ContractTypeDefault,
+		Type:      contractType,
 		Params:    params,
 		Script:    hex.EncodeToString(outputScript),
 		Address:   addr,
@@ -134,16 +139,8 @@ func (h *defaultHandler) GetKeyRefs(contract types.Contract) (map[string]string,
 	if err != nil {
 		return nil, err
 	}
-	isOnchainStr := contract.Params[types.ContractParamIsOnchain]
-	if len(isOnchainStr) <= 0 {
-		isOnchainStr = "false"
-	}
-	isOnchain, err := strconv.ParseBool(isOnchainStr)
-	if err != nil {
-		return nil, fmt.Errorf("contract %s has invalid isOnchain param: %w", contract.Script, err)
-	}
 
-	if isOnchain {
+	if h.isOnchain {
 		return map[string]string{contract.Script: keyId}, nil
 	}
 

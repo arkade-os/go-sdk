@@ -73,11 +73,10 @@ type AssetStore interface {
 
 type ContractStore interface {
 	AddContract(ctx context.Context, c Contract) error
-	ListContracts(ctx context.Context, onchain bool) ([]Contract, error)
+	ListContracts(ctx context.Context) ([]Contract, error)
 	GetContractsByScripts(ctx context.Context, scripts []string) ([]Contract, error)
 	GetContractsByState(ctx context.Context, state ContractState) ([]Contract, error)
 	GetContractsByType(ctx context.Context, contractType ContractType) ([]Contract, error)
-	GetOnchainContracts(ctx context.Context) ([]Contract, error)
 	GetContractsByKeyIds(ctx context.Context, keyIds []string) ([]Contract, error)
 	UpdateContractState(ctx context.Context, script string, state ContractState) error
 	Clean(ctx context.Context) error

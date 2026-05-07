@@ -12,7 +12,7 @@ import (
 var (
 	testContractCreatedAt = time.Unix(1746143068, 0)
 
-	// Active, offchain, key index 0.
+	// Active, offchain (default type), key index 0.
 	testContractA = types.Contract{
 		Type:      types.ContractTypeDefault,
 		Label:     "first",
@@ -25,11 +25,10 @@ var (
 			types.ContractParamOwnerKey:   "0102030405",
 			types.ContractParamSignerKey:  "06070809",
 			types.ContractParamExitDelay:  "144",
-			types.ContractParamIsOnchain:  "false",
 		},
 	}
 
-	// Active, offchain, key index 1.
+	// Active, offchain (default type), key index 1.
 	testContractB = types.Contract{
 		Type:      types.ContractTypeDefault,
 		Label:     "second",
@@ -42,13 +41,12 @@ var (
 			types.ContractParamOwnerKey:   "0a0b0c0d0e",
 			types.ContractParamSignerKey:  "0f101112",
 			types.ContractParamExitDelay:  "288",
-			types.ContractParamIsOnchain:  "false",
 		},
 	}
 
-	// Inactive, onchain, key index 2.
+	// Inactive, boarding (onchain) type, key index 2.
 	testContractC = types.Contract{
-		Type:      types.ContractTypeDefault,
+		Type:      types.ContractTypeBoarding,
 		Label:     "third",
 		Script:    "0000000000000000000000000000000000000000000000000000000000000003",
 		Address:   "ark1qthird",
@@ -59,7 +57,6 @@ var (
 			types.ContractParamOwnerKey:   "131415",
 			types.ContractParamSignerKey:  "161718",
 			types.ContractParamExitDelay:  "144",
-			types.ContractParamIsOnchain:  "true",
 		},
 	}
 
@@ -76,7 +73,6 @@ var (
 			types.ContractParamOwnerKey:   "deadbeef",
 			types.ContractParamSignerKey:  "cafebabe",
 			types.ContractParamExitDelay:  "144",
-			types.ContractParamIsOnchain:  "false",
 			"extra1":                      "value1",
 			"extra2":                      "value2",
 		},
@@ -98,7 +94,7 @@ func TestContractStoreAddContract(t *testing.T) {
 				require.NoError(t, s.AddContract(ctx, testContractA))
 				require.NoError(t, s.AddContract(ctx, testContractB))
 
-				got, err := s.ListContracts(ctx, false)
+				got, err := s.ListContracts(ctx)
 				require.NoError(t, err)
 				require.Len(t, got, 2)
 			})
@@ -138,7 +134,6 @@ func TestContractStoreAddContract(t *testing.T) {
 						types.ContractParamOwnerKeyId: "m/0/0",
 						types.ContractParamSignerKey:  "06070809",
 						types.ContractParamExitDelay:  "144",
-						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing ownerKey param",
 				},
@@ -148,7 +143,6 @@ func TestContractStoreAddContract(t *testing.T) {
 						types.ContractParamOwnerKey:  "0102030405",
 						types.ContractParamSignerKey: "06070809",
 						types.ContractParamExitDelay: "144",
-						types.ContractParamIsOnchain: "false",
 					},
 					expectedError: "missing ownerKeyId param",
 				},
@@ -158,7 +152,6 @@ func TestContractStoreAddContract(t *testing.T) {
 						types.ContractParamOwnerKey:   "0102030405",
 						types.ContractParamOwnerKeyId: "m/0/0",
 						types.ContractParamExitDelay:  "144",
-						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing signerKey param",
 				},
@@ -168,7 +161,6 @@ func TestContractStoreAddContract(t *testing.T) {
 						types.ContractParamOwnerKey:   "0102030405",
 						types.ContractParamOwnerKeyId: "m/0/0",
 						types.ContractParamSignerKey:  "06070809",
-						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "missing exitDelay param",
 				},
@@ -179,20 +171,8 @@ func TestContractStoreAddContract(t *testing.T) {
 						types.ContractParamOwnerKeyId: "m/0/0",
 						types.ContractParamSignerKey:  "06070809",
 						types.ContractParamExitDelay:  "notanumber",
-						types.ContractParamIsOnchain:  "false",
 					},
 					expectedError: "invalid exitDelay param",
-				},
-				{
-					name: "invalid isOnchain",
-					params: map[string]string{
-						types.ContractParamOwnerKey:   "0102030405",
-						types.ContractParamOwnerKeyId: "m/0/0",
-						types.ContractParamSignerKey:  "06070809",
-						types.ContractParamExitDelay:  "144",
-						types.ContractParamIsOnchain:  "notabool",
-					},
-					expectedError: "invalid isOnchain param",
 				},
 			}
 
@@ -226,22 +206,17 @@ func TestContractStoreListContracts(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
 			ctx := t.Context()
 
-			empty, err := s.ListContracts(ctx, false)
+			empty, err := s.ListContracts(ctx)
 			require.NoError(t, err)
 			require.Empty(t, empty)
 
+			// Mix of default and boarding contracts to verify the no-arg
+			// listing returns every persisted contract regardless of type.
 			seedContracts(t, s, testContractA, testContractB, testContractC)
 
-			t.Run("offchain", func(t *testing.T) {
-				got, err := s.ListContracts(ctx, false)
-				require.NoError(t, err)
-				require.Len(t, got, 2)
-			})
-			t.Run("onchain", func(t *testing.T) {
-				got, err := s.ListContracts(ctx, true)
-				require.NoError(t, err)
-				require.Len(t, got, 1)
-			})
+			got, err := s.ListContracts(ctx)
+			require.NoError(t, err)
+			require.Len(t, got, 3)
 		})
 	})
 }
@@ -325,10 +300,17 @@ func TestContractStoreGetContractsByType(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractB, testContractC)
 
-			t.Run("non empty", func(t *testing.T) {
+			t.Run("default returns offchain contracts", func(t *testing.T) {
 				got, err := s.GetContractsByType(ctx, types.ContractTypeDefault)
 				require.NoError(t, err)
-				require.Len(t, got, 3)
+				require.Len(t, got, 2)
+			})
+
+			t.Run("boarding returns onchain contracts", func(t *testing.T) {
+				got, err := s.GetContractsByType(ctx, types.ContractTypeBoarding)
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				require.Equal(t, testContractC.Script, got[0].Script)
 			})
 
 			t.Run("empty", func(t *testing.T) {
@@ -344,33 +326,6 @@ func TestContractStoreGetContractsByType(t *testing.T) {
 					require.NoError(t, err)
 					require.Empty(t, got)
 				}
-			})
-		})
-	})
-}
-
-func TestContractStoreGetOnchainContracts(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			ctx := t.Context()
-			seedContracts(t, s, testContractA, testContractB, testContractC)
-
-			t.Run("non empty", func(t *testing.T) {
-				got, err := s.GetOnchainContracts(ctx)
-				require.NoError(t, err)
-				require.Len(t, got, 1)
-				require.Equal(t, testContractC.Script, got[0].Script)
-			})
-
-			t.Run("empty", func(t *testing.T) {
-				err := s.Clean(ctx)
-				require.NoError(t, err)
-
-				seedContracts(t, s, testContractA, testContractB)
-
-				got, err := s.GetOnchainContracts(ctx)
-				require.NoError(t, err)
-				require.Empty(t, got)
 			})
 		})
 	})
@@ -494,20 +449,20 @@ func TestContractStoreClean(t *testing.T) {
 
 			t.Run("non empty store", func(t *testing.T) {
 				seedContracts(t, s, testContractA, testContractB)
-				got, err := s.ListContracts(ctx, false)
+				got, err := s.ListContracts(ctx)
 				require.NoError(t, err)
 				require.NotEmpty(t, got)
 
 				require.NoError(t, s.Clean(ctx))
 
-				got, err = s.ListContracts(ctx, false)
+				got, err = s.ListContracts(ctx)
 				require.NoError(t, err)
 				require.Empty(t, got)
 
 				// No errors if cleaning an already cleaned store
 				require.NoError(t, s.Clean(ctx))
 
-				got, err = s.ListContracts(ctx, false)
+				got, err = s.ListContracts(ctx)
 				require.NoError(t, err)
 				require.Empty(t, got)
 			})
@@ -519,15 +474,15 @@ func TestContractStoreClean(t *testing.T) {
 				// Re-seeding the same scripts must not collide with leftover state.
 				seedContracts(t, s, testContractA, testContractC)
 
-				offchain, err := s.ListContracts(ctx, false)
+				offchain, err := s.GetContractsByType(ctx, types.ContractTypeDefault)
 				require.NoError(t, err)
 				require.Len(t, offchain, 1)
 				require.Equal(t, testContractA.Script, offchain[0].Script)
 
-				onchain, err := s.ListContracts(ctx, true)
+				boarding, err := s.GetContractsByType(ctx, types.ContractTypeBoarding)
 				require.NoError(t, err)
-				require.Len(t, onchain, 1)
-				require.Equal(t, testContractC.Script, onchain[0].Script)
+				require.Len(t, boarding, 1)
+				require.Equal(t, testContractC.Script, boarding[0].Script)
 			})
 		})
 	})

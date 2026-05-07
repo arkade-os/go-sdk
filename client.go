@@ -396,25 +396,31 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 
-	contracts, err := a.contractManager.GetContracts(ctx)
-	if err != nil {
-		return err
-	}
-	boardingContracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
+	allContracts, err := a.contractManager.GetContracts(ctx)
 	if err != nil {
 		return err
 	}
 
-	if len(contracts)+len(boardingContracts) <= 0 {
+	if len(allContracts) <= 0 {
 		return nil
+	}
+
+	offchainContracts := make([]types.Contract, 0, len(allContracts))
+	boardingContracts := make([]types.Contract, 0, len(allContracts))
+	for _, contract := range allContracts {
+		if contract.Type == types.ContractTypeBoarding {
+			boardingContracts = append(boardingContracts, contract)
+			continue
+		}
+		offchainContracts = append(offchainContracts, contract)
 	}
 
 	updateTime := time.Now()
 	var spendableVtxos, spentVtxos []clientTypes.Vtxo
 	// Fetch new and spent vtxos in time range, or full list at startup.
-	if len(contracts) > 0 {
-		scripts := make([]string, 0, len(contracts))
-		for _, contract := range contracts {
+	if len(offchainContracts) > 0 {
+		scripts := make([]string, 0, len(offchainContracts))
+		for _, contract := range offchainContracts {
 			scripts = append(scripts, contract.Script)
 		}
 		opts := []indexer.GetVtxosOption{indexer.WithScripts(scripts)}
@@ -902,13 +908,17 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context, network arklib.Netw
 		return
 	}
 
-	boardingContracts, err := a.contractManager.GetContracts(ctx, contract.WithIsOnchain())
+	boardingContracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
 	if err != nil {
 		log.WithError(err).Error("failed to get contracts for boarding addresses")
 		return
 	}
 
-	offchainContracts, err := a.contractManager.GetContracts(ctx)
+	offchainContracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeDefault),
+	)
 	if err != nil {
 		log.WithError(err).Error("failed to get contracts for offchain addresses")
 		return
