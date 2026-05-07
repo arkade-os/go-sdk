@@ -103,10 +103,14 @@ func (m *contractManager) NewContract(
 	}
 	contract.Label = o.label
 
-	keyRef, _ := handler.GetKeyRef(*contract)
+	keyRef, err := handler.GetKeyRef(*contract)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
+	}
+
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {

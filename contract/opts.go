@@ -44,7 +44,10 @@ func WithState(state types.ContractState) FilterOption {
 
 func WithScripts(scripts []string) FilterOption {
 	return filterOptFn(func(f *filter) error {
-		if len(f.scripts) != 0 {
+		if len(scripts) <= 0 {
+			return fmt.Errorf("missing scripts")
+		}
+		if len(f.scripts) > 0 {
 			return fmt.Errorf("contract scripts filter already set to %s", f.scripts)
 		}
 		if f.state != "" || f.contractType != "" {

@@ -120,6 +120,13 @@ func TestWithScriptsFilter(t *testing.T) {
 			expectError string
 		}{
 			{
+				name: "missing scripts",
+				opts: []FilterOption{
+					WithScripts([]string{}),
+				},
+				expectError: "missing scripts",
+			},
+			{
 				name: "already set",
 				opts: []FilterOption{
 					WithScripts([]string{"a"}),

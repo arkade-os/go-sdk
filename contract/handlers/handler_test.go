@@ -26,6 +26,11 @@ const (
 	// >= 512 → second-based RelativeLocktime.
 	testBoardingExitDelay int64 = 1024
 
+	// A real CSV-multisig closure encoded as hex — used as the test
+	// checkpoint tapscript whenever an offchain test needs GetKeyRefs to
+	// successfully decode and rebuild the synthetic checkpoint script.
+	testCheckpointTapscript = "03a80040b27520dfcaec558c7e78cf3e38b898ba8a43cfb5727266bae32c5c5b3aeb32c558aa0bac"
+
 	ownerKeyParam           = "ownerKey"
 	ownerKeyIdParam         = "ownerKeyId"
 	signerKeyParam          = "signerKey"
@@ -225,6 +230,130 @@ func TestHandlerGetKeyRef(t *testing.T) {
 						require.Nil(t, ref)
 					})
 				}
+			})
+		}
+	})
+}
+
+func TestHandlerGetKeyRefs(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		t.Run("offchain returns contract and checkpoint scripts", func(t *testing.T) {
+			h := newTestHandler(t, false)
+			keyRef := newTestKeyRef(t)
+
+			built, err := h.NewContract(t.Context(), keyRef)
+			require.NoError(t, err)
+			c := *built
+
+			refs, err := h.GetKeyRefs(c)
+			require.NoError(t, err)
+			// Two entries: the contract's own script and the synthetic
+			// checkpoint script — both must map to the owner key id since
+			// the same wallet key signs in both contexts.
+			require.Len(t, refs, 2)
+			require.Equal(t, keyRef.Id, refs[c.Script])
+			for _, v := range refs {
+				require.Equal(t, keyRef.Id, v)
+			}
+			// The two map keys must be distinct scripts.
+			var checkpointScript string
+			for k := range refs {
+				if k != c.Script {
+					checkpointScript = k
+				}
+			}
+			require.NotEmpty(t, checkpointScript)
+			require.NotEqual(t, c.Script, checkpointScript)
+		})
+
+		t.Run("boarding returns only the contract script", func(t *testing.T) {
+			h := newTestHandler(t, true)
+			keyRef := newTestKeyRef(t)
+
+			built, err := h.NewContract(t.Context(), keyRef)
+			require.NoError(t, err)
+			c := *built
+
+			refs, err := h.GetKeyRefs(c)
+			require.NoError(t, err)
+			require.Len(t, refs, 1)
+			require.Equal(t, keyRef.Id, refs[c.Script])
+		})
+
+		t.Run("boarding short-circuits before reading checkpointExitPath", func(t *testing.T) {
+			// The boarding handler must not consult the checkpoint param
+			// at all — pin this so a refactor that lifts the param read
+			// above the isOnchain branch can't silently break boarding.
+			h := newTestHandler(t, true)
+			keyRef := newTestKeyRef(t)
+
+			built, err := h.NewContract(t.Context(), keyRef)
+			require.NoError(t, err)
+			c := *built
+			delete(c.Params, checkpointExitPathParam)
+
+			refs, err := h.GetKeyRefs(c)
+			require.NoError(t, err)
+			require.Len(t, refs, 1)
+			require.Equal(t, keyRef.Id, refs[c.Script])
+		})
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		t.Run("offchain: getScript failure propagates", func(t *testing.T) {
+			// Smoke test: the inner GetKeyRef / GetSignerKey / GetExitDelay
+			// failure paths are exhaustively covered by their own tests.
+			// Here we only pin that GetKeyRefs forwards them rather than
+			// silently swallowing.
+			h := newTestHandler(t, false)
+			refs, err := h.GetKeyRefs(types.Contract{Script: "broken"})
+			require.Error(t, err)
+			require.Nil(t, refs)
+		})
+
+		offchainCases := []struct {
+			name             string
+			mutateContract   func(c *types.Contract)
+			wantErrContains  string
+		}{
+			{
+				name: "missing checkpointExitPath",
+				mutateContract: func(c *types.Contract) {
+					delete(c.Params, checkpointExitPathParam)
+				},
+				wantErrContains: "missing checkpoint exit path",
+			},
+			{
+				name: "malformed checkpointExitPath hex",
+				mutateContract: func(c *types.Contract) {
+					c.Params[checkpointExitPathParam] = "nothex"
+				},
+				wantErrContains: "invalid checkpoint exit path format",
+			},
+			{
+				name: "well-formed hex that is not a CSV multisig closure",
+				mutateContract: func(c *types.Contract) {
+					c.Params[checkpointExitPathParam] = hex.EncodeToString([]byte{0x00, 0x01, 0x02})
+				},
+				// The closure decoder either errors out or returns
+				// valid=false; both paths surface "checkpoint exit path"
+				// in the wrapped error.
+				wantErrContains: "checkpoint exit path",
+			},
+		}
+
+		for _, tc := range offchainCases {
+			t.Run("offchain: "+tc.name, func(t *testing.T) {
+				h := newTestHandler(t, false)
+				built, err := h.NewContract(t.Context(), newTestKeyRef(t))
+				require.NoError(t, err)
+				c := *built
+				tc.mutateContract(&c)
+
+				refs, err := h.GetKeyRefs(c)
+				require.Error(t, err)
+				require.ErrorContains(t, err, tc.wantErrContains)
+				require.Nil(t, refs)
 			})
 		}
 	})
@@ -480,5 +609,6 @@ func newTestInfo(t *testing.T, signerKey *btcec.PublicKey) *client.Info {
 		SignerPubKey:        hex.EncodeToString(signerKey.SerializeCompressed()),
 		UnilateralExitDelay: testUnilateralExitDelay,
 		BoardingExitDelay:   testBoardingExitDelay,
+		CheckpointTapscript: testCheckpointTapscript,
 	}
 }

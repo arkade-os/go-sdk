@@ -228,7 +228,7 @@ func (h *defaultHandler) GetExitDelay(contract types.Contract) (*arklib.Relative
 	if !ok {
 		return nil, fmt.Errorf("contract %s is missing exit delay", contract.Script)
 	}
-	exitDelayInt, err := strconv.ParseInt(exitDelayStr, 10, 64)
+	exitDelayInt, err := strconv.ParseUint(exitDelayStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("contract %s has invalid exit delay format", contract.Script)
 	}
