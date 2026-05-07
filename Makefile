@@ -1,4 +1,4 @@
-.PHONY: proto test vet lint migrate sqlc
+.PHONY: proto test vet lint migrate sqlc regtest regtestdown regtestclean
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -49,13 +49,15 @@ sqlc:
 
 regtest:
 	@echo "Starting regtest..."
-	@docker compose -f test/docker/docker-compose.yml down
-	@docker compose -f test/docker/docker-compose.yml up -d --build
-	@go run test/docker/setup.go
+	@./regtest/start-env.sh
 
 regtestdown:
 	@echo "Stopping regtest..."
-	@docker compose -f test/docker/docker-compose.yml down
+	@./regtest/stop-env.sh
+
+regtestclean:
+	@echo "Cleaning regtest..."
+	@./regtest/clean-env.sh
 
 integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e

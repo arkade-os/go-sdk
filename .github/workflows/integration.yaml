@@ -14,19 +14,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
-      
+
       - run: go mod tidy
-      
-      - name: Run Nigiri
-        uses: vulpemventures/nigiri-github-action@v1
-      
-      - name: Run regtest environment
+
+      - name: Cache nigiri build
+        uses: actions/cache@v4
+        with:
+          path: regtest/_build
+          key: nigiri-${{ hashFiles('regtest/.env.defaults', '.env.regtest') }}
+
+      - name: Start regtest environment
         run: make regtest
 
       - name: Run tests
         run: make integrationtest
+
+      - name: Cleanup
+        if: always()
+        run: make regtestclean
