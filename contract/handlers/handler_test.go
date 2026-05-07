@@ -312,9 +312,9 @@ func TestHandlerGetKeyRefs(t *testing.T) {
 		})
 
 		offchainCases := []struct {
-			name             string
-			mutateContract   func(c *types.Contract)
-			wantErrContains  string
+			name            string
+			mutateContract  func(c *types.Contract)
+			wantErrContains string
 		}{
 			{
 				name: "missing checkpointExitPath",
