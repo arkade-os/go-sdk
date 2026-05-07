@@ -60,19 +60,15 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	defer m.mu.Unlock()
 
 	for contractType, handler := range m.handlers {
-		switch contractType {
-		case types.ContractTypeBoarding:
-			// Boarding (onchain) contracts are looked up via the explorer
-			// per-address; throttled to dodge rate limits.
-			if err := m.scanBoardingContracts(ctx, contractType, gapLimit, handler); err != nil {
-				return err
-			}
-		default:
-			// Offchain contracts are looked up via the indexer's batch
-			// GetVtxos endpoint.
-			if err := m.scanContracts(ctx, contractType, gapLimit, handler); err != nil {
-				return err
-			}
+		// Pick the "is this contract used externally?" probe for the type:
+		// boarding contracts are looked up via the explorer per-address (and
+		// throttled), offchain ones via the indexer's batch GetVtxos.
+		findUsed := m.findUsedContracts
+		if contractType == types.ContractTypeBoarding {
+			findUsed = m.findUsedBoardingContracts
+		}
+		if err := m.scanContracts(ctx, contractType, gapLimit, handler, findUsed); err != nil {
+			return err
 		}
 	}
 
@@ -183,9 +179,18 @@ func (m *contractManager) Close() {
 	log.Debugf("%s closed contract store", logPrefix)
 }
 
+// findUsedFn returns the subset of `contracts`, keyed by Script, that have
+// been used externally — i.e. that the corresponding data source (indexer
+// for offchain, explorer for boarding) has any record of. Defined as a
+// callback so the gap-limit scan body below stays generic across contract
+// types.
+type findUsedFn func(
+	ctx context.Context, contracts []types.Contract,
+) (map[string]struct{}, error)
+
 func (m *contractManager) scanContracts(
-	ctx context.Context,
-	contractType types.ContractType, gapLimit uint32, handler handlers.Handler,
+	ctx context.Context, contractType types.ContractType,
+	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
 ) error {
 	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler)
 	if err != nil {
@@ -207,108 +212,9 @@ func (m *contractManager) scanContracts(
 		startIdx = currentIdx + 1
 	}
 
-	// Gap-limit scan. `lastUsedIdx` stays at the sentinel value until
-	// an indexer hit promotes it; if no key is ever flagged as used we
-	// leave the contract store untouched.
-	const noUsage int64 = -1
-	var (
-		lastUsedIdx       = noUsage
-		currentKeyId      = currentLastUsedKeyID
-		consecutiveUnused uint32
-		contractByIndex   = make(map[uint32]types.Contract, gapLimit)
-	)
-scan:
-	for consecutiveUnused < gapLimit {
-		contractBatch := make([]types.Contract, 0, gapLimit)
-		keyIndexByScript := make(map[string]uint32, gapLimit)
-		for range gapLimit {
-			nextKeyId, err := m.keyProvider.NextKeyId(ctx, currentKeyId)
-			if err != nil {
-				return err
-			}
-			idx, err := m.keyProvider.GetKeyIndex(ctx, nextKeyId)
-			if err != nil {
-				return err
-			}
-			keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
-			if err != nil {
-				return err
-			}
-			contract, err := handler.NewContract(ctx, *keyRef)
-			if err != nil {
-				return fmt.Errorf("failed to derive contract for key %s: %w", nextKeyId, err)
-			}
-			contractBatch = append(contractBatch, *contract)
-			keyIndexByScript[contract.Script] = idx
-			currentKeyId = nextKeyId
-			contractByIndex[idx] = *contract
-		}
-
-		used, err := m.findUsedContracts(ctx, contractBatch)
-		if err != nil {
-			return err
-		}
-
-		for _, c := range contractBatch {
-			idx := keyIndexByScript[c.Script]
-			if _, isUsed := used[c.Script]; isUsed {
-				if int64(idx) > lastUsedIdx {
-					lastUsedIdx = int64(idx)
-				}
-				consecutiveUnused = 0
-				continue
-			}
-			consecutiveUnused++
-			if consecutiveUnused >= gapLimit {
-				break scan
-			}
-		}
-	}
-
-	if lastUsedIdx == noUsage {
-		return nil
-	}
-
-	// Persist contracts from the start of the scan range up to the
-	// highest used index (inclusive).
-	for i := startIdx; i <= uint32(lastUsedIdx); i++ {
-		contract := contractByIndex[i]
-		if err := m.store.AddContract(ctx, contract); err != nil {
-			return fmt.Errorf("failed to store contract: %w", err)
-		}
-
-		log.Debugf("%s added new contract %s", logPrefix, contract.Script)
-	}
-	return nil
-}
-
-func (m *contractManager) scanBoardingContracts(
-	ctx context.Context,
-	contractType types.ContractType, gapLimit uint32, handler handlers.Handler,
-) error {
-	currentLastUsedKeyID, err := m.getLatestContractKeyId(ctx, contractType, handler)
-	if err != nil {
-		return fmt.Errorf(
-			"failed to get latest key id for contract type %s: %w", contractType, err,
-		)
-	}
-
-	// Where to start scanning. For a fresh wallet (no contracts of this
-	// type stored yet) we scan from index 0; otherwise strictly after
-	// the last stored index, since everything up to it is already
-	// allocated.
-	var startIdx uint32
-	if currentLastUsedKeyID != "" {
-		currentIdx, err := m.keyProvider.GetKeyIndex(ctx, currentLastUsedKeyID)
-		if err != nil {
-			return fmt.Errorf("failed to parse latest key id: %w", err)
-		}
-		startIdx = currentIdx + 1
-	}
-
-	// Gap-limit scan. `lastUsedIdx` stays at the sentinel value until
-	// an indexer hit promotes it; if no key is ever flagged as used we
-	// leave the contract store untouched.
+	// Gap-limit scan. `lastUsedIdx` stays at the sentinel value until a
+	// hit promotes it; if no key is ever flagged as used we leave the
+	// contract store untouched.
 	const noUsage int64 = -1
 	var (
 		lastUsedIdx       = noUsage
@@ -336,7 +242,8 @@ scan:
 			contract, err := handler.NewContract(ctx, *keyRef)
 			if err != nil {
 				return fmt.Errorf(
-					"failed to create boarding contract for key %s: %w", nextKeyId, err,
+					"failed to derive %s contract for key %s: %w",
+					contractType, nextKeyId, err,
 				)
 			}
 			contractBatch = append(contractBatch, *contract)
@@ -345,7 +252,7 @@ scan:
 			contractByIndex[idx] = *contract
 		}
 
-		used, err := m.findUsedBoardingContracts(ctx, contractBatch)
+		used, err := findUsed(ctx, contractBatch)
 		if err != nil {
 			return err
 		}
@@ -375,10 +282,10 @@ scan:
 	for i := startIdx; i <= uint32(lastUsedIdx); i++ {
 		contract := contractByIndex[i]
 		if err := m.store.AddContract(ctx, contract); err != nil {
-			return fmt.Errorf("failed to store boarding contract: %w", err)
+			return fmt.Errorf("failed to store %s contract: %w", contractType, err)
 		}
 
-		log.Debugf("%s added new boarding contract %s", logPrefix, contract.Script)
+		log.Debugf("%s added new %s contract %s", logPrefix, contractType, contract.Script)
 	}
 	return nil
 }
