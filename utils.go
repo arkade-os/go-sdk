@@ -8,7 +8,6 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
-	"github.com/arkade-os/arkd/pkg/client-lib/types"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
@@ -82,16 +81,19 @@ func getFancyTimeExpiration(nextExpiration int64) string {
 	return fancyTimeExpiration
 }
 
-func findVtxosSpentInSettlement(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {
+func findVtxosSpentInSettlement(
+	vtxos []clientTypes.Vtxo,
+	vtxo clientTypes.Vtxo,
+) []clientTypes.Vtxo {
 	if vtxo.Preconfirmed {
 		return nil
 	}
 	return findVtxosSettled(vtxos, vtxo.CommitmentTxids[0])
 }
 
-func findVtxosSettled(vtxos []types.Vtxo, id string) []types.Vtxo {
-	var result []types.Vtxo
-	leftVtxos := make([]types.Vtxo, 0)
+func findVtxosSettled(vtxos []clientTypes.Vtxo, id string) []clientTypes.Vtxo {
+	var result []clientTypes.Vtxo
+	leftVtxos := make([]clientTypes.Vtxo, 0)
 	for _, v := range vtxos {
 		if v.SettledBy == id {
 			result = append(result, v)
@@ -104,9 +106,9 @@ func findVtxosSettled(vtxos []types.Vtxo, id string) []types.Vtxo {
 	return result
 }
 
-func findVtxosSpent(vtxos []types.Vtxo, id string) []types.Vtxo {
-	var result []types.Vtxo
-	leftVtxos := make([]types.Vtxo, 0)
+func findVtxosSpent(vtxos []clientTypes.Vtxo, id string) []clientTypes.Vtxo {
+	var result []clientTypes.Vtxo
+	leftVtxos := make([]clientTypes.Vtxo, 0)
 	for _, v := range vtxos {
 		if v.ArkTxid == id {
 			result = append(result, v)
@@ -119,7 +121,7 @@ func findVtxosSpent(vtxos []types.Vtxo, id string) []types.Vtxo {
 	return result
 }
 
-func reduceVtxosAmount(vtxos []types.Vtxo) uint64 {
+func reduceVtxosAmount(vtxos []clientTypes.Vtxo) uint64 {
 	var total uint64
 	for _, v := range vtxos {
 		total += v.Amount
@@ -127,12 +129,15 @@ func reduceVtxosAmount(vtxos []types.Vtxo) uint64 {
 	return total
 }
 
-func findVtxosSpentInPayment(vtxos []types.Vtxo, vtxo types.Vtxo) []types.Vtxo {
+func findVtxosSpentInPayment(vtxos []clientTypes.Vtxo, vtxo clientTypes.Vtxo) []clientTypes.Vtxo {
 	return findVtxosSpent(vtxos, vtxo.Txid)
 }
 
-func findVtxosResultedFromSettledBy(vtxos []types.Vtxo, commitmentTxid string) []types.Vtxo {
-	var result []types.Vtxo
+func findVtxosResultedFromSettledBy(
+	vtxos []clientTypes.Vtxo,
+	commitmentTxid string,
+) []clientTypes.Vtxo {
+	var result []clientTypes.Vtxo
 	for _, v := range vtxos {
 		if v.Preconfirmed || len(v.CommitmentTxids) != 1 {
 			continue
@@ -144,8 +149,8 @@ func findVtxosResultedFromSettledBy(vtxos []types.Vtxo, commitmentTxid string) [
 	return result
 }
 
-func findVtxosResultedFromSpentBy(vtxos []types.Vtxo, spentByTxid string) []types.Vtxo {
-	var result []types.Vtxo
+func findVtxosResultedFromSpentBy(vtxos []clientTypes.Vtxo, spentByTxid string) []clientTypes.Vtxo {
+	var result []clientTypes.Vtxo
 	for _, v := range vtxos {
 		if v.Txid == spentByTxid {
 			result = append(result, v)
@@ -154,13 +159,13 @@ func findVtxosResultedFromSpentBy(vtxos []types.Vtxo, spentByTxid string) []type
 	return result
 }
 
-func getVtxo(usedVtxos []types.Vtxo, spentByVtxos []types.Vtxo) types.Vtxo {
+func getVtxo(usedVtxos []clientTypes.Vtxo, spentByVtxos []clientTypes.Vtxo) clientTypes.Vtxo {
 	if len(usedVtxos) > 0 {
 		return usedVtxos[0]
 	} else if len(spentByVtxos) > 0 {
 		return spentByVtxos[0]
 	}
-	return types.Vtxo{}
+	return clientTypes.Vtxo{}
 }
 
 func toOnchainAddress(arkAddress string, network arklib.Network) string {
