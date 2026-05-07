@@ -12,8 +12,6 @@ type Store interface {
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
 	AssetStore() AssetStore
-	// ContractStore returns the contract persistence layer.
-	// Returns nil for store backends that do not persist contracts (e.g. kv, in-memory).
 	ContractStore() ContractStore
 	Clean(ctx context.Context)
 	Close()
