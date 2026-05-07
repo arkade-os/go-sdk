@@ -174,6 +174,10 @@ func (a *arkClient) getMatureUtxos(ctx context.Context) ([]clientTypes.Utxo, err
 	}
 	addrParams := make(map[string]params)
 	for _, contract := range contracts {
+		if contract.Type == types.ContractTypeBoarding {
+			continue
+		}
+
 		addr := toOnchainAddress(contract.Address, cfg.Network)
 
 		handler, err := a.contractManager.GetHandler(ctx, contract)

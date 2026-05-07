@@ -68,6 +68,9 @@ func (a *arkClient) finalizePendingTxs(
 	scripts := make([]string, 0, len(contracts))
 	contractsByScript := make(map[string]types.Contract)
 	for _, contract := range contracts {
+		if contract.Type == types.ContractTypeBoarding {
+			continue
+		}
 		scripts = append(scripts, contract.Script)
 		contractsByScript[contract.Script] = contract
 	}

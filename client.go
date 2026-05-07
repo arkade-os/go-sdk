@@ -851,7 +851,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			if mgr == nil {
 				continue
 			}
-			offchainContracts, err := mgr.GetContracts(ctx)
+			contracts, err := mgr.GetContracts(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -861,7 +861,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			}
 
 			myScripts := make(map[string]struct{})
-			for _, contract := range offchainContracts {
+			for _, contract := range contracts {
 				myScripts[contract.Script] = struct{}{}
 			}
 
@@ -1780,6 +1780,9 @@ func (a *arkClient) saveSendTransaction(
 	}
 	myPubkeys := make(map[string]struct{}, len(contracts))
 	for _, c := range contracts {
+		if c.Type == types.ContractTypeBoarding {
+			continue
+		}
 		decoded, err := arklib.DecodeAddressV0(c.Address)
 		if err != nil {
 			continue
