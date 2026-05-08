@@ -133,13 +133,21 @@ func (m *mockWatcherExplorer) Stop()                                        {}
 // the real default handler: value < 512 → block, else → second).
 type mockContractHandler struct{}
 
-func (h *mockContractHandler) NewContract(_ context.Context, _ wallet.KeyRef) (*types.Contract, error) {
+func (h *mockContractHandler) NewContract(
+	_ context.Context,
+	_ wallet.KeyRef,
+) (*types.Contract, error) {
 	return nil, nil
 }
 func (h *mockContractHandler) GetKeyRefs(_ types.Contract) (map[string]string, error) {
 	return nil, nil
 }
-func (h *mockContractHandler) GetKeyRef(_ types.Contract) (*wallet.KeyRef, error) { return nil, nil }
+
+func (h *mockContractHandler) GetKeyRef(
+	_ types.Contract,
+) (*wallet.KeyRef, error) {
+	return nil, nil
+}
 func (h *mockContractHandler) GetSignerKey(_ types.Contract) (*btcec.PublicKey, error) {
 	return nil, nil
 }
@@ -412,7 +420,11 @@ func TestWatcher_OffchainContract(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []string{"leaf0", "leaf1"}, info.Tapscripts)
 	// exitDelay "144" < 512 → LocktimeTypeBlock with value 144
-	require.Equal(t, arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 144}, info.Delay)
+	require.Equal(
+		t,
+		arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 144},
+		info.Delay,
+	)
 }
 
 func TestWatcher_StartError(t *testing.T) {

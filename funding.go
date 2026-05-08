@@ -78,7 +78,8 @@ func (a *arkClient) GetAddresses(ctx context.Context) (
 	for _, c := range boardingContracts {
 		handler, err := a.contractManager.GetHandler(ctx, c)
 		if err != nil {
-			log.WithError(err).Warnf("skipping boarding contract %s: failed to get handler", c.Script)
+			log.WithError(err).
+				Warnf("skipping boarding contract %s: failed to get handler", c.Script)
 			continue
 		}
 		tapscripts, err := handler.GetTapscripts(c)
