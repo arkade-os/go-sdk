@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/scheduler"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 )
 
@@ -39,6 +40,7 @@ func WithRefreshDbInterval(d time.Duration) ClientOption {
 	}
 }
 
+// WithVerbose enables verbose logging.
 func WithVerbose() ClientOption {
 	return func(o *clientOptions) error {
 		o.verbose = true
@@ -77,6 +79,28 @@ func WithWallet(walletSvc wallet.WalletService) ClientOption {
 	}
 }
 
+// WithScheduler injects a custom SchedulerService implementation for task scheduling.
+func WithScheduler(svc scheduler.SchedulerService) ClientOption {
+	return func(o *clientOptions) error {
+		if svc == nil {
+			return fmt.Errorf("scheduler cannot be nil")
+		}
+		if o.scheduler != nil {
+			return fmt.Errorf("scheduler already set")
+		}
+		o.scheduler = svc
+		return nil
+	}
+}
+
+// WithoutAutoSettle disables the auto-settle feature.
+func WithoutAutoSettle() ClientOption {
+	return func(o *clientOptions) error {
+		o.disableAutoSettle = true
+		return nil
+	}
+}
+
 func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 	o := newDefaultClientOptions()
 	for _, opt := range opts {
@@ -96,6 +120,8 @@ type clientOptions struct {
 	hdGapLimit        uint32
 	hdGapLimitSet     bool
 	wallet            wallet.WalletService
+	scheduler         scheduler.SchedulerService
+	disableAutoSettle bool
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.
