@@ -194,7 +194,11 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 
 	t.Run("collaborative returns forfeit leaf", func(t *testing.T) {
 		t.Parallel()
-		sel, err := h.SelectPath(context.Background(), *c, contract.PathContext{Collaborative: true})
+		sel, err := h.SelectPath(
+			context.Background(),
+			*c,
+			contract.PathContext{Collaborative: true},
+		)
 		require.NoError(t, err)
 		require.NotNil(t, sel)
 		require.Nil(t, sel.Sequence)

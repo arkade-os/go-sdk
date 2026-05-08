@@ -298,7 +298,11 @@ func (h *DelegateHandler) GetSpendablePaths(
 	return paths, nil
 }
 
-func tapLeafSelection(tapscriptHex string, sequence *uint32, locktime *uint32) (*PathSelection, error) {
+func tapLeafSelection(
+	tapscriptHex string,
+	sequence *uint32,
+	locktime *uint32,
+) (*PathSelection, error) {
 	sc, err := hex.DecodeString(tapscriptHex)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tapscript hex: %w", err)
@@ -334,16 +338,27 @@ func parseDelay(s string) (arklib.RelativeLocktime, error) {
 	if after, ok := strings.CutPrefix(s, "block:"); ok {
 		var v uint32
 		if _, err := fmt.Sscanf(after, "%d", &v); err != nil {
-			return arklib.RelativeLocktime{}, fmt.Errorf("invalid block delay value in %q: %w", s, err)
+			return arklib.RelativeLocktime{}, fmt.Errorf(
+				"invalid block delay value in %q: %w",
+				s,
+				err,
+			)
 		}
 		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: v}, nil
 	}
 	if after, ok := strings.CutPrefix(s, "second:"); ok {
 		var v uint32
 		if _, err := fmt.Sscanf(after, "%d", &v); err != nil {
-			return arklib.RelativeLocktime{}, fmt.Errorf("invalid second delay value in %q: %w", s, err)
+			return arklib.RelativeLocktime{}, fmt.Errorf(
+				"invalid second delay value in %q: %w",
+				s,
+				err,
+			)
 		}
 		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: v}, nil
 	}
-	return arklib.RelativeLocktime{}, fmt.Errorf("invalid delay format %q: expected \"block:N\" or \"second:N\"", s)
+	return arklib.RelativeLocktime{}, fmt.Errorf(
+		"invalid delay format %q: expected \"block:N\" or \"second:N\"",
+		s,
+	)
 }
