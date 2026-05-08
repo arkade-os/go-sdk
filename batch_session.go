@@ -8,6 +8,10 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
+var (
+	ErrNoFundsToSettle = fmt.Errorf("no funds to settle")
+)
+
 func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
@@ -24,7 +28,7 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", err
 	}
 	if len(vtxos)+len(utxos) == 0 {
-		return "", fmt.Errorf("no funds to settle")
+		return "", ErrNoFundsToSettle
 	}
 
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
