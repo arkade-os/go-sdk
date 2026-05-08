@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
 func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
@@ -31,20 +32,26 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, utxos)
 	if err != nil {
 		return "", err
 	}
 
-	settleOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
-		client.WithKeys(signingKeys),
-	}
-	if batchSessionOpts.retryNum > 0 {
-		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
+	changeAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
 	}
 
-	res, err := a.ArkClient.Settle(ctx, settleOpts...)
+	clientOpts := []client.BatchSessionOption{
+		client.WithFunds(utxos, vtxos),
+		client.WithKeys(signingKeyRefs),
+		client.WithReceiver(changeAddr),
+	}
+	if batchSessionOpts.retryNum > 0 {
+		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
+	}
+
+	res, err := a.ArkClient.Settle(ctx, clientOpts...)
 	if err != nil {
 		return "", err
 	}
@@ -67,32 +74,32 @@ func (a *arkClient) CollaborativeExit(
 	if err != nil {
 		return "", err
 	}
-	a.dbMu.Lock()
-	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
-	a.dbMu.Unlock()
-	if err != nil {
-		return "", err
-	}
 
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
 	if err != nil {
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", err
 	}
 
-	exitOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
-		client.WithKeys(signingKeys),
-	}
-	if batchSessionOpts.retryNum > 0 {
-		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))
+	changeAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
 	}
 
-	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, exitOpts...)
+	clientOpts := []client.BatchSessionOption{
+		client.WithFunds(nil, vtxos),
+		client.WithKeys(signingKeyRefs),
+		client.WithReceiver(changeAddr),
+	}
+	if batchSessionOpts.retryNum > 0 {
+		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
+	}
+
+	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, clientOpts...)
 	if err != nil {
 		return "", err
 	}
@@ -104,6 +111,39 @@ func (a *arkClient) CollaborativeExit(
 	return res.CommitmentTxid, nil
 }
 
+func (a *arkClient) RegisterIntent(
+	ctx context.Context,
+	vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
+	outputs []clientTypes.Receiver, cosignersPublicKeys []string,
+) (string, error) {
+	if err := a.safeCheck(); err != nil {
+		return "", err
+	}
+
+	vv := make([]clientTypes.VtxoWithTapTree, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		vv = append(vv, clientTypes.VtxoWithTapTree{Vtxo: vtxo})
+	}
+	keys, err := a.getSigningKeyRefs(ctx, vv, boardingUtxos)
+	if err != nil {
+		return "", err
+	}
+
+	return a.ArkClient.RegisterIntent(
+		ctx, vtxos, boardingUtxos, notes, outputs, cosignersPublicKeys, client.WithKeys(keys),
+	)
+}
+
+func (a *arkClient) DeleteIntent(
+	ctx context.Context,
+	vtxos []clientTypes.Vtxo, boardingUtxos []clientTypes.Utxo, notes []string,
+) error {
+	if err := a.safeCheck(); err != nil {
+		return err
+	}
+	return a.ArkClient.DeleteIntent(ctx, vtxos, boardingUtxos, notes)
+}
+
 func (a *arkClient) RedeemNotes(
 	ctx context.Context, notes []string,
 ) (string, error) {
@@ -111,12 +151,12 @@ func (a *arkClient) RedeemNotes(
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	addr, err := a.newOffchainAddress(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	res, err := a.ArkClient.RedeemNotes(ctx, notes, client.WithKeys(signingKeys))
+	res, err := a.ArkClient.RedeemNotes(ctx, notes, client.WithReceiver(addr))
 	if err != nil {
 		return "", err
 	}

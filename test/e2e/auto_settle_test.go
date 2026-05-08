@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"testing"
@@ -30,10 +30,7 @@ func TestAutoSettle(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 
-		addr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-
-		initial := faucetOffchain(t, alice, addr, 0.0001)
+		initial := faucetOffchain(t, alice, 0.0001)
 		require.NotEmpty(t, initial.Txid)
 		require.False(
 			t, initial.ExpiresAt.IsZero(),
@@ -78,10 +75,7 @@ func TestAutoSettle(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
-		addr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-
-		initial := faucetOffchain(t, alice, addr, 0.0001)
+		initial := faucetOffchain(t, alice, 0.0001)
 		require.NotEmpty(t, initial.Txid)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)

@@ -51,11 +51,11 @@ func (p *keyService) GetNextKey() (*btcec.PrivateKey, *btcec.PublicKey, string, 
 }
 
 // DeriveKeyAt derives the wallet keypair with the given key id.
-func (p *keyService) DeriveKeyAt(keyID string) (*btcec.PrivateKey, error) {
+func (p *keyService) DeriveKeyAt(keyId string) (*btcec.PrivateKey, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	path, err := parseDerivationIndex(keyID)
+	path, err := parseDerivationIndex(keyId)
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +77,13 @@ func (p *keyService) GetNextKeyIndex() uint32 {
 	return p.nextKeyIndex
 }
 
-// GetAllKeyRefs returns references for all derived keys.
+// GetAllKeyRefs returns references for all keys derived with NewKey.
 func (p *keyService) GetAllKeyRefs() []wallet.KeyRef {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	refs := make([]wallet.KeyRef, 0, len(p.derivedKeyCache))
-	for index := range p.derivedKeyCache {
+	refs := make([]wallet.KeyRef, 0, p.nextKeyIndex)
+	for index := uint32(0); index < p.nextKeyIndex; index++ {
 		// nolint
 		key, _ := p.deriveKeyAtIndex(index)
 		if key != nil {

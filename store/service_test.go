@@ -378,6 +378,7 @@ func TestService(t *testing.T) {
 				testVtxoStore(t, svc.VtxoStore(), tt.config.AppDataStoreType)
 				testTxStore(t, svc.TransactionStore(), tt.config.AppDataStoreType)
 				testAssetStore(t, svc.AssetStore())
+				require.NotNil(t, svc.ContractStore())
 				svc.Close()
 			})
 		}

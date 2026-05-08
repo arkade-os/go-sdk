@@ -230,15 +230,30 @@ func (w *service) IsLocked() bool {
 	return w.locked
 }
 
-func (w *service) NextIndex(ctx context.Context) (uint32, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-
-	if err := w.safeCheck(); err != nil {
-		return 0, err
+func (w *service) NextKeyId(_ context.Context, id string) (string, error) {
+	if len(id) <= 0 {
+		return w.keyProvider.derivationPath(0), nil
 	}
 
-	return w.keyProvider.GetNextKeyIndex(), nil
+	path, err := parseDerivationIndex(id)
+	if err != nil {
+		return "", err
+	}
+	index := path[len(path)-1]
+	nextIndex := index + 1
+	return w.keyProvider.derivationPath(nextIndex), nil
+}
+
+func (w *service) GetKeyIndex(_ context.Context, id string) (uint32, error) {
+	if len(id) <= 0 {
+		return 0, nil
+	}
+
+	path, err := parseDerivationIndex(id)
+	if err != nil {
+		return 0, err
+	}
+	return path[len(path)-1], nil
 }
 
 func (w *service) Dump(_ context.Context) (string, error) {
@@ -259,7 +274,7 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	_, pubKey, keyID, err := w.keyProvider.GetNextKey()
+	_, pubKey, keyId, err := w.keyProvider.GetNextKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key: %w", err)
 	}
@@ -268,10 +283,10 @@ func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
 		return nil, err
 	}
 
-	return &wallet.KeyRef{Id: keyID, PubKey: pubKey}, nil
+	return &wallet.KeyRef{Id: keyId, PubKey: pubKey}, nil
 }
 
-func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error) {
+func (w *service) GetKey(_ context.Context, keyId string) (*wallet.KeyRef, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
@@ -279,16 +294,16 @@ func (w *service) GetKey(_ context.Context, keyID string) (*wallet.KeyRef, error
 		return nil, err
 	}
 
-	if len(keyID) <= 0 {
+	if len(keyId) <= 0 {
 		return nil, fmt.Errorf("key id is required")
 	}
 
-	privKey, err := w.keyProvider.DeriveKeyAt(keyID)
+	privKey, err := w.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive key %q: %w", keyID, err)
+		return nil, fmt.Errorf("failed to derive key %q: %w", keyId, err)
 	}
 
-	return &wallet.KeyRef{Id: keyID, PubKey: privKey.PubKey()}, nil
+	return &wallet.KeyRef{Id: keyId, PubKey: privKey.PubKey()}, nil
 }
 
 func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
@@ -438,9 +453,9 @@ func (w *service) signTapscriptSpend(
 	inputIndex int,
 	txsighashes *txscript.TxSigHashes,
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
-	keyID string,
+	keyId string,
 ) error {
-	prvkey, err := w.keyProvider.DeriveKeyAt(keyID)
+	prvkey, err := w.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
 	}
@@ -525,7 +540,7 @@ func (w *service) signTaprootKeySpend(
 	inputIndex int,
 	txsighashes *txscript.TxSigHashes,
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
-	keyID string,
+	keyId string,
 ) error {
 	// Already signed, skip
 	if len(input.TaprootKeySpendSig) > 0 {
@@ -537,7 +552,7 @@ func (w *service) signTaprootKeySpend(
 		return fmt.Errorf("invalid taproot internal key on input %d: %w", inputIndex, err)
 	}
 
-	prvkey, err := w.keyProvider.DeriveKeyAt(keyID)
+	prvkey, err := w.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
 	}
