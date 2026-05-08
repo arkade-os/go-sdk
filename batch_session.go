@@ -74,12 +74,6 @@ func (a *arkClient) CollaborativeExit(
 	if err != nil {
 		return "", err
 	}
-	a.dbMu.Lock()
-	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
-	a.dbMu.Unlock()
-	if err != nil {
-		return "", err
-	}
 
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
 	if err != nil {
@@ -97,7 +91,7 @@ func (a *arkClient) CollaborativeExit(
 	}
 
 	clientOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
+		client.WithFunds(nil, vtxos),
 		client.WithKeys(signingKeyRefs),
 		client.WithReceiver(changeAddr),
 	}
