@@ -14,6 +14,7 @@ type service struct {
 	scheduler *gocron.Scheduler
 	job       *gocron.Job
 	stopJob   func()
+	started   bool
 	mu        *sync.Mutex
 }
 
@@ -25,11 +26,26 @@ func NewScheduler() scheduler.SchedulerService {
 	}
 }
 
+func (s *service) ensureSchedulerLocked() {
+	if s.scheduler != nil {
+		return
+	}
+	s.scheduler = gocron.NewScheduler(time.UTC)
+	if s.started {
+		s.scheduler.StartAsync()
+	}
+}
+
 func (s *service) Start() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.started {
+		return
+	}
+	s.ensureSchedulerLocked()
 	s.scheduler.StartAsync()
+	s.started = true
 }
 
 func (s *service) Stop() {
@@ -38,14 +54,18 @@ func (s *service) Stop() {
 
 	if s.scheduler != nil {
 		if s.job != nil {
-			s.stopJob()
+			if s.stopJob != nil {
+				s.stopJob()
+			}
 			s.scheduler.Remove(s.job)
 		}
 		s.scheduler.Stop()
 		s.scheduler.Clear()
-
-		s.job = nil
 	}
+	s.scheduler = nil
+	s.job = nil
+	s.stopJob = nil
+	s.started = false
 }
 
 func (s *service) ScheduleTask(task func(), at time.Time) error {
@@ -60,13 +80,15 @@ func (s *service) ScheduleTask(task func(), at time.Time) error {
 
 	s.CancelScheduledTask()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if delay == 0 {
 		task()
 		return nil
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ensureSchedulerLocked()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	job, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(func() {
@@ -76,8 +98,15 @@ func (s *service) ScheduleTask(task func(), at time.Time) error {
 		default:
 		}
 		s.mu.Lock()
-		s.scheduler.Remove(s.job)
+		if ctx.Err() != nil {
+			s.mu.Unlock()
+			return
+		}
+		if s.scheduler != nil && s.job != nil {
+			s.scheduler.Remove(s.job)
+		}
 		s.job = nil
+		s.stopJob = nil
 		s.mu.Unlock()
 
 		task()
@@ -113,7 +142,12 @@ func (s *service) CancelScheduledTask() {
 		return
 	}
 
-	s.stopJob()
-	s.scheduler.Remove(s.job)
+	if s.stopJob != nil {
+		s.stopJob()
+	}
+	if s.scheduler != nil {
+		s.scheduler.Remove(s.job)
+	}
 	s.job = nil
+	s.stopJob = nil
 }

@@ -88,6 +88,9 @@ func WithScheduler(svc scheduler.SchedulerService) ClientOption {
 		if o.scheduler != nil {
 			return fmt.Errorf("scheduler already set")
 		}
+		if o.disableAutoSettle {
+			return fmt.Errorf("cannot set scheduler when auto-settle is disabled")
+		}
 		o.scheduler = svc
 		return nil
 	}
@@ -96,6 +99,9 @@ func WithScheduler(svc scheduler.SchedulerService) ClientOption {
 // WithoutAutoSettle disables the auto-settle feature.
 func WithoutAutoSettle() ClientOption {
 	return func(o *clientOptions) error {
+		if o.scheduler != nil {
+			return fmt.Errorf("cannot disable auto-settle when scheduler is set")
+		}
 		o.disableAutoSettle = true
 		return nil
 	}

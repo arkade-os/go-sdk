@@ -147,3 +147,31 @@ func TestCancelScheduledTask(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulerRestart(t *testing.T) {
+	for schedulerType, newScheduler := range schedulerTypes {
+		t.Run(schedulerType, func(t *testing.T) {
+			svc := newScheduler()
+			defer svc.Stop()
+
+			for i := 0; i < 3; i++ {
+				svc.Start()
+
+				done := make(chan struct{}, 1)
+				err := svc.ScheduleTask(func() {
+					done <- struct{}{}
+				}, time.Now().Add(100*time.Millisecond))
+				require.NoError(t, err)
+
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					require.Fail(t, "job did not execute after scheduler restart")
+				}
+
+				svc.Stop()
+				require.True(t, svc.GetTaskScheduledAt().IsZero())
+			}
+		})
+	}
+}

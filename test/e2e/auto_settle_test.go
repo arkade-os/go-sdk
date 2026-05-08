@@ -71,7 +71,7 @@ func TestAutoSettle(t *testing.T) {
 
 	// This test pins the WithoutAutoSettle() opt-out: a wallet built with the feature
 	// disabled must NOT refresh its vtxos on its own, even past the natural settlement window.
-	t.Run("disabled", func(*testing.T) {
+	t.Run("disabled", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
@@ -84,18 +84,21 @@ func TestAutoSettle(t *testing.T) {
 		// the opt-out is broken. Wait long enough that ~the entire vtxo
 		// lifetime has elapsed — if a settlement were going to happen, it
 		// would have by now.
-		select {
-		case event := <-vtxoCh:
-			if event.Type == types.VtxosAdded {
-				t.Fatalf(
-					"WithoutAutoSettle was set but a VtxosAdded event fired: %d vtxos",
-					len(event.Vtxos),
-				)
+		deadline := time.After(autoSettleDisabledWait)
+		for {
+			select {
+			case event := <-vtxoCh:
+				if event.Type == types.VtxosAdded {
+					t.Fatalf(
+						"WithoutAutoSettle was set but a VtxosAdded event fired: %d vtxos",
+						len(event.Vtxos),
+					)
+				}
+				// Other event types (sweep / spent) are fine — keep draining
+				// until the disabled auto-settle window has elapsed.
+			case <-deadline:
+				return
 			}
-			// Other event types (sweep / spent) are fine — they're not the
-			// auto-settle path under test.
-		case <-time.After(autoSettleDisabledWait):
-			// expected: no auto-settle, no event.
 		}
 	})
 }

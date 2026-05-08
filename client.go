@@ -68,6 +68,16 @@ type arkClient struct {
 	txBroadcaster   *broadcaster[types.TransactionEvent]
 }
 
+func resolveScheduler(o *clientOptions) scheduler.SchedulerService {
+	if o.disableAutoSettle {
+		return nil
+	}
+	if o.scheduler != nil {
+		return o.scheduler
+	}
+	return cronScheduler.NewScheduler()
+}
+
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	o, err := applyClientOptions(opts...)
 	if err != nil {
@@ -102,14 +112,7 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
-	if o.scheduler == nil {
-		o.scheduler = cronScheduler.NewScheduler()
-	}
-	// If auto settle is disabled, remove the scheduler.
-	// This is just enough to keep the feature off
-	if o.disableAutoSettle {
-		o.scheduler = nil
-	}
+	o.scheduler = resolveScheduler(o)
 
 	clientOpts := make([]client.ServiceOption, 0)
 	if o.verbose {
@@ -182,14 +185,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
-	if o.scheduler == nil {
-		o.scheduler = cronScheduler.NewScheduler()
-	}
-	// If auto settle is disabled, remove the scheduler.
-	// This is just enough to keep the feature off
-	if o.disableAutoSettle {
-		o.scheduler = nil
-	}
+	o.scheduler = resolveScheduler(o)
 
 	clientOpts := make([]client.ServiceOption, 0)
 	var explorerSvc explorer.Explorer
