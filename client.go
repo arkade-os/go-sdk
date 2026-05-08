@@ -249,6 +249,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
+		scheduler:         o.scheduler,
 	}
 
 	return client, nil
@@ -389,6 +390,16 @@ func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEven
 		return a.utxoBroadcaster.subscribe(0)
 	}
 	return nil
+}
+
+// WhenNextSettlement returns the time at which the next automatic settlement
+// is scheduled to fire. It returns the zero time when auto-settle is disabled
+// or no settlement is currently scheduled.
+func (a *arkClient) WhenNextSettlement() time.Time {
+	if a.scheduler == nil {
+		return time.Time{}
+	}
+	return a.scheduler.GetTaskScheduledAt()
 }
 
 func (a *arkClient) setRestored(err error) {

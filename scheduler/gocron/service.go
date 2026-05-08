@@ -93,7 +93,7 @@ func (s *service) ScheduleTask(task func(), at time.Time) error {
 	return err
 }
 
-// WhenNextSettlement returns the next scheduled settlement time
+// GetTaskScheduledAt returns the next scheduled task time.
 func (s *service) GetTaskScheduledAt() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
