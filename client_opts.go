@@ -81,8 +81,7 @@ func WithWallet(walletSvc wallet.WalletService) ClientOption {
 // will call Settle() automatically 2 × SessionDuration before the earliest
 // spendable VTXO expiry. Off by default; explicit opt-in required.
 //
-// The feature is a no-op when delegate addresses are in use (a warning is
-// logged when the loop starts).
+// Cannot be combined with delegate mode.
 func WithAutoSettle() ClientOption {
 	return func(o *clientOptions) error {
 		o.autoSettle = true
@@ -99,6 +98,9 @@ func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 		if err := opt(o); err != nil {
 			return nil, err
 		}
+	}
+	if o.autoSettle && o.delegateMode {
+		return nil, fmt.Errorf("auto-settle and delegate mode cannot both be enabled")
 	}
 	return o, nil
 }
