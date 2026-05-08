@@ -1,170 +1,102 @@
 package contract
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"strings"
-	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
-type State string
-
-const (
-	StateActive   State = "active"
-	StateInactive State = "inactive"
-)
-
-// Contract type constants.
-const (
-	TypeDefault         = "default"          // offchain VTXO; IsOnchain=false
-	TypeDefaultBoarding = "default_boarding" // boarding P2TR; IsOnchain=true
-	TypeDefaultOnchain  = "default_onchain"  // bare key-path P2TR; IsOnchain=true
-	TypeDelegate        = "delegate"         // offchain VTXO with delegate key; IsOnchain=false
-)
-
-// Param key constants stored in Contract.Params.
-const (
-	ParamKeyID       = "keyId"       // wallet key ID
-	ParamSignerKey   = "signerKey"   // hex-encoded server signer public key
-	ParamDelegateKey = "delegateKey" // hex-encoded schnorr delegate public key
-	ParamTapscripts  = "tapscripts"  // JSON-encoded []string of hex tapscript leaves
-	ParamExitDelay   = "exitDelay"   // "block:N" or "second:N"; empty means no delay
-)
-
-// Contract holds the params and derived address for one address type (offchain
-// VTXO, boarding, or onchain) produced by a single wallet key. Script is the
-// primary key. All contract params (tapscripts, exit delay, key references) are
-// stored in Params so the struct remains generic across handler types.
-type Contract struct {
-	Type      string
-	Label     string
-	Params    map[string]string // all contract params; see Param* constants
-	Script    string            // hex pkScript (primary key)
-	Address   string            // ark bech32m when IsOnchain=false, bitcoin P2TR otherwise
-	IsOnchain bool              // false → ark address; true → bitcoin P2TR address
-	State     State
-	CreatedAt time.Time
-	Metadata  map[string]any
+// Manager manages the lifecycle of contracts derived from wallet keys.
+type Manager interface {
+	// GetSupportedContractTypes returns the list of contract types supported by the manager.
+	GetSupportedContractTypes(ctx context.Context) []types.ContractType
+	// ScanContracts looks for untracked contracts to store of any type, and for each of them
+	// stops when gapLimit consecutive unused contracts have been found.
+	ScanContracts(ctx context.Context, gapLimit uint32) error
+	// NewContract creates and stores a new contract. The key is derived from the key provider,
+	// all required parameters are fetched by the proper handler based on the contract type.
+	NewContract(
+		ctx context.Context, contractType types.ContractType, opts ...ContractOption,
+	) (*types.Contract, error)
+	// GetContracts returns all contracts matching the given filter option.
+	// All filters are mutually exclusive, i.e. only one filter can be set at a time.
+	// Pass no options to return all contracts.
+	GetContracts(ctx context.Context, opts ...FilterOption) ([]types.Contract, error)
+	// GetHandler returns the handler responsible for the given contract's type.
+	// Callers can then invoke handler methods (GetKeyRefs, GetSignerKey,
+	// GetTapscripts, GetExitDelay, …) directly. Errors when the contract type
+	// is not supported.
+	GetHandler(ctx context.Context, contract types.Contract) (handlers.Handler, error)
+	// NewDelegate creates and stores a new delegate contract for the given delegate
+	// public key. The owner key is derived from the key provider. Returns an error if
+	// delegateKey is nil or matches the owner or signer key.
+	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*types.Contract, error)
+	// Clean removes all contracts from the store. Must be used only at wallet reset.
+	Clean(ctx context.Context) error
+	// Close releases any resources held by the manager.
+	Close()
+	// OnContractEvent registers a callback invoked whenever a new contract is created.
+	// Returns an unsubscribe function.
+	OnContractEvent(cb func(types.Contract)) func()
 }
 
-// GetTapscripts decodes the tapscripts stored in Params.
-func (c *Contract) GetTapscripts() []string {
-	s := c.Params[ParamTapscripts]
-	if s == "" || s == "[]" || s == "null" {
-		return nil
+// Args contains all services and params required to create a new contract manager.
+type Args struct {
+	Store       types.ContractStore
+	KeyProvider keyProvider
+	Client      client.TransportClient
+	Indexer     offchainDataProvider
+	Explorer    onchainDataProvider
+	Network     arklib.Network
+}
+
+// validate ensures the contract manager arguments are valid.
+func (a Args) validate() error {
+	if a.Store == nil {
+		return fmt.Errorf("missing contracts store")
 	}
-	var ts []string
-	if err := json.Unmarshal([]byte(s), &ts); err != nil {
-		return nil
+	if a.KeyProvider == nil {
+		return fmt.Errorf("missing key provider")
 	}
-	return ts
-}
-
-// GetDelay decodes the exit delay stored in Params.
-// Returns an error if the param is missing or malformed; callers must not
-// proceed with a zero locktime as it would bypass the CSV timelock.
-func (c *Contract) GetDelay() (arklib.RelativeLocktime, error) {
-	return parseDelay(c.Params[ParamExitDelay])
-}
-
-// parseDelay parses an exit delay string of the form "block:N" or "second:N"
-// where N is a non-negative integer. Any prefix other than "second" is treated
-// as block-based. Empty string is an error; use serializeDelay to produce
-// the canonical form written into Params[ParamExitDelay].
-func parseDelay(s string) (arklib.RelativeLocktime, error) {
-	if s == "" {
-		return arklib.RelativeLocktime{}, fmt.Errorf("exit delay param is empty")
+	if a.Client == nil {
+		return fmt.Errorf("missing client")
 	}
-	idx := strings.LastIndex(s, ":")
-	if idx < 0 {
-		return arklib.RelativeLocktime{}, fmt.Errorf("invalid exit delay format %q", s)
+	if a.Indexer == nil {
+		return fmt.Errorf("missing indexer")
 	}
-	var val uint32
-	if _, err := fmt.Sscanf(s[idx+1:], "%d", &val); err != nil {
-		return arklib.RelativeLocktime{}, fmt.Errorf("invalid exit delay value in %q", s)
+	if a.Explorer == nil {
+		return fmt.Errorf("missing explorer")
 	}
-	t := arklib.LocktimeTypeBlock
-	if s[:idx] == "second" {
-		t = arklib.LocktimeTypeSecond
+	emptyNetwork := arklib.Network{}
+	if a.Network == emptyNetwork {
+		return fmt.Errorf("missing network")
 	}
-	return arklib.RelativeLocktime{Type: t, Value: val}, nil
+	return nil
 }
 
-func serializeDelay(d arklib.RelativeLocktime) string {
-	if d.Value == 0 {
-		return ""
-	}
-	typStr := "block"
-	if d.Type == arklib.LocktimeTypeSecond {
-		typStr = "second"
-	}
-	return fmt.Sprintf("%s:%d", typStr, d.Value)
+// keyProvider is the subset of the wallet interface the manager needs to
+// resolve, derive, and fetch keys for contracts. Kept unexported so the
+// manager owns its dependency surface and we can grow it as needed.
+type keyProvider interface {
+	GetKeyIndex(ctx context.Context, id string) (uint32, error)
+	NextKeyId(ctx context.Context, id string) (string, error)
+	GetKey(ctx context.Context, id string) (*wallet.KeyRef, error)
 }
 
-func serializeTapscripts(ts []string) string {
-	if len(ts) == 0 {
-		return "[]"
-	}
-	b, _ := json.Marshal(ts)
-	return string(b)
+type onchainDataProvider interface {
+	GetTxs(address string) ([]explorer.Tx, error)
 }
 
-type Filter struct {
-	Type      *string
-	State     *string
-	Script    *string
-	IsOnchain *bool
-	KeyID     *string // matches Params[ParamKeyID]
-}
-
-// FilterOption configures a Filter for Manager query methods.
-// Pass no options to return all contracts.
-type FilterOption func(*Filter)
-
-func WithType(t string) FilterOption {
-	return func(f *Filter) { f.Type = &t }
-}
-
-func WithState(s State) FilterOption {
-	return func(f *Filter) { st := string(s); f.State = &st }
-}
-
-func WithScript(s string) FilterOption {
-	return func(f *Filter) { f.Script = &s }
-}
-
-func WithIsOnchain(v bool) FilterOption {
-	return func(f *Filter) { f.IsOnchain = &v }
-}
-
-func WithKeyID(id string) FilterOption {
-	return func(f *Filter) { f.KeyID = &id }
-}
-
-type Event struct {
-	Type     string
-	Contract Contract
-	Vtxos    []clientTypes.Vtxo // non-nil for vtxo_received / vtxo_spent events
-}
-
-// PathContext carries the spend-time state needed to select a tapscript path.
-type PathContext struct {
-	Collaborative   bool
-	UseDelegatePath bool // when true, SelectPath returns the 3-of-3 delegate leaf instead of forfeit
-	CurrentTime     time.Time
-	BlockHeight     *uint32
-	WalletPubKey    []byte
-	Preimage        []byte // preimage for HTLC-style claim paths
-}
-
-// PathSelection describes which tapscript leaf to use and any extra witness data.
-type PathSelection struct {
-	Leaf         txscript.TapLeaf
-	ExtraWitness [][]byte // e.g. preimage pushed before signatures
-	Sequence     *uint32  // non-nil when the input must set nSequence (CSV)
-	Locktime     *uint32  // non-nil when the tx must set nLocktime (CLTV)
+type offchainDataProvider interface {
+	GetVtxos(
+		ctx context.Context, opts ...indexer.GetVtxosOption,
+	) (*indexer.VtxosResponse, error)
 }

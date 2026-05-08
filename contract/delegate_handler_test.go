@@ -7,12 +7,35 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
+	sdktypes "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/stretchr/testify/require"
 )
+
+func testKey(t *testing.T) wallet.KeyRef {
+	t.Helper()
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	return wallet.KeyRef{Id: "test-key", PubKey: priv.PubKey()}
+}
+
+func testCfg(t *testing.T) contract.DelegateConfig {
+	t.Helper()
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	return contract.DelegateConfig{
+		SignerKey: priv.PubKey(),
+		Network:   arklib.BitcoinRegTest,
+		ExitDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeBlock,
+			Value: 144,
+		},
+	}
+}
 
 func testDelegateKey(t *testing.T) *btcec.PrivateKey {
 	t.Helper()
@@ -34,8 +57,7 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
-	require.Equal(t, contract.TypeDelegate, c.Type)
-	require.False(t, c.IsOnchain)
+	require.Equal(t, sdktypes.ContractTypeDelegate, c.Type)
 	require.Equal(t, "test-key", c.Params[contract.ParamKeyID])
 	require.Equal(t,
 		hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()),
@@ -43,11 +65,13 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 	)
 
 	// Exactly 3 tapscripts: exit, forfeit, delegate.
-	require.Len(t, c.GetTapscripts(), 3)
+	tapscripts, err := h.GetTapscripts(*c)
+	require.NoError(t, err)
+	require.Len(t, tapscripts, 3)
 
 	// Signer key and exit delay are stored in params.
 	require.Equal(t,
-		hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerPubKey)),
+		hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerKey)),
 		c.Params[contract.ParamSignerKey],
 	)
 	require.Equal(t, "block:144", c.Params[contract.ParamExitDelay])
@@ -59,13 +83,13 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 				MultisigClosure: script.MultisigClosure{
 					PubKeys: []*btcec.PublicKey{key.PubKey},
 				},
-				Locktime: cfg.UnilateralExitDelay,
+				Locktime: cfg.ExitDelay,
 			},
 			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerPubKey},
+				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerKey},
 			},
 			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerPubKey},
+				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerKey},
 			},
 		},
 	}
@@ -74,7 +98,7 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 
 	refAddr := &arklib.Address{
 		HRP:        cfg.Network.Addr,
-		Signer:     cfg.SignerPubKey,
+		Signer:     cfg.SignerKey,
 		VtxoTapKey: refTapKey,
 	}
 	refEncoded, err := refAddr.EncodeV0()
@@ -102,7 +126,12 @@ func TestDelegateHandler_DeterministicOutput(t *testing.T) {
 
 	require.Equal(t, c1.Script, c2.Script)
 	require.Equal(t, c1.Address, c2.Address)
-	require.Equal(t, c1.GetTapscripts(), c2.GetTapscripts())
+
+	ts1, err := h.GetTapscripts(*c1)
+	require.NoError(t, err)
+	ts2, err := h.GetTapscripts(*c2)
+	require.NoError(t, err)
+	require.Equal(t, ts1, ts2)
 }
 
 func TestDelegateHandler_DifferentDelegateDifferentScript(t *testing.T) {
@@ -146,7 +175,7 @@ func TestDelegateHandler_DeriveContract_Validation(t *testing.T) {
 
 	t.Run("delegate key same as signer returns error", func(t *testing.T) {
 		t.Parallel()
-		_, err := h.DeriveContract(ctx, key, cfg, cfg.SignerPubKey)
+		_, err := h.DeriveContract(ctx, key, cfg, cfg.SignerKey)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer")
 	})
@@ -165,19 +194,21 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 
 	t.Run("collaborative returns forfeit leaf", func(t *testing.T) {
 		t.Parallel()
-		sel, err := h.SelectPath(context.Background(), c, contract.PathContext{Collaborative: true})
+		sel, err := h.SelectPath(context.Background(), *c, contract.PathContext{Collaborative: true})
 		require.NoError(t, err)
 		require.NotNil(t, sel)
 		require.Nil(t, sel.Sequence)
 
 		// Forfeit leaf is tapscripts[1].
-		refScript, _ := hex.DecodeString(c.GetTapscripts()[1])
+		ts, err := h.GetTapscripts(*c)
+		require.NoError(t, err)
+		refScript, _ := hex.DecodeString(ts[1])
 		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 
 	t.Run("collaborative with UseDelegatePath returns delegate leaf", func(t *testing.T) {
 		t.Parallel()
-		sel, err := h.SelectPath(context.Background(), c, contract.PathContext{
+		sel, err := h.SelectPath(context.Background(), *c, contract.PathContext{
 			Collaborative:   true,
 			UseDelegatePath: true,
 		})
@@ -186,7 +217,9 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 		require.Nil(t, sel.Sequence)
 
 		// Delegate leaf is tapscripts[2].
-		refScript, _ := hex.DecodeString(c.GetTapscripts()[2])
+		ts, err := h.GetTapscripts(*c)
+		require.NoError(t, err)
+		refScript, _ := hex.DecodeString(ts[2])
 		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 
@@ -194,7 +227,7 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 		t.Parallel()
 		sel, err := h.SelectPath(
 			context.Background(),
-			c,
+			*c,
 			contract.PathContext{Collaborative: false},
 		)
 		require.NoError(t, err)
@@ -203,26 +236,30 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 		require.Nil(t, sel.Locktime)
 
 		// Exit leaf is tapscripts[0].
-		refScript, _ := hex.DecodeString(c.GetTapscripts()[0])
+		ts, err := h.GetTapscripts(*c)
+		require.NoError(t, err)
+		refScript, _ := hex.DecodeString(ts[0])
 		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 
 	t.Run("UseDelegatePath without Collaborative returns exit leaf", func(t *testing.T) {
 		t.Parallel()
-		sel, err := h.SelectPath(context.Background(), c, contract.PathContext{
+		sel, err := h.SelectPath(context.Background(), *c, contract.PathContext{
 			Collaborative:   false,
 			UseDelegatePath: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, sel.Sequence) // still an exit path
 
-		refScript, _ := hex.DecodeString(c.GetTapscripts()[0])
+		ts, err := h.GetTapscripts(*c)
+		require.NoError(t, err)
+		refScript, _ := hex.DecodeString(ts[0])
 		require.Equal(t, txscript.NewBaseTapLeaf(refScript), sel.Leaf)
 	})
 
 	t.Run("unilateral with missing exit delay returns error", func(t *testing.T) {
 		t.Parallel()
-		bad := &contract.Contract{
+		bad := sdktypes.Contract{
 			Params: map[string]string{
 				contract.ParamTapscripts: `["aabb","ccdd","eeff"]`,
 				// no ParamExitDelay
@@ -239,7 +276,7 @@ func TestDelegateHandler_SelectPath(t *testing.T) {
 
 	t.Run("fewer than 3 tapscripts returns error", func(t *testing.T) {
 		t.Parallel()
-		bad := &contract.Contract{
+		bad := sdktypes.Contract{
 			Params: map[string]string{
 				contract.ParamTapscripts: `["aabb","ccdd"]`,
 				contract.ParamExitDelay:  "block:144",
@@ -263,7 +300,7 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 		t.Parallel()
 		paths, err := h.GetSpendablePaths(
 			context.Background(),
-			c,
+			*c,
 			contract.PathContext{Collaborative: false},
 		)
 		require.NoError(t, err)
@@ -275,13 +312,14 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 		t.Parallel()
 		paths, err := h.GetSpendablePaths(
 			context.Background(),
-			c,
+			*c,
 			contract.PathContext{Collaborative: true},
 		)
 		require.NoError(t, err)
 		require.Len(t, paths, 3)
 
-		tapscripts := c.GetTapscripts()
+		tapscripts, err := h.GetTapscripts(*c)
+		require.NoError(t, err)
 
 		exitScript, _ := hex.DecodeString(tapscripts[0])
 		require.Equal(t, txscript.NewBaseTapLeaf(exitScript), paths[0].Leaf)
@@ -298,7 +336,7 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 
 	t.Run("missing exit delay returns error", func(t *testing.T) {
 		t.Parallel()
-		bad := &contract.Contract{
+		bad := sdktypes.Contract{
 			Params: map[string]string{
 				contract.ParamTapscripts: `["aabb","ccdd","eeff"]`,
 				// no ParamExitDelay
@@ -311,7 +349,7 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 
 	t.Run("fewer than 3 tapscripts returns error", func(t *testing.T) {
 		t.Parallel()
-		bad := &contract.Contract{
+		bad := sdktypes.Contract{
 			Params: map[string]string{
 				contract.ParamTapscripts: `["aabb","ccdd"]`,
 				contract.ParamExitDelay:  "block:144",
@@ -343,15 +381,15 @@ func TestDelegateHandler_ClosureOrdering(t *testing.T) {
 				MultisigClosure: script.MultisigClosure{
 					PubKeys: []*btcec.PublicKey{key.PubKey},
 				},
-				Locktime: cfg.UnilateralExitDelay,
+				Locktime: cfg.ExitDelay,
 			},
 			// [1] forfeit — 2-of-2; must be forfeitClosures[0]
 			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerPubKey},
+				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerKey},
 			},
 			// [2] delegate — 3-of-3; must be forfeitClosures[1]
 			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerPubKey},
+				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerKey},
 			},
 		},
 	}
@@ -377,7 +415,7 @@ func TestDelegateHandler_ClosureOrdering(t *testing.T) {
 	refTapKey, _, err := vtxoScript.TapTree()
 	require.NoError(t, err)
 	refAddr := &arklib.Address{
-		HRP: cfg.Network.Addr, Signer: cfg.SignerPubKey, VtxoTapKey: refTapKey,
+		HRP: cfg.Network.Addr, Signer: cfg.SignerKey, VtxoTapKey: refTapKey,
 	}
 	refEncoded, err := refAddr.EncodeV0()
 	require.NoError(t, err)

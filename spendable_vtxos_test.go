@@ -2,12 +2,16 @@ package arksdk
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	sdktypes "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
@@ -74,61 +78,74 @@ func (s *fixStore) VtxoStore() sdktypes.VtxoStore               { return s.vtxo 
 func (s *fixStore) UtxoStore() sdktypes.UtxoStore               { return nil }
 func (s *fixStore) TransactionStore() sdktypes.TransactionStore { return nil }
 func (s *fixStore) AssetStore() sdktypes.AssetStore             { return nil }
-func (s *fixStore) ContractStore() contract.ContractStore       { return nil }
+func (s *fixStore) ContractStore() sdktypes.ContractStore       { return nil }
 func (s *fixStore) Clean(_ context.Context)                     {}
 func (s *fixStore) Close()                                      {}
 
-type fixContractManager struct {
-	contracts []contract.Contract
-}
+// fixHandler serves tapscripts from c.Params["tapscripts"] (JSON array).
+// All other methods are no-ops since getSpendableVtxos only calls GetTapscripts.
+type fixHandler struct{}
 
-func (m *fixContractManager) Load(_ context.Context) error { return nil }
-func (m *fixContractManager) NewDefault(_ context.Context) (*contract.Contract, error) {
+func (h *fixHandler) NewContract(_ context.Context, _ wallet.KeyRef) (*sdktypes.Contract, error) {
 	return nil, nil
 }
+func (h *fixHandler) GetKeyRefs(_ sdktypes.Contract) (map[string]string, error) { return nil, nil }
+func (h *fixHandler) GetKeyRef(_ sdktypes.Contract) (*wallet.KeyRef, error)     { return nil, nil }
+func (h *fixHandler) GetSignerKey(_ sdktypes.Contract) (*btcec.PublicKey, error) {
+	return nil, nil
+}
+func (h *fixHandler) GetExitDelay(_ sdktypes.Contract) (*arklib.RelativeLocktime, error) {
+	return nil, nil
+}
+func (h *fixHandler) GetTapscripts(c sdktypes.Contract) ([]string, error) {
+	s, ok := c.Params["tapscripts"]
+	if !ok {
+		return nil, nil
+	}
+	var ts []string
+	// nolint:errcheck
+	json.Unmarshal([]byte(s), &ts)
+	return ts, nil
+}
 
+var _ handlers.Handler = (*fixHandler)(nil)
+
+type fixContractManager struct {
+	contracts []sdktypes.Contract
+}
+
+func (m *fixContractManager) GetSupportedContractTypes(_ context.Context) []sdktypes.ContractType {
+	return nil
+}
+func (m *fixContractManager) ScanContracts(_ context.Context, _ uint32) error { return nil }
+func (m *fixContractManager) NewContract(
+	_ context.Context, _ sdktypes.ContractType, _ ...contract.ContractOption,
+) (*sdktypes.Contract, error) {
+	return nil, nil
+}
 func (m *fixContractManager) GetContracts(
 	_ context.Context,
 	_ ...contract.FilterOption,
-) ([]contract.Contract, error) {
+) ([]sdktypes.Contract, error) {
 	return m.contracts, nil
 }
-
-func (m *fixContractManager) GetContractsForVtxos(
-	_ context.Context,
-	scripts []string,
-) ([]contract.Contract, error) {
-	lookup := make(map[string]struct{}, len(scripts))
-	for _, s := range scripts {
-		lookup[s] = struct{}{}
-	}
-	var result []contract.Contract
-	for _, c := range m.contracts {
-		if _, ok := lookup[c.Script]; ok {
-			result = append(result, c)
-		}
-	}
-	return result, nil
+func (m *fixContractManager) GetHandler(
+	_ context.Context, _ sdktypes.Contract,
+) (handlers.Handler, error) {
+	return &fixHandler{}, nil
 }
 func (m *fixContractManager) NewDelegate(
 	_ context.Context, _ *btcec.PublicKey,
-) (*contract.Contract, error) {
+) (*sdktypes.Contract, error) {
 	return nil, nil
 }
-func (m *fixContractManager) SelectPath(
-	_ context.Context, _ *contract.Contract, _ contract.PathContext,
-) (*contract.PathSelection, error) {
-	return nil, nil
+func (m *fixContractManager) Clean(_ context.Context) error { return nil }
+func (m *fixContractManager) Close()                        {}
+func (m *fixContractManager) OnContractEvent(_ func(sdktypes.Contract)) func() {
+	return func() {}
 }
-func (m *fixContractManager) GetSpendablePaths(
-	_ context.Context, _ *contract.Contract, _ contract.PathContext,
-) ([]contract.PathSelection, error) {
-	return nil, nil
-}
-func (m *fixContractManager) OnContractEvent(_ func(contract.Event)) func() { return func() {} }
-func (m *fixContractManager) Close() error                                  { return nil }
 
-func newArkClientForTest(vtxos []clientTypes.Vtxo, contracts []contract.Contract) *arkClient {
+func newArkClientForTest(vtxos []clientTypes.Vtxo, contracts []sdktypes.Contract) *arkClient {
 	return &arkClient{
 		store:           &fixStore{vtxo: &fixVtxoStore{spendable: vtxos}},
 		contractManager: &fixContractManager{contracts: contracts},
@@ -144,21 +161,20 @@ func makeTestVtxo(script string) clientTypes.Vtxo {
 	}
 }
 
-func makeTestContract(script, keyID string) contract.Contract {
-	return contract.Contract{
+func makeTestContract(script string) sdktypes.Contract {
+	return sdktypes.Contract{
 		Script: script,
-		Type:   contract.TypeDefault,
-		State:  contract.StateActive,
+		Type:   sdktypes.ContractTypeDefault,
+		State:  sdktypes.ContractStateActive,
 		Params: map[string]string{
-			"keyId":                  keyID,
-			contract.ParamTapscripts: `["leaf0","leaf1"]`,
+			"tapscripts": `["leaf0","leaf1"]`,
 		},
 		CreatedAt: time.Now(),
 	}
 }
 
 // TestGetSpendableVtxos_AllHaveContracts is the normal case: every vtxo has a
-// matching contract, so the key map is fully populated.
+// matching contract, so all vtxos appear in the result with tapscripts.
 func TestGetSpendableVtxos_AllHaveContracts(t *testing.T) {
 	t.Parallel()
 
@@ -166,25 +182,23 @@ func TestGetSpendableVtxos_AllHaveContracts(t *testing.T) {
 		makeTestVtxo("script-a"),
 		makeTestVtxo("script-b"),
 	}
-	contracts := []contract.Contract{
-		makeTestContract("script-a", "key-a"),
-		makeTestContract("script-b", "key-b"),
+	contracts := []sdktypes.Contract{
+		makeTestContract("script-a"),
+		makeTestContract("script-b"),
 	}
 
 	a := newArkClientForTest(vtxos, contracts)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Len(t, result, 2)
-	require.Len(t, keyMap, 2)
-	require.Equal(t, "key-a", keyMap["script-a"])
-	require.Equal(t, "key-b", keyMap["script-b"])
+	scripts := []string{result[0].Script, result[1].Script}
+	require.Contains(t, scripts, "script-a")
+	require.Contains(t, scripts, "script-b")
 }
 
-// TestGetSpendableVtxos_NoContracts is the boarding-only scenario that
-// motivated the bug fix: vtxos in the store have no matching contracts, so
-// scriptToKeyID must be empty. Callers guard with len(scriptToKeyID) > 0
-// before passing WithKeys to the client; an empty map must not be passed.
+// TestGetSpendableVtxos_NoContracts verifies that vtxos with no matching
+// contract are silently skipped, producing an empty result.
 func TestGetSpendableVtxos_NoContracts(t *testing.T) {
 	t.Parallel()
 
@@ -194,15 +208,14 @@ func TestGetSpendableVtxos_NoContracts(t *testing.T) {
 	}
 
 	a := newArkClientForTest(vtxos, nil)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Empty(t, result, "vtxos without a contract should be skipped")
-	require.Empty(t, keyMap, "scriptToKeyID must be empty when no contracts match")
 }
 
-// TestGetSpendableVtxos_MixedContracts verifies that only matched vtxos and
-// their key IDs appear in the output; unmatched vtxos are silently dropped.
+// TestGetSpendableVtxos_MixedContracts verifies that only vtxos with a
+// matching contract appear in the output; unmatched vtxos are silently dropped.
 func TestGetSpendableVtxos_MixedContracts(t *testing.T) {
 	t.Parallel()
 
@@ -210,19 +223,16 @@ func TestGetSpendableVtxos_MixedContracts(t *testing.T) {
 		makeTestVtxo("has-contract"),
 		makeTestVtxo("no-contract"),
 	}
-	contracts := []contract.Contract{
-		makeTestContract("has-contract", "key-x"),
+	contracts := []sdktypes.Contract{
+		makeTestContract("has-contract"),
 	}
 
 	a := newArkClientForTest(vtxos, contracts)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, "has-contract", result[0].Script)
-	require.Len(t, keyMap, 1)
-	require.Equal(t, "key-x", keyMap["has-contract"])
-	require.NotContains(t, keyMap, "no-contract")
 }
 
 // TestGetSpendableVtxos_Empty verifies that an empty vtxo store produces empty
@@ -231,11 +241,10 @@ func TestGetSpendableVtxos_Empty(t *testing.T) {
 	t.Parallel()
 
 	a := newArkClientForTest(nil, nil)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Empty(t, result)
-	require.Empty(t, keyMap)
 }
 
 // TestGetSpendableVtxos_UnrolledVtxosSkipped verifies that unrolled vtxos are
@@ -245,27 +254,27 @@ func TestGetSpendableVtxos_UnrolledVtxosSkipped(t *testing.T) {
 
 	v := makeTestVtxo("unrolled-script")
 	v.Unrolled = true
-	contracts := []contract.Contract{makeTestContract("unrolled-script", "key-u")}
+	contracts := []sdktypes.Contract{makeTestContract("unrolled-script")}
 
 	a := newArkClientForTest([]clientTypes.Vtxo{v}, contracts)
-	result, keyMap, err := a.getSpendableVtxos(context.Background(), false)
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Empty(t, result)
-	require.Empty(t, keyMap)
 }
 
 // TestGetSpendableVtxos_TapscriptsFromContract verifies that the Tapscripts on
-// each VtxoWithTapTree come from the matching contract, not from the vtxo itself.
+// each VtxoWithTapTree come from the matching contract's handler, not from the
+// vtxo itself.
 func TestGetSpendableVtxos_TapscriptsFromContract(t *testing.T) {
 	t.Parallel()
 
 	vtxos := []clientTypes.Vtxo{makeTestVtxo("known-script")}
-	c := makeTestContract("known-script", "key-k")
-	c.Params[contract.ParamTapscripts] = `["aa","bb","cc"]`
+	c := makeTestContract("known-script")
+	c.Params["tapscripts"] = `["aa","bb","cc"]`
 
-	a := newArkClientForTest(vtxos, []contract.Contract{c})
-	result, _, err := a.getSpendableVtxos(context.Background(), false)
+	a := newArkClientForTest(vtxos, []sdktypes.Contract{c})
+	result, err := a.getSpendableVtxos(context.Background(), false)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)

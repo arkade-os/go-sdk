@@ -119,9 +119,47 @@ SELECT *
 FROM utxo
 WHERE txid = :txid AND vout = :vout;
 
+-- name: SelectUtxosByTxid :many
+SELECT *
+FROM utxo
+WHERE txid = :txid;
+
 -- name: DeleteUtxo :exec
 DELETE FROM utxo
 WHERE txid = :txid AND vout = :vout;
 
 -- name: CleanUtxos :exec
 DELETE FROM utxo;
+
+-- name: InsertContract :exec
+INSERT INTO contract (
+    script, type, label, address, state, created_at, params, key_index, metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SelectAllContracts :many
+SELECT * FROM contract;
+
+-- name: SelectContractsByScripts :many
+SELECT * FROM contract
+WHERE script IN (sqlc.slice('scripts'));
+
+-- name: SelectContractsByType :many
+SELECT * FROM contract
+WHERE type = :type;
+
+-- name: SelectContractsByState :many
+SELECT * FROM contract
+WHERE state = :state;
+
+-- name: SelectLatestContractByType :one
+SELECT * FROM contract
+WHERE type = :contract_type ORDER BY key_index DESC LIMIT 1;
+
+-- name: UpdateContractState :execrows
+UPDATE contract
+SET
+    state = :state
+WHERE script = :script;
+
+-- name: CleanContracts :exec
+DELETE FROM contract;

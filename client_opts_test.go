@@ -29,6 +29,18 @@ func TestClientOptions(t *testing.T) {
 				name: "WithVerbose",
 				opts: []arksdk.ClientOption{arksdk.WithVerbose()},
 			},
+			{
+				name: "WithGapLimit",
+				opts: []arksdk.ClientOption{arksdk.WithGapLimit(10)},
+			},
+			{
+				name: "WithWallet",
+				opts: []arksdk.ClientOption{arksdk.WithWallet(&mockWallet{})},
+			},
+			{
+				name: "WithScheduler",
+				opts: []arksdk.ClientOption{arksdk.WithScheduler(&testScheduler{})},
+			},
 		}
 
 		for _, f := range fixtures {
@@ -62,6 +74,63 @@ func TestClientOptions(t *testing.T) {
 					arksdk.WithRefreshDbInterval(40 * time.Second),
 				},
 				wantErrContains: "refresh db interval already set",
+			},
+			{
+				name:            "WithGapLimit zero",
+				opts:            []arksdk.ClientOption{arksdk.WithGapLimit(0)},
+				wantErrContains: "gap limit must be greater than zero",
+			},
+			{
+				name: "WithGapLimit twice",
+				opts: []arksdk.ClientOption{
+					arksdk.WithGapLimit(10),
+					arksdk.WithGapLimit(12),
+				},
+				wantErrContains: "gap limit already set",
+			},
+			{
+				name:            "WithWallet nil",
+				opts:            []arksdk.ClientOption{arksdk.WithWallet(nil)},
+				wantErrContains: "wallet cannot be nil",
+			},
+			{
+				name: "WithWallet twice",
+				opts: []arksdk.ClientOption{
+					arksdk.WithWallet(&mockWallet{}),
+					arksdk.WithWallet(&mockWallet{}),
+				},
+				wantErrContains: "wallet already set",
+			},
+			{
+				name: "WithScheduler nil",
+				opts: []arksdk.ClientOption{
+					arksdk.WithScheduler(nil),
+				},
+				wantErrContains: "scheduler cannot be nil",
+			},
+			{
+				name: "WithScheduler twice",
+				opts: []arksdk.ClientOption{
+					arksdk.WithScheduler(&testScheduler{}),
+					arksdk.WithScheduler(&testScheduler{}),
+				},
+				wantErrContains: "scheduler already set",
+			},
+			{
+				name: "WithScheduler then WithoutAutoSettle",
+				opts: []arksdk.ClientOption{
+					arksdk.WithScheduler(&testScheduler{}),
+					arksdk.WithoutAutoSettle(),
+				},
+				wantErrContains: "cannot disable auto-settle when scheduler is set",
+			},
+			{
+				name: "WithoutAutoSettle then WithScheduler",
+				opts: []arksdk.ClientOption{
+					arksdk.WithoutAutoSettle(),
+					arksdk.WithScheduler(&testScheduler{}),
+				},
+				wantErrContains: "cannot set scheduler when auto-settle is disabled",
 			},
 		}
 

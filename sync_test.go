@@ -1,12 +1,42 @@
 package arksdk
 
 import (
+	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
+
+// TestResetSyncStateForUnlockNoRace exercises the racy code path:
+// Unlock writes syncDone/syncErr/syncCh while IsSynced reads them,
+// and the writes were previously unsynchronized.
+// Running this with `go test -race` will detect a regression if the writes
+// stop holding syncMu.
+func TestResetSyncStateForUnlockNoRace(t *testing.T) {
+	a := &arkClient{
+		syncMu:        &sync.Mutex{},
+		syncListeners: newReadyListeners(),
+		syncCh:        make(chan error, 1),
+	}
+
+	var wg sync.WaitGroup
+	iters := 200
+	wg.Add(iters * 2)
+	for i := 0; i < iters; i++ {
+		go func() {
+			defer wg.Done()
+			a.resetSyncStateForUnlock()
+		}()
+		go func() {
+			defer wg.Done()
+			_ = a.IsSynced(context.Background())
+		}()
+	}
+	wg.Wait()
+}
 
 func TestSyncListeners(t *testing.T) {
 	// All operations on syncListeners are unconditionally valid — there are no

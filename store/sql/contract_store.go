@@ -6,162 +6,185 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
+	"github.com/arkade-os/go-sdk/types"
 )
 
-type contractRepository struct {
-	db *sql.DB
+type contractStore struct {
+	db      *sql.DB
+	querier *queries.Queries
+	lock    *sync.Mutex
 }
 
-// NewContractStore returns a ContractStore backed by the given SQLite database.
-func NewContractStore(db *sql.DB) contract.ContractStore {
-	return &contractRepository{db: db}
+func NewContractStore(db *sql.DB) types.ContractStore {
+	return &contractStore{
+		db:      db,
+		querier: queries.New(db),
+		lock:    &sync.Mutex{},
+	}
 }
 
-func (r *contractRepository) UpsertContract(ctx context.Context, c contract.Contract) error {
-	params, err := json.Marshal(c.Params)
-	if err != nil {
-		return fmt.Errorf("marshal params: %w", err)
-	}
-	metadata, err := json.Marshal(c.Metadata)
-	if err != nil {
-		return fmt.Errorf("marshal metadata: %w", err)
-	}
-
-	isOnchain := 0
-	if c.IsOnchain {
-		isOnchain = 1
-	}
-
-	const q = `
-INSERT INTO contract (script, type, label, params, address, is_onchain, state, created_at, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (script) DO UPDATE SET
-    label      = EXCLUDED.label,
-    state      = EXCLUDED.state,
-    metadata   = EXCLUDED.metadata`
-
-	_, err = r.db.ExecContext(ctx, q,
-		c.Script, c.Type, c.Label, string(params),
-		c.Address, isOnchain, string(c.State),
-		c.CreatedAt.Unix(),
-		string(metadata),
-	)
-	return err
-}
-
-func (r *contractRepository) GetContractByScript(
-	ctx context.Context, scriptHex string,
-) (*contract.Contract, error) {
-	const q = `SELECT script, type, label, params, address, is_onchain, state, created_at, metadata FROM contract WHERE script = ?`
-	row := r.db.QueryRowContext(ctx, q, scriptHex)
-	c, err := scanContract(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	return c, err
-}
-
-func (r *contractRepository) ListContracts(
-	ctx context.Context, f contract.Filter,
-) ([]contract.Contract, error) {
-	q := `SELECT script, type, label, params, address, is_onchain, state, created_at, metadata FROM contract WHERE 1=1`
-	args := []any{}
-
-	if f.Type != nil {
-		q += ` AND type = ?`
-		args = append(args, *f.Type)
-	}
-	if f.State != nil {
-		q += ` AND state = ?`
-		args = append(args, *f.State)
-	}
-	if f.Script != nil {
-		q += ` AND script = ?`
-		args = append(args, *f.Script)
-	}
-
-	rows, err := r.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
-
-	var contracts []contract.Contract
-	for rows.Next() {
-		c, err := scanContractRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		contracts = append(contracts, *c)
-	}
-	return contracts, rows.Err()
-}
-
-func (r *contractRepository) UpdateContractState(
-	ctx context.Context, scriptHex string, state contract.State,
+func (v *contractStore) AddContract(
+	ctx context.Context, contract types.Contract, keyIndex uint32,
 ) error {
-	const q = `UPDATE contract SET state = ? WHERE script = ?`
-	_, err := r.db.ExecContext(ctx, q, string(state), scriptHex)
-	return err
+	params, err := json.Marshal(contract.Params)
+	if err != nil {
+		return fmt.Errorf("failed to serialize extra params: %w", err)
+	}
+
+	var metadataBytes []byte
+	if len(contract.Metadata) > 0 {
+		buf, err := json.Marshal(contract.Metadata)
+		if err != nil {
+			return fmt.Errorf("failed to serialize metadata: %w", err)
+		}
+		metadataBytes = buf
+	}
+	metadata := string(metadataBytes)
+	if err := v.querier.InsertContract(ctx, queries.InsertContractParams{
+		Script:    contract.Script,
+		Type:      string(contract.Type),
+		Label:     sql.NullString{String: contract.Label, Valid: len(contract.Label) > 0},
+		Address:   contract.Address,
+		State:     string(contract.State),
+		CreatedAt: contract.CreatedAt.Unix(),
+		Params:    string(params),
+		KeyIndex:  int64(keyIndex),
+		Metadata:  sql.NullString{String: metadata, Valid: len(metadata) > 0},
+	}); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
+			return fmt.Errorf("contract %s already exists", contract.Script)
+		}
+		return err
+	}
+	return nil
 }
 
-func (r *contractRepository) Clean(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM contract`)
-	return err
-}
-
-// rowScanner is implemented by both *sql.Row and *sql.Rows.
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanContract(row *sql.Row) (*contract.Contract, error) {
-	return scanContractRow(row)
-}
-
-func scanContractRow(row rowScanner) (*contract.Contract, error) {
-	var (
-		scriptHex, typ, label string
-		paramsJSON, metaJSON  string
-		address, stateStr     string
-		isOnchain             int64
-		createdAtUnix         int64
-	)
-
-	if err := row.Scan(
-		&scriptHex, &typ, &label, &paramsJSON,
-		&address, &isOnchain, &stateStr,
-		&createdAtUnix, &metaJSON,
-	); err != nil {
+func (v *contractStore) ListContracts(ctx context.Context) ([]types.Contract, error) {
+	rows, err := v.querier.SelectAllContracts(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	var params map[string]string
-	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
-		return nil, fmt.Errorf("unmarshal params: %w", err)
+	contracts := make([]types.Contract, 0, len(rows))
+	for _, row := range rows {
+		contracts = append(contracts, toContract(row))
 	}
+	return contracts, nil
+}
 
-	var metadata map[string]any
-	if err := json.Unmarshal([]byte(metaJSON), &metadata); err != nil {
-		return nil, fmt.Errorf("unmarshal metadata: %w", err)
+func (v *contractStore) GetContractsByScripts(
+	ctx context.Context, scripts []string,
+) ([]types.Contract, error) {
+	rows, err := v.querier.SelectContractsByScripts(ctx, scripts)
+	if err != nil {
+		return nil, err
 	}
+	contracts := make([]types.Contract, 0, len(rows))
+	for _, row := range rows {
+		contracts = append(contracts, toContract(row))
+	}
+	return contracts, nil
+}
 
-	return &contract.Contract{
-		Script:    scriptHex,
-		Type:      typ,
-		Label:     label,
+func (v *contractStore) GetContractsByState(
+	ctx context.Context, state types.ContractState,
+) ([]types.Contract, error) {
+	rows, err := v.querier.SelectContractsByState(ctx, string(state))
+	if err != nil {
+		return nil, err
+	}
+	contracts := make([]types.Contract, 0, len(rows))
+	for _, row := range rows {
+		contracts = append(contracts, toContract(row))
+	}
+	return contracts, nil
+}
+
+func (v *contractStore) GetContractsByType(
+	ctx context.Context, contractType types.ContractType,
+) ([]types.Contract, error) {
+	rows, err := v.querier.SelectContractsByType(ctx, string(contractType))
+	if err != nil {
+		return nil, err
+	}
+	contracts := make([]types.Contract, 0, len(rows))
+	for _, row := range rows {
+		contracts = append(contracts, toContract(row))
+	}
+	return contracts, nil
+}
+
+func (v *contractStore) GetLatestContract(
+	ctx context.Context, contractType types.ContractType,
+) (*types.Contract, error) {
+	row, err := v.querier.SelectLatestContractByType(ctx, string(contractType))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	contract := toContract(row)
+
+	return &contract, nil
+}
+func (v *contractStore) UpdateContractState(
+	ctx context.Context, script string, state types.ContractState,
+) error {
+	n, err := v.querier.UpdateContractState(ctx, queries.UpdateContractStateParams{
+		Script: script,
+		State:  string(state),
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("contract %s not found", script)
+	}
+	return nil
+}
+
+func (v *contractStore) Clean(ctx context.Context) error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
+	if err := v.querier.CleanContracts(ctx); err != nil {
+		return err
+	}
+	// nolint:all
+	v.db.ExecContext(ctx, "VACUUM")
+	return nil
+}
+
+func (v *contractStore) Close() {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
+	// nolint:all
+	v.db.Close()
+}
+
+func toContract(row queries.Contract) types.Contract {
+	params := make(map[string]string)
+	// nolint:errcheck
+	json.Unmarshal([]byte(row.Params), &params)
+	metadata := make(map[string]string)
+	if row.Metadata.Valid {
+		// nolint:errcheck
+		json.Unmarshal([]byte(row.Metadata.String), &metadata)
+	}
+	return types.Contract{
+		Type:      types.ContractType(row.Type),
+		Label:     row.Label.String,
 		Params:    params,
-		Address:   address,
-		IsOnchain: isOnchain != 0,
-		State:     contract.State(stateStr),
-		CreatedAt: time.Unix(createdAtUnix, 0),
+		Script:    row.Script,
+		Address:   row.Address,
+		State:     types.ContractState(row.State),
+		CreatedAt: time.Unix(row.CreatedAt, 0),
 		Metadata:  metadata,
-	}, nil
+	}
 }

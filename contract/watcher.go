@@ -10,6 +10,8 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -63,13 +65,13 @@ func NewWatcher(exp explorer.Explorer, mgr Manager, network arklib.Network) *Wat
 // dynamically. Start returns an error only if the initial address load fails;
 // subscription failures are retried internally with exponential backoff.
 func (w *Watcher) Start(ctx context.Context) error {
-	contracts, err := w.mgr.GetContracts(ctx, WithState(StateActive))
+	contracts, err := w.mgr.GetContracts(ctx, WithState(types.ContractStateActive))
 	if err != nil {
 		return fmt.Errorf("watcher: load contracts: %w", err)
 	}
 
 	for _, c := range contracts {
-		w.addContractAddresses(c)
+		w.addContractAddresses(ctx, c)
 	}
 
 	watchCtx, cancel := context.WithCancel(ctx)
@@ -83,14 +85,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 		// Register the callback before subscribing so no contract_created events
 		// are missed during the backoff retry window.
 		// Dynamic subscription: one goroutine per new contract so the
-		// OnContractEvent callback never blocks NewDefault -> emit.
-		unsub := w.mgr.OnContractEvent(func(e Event) {
-			if e.Type != "contract_created" {
-				return
-			}
-			c := e.Contract
+		// OnContractEvent callback never blocks NewContract -> emit.
+		unsub := w.mgr.OnContractEvent(func(c types.Contract) {
 			go func() {
-				newAddrs := w.addContractAddresses(c)
+				newAddrs := w.addContractAddresses(watchCtx, c)
 				if len(newAddrs) == 0 || watchCtx.Err() != nil {
 					return
 				}
@@ -135,12 +133,9 @@ func (w *Watcher) LookupAddress(scriptHex string) (AddressInfo, bool) {
 
 // addContractAddresses derives and records the address for c under w.mu.
 // Returns the slice of new addresses added (for callers that need to subscribe them).
-func (w *Watcher) addContractAddresses(c Contract) []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *Watcher) addContractAddresses(ctx context.Context, c types.Contract) []string {
 	var addr string
-	if c.IsOnchain {
+	if c.Type == types.ContractTypeBoarding {
 		addr = c.Address
 	} else {
 		onchain, err := watcherArkToOnchain(c.Address, w.network)
@@ -156,23 +151,41 @@ func (w *Watcher) addContractAddresses(c Contract) []string {
 		log.WithError(err).Warn("watcher: failed to derive script for contract address")
 		return nil
 	}
+	scriptHex := hex.EncodeToString(sc)
 
-	delay, err := c.GetDelay()
+	handler, err := w.mgr.GetHandler(ctx, c)
 	if err != nil {
-		if c.IsOnchain && c.Type != TypeDefaultBoarding {
+		log.WithError(err).Warnf("watcher: failed to get handler for contract %s", c.Script)
+		return nil
+	}
+
+	tapscripts, err := handler.GetTapscripts(c)
+	if err != nil {
+		log.WithError(err).Warnf("watcher: failed to get tapscripts for contract %s", c.Script)
+		return nil
+	}
+
+	var delay arklib.RelativeLocktime
+	exitDelay, err := handler.GetExitDelay(c)
+	if err != nil {
+		if c.Type != types.ContractTypeBoarding {
 			delay = arklib.RelativeLocktime{}
 		} else {
 			log.WithError(err).Warnf("watcher: skipping contract %s: invalid exit delay", c.Script)
 			return nil
 		}
+	} else {
+		delay = *exitDelay
 	}
 
-	scriptHex := hex.EncodeToString(sc)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if _, exists := w.addressByScript[scriptHex]; exists {
 		return nil
 	}
 	w.addressByScript[scriptHex] = AddressInfo{
-		Tapscripts: c.GetTapscripts(),
+		Tapscripts: tapscripts,
 		Delay:      delay,
 	}
 	w.addresses = append(w.addresses, addr)
@@ -239,10 +252,7 @@ func (w *Watcher) listen(ctx context.Context) {
 
 // watcherOutputScript converts a bitcoin address string to its output script bytes.
 func watcherOutputScript(addr string, network arklib.Network) ([]byte, error) {
-	params, err := toBitcoinNetwork(network)
-	if err != nil {
-		return nil, err
-	}
+	params := utils.ToBitcoinNetwork(network)
 	decoded, err := btcutil.DecodeAddress(addr, &params)
 	if err != nil {
 		return nil, err
@@ -252,10 +262,7 @@ func watcherOutputScript(addr string, network arklib.Network) ([]byte, error) {
 
 // watcherArkToOnchain converts an Ark offchain address to its onchain P2TR equivalent.
 func watcherArkToOnchain(arkAddr string, network arklib.Network) (string, error) {
-	params, err := toBitcoinNetwork(network)
-	if err != nil {
-		return "", err
-	}
+	params := utils.ToBitcoinNetwork(network)
 	decoded, err := arklib.DecodeAddressV0(arkAddr)
 	if err != nil {
 		return "", err

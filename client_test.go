@@ -2,6 +2,7 @@ package arksdk_test
 
 import (
 	"testing"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -9,6 +10,27 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
+
+type testScheduler struct {
+	scheduledAt time.Time
+}
+
+func (s *testScheduler) Start() {}
+
+func (s *testScheduler) Stop() {}
+
+func (s *testScheduler) ScheduleTask(_ func(), at time.Time) error {
+	s.scheduledAt = at
+	return nil
+}
+
+func (s *testScheduler) CancelScheduledTask() {
+	s.scheduledAt = time.Time{}
+}
+
+func (s *testScheduler) GetTaskScheduledAt() time.Time {
+	return s.scheduledAt
+}
 
 // seedConfigStore seeds the config store of a freshly created client so that
 // LoadArkClient can subsequently load it without a live server.
@@ -25,11 +47,29 @@ func seedConfigStore(t *testing.T, datadir string) {
 		ServerUrl:     "localhost:7070",
 		SignerPubKey:  privKey.PubKey(),
 		ForfeitPubKey: privKey.PubKey(),
-		WalletType:    "singlekey",
 		Network:       arklib.BitcoinRegTest,
 		ExplorerURL:   "http://127.0.0.1:3000",
 	}
 	require.NoError(t, c.GetConfigStore().AddData(t.Context(), cfg))
+}
+
+func TestWhenNextSettlement(t *testing.T) {
+	t.Run("returns injected scheduler time", func(t *testing.T) {
+		nextSettlement := time.Now().Add(time.Hour)
+		c, err := arksdk.NewArkClient("", arksdk.WithScheduler(&testScheduler{
+			scheduledAt: nextSettlement,
+		}))
+		require.NoError(t, err)
+
+		require.Equal(t, nextSettlement, c.WhenNextSettlement())
+	})
+
+	t.Run("returns zero when auto settle is disabled", func(t *testing.T) {
+		c, err := arksdk.NewArkClient("", arksdk.WithoutAutoSettle())
+		require.NoError(t, err)
+
+		require.True(t, c.WhenNextSettlement().IsZero())
+	})
 }
 
 func TestNewArkClient(t *testing.T) {
@@ -89,6 +129,19 @@ func TestNewArkClient(t *testing.T) {
 }
 
 func TestLoadNewArkClient(t *testing.T) {
+	t.Run("WhenNextSettlement returns injected scheduler time", func(t *testing.T) {
+		datadir := t.TempDir()
+		seedConfigStore(t, datadir)
+
+		nextSettlement := time.Now().Add(time.Hour)
+		c, err := arksdk.LoadArkClient(datadir, arksdk.WithScheduler(&testScheduler{
+			scheduledAt: nextSettlement,
+		}))
+		require.NoError(t, err)
+
+		require.Equal(t, nextSettlement, c.WhenNextSettlement())
+	})
+
 	t.Run("valid", func(t *testing.T) {
 		fixtures := []struct {
 			name    string

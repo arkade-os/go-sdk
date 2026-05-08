@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/go-sdk/contract"
 )
 
 type Store interface {
@@ -13,9 +12,7 @@ type Store interface {
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
 	AssetStore() AssetStore
-	// ContractStore returns the contract persistence layer.
-	// Returns nil for store backends that do not persist contracts (e.g. kv, in-memory).
-	ContractStore() contract.ContractStore
+	ContractStore() ContractStore
 	Clean(ctx context.Context)
 	Close()
 }
@@ -38,8 +35,10 @@ type UtxoStore interface {
 	ReplaceUtxo(ctx context.Context, from, to types.Outpoint) error
 	ConfirmUtxos(ctx context.Context, confirmedUtxos map[types.Outpoint]int64) (int, error)
 	SpendUtxos(ctx context.Context, spentUtxos map[types.Outpoint]string) (int, error)
+	DeleteUtxos(ctx context.Context, outpoints []types.Outpoint) (int, error)
 	GetAllUtxos(ctx context.Context) (spendable, spent []types.Utxo, err error)
 	GetUtxos(ctx context.Context, keys []types.Outpoint) ([]types.Utxo, error)
+	GetUtxosByTxid(ctx context.Context, txid string) ([]types.Utxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan UtxoEvent
 	Close()
@@ -66,6 +65,18 @@ type VtxoStore interface {
 type AssetStore interface {
 	GetAsset(ctx context.Context, assetId string) (*types.AssetInfo, error)
 	UpsertAsset(ctx context.Context, asset types.AssetInfo) error
+	Clean(ctx context.Context) error
+	Close()
+}
+
+type ContractStore interface {
+	AddContract(ctx context.Context, c Contract, keyIndex uint32) error
+	ListContracts(ctx context.Context) ([]Contract, error)
+	GetContractsByScripts(ctx context.Context, scripts []string) ([]Contract, error)
+	GetContractsByState(ctx context.Context, state ContractState) ([]Contract, error)
+	GetContractsByType(ctx context.Context, contractType ContractType) ([]Contract, error)
+	GetLatestContract(ctx context.Context, contractType ContractType) (*Contract, error)
+	UpdateContractState(ctx context.Context, script string, state ContractState) error
 	Clean(ctx context.Context) error
 	Close()
 }

@@ -3,6 +3,10 @@ package arksdk
 import (
 	"fmt"
 	"time"
+
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/scheduler"
+	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 )
 
 const (
@@ -36,9 +40,69 @@ func WithRefreshDbInterval(d time.Duration) ClientOption {
 	}
 }
 
+// WithVerbose enables verbose logging.
 func WithVerbose() ClientOption {
 	return func(o *clientOptions) error {
 		o.verbose = true
+		return nil
+	}
+}
+
+// WithGapLimit sets the HD wallet discovery gap limit used during startup
+// recovery. Must be greater than zero.
+func WithGapLimit(limit uint32) ClientOption {
+	return func(o *clientOptions) error {
+		if o.hdGapLimitSet {
+			return fmt.Errorf("gap limit already set")
+		}
+		if limit == 0 {
+			return fmt.Errorf("gap limit must be greater than zero")
+		}
+		o.hdGapLimit = limit
+		o.hdGapLimitSet = true
+		return nil
+	}
+}
+
+// WithWallet injects a custom WalletService implementation for key management.
+// Can only be set once and must not be nil.
+func WithWallet(walletSvc wallet.WalletService) ClientOption {
+	return func(o *clientOptions) error {
+		if o.wallet != nil {
+			return fmt.Errorf("wallet already set")
+		}
+		if walletSvc == nil {
+			return fmt.Errorf("wallet cannot be nil")
+		}
+		o.wallet = walletSvc
+		return nil
+	}
+}
+
+// WithScheduler injects a custom SchedulerService implementation for task scheduling.
+func WithScheduler(svc scheduler.SchedulerService) ClientOption {
+	return func(o *clientOptions) error {
+		if svc == nil {
+			return fmt.Errorf("scheduler cannot be nil")
+		}
+		if o.scheduler != nil {
+			return fmt.Errorf("scheduler already set")
+		}
+		if o.disableAutoSettle {
+			return fmt.Errorf("cannot set scheduler when auto-settle is disabled")
+		}
+		o.scheduler = svc
+		return nil
+	}
+}
+
+// WithoutAutoSettle disables the auto-settle feature.
+func WithoutAutoSettle() ClientOption {
+	return func(o *clientOptions) error {
+		if o.scheduler != nil {
+			return fmt.Errorf("cannot disable auto-settle when scheduler is set")
+		}
+		o.disableAutoSettle = true
 		return nil
 	}
 }
@@ -59,10 +123,15 @@ func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 type clientOptions struct {
 	refreshDbInterval time.Duration
 	verbose           bool
+	hdGapLimit        uint32
+	hdGapLimitSet     bool
+	wallet            wallet.WalletService
+	scheduler         scheduler.SchedulerService
+	disableAutoSettle bool
 }
 
 // newDefaultClientOptions returns a zero-value clientOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultClientOptions() *clientOptions {
-	return &clientOptions{}
+	return &clientOptions{hdGapLimit: hdwallet.DefaultGapLimit}
 }
