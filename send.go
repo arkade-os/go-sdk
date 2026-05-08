@@ -6,6 +6,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -16,7 +17,7 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := a.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
@@ -26,7 +27,12 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
-	// ensure asset-carrying receivers have at least dust sats as a carrier
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Ensure asset-carrying receivers have at least dust sats as a carrier
 	clone := make([]clientTypes.Receiver, len(receivers))
 	copy(clone, receivers)
 	dust := cfg.Dust
@@ -36,16 +42,32 @@ func (a *arkClient) SendOffChain(
 		}
 	}
 
-	sendOpts := []client.SendOption{client.WithVtxos(vtxos)}
-	if len(scriptToKeyID) > 0 {
-		sendOpts = append(sendOpts, client.WithKeys(scriptToKeyID))
+	opts := []client.SendOption{
+		client.WithVtxos(vtxos),
+		client.WithKeys(signingKeyRefs),
 	}
-	res, err := a.ArkClient.SendOffChain(ctx, clone, sendOpts...)
+
+	outAmount := uint64(0)
+	for _, r := range clone {
+		outAmount += r.Amount
+	}
+	inAmount := uint64(0)
+	for _, v := range vtxos {
+		inAmount += v.Amount
+	}
+	if inAmount > outAmount {
+		addr, err := a.newOffchainAddress(ctx)
+		if err != nil {
+			return "", err
+		}
+		opts = append(opts, client.WithReceiver(addr))
+	}
+
+	res, err := a.ArkClient.SendOffChain(ctx, clone, opts...)
 	if err != nil {
 		return "", err
 	}
 
-	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 	if err := a.saveSendTransaction(ctx, *res); err != nil {
 		return "", err
 	}
@@ -55,12 +77,12 @@ func (a *arkClient) SendOffChain(
 
 func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
-) ([]clientTypes.VtxoWithTapTree, map[string]string, error) {
+) ([]clientTypes.VtxoWithTapTree, error) {
 	a.dbMu.Lock()
 	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
 	a.dbMu.Unlock()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	eligible := make([]clientTypes.Vtxo, 0, len(spendableVtxos))
@@ -73,32 +95,48 @@ func (a *arkClient) getSpendableVtxos(
 		scripts = append(scripts, v.Script)
 	}
 
-	contracts, err := a.contractManager.GetContractsForVtxos(ctx, scripts)
-	if err != nil {
-		return nil, nil, err
+	// No eligible vtxos → nothing to look up. Skip the manager call so we
+	// don't hand contract.WithScripts an empty slice (which it rightly
+	// rejects as a programmer error). Callers (Unroll, Settle, …) already
+	// handle a (nil, nil) return as "no vtxos available".
+	if len(scripts) == 0 {
+		return nil, nil
 	}
 
-	contractsByScript := make(map[string]contract.Contract, len(contracts))
+	contracts, err := a.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
+	if err != nil {
+		return nil, err
+	}
+
+	contractsByScript := make(map[string]types.Contract, len(contracts))
 	for _, c := range contracts {
 		contractsByScript[c.Script] = c
 	}
 
 	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(eligible))
-	scriptToKeyID := make(map[string]string, len(contracts))
 	for _, v := range eligible {
-		c, ok := contractsByScript[v.Script]
+		contract, ok := contractsByScript[v.Script]
 		if !ok {
-			log.Debugf("skipping vtxo %s:%d: no contract for script %s", v.Txid, v.VOut, v.Script)
+			log.Warnf("skipping vtxo %s: no matching contract", v.Script)
 			continue
 		}
+
+		handler, err := a.contractManager.GetHandler(ctx, contract)
+		if err != nil {
+			log.WithError(err).Warnf("failed to get handler for contract %s", contract.Script)
+			continue
+		}
+		tapscripts, err := handler.GetTapscripts(contract)
+		if err != nil {
+			log.WithError(err).Warnf("failed to get tapscripts for contract %s", contract.Script)
+			continue
+		}
+
 		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
 			Vtxo:       v,
-			Tapscripts: c.GetTapscripts(),
+			Tapscripts: tapscripts,
 		})
-		if keyID := c.Params[contract.ParamKeyID]; keyID != "" {
-			scriptToKeyID[c.Script] = keyID
-		}
 	}
 
-	return vtxos, scriptToKeyID, nil
+	return vtxos, nil
 }

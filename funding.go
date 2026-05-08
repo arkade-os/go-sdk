@@ -2,87 +2,143 @@ package arksdk
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 
-var errContractManagerNotReady = fmt.Errorf("contract manager not ready")
+func (a *arkClient) GetAddresses(ctx context.Context) (
+	onchainAddresses []string,
+	offchainAddresses, boardingAddresses, redemptionAddresses []clientTypes.Address,
+	err error,
+) {
+	if err := a.safeCheck(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	onchainAddrs, _, _, _, err := a.ArkClient.GetAddresses(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	contracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeDefault),
+	)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	boardingContracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	onchainAddresses = make([]string, len(onchainAddrs))
+	copy(onchainAddresses, onchainAddrs)
+
+	for _, c := range contracts {
+		handler, err := a.contractManager.GetHandler(ctx, c)
+		if err != nil {
+			log.WithError(err).Warnf("skipping contract %s: failed to get handler", c.Script)
+			continue
+		}
+		tapscripts, err := handler.GetTapscripts(c)
+		if err != nil {
+			log.WithError(err).Warnf("skipping contract %s: failed to get tapscripts", c.Script)
+			continue
+		}
+		keyRef, err := handler.GetKeyRef(c)
+		if err != nil {
+			log.WithError(err).Warnf("skipping contract %s: failed to get key ref", c.Script)
+			continue
+		}
+		addr := clientTypes.Address{
+			KeyID:      keyRef.Id,
+			Tapscripts: tapscripts,
+			Address:    c.Address,
+		}
+		offchainAddresses = append(offchainAddresses, addr)
+		redemptionAddresses = append(redemptionAddresses, clientTypes.Address{
+			KeyID:      keyRef.Id,
+			Tapscripts: tapscripts,
+			Address:    toOnchainAddress(c.Address, cfg.Network),
+		})
+	}
+	for _, c := range boardingContracts {
+		handler, err := a.contractManager.GetHandler(ctx, c)
+		if err != nil {
+			log.WithError(err).Warnf("skipping boarding contract %s: failed to get handler", c.Script)
+			continue
+		}
+		tapscripts, err := handler.GetTapscripts(c)
+		if err != nil {
+			log.WithError(err).Warnf(
+				"skipping boarding contract %s: failed to get tapscripts", c.Script,
+			)
+			continue
+		}
+		keyRef, err := handler.GetKeyRef(c)
+		if err != nil {
+			log.WithError(err).Warnf(
+				"skipping boarding contract %s: failed to get key ref", c.Script,
+			)
+			continue
+		}
+		boardingAddresses = append(boardingAddresses, clientTypes.Address{
+			KeyID:      keyRef.Id,
+			Tapscripts: tapscripts,
+			Address:    c.Address,
+		})
+	}
+
+	return
+}
 
 func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	if a.contractManager == nil {
-		return "", errContractManagerNotReady
-	}
-	c, err := a.contractManager.NewDefault(ctx)
-	if err != nil {
-		return "", err
-	}
-	return c.Address, nil
+	return a.newOffchainAddress(ctx)
 }
 
 func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	if a.contractManager == nil {
-		return "", errContractManagerNotReady
-	}
-	primary, err := a.contractManager.NewDefault(ctx)
-	if err != nil {
-		return "", err
-	}
-	keyID := primary.Params[contract.ParamKeyID]
-	boardingType := contract.TypeDefaultBoarding
-	contracts, err := a.contractManager.GetContracts(ctx,
-		contract.WithType(boardingType),
-		contract.WithKeyID(keyID),
+
+	contract, err := a.contractManager.NewContract(
+		ctx, types.ContractTypeBoarding,
 	)
 	if err != nil {
 		return "", err
 	}
-	if len(contracts) == 0 {
-		return "", fmt.Errorf("no boarding contract for key %s", keyID)
-	}
-	addr := contracts[0].Address
+
 	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{addr}); err != nil {
+		if err := a.Explorer().SubscribeForAddresses([]string{contract.Address}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
 		}
 	}()
-	return addr, nil
+	return contract.Address, nil
 }
 
 func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
-	if a.contractManager == nil {
-		return "", errContractManagerNotReady
-	}
-	primary, err := a.contractManager.NewDefault(ctx)
-	if err != nil {
-		return "", err
-	}
-	keyID := primary.Params[contract.ParamKeyID]
-	onchainType := contract.TypeDefaultOnchain
-	contracts, err := a.contractManager.GetContracts(ctx,
-		contract.WithType(onchainType),
-		contract.WithKeyID(keyID),
-	)
-	if err != nil {
-		return "", err
-	}
-	if len(contracts) == 0 {
-		return "", fmt.Errorf("no onchain contract for key %s", keyID)
-	}
-	return contracts[0].Address, nil
+
+	onchainAddr, _, _, err := a.Receive(ctx)
+	return onchainAddr, err
 }
 
 func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
@@ -163,6 +219,15 @@ func (a *arkClient) ListVtxos(
 
 	// TODO: add safe check
 	return a.store.VtxoStore().GetAllVtxos(ctx)
+}
+
+func (a *arkClient) newOffchainAddress(ctx context.Context) (string, error) {
+	contract, err := a.contractManager.NewContract(ctx, types.ContractTypeDefault)
+	if err != nil {
+		return "", err
+	}
+
+	return contract.Address, nil
 }
 
 func (a *arkClient) getOffchainBalance(ctx context.Context) (

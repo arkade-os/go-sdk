@@ -13,7 +13,7 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, true)
+	vtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return "", err
 	}
@@ -32,15 +32,26 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	settleOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
-	if len(scriptToKeyID) > 0 {
-		settleOpts = append(settleOpts, client.WithKeys(scriptToKeyID))
-	}
-	if batchSessionOpts.retryNum > 0 {
-		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, utxos)
+	if err != nil {
+		return "", err
 	}
 
-	res, err := a.ArkClient.Settle(ctx, settleOpts...)
+	changeAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	clientOpts := []client.BatchSessionOption{
+		client.WithFunds(utxos, vtxos),
+		client.WithKeys(signingKeyRefs),
+		client.WithReceiver(changeAddr),
+	}
+	if batchSessionOpts.retryNum > 0 {
+		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
+	}
+
+	res, err := a.ArkClient.Settle(ctx, clientOpts...)
 	if err != nil {
 		return "", err
 	}
@@ -59,13 +70,7 @@ func (a *arkClient) CollaborativeExit(
 		return "", err
 	}
 
-	vtxos, scriptToKeyID, err := a.getSpendableVtxos(ctx, true)
-	if err != nil {
-		return "", err
-	}
-	a.dbMu.Lock()
-	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
-	a.dbMu.Unlock()
+	vtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return "", err
 	}
@@ -75,15 +80,26 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	exitOpts := []client.BatchSessionOption{client.WithFunds(utxos, vtxos)}
-	if len(scriptToKeyID) > 0 {
-		exitOpts = append(exitOpts, client.WithKeys(scriptToKeyID))
-	}
-	if batchSessionOpts.retryNum > 0 {
-		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
+	if err != nil {
+		return "", err
 	}
 
-	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, exitOpts...)
+	changeAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	clientOpts := []client.BatchSessionOption{
+		client.WithFunds(nil, vtxos),
+		client.WithKeys(signingKeyRefs),
+		client.WithReceiver(changeAddr),
+	}
+	if batchSessionOpts.retryNum > 0 {
+		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
+	}
+
+	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, clientOpts...)
 	if err != nil {
 		return "", err
 	}
@@ -103,13 +119,18 @@ func (a *arkClient) RegisterIntent(
 	if err := a.safeCheck(); err != nil {
 		return "", err
 	}
+
+	vv := make([]clientTypes.VtxoWithTapTree, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		vv = append(vv, clientTypes.VtxoWithTapTree{Vtxo: vtxo})
+	}
+	keys, err := a.getSigningKeyRefs(ctx, vv, boardingUtxos)
+	if err != nil {
+		return "", err
+	}
+
 	return a.ArkClient.RegisterIntent(
-		ctx,
-		vtxos,
-		boardingUtxos,
-		notes,
-		outputs,
-		cosignersPublicKeys,
+		ctx, vtxos, boardingUtxos, notes, outputs, cosignersPublicKeys, client.WithKeys(keys),
 	)
 }
 
@@ -130,7 +151,12 @@ func (a *arkClient) RedeemNotes(
 		return "", err
 	}
 
-	res, err := a.ArkClient.RedeemNotes(ctx, notes)
+	addr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	res, err := a.ArkClient.RedeemNotes(ctx, notes, client.WithReceiver(addr))
 	if err != nil {
 		return "", err
 	}
