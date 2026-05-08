@@ -5,13 +5,14 @@ import (
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTransactionHistory(t *testing.T) {
 	ctx := t.Context()
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 	history, err := alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
@@ -115,7 +116,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, settledBoardingTx, history[0], "")
 
 	// alice sends funds to bob
-	bob := setupClient(t, "")
+	bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 	bobTxChan := bob.GetTransactionEventChannel(ctx)
 
 	bobOnchainAddr, err := bob.NewOnchainAddress(ctx)

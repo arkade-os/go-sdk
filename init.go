@@ -2,7 +2,9 @@ package arksdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -129,6 +131,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 	go func() {
 		a.Explorer().Start()
+		if a.scheduler != nil {
+			a.scheduler.Start()
+		}
 
 		ctx := bgCtx
 
@@ -149,6 +154,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		}
 
 		err := a.refreshDb(ctx)
+		if err == nil {
+			a.scheduleNextSettlement()
+		}
 		a.syncCh <- err
 		close(a.syncCh)
 
@@ -175,6 +183,9 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	}
 
 	a.Explorer().Stop()
+	if a.scheduler != nil {
+		a.scheduler.Stop()
+	}
 
 	if a.stopFn != nil {
 		a.stopFn()
@@ -200,4 +211,48 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		a.syncListeners.clear()
 	}
 	return nil
+}
+
+func (a *arkClient) scheduleNextSettlement() {
+	// If auto-settle is disabled, nothing to do
+	if a.scheduler == nil {
+		return
+	}
+
+	nextSettlement := a.scheduler.GetTaskScheduledAt()
+
+	vtxos, err := a.store.VtxoStore().GetSpendableVtxos(context.Background())
+	if err != nil {
+		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next settlement")
+		return
+	}
+
+	// Nothing to do
+	if len(vtxos) <= 0 {
+		return
+	}
+
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+
+	// Reduce the real vtxo expiration date of 10%
+	expiry := time.Until(vtxos[0].ExpiresAt)
+	nextExpiration := time.Now().Add(expiry * 9 / 10)
+	if nextSettlement.IsZero() || nextExpiration.Before(nextSettlement) {
+		task := func() {
+			if _, err := a.Settle(context.Background()); err != nil {
+				if errors.Is(err, ErrNoFundsToSettle) {
+					log.Debugf("no vtxos to auto-settle, skipping")
+					return
+				}
+				log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
+			}
+		}
+		if err := a.scheduler.ScheduleTask(task, nextExpiration); err != nil {
+			log.WithError(err).Warn("failed to schedule next settlement")
+			return
+		}
+		log.Debugf("scheduled next settlement at %s", nextExpiration.Format(time.RFC3339))
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ func TestCollaborativeExit(t *testing.T) {
 	// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
 	t.Run("with change", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
-		bob := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		// Faucet Alice
 		faucetOffchain(t, alice, 0.001)
@@ -88,8 +89,8 @@ func TestCollaborativeExit(t *testing.T) {
 	// In this test Alice sends all to Bob'c onchain address without (VTXO) change
 	t.Run("without change", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
-		bob := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		// Faucet Alice
 		faucetOffchain(t, alice, 0.00021)
@@ -157,7 +158,7 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Alice owns a leaf VTXO and unrolls it onchain
 	t.Run("leaf vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 
@@ -205,7 +206,7 @@ func TestUnilateralExit(t *testing.T) {
 		time.Sleep(25 * time.Second)
 
 		// Use a separate HD wallet to observe the onchain receive after CompleteUnroll.
-		bob := setupClient(t, "")
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
@@ -232,11 +233,11 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
 	t.Run("preconfirmed vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.001)
 
-		bob := setupClient(t, "")
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOnchainAddr)
@@ -296,7 +297,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		time.Sleep(20 * time.Second)
 
-		carol := setupClient(t, "")
+		carol := setupClient(t, "", arksdk.WithoutAutoSettle())
 		carolUtxoCh := carol.GetUtxoEventChannel(ctx)
 
 		carolOnchainAddr, err := carol.NewBoardingAddress(ctx)

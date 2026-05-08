@@ -24,6 +24,8 @@ import (
 	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/scheduler"
+	cronScheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -59,6 +61,7 @@ type arkClient struct {
 	logMu             *sync.Mutex
 	lastUpdate        time.Time
 	hdGapLimit        uint32
+	scheduler         scheduler.SchedulerService
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -66,6 +69,16 @@ type arkClient struct {
 
 	cmMu    sync.RWMutex
 	watcher *contract.Watcher
+}
+
+func resolveScheduler(o *clientOptions) scheduler.SchedulerService {
+	if o.disableAutoSettle {
+		return nil
+	}
+	if o.scheduler != nil {
+		return o.scheduler
+	}
+	return cronScheduler.NewScheduler()
 }
 
 func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
@@ -102,6 +115,8 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
+	o.scheduler = resolveScheduler(o)
+
 	clientOpts := make([]client.ServiceOption, 0)
 	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
@@ -133,6 +148,7 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
+		scheduler:         o.scheduler,
 	}
 
 	return client, nil
@@ -171,6 +187,8 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	o.scheduler = resolveScheduler(o)
 
 	clientOpts := make([]client.ServiceOption, 0)
 	var explorerSvc explorer.Explorer
@@ -230,6 +248,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		logMu:             &sync.Mutex{},
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
+		scheduler:         o.scheduler,
 	}
 
 	return client, nil
@@ -327,6 +346,13 @@ func (a *arkClient) Stop() {
 	a.stopOnce.Do(func() {
 		a.ArkClient.Stop()
 		a.Explorer().Stop()
+		// Tear down the auto-settle scheduler before the store closes,
+		// otherwise an already-scheduled refresh task can fire after Stop()
+		// and try to begin a transaction on a closed DB. Mirrors what Lock()
+		// already does.
+		if a.scheduler != nil {
+			a.scheduler.Stop()
+		}
 
 		a.syncMu.Lock()
 		a.syncDone = false
@@ -393,6 +419,15 @@ func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEven
 	return nil
 }
 
+// WhenNextSettlement returns the time at which the next automatic settlement
+// is scheduled to fire. It returns the zero time when auto-settle is disabled
+// or no settlement is currently scheduled.
+func (a *arkClient) WhenNextSettlement() time.Time {
+	if a.scheduler == nil {
+		return time.Time{}
+	}
+	return a.scheduler.GetTaskScheduledAt()
+}
 
 func (a *arkClient) setRestored(err error) {
 	a.syncMu.Lock()
@@ -905,6 +940,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
+				a.scheduleNextSettlement()
 			}
 
 			if event.ArkTx != nil {
@@ -915,6 +951,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
+				a.scheduleNextSettlement()
 			}
 
 			if event.SweepTx != nil {
