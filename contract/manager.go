@@ -75,8 +75,12 @@ func (m *contractManager) OnContractEvent(cb func(types.Contract)) func() {
 
 func (m *contractManager) emit(c types.Contract) {
 	m.cbMu.RLock()
-	defer m.cbMu.RUnlock()
+	cbs := make([]func(types.Contract), 0, len(m.cbs))
 	for _, cb := range m.cbs {
+		cbs = append(cbs, cb)
+	}
+	m.cbMu.RUnlock()
+	for _, cb := range cbs {
 		cb(c)
 	}
 }
@@ -116,34 +120,40 @@ func (m *contractManager) NewContract(
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	handler, ok := m.handlers[contractType]
 	if !ok {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	contract.Label = o.label
 
 	keyRef, err := handler.GetKeyRef(*contract)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 	}
 
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
 	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
+	m.mu.Unlock()
+
 	m.emit(*contract)
 
 	return contract, nil

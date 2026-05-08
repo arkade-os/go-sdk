@@ -3,6 +3,7 @@ package sqlstore_test
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"testing"
 	"time"
 
@@ -12,25 +13,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const createContractTable = `
-CREATE TABLE IF NOT EXISTS contract (
-    script      TEXT PRIMARY KEY,
-    type        TEXT NOT NULL,
-    label       TEXT,
-    params      TEXT NOT NULL DEFAULT '{}',
-    address     TEXT NOT NULL DEFAULT '',
-    state       TEXT NOT NULL DEFAULT 'active',
-    created_at  INTEGER NOT NULL,
-    key_index   INTEGER NOT NULL DEFAULT 0,
-    metadata    TEXT
-)`
+//go:embed migration/20260430134911_add_contract_table.up.sql
+var contractTableSQL string
 
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(createContractTable)
+	_, err = db.Exec(contractTableSQL)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
