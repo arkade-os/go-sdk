@@ -21,14 +21,22 @@ func (a *arkClient) IssueAsset(
 		return "", nil, err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", nil, err
 	}
 
-	res, err := a.ArkClient.IssueAsset(
-		ctx, amount, controlAsset, metadata, client.WithVtxos(vtxos), client.WithKeys(signingKeys),
-	)
+	offchainAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	opts := []client.SendOption{
+		client.WithVtxos(vtxos),
+		client.WithReceiver(offchainAddr),
+		client.WithKeys(signingKeyRefs),
+	}
+	res, err := a.ArkClient.IssueAsset(ctx, amount, controlAsset, metadata, opts...)
 	if err != nil {
 		return "", nil, err
 	}
@@ -53,14 +61,23 @@ func (a *arkClient) ReissueAsset(
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", err
 	}
 
-	res, err := a.ArkClient.ReissueAsset(
-		ctx, assetId, amount, client.WithVtxos(vtxos), client.WithKeys(signingKeys),
-	)
+	offchainAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	opts := []client.SendOption{
+		client.WithVtxos(vtxos),
+		client.WithReceiver(offchainAddr),
+		client.WithKeys(signingKeyRefs),
+	}
+
+	res, err := a.ArkClient.ReissueAsset(ctx, assetId, amount, opts...)
 	if err != nil {
 		return "", err
 	}
@@ -85,14 +102,23 @@ func (a *arkClient) BurnAsset(
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", err
 	}
 
-	res, err := a.ArkClient.BurnAsset(
-		ctx, assetId, amount, client.WithVtxos(vtxos), client.WithKeys(signingKeys),
-	)
+	offchainAddr, err := a.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	opts := []client.SendOption{
+		client.WithVtxos(vtxos),
+		client.WithReceiver(offchainAddr),
+		client.WithKeys(signingKeyRefs),
+	}
+
+	res, err := a.ArkClient.BurnAsset(ctx, assetId, amount, opts...)
 	if err != nil {
 		return "", err
 	}

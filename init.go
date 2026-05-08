@@ -9,6 +9,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -85,6 +86,31 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}
 	a.logMu.Unlock()
 
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: get config: %w (rollback lock failed: %v)", err, lockErr)
+		}
+		return fmt.Errorf("unlock: get config: %w", err)
+	}
+	mgr, err := contract.NewManager(contract.Args{
+		Store:       a.store.ContractStore(),
+		KeyProvider: a.Wallet(),
+		Client:      a.Transport(),
+		Indexer:     a.Indexer(),
+		Explorer:    a.Explorer(),
+		Network:     cfg.Network,
+	})
+	if err != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
+			return fmt.Errorf(
+				"unlock: init contract manager: %w (rollback lock failed: %v)", err, lockErr,
+			)
+		}
+		return fmt.Errorf("failed to init contract manager: %w", err)
+	}
+
+	a.contractManager = mgr
 	a.resetSyncStateForUnlock()
 	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
@@ -103,12 +129,16 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
-		if _, err := a.discoverHDWalletKeys(ctx); err != nil {
+		// Look for missing contracts to track: the wallet restores at every unlock.
+		if err := a.contractManager.ScanContracts(ctx, a.hdGapLimit); err != nil {
 			a.syncCh <- err
 			close(a.syncCh)
 			return
 		}
 
+		// Finalize any pending txs that were submitted before this restore.
+		// Call client-lib directly (not the go-sdk wrapper) to avoid a second
+		// refreshDb before the primary one below runs.
 		// TODO: For this is a best-effort attempt to finalize any pending txs. Find a way to let
 		// the user aware of this so he can proceed with a manual finalization
 		if _, err := a.finalizePendingTxs(ctx, nil); err != nil {
@@ -119,12 +149,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		a.syncCh <- err
 		close(a.syncCh)
 
-		// start listening to stream events
 		go a.listenForArkTxs(ctx)
-		go a.listenForOnchainTxs(ctx)
+		go a.listenForOnchainTxs(ctx, cfg.Network)
 		go a.listenDbEvents(ctx)
-
-		// start periodic refresh db
 		go a.periodicRefreshDb(ctx)
 	}()
 
@@ -138,14 +165,19 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	a.Explorer().Stop()
 
+	if a.stopFn != nil {
+		a.stopFn()
+	}
+
+	if a.contractManager != nil {
+		a.contractManager.Close()
+		a.contractManager = nil
+	}
+
 	a.syncMu.Lock()
 	a.syncDone = false
 	a.syncErr = nil
 	a.syncMu.Unlock()
-
-	if a.stopFn != nil {
-		a.stopFn()
-	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
 		a.syncListeners.clear()

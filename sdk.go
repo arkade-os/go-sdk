@@ -11,17 +11,19 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 )
 
 var Version string
 
 type ArkClient interface {
+	Store() types.Store
 	Wallet() wallet.WalletService
 	Explorer() explorer.Explorer
 	Indexer() indexer.Indexer
 	Client() transport.TransportClient
-	Store() types.Store
+	ContractManager() contract.Manager
 
 	GetVersion() string
 	GetConfigStore() clientTypes.ConfigStore

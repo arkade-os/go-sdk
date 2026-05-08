@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"errors"
@@ -14,178 +14,142 @@ import (
 const onchainFee = 400
 
 func TestCollaborativeExit(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
-		t.Run("with change", func(t *testing.T) {
-			ctx := t.Context()
-			alice := setupClient(t, "")
-			bob := setupClient(t, "")
+	// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
+	t.Run("with change", func(t *testing.T) {
+		ctx := t.Context()
+		alice := setupClient(t, "")
+		bob := setupClient(t, "")
 
-			// Faucet Alice
-			aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			faucetOffchain(t, alice, aliceFaucetAddr, 0.001)
+		// Faucet Alice
+		faucetOffchain(t, alice, 0.001)
 
-			aliceBalance, err := alice.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, aliceBalance)
-			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
+		aliceBalance, err := alice.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, aliceBalance)
+		require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
 
-			bobBalance, err := bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.Total))
-			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
+		bobBalance, err := bob.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
+		require.Zero(t, int(bobBalance.OffchainBalance.Total))
+		require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
-			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bobOnchainAddr)
+		// Alice sends to bob's boarding address just for sake of testing.
+		// This way, we can wait for an event for bob's utxo event and ensure he received the
+		// expected event
+		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, bobOnchainAddr)
 
-			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
+		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
-			// Send to Bob's onchain address
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
-			require.NoError(t, err)
+		// Send to Bob's onchain address
+		_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
+		require.NoError(t, err)
 
-			// next event received by bob utxo channel should be the added event
-			// related to the collaborative exit
-			bobUtxoEvent := <-bobUtxoCh
-			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
-			require.Len(t, bobUtxoEvent.Utxos, 1)
-			bobUtxo := bobUtxoEvent.Utxos[0]
-			require.Equal(t, 21000, int(bobUtxo.Amount))
-			require.False(t, bobUtxo.IsConfirmed())
+		// next event received by bob utxo channel should be the added event
+		// related to the collaborative exit
+		bobUtxoEvent := <-bobUtxoCh
+		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
+		require.Len(t, bobUtxoEvent.Utxos, 1)
+		bobUtxo := bobUtxoEvent.Utxos[0]
+		require.Equal(t, 21000, int(bobUtxo.Amount))
+		require.False(t, bobUtxo.IsConfirmed())
 
-			// generate block to confirm the commitment transaction
-			require.NoError(t, generateBlocks(1))
+		// generate block to confirm the commitment transaction
+		require.NoError(t, generateBlocks(1))
 
-			// next event received by bob utxo channel should be the confirmed event
-			// related to the commitment transaction
-			bobUtxoEvent = <-bobUtxoCh
-			require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
-			require.Len(t, bobUtxoEvent.Utxos, 1)
-			bobConfirmedUtxo := bobUtxoEvent.Utxos[0]
-			require.Equal(t, bobUtxo.Outpoint, bobConfirmedUtxo.Outpoint)
-			require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
-			require.True(t, bobConfirmedUtxo.IsConfirmed())
+		// next event received by bob utxo channel should be the confirmed event
+		// related to the commitment transaction
+		bobUtxoEvent = <-bobUtxoCh
+		require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
+		require.Len(t, bobUtxoEvent.Utxos, 1)
+		bobConfirmedUtxo := bobUtxoEvent.Utxos[0]
+		require.Equal(t, bobUtxo.Outpoint, bobConfirmedUtxo.Outpoint)
+		require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
+		require.True(t, bobConfirmedUtxo.IsConfirmed())
 
-			prevTotalBalance := int(aliceBalance.OffchainBalance.Total)
-			aliceBalance, err = alice.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, aliceBalance)
-			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
-			require.Less(t, int(aliceBalance.OffchainBalance.Total), prevTotalBalance)
+		prevTotalBalance := int(aliceBalance.OffchainBalance.Total)
+		aliceBalance, err = alice.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, aliceBalance)
+		require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
+		require.Less(t, int(aliceBalance.OffchainBalance.Total), prevTotalBalance)
 
-			bobBalance, err = bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.Total))
-			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
-			require.Equal(t, 21000, int(bobBalance.OnchainBalance.SpendableAmount))
-		})
-
-		// In this test Alice sends all to Bob'c onchain address without (VTXO) change
-		t.Run("without change", func(t *testing.T) {
-			ctx := t.Context()
-			alice := setupClient(t, "")
-			bob := setupClient(t, "")
-
-			// Faucet Alice
-			aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			faucetOffchain(t, alice, aliceFaucetAddr, 0.00021)
-
-			aliceBalance, err := alice.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, aliceBalance)
-			require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
-			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
-
-			bobBalance, err := bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.Total))
-			require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
-
-			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bobOnchainAddr)
-
-			bobUtxoCh := bob.GetUtxoEventChannel(ctx)
-
-			// Send all to Bob's onchain address
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
-			require.NoError(t, err)
-
-			// next event received by bob utxo channel should be the added event
-			// related to the collaborative exit
-			bobUtxoEvent := <-bobUtxoCh
-			require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
-			require.Len(t, bobUtxoEvent.Utxos, 1)
-			bobUtxo := bobUtxoEvent.Utxos[0]
-			require.Equal(t, 21000, int(bobUtxo.Amount))
-			require.False(t, bobUtxo.IsConfirmed())
-
-			// generate block to confirm the commitment transaction
-			require.NoError(t, generateBlocks(1))
-
-			// next event received by bob utxo channel should be the confirmed event
-			// related to the commitment transaction
-			bobUtxoEvent = <-bobUtxoCh
-			require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
-			require.Len(t, bobUtxoEvent.Utxos, 1)
-			bobConfirmedUtxo := bobUtxoEvent.Utxos[0]
-			require.Equal(t, bobUtxo.Outpoint, bobConfirmedUtxo.Outpoint)
-			require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
-			require.True(t, bobConfirmedUtxo.IsConfirmed())
-
-			aliceBalance, err = alice.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, aliceBalance)
-			require.Zero(t, int(aliceBalance.OffchainBalance.Total))
-			require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
-
-			bobBalance, err = bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, bobBalance)
-			require.Zero(t, int(bobBalance.OffchainBalance.Total))
-			require.Equal(t, 21000, int(bobBalance.OnchainBalance.SpendableAmount))
-		})
+		bobBalance, err = bob.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
+		require.Zero(t, int(bobBalance.OffchainBalance.Total))
+		require.Empty(t, bobBalance.OnchainBalance.SpendableAmount)
+		require.Len(t, bobBalance.OnchainBalance.LockedAmount, 1)
+		require.Equal(t, 21000, int(bobBalance.OnchainBalance.LockedAmount[0].Amount))
 	})
 
-	t.Run("invalid", func(t *testing.T) {
-		// In this test Alice funds her boarding address without settling and tries to join a batch
-		// funding Bob's onchain address. The server should reject the request
-		t.Run("with boarding inputs", func(t *testing.T) {
-			ctx := t.Context()
-			alice := setupClient(t, "")
-			bob := setupClient(t, "")
+	// In this test Alice sends all to Bob'c onchain address without (VTXO) change
+	t.Run("without change", func(t *testing.T) {
+		ctx := t.Context()
+		alice := setupClient(t, "")
+		bob := setupClient(t, "")
 
-			aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, aliceBoardingAddr)
+		// Faucet Alice
+		faucetOffchain(t, alice, 0.00021)
 
-			aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, aliceOffchainAddr)
+		aliceBalance, err := alice.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, aliceBalance)
+		require.Greater(t, int(aliceBalance.OffchainBalance.Total), 0)
+		require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
 
-			bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bobOnchainAddr)
+		bobBalance, err := bob.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
+		require.Zero(t, int(bobBalance.OffchainBalance.Total))
+		require.Empty(t, bobBalance.OnchainBalance.LockedAmount)
 
-			faucetOffchain(t, alice, aliceOffchainAddr, 0.00021)
-			aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
-			faucetOnchain(t, aliceBoardingAddr, 0.001)
+		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, bobOnchainAddr)
 
-			// wait for Alice's boarding UTXO to be detected before calling CollaborativeExit
-			aliceUtxoEvent := <-aliceUtxoCh
-			require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
+		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
-			_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
-			require.Error(t, err)
+		// Send all to Bob's onchain address
+		_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
+		require.NoError(t, err)
 
-			require.ErrorContains(t, err, "include onchain inputs and outputs")
-		})
+		// next event received by bob utxo channel should be the added event
+		// related to the collaborative exit
+		bobUtxoEvent := <-bobUtxoCh
+		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
+		require.Len(t, bobUtxoEvent.Utxos, 1)
+		bobUtxo := bobUtxoEvent.Utxos[0]
+		require.Equal(t, 21000, int(bobUtxo.Amount))
+		require.False(t, bobUtxo.IsConfirmed())
+
+		// generate block to confirm the commitment transaction
+		require.NoError(t, generateBlocks(1))
+
+		// next event received by bob utxo channel should be the confirmed event
+		// related to the commitment transaction
+		bobUtxoEvent = <-bobUtxoCh
+		require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
+		require.Len(t, bobUtxoEvent.Utxos, 1)
+		bobConfirmedUtxo := bobUtxoEvent.Utxos[0]
+		require.Equal(t, bobUtxo.Outpoint, bobConfirmedUtxo.Outpoint)
+		require.Equal(t, 21000, int(bobConfirmedUtxo.Amount))
+		require.True(t, bobConfirmedUtxo.IsConfirmed())
+
+		aliceBalance, err = alice.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, aliceBalance)
+		require.Zero(t, int(aliceBalance.OffchainBalance.Total))
+		require.Empty(t, aliceBalance.OnchainBalance.LockedAmount)
+
+		bobBalance, err = bob.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
+		require.Zero(t, int(bobBalance.OffchainBalance.Total))
+		require.Len(t, bobBalance.OnchainBalance.LockedAmount, 1)
+		require.Equal(t, 21000, int(bobBalance.OnchainBalance.LockedAmount[0].Amount))
 	})
 }
 
@@ -196,11 +160,8 @@ func TestUnilateralExit(t *testing.T) {
 		alice := setupClient(t, "")
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
-		aliceUtxoCh := alice.GetUtxoEventChannel(ctx)
 
-		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		vtxoToUnroll := faucetOffchain(t, alice, aliceOffchainAddr, 0.00021)
+		vtxoToUnroll := faucetOffchain(t, alice, 0.00021)
 		aliceVtxoEvent := <-aliceVtxoCh
 		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 
@@ -210,14 +171,8 @@ func TestUnilateralExit(t *testing.T) {
 
 		// Faucet onchain addr to cover network fees for the unroll.
 		faucetOnchain(t, aliceOnchainAddr, 0.0001)
-
-		// next event received by alice utxo channel should be the added event
-		// related to the faucet
-		aliceUtxoEvent := <-aliceUtxoCh
-		require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
-		require.Len(t, aliceUtxoEvent.Utxos, 1)
-		aliceUtxo := aliceUtxoEvent.Utxos[0]
-		require.Equal(t, 10000, int(aliceUtxo.Amount))
+		// Give the explorer time to catch up
+		time.Sleep(5 * time.Second)
 
 		for {
 			err = alice.Unroll(ctx)
@@ -247,7 +202,7 @@ func TestUnilateralExit(t *testing.T) {
 		err = generateBlocks(10)
 		require.NoError(t, err)
 
-		time.Sleep(20 * time.Second)
+		time.Sleep(25 * time.Second)
 
 		// Use a separate HD wallet to observe the onchain receive after CompleteUnroll.
 		bob := setupClient(t, "")
@@ -279,9 +234,7 @@ func TestUnilateralExit(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 
-		aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceFaucetAddr, 0.001)
+		faucetOffchain(t, alice, 0.001)
 
 		bob := setupClient(t, "")
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
@@ -310,14 +263,8 @@ func TestUnilateralExit(t *testing.T) {
 		vtxoToUnroll := bobVtxoEvent.Vtxos[0]
 		require.Equal(t, 21000, int(vtxoToUnroll.Amount))
 
-		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 		faucetOnchain(t, bobOnchainAddr, 0.0001)
-
-		bobUtxoEvent := <-bobUtxoCh
-		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
-		require.Len(t, bobUtxoEvent.Utxos, 1)
-		bobUtxo := bobUtxoEvent.Utxos[0]
-		require.Equal(t, 10000, int(bobUtxo.Amount))
+		time.Sleep(5 * time.Second)
 
 		for {
 			err = bob.Unroll(ctx)

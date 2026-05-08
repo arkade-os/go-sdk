@@ -24,10 +24,11 @@ const (
 )
 
 type service struct {
-	utxoStore  types.UtxoStore
-	vtxoStore  types.VtxoStore
-	txStore    types.TransactionStore
-	assetStore types.AssetStore
+	utxoStore     types.UtxoStore
+	vtxoStore     types.VtxoStore
+	txStore       types.TransactionStore
+	assetStore    types.AssetStore
+	contractStore types.ContractStore
 }
 
 type Config struct {
@@ -37,11 +38,12 @@ type Config struct {
 
 func NewStore(storeConfig Config) (types.Store, error) {
 	var (
-		utxoStore  types.UtxoStore
-		vtxoStore  types.VtxoStore
-		txStore    types.TransactionStore
-		assetStore types.AssetStore
-		err        error
+		utxoStore     types.UtxoStore
+		vtxoStore     types.VtxoStore
+		txStore       types.TransactionStore
+		assetStore    types.AssetStore
+		contractStore types.ContractStore
+		err           error
 
 		dir = storeConfig.BaseDir
 	)
@@ -62,6 +64,10 @@ func NewStore(storeConfig Config) (types.Store, error) {
 				return nil, err
 			}
 			txStore, err = kvstore.NewTransactionStore(dir, nil, assetStore)
+			if err != nil {
+				return nil, err
+			}
+			contractStore, err = kvstore.NewContractStore(dir, nil)
 		case types.SQLStore:
 			dbFile := filepath.Join(dir, sqliteDbFile)
 			db, err := sqlstore.OpenDb(dbFile)
@@ -90,6 +96,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			vtxoStore = sqlstore.NewVtxoStore(db)
 			txStore = sqlstore.NewTransactionStore(db)
 			assetStore = sqlstore.NewAssetStore(db)
+			contractStore = sqlstore.NewContractStore(db)
 		default:
 			err = fmt.Errorf("unknown appdata store type")
 		}
@@ -98,7 +105,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		}
 	}
 
-	return &service{utxoStore, vtxoStore, txStore, assetStore}, nil
+	return &service{utxoStore, vtxoStore, txStore, assetStore, contractStore}, nil
 }
 
 func (s *service) UtxoStore() types.UtxoStore {
@@ -115,6 +122,10 @@ func (s *service) TransactionStore() types.TransactionStore {
 
 func (s *service) AssetStore() types.AssetStore {
 	return s.assetStore
+}
+
+func (s *service) ContractStore() types.ContractStore {
+	return s.contractStore
 }
 
 func (s *service) Clean(ctx context.Context) {
@@ -134,6 +145,10 @@ func (s *service) Clean(ctx context.Context) {
 		//nolint
 		s.assetStore.Clean(ctx)
 	}
+	if s.contractStore != nil {
+		//nolint
+		s.contractStore.Clean(ctx)
+	}
 }
 
 func (s *service) Close() {
@@ -148,5 +163,8 @@ func (s *service) Close() {
 	}
 	if s.assetStore != nil {
 		s.assetStore.Close()
+	}
+	if s.contractStore != nil {
+		s.contractStore.Close()
 	}
 }

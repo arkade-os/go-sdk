@@ -1,6 +1,8 @@
 package types
 
 import (
+	"time"
+
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
@@ -96,4 +98,29 @@ type OnchainAddressEvent struct {
 type SyncEvent struct {
 	Synced bool
 	Err    error
+}
+
+type ContractState string
+
+const (
+	ContractStateActive   ContractState = "active"
+	ContractStateInactive ContractState = "inactive"
+)
+
+type ContractType string
+
+const (
+	ContractTypeDefault  ContractType = "default"
+	ContractTypeBoarding ContractType = "boarding"
+)
+
+type Contract struct {
+	Type      ContractType
+	Label     string
+	Params    map[string]string
+	Script    string
+	Address   string
+	State     ContractState
+	CreatedAt time.Time
+	Metadata  map[string]string
 }
