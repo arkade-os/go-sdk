@@ -155,31 +155,25 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 
 	vtxoCh := a.GetVtxoEventChannel(ctx)
 	utxoCh := a.GetUtxoEventChannel(ctx)
-	// These channels may be nil if the wallet was locked between Unlock and the
-	// start of this loop. Nil channel cases in a select are disabled, so the loop
-	// will still exit through ctx.Done() on Lock/Stop instead of blocking on an
-	// event channel that was never opened.
+	// Lock can run while Unlock is still starting this goroutine. In that case,
+	// the event channels may already be cleared and these getters return nil.
+	// The select below can keep those nil channels: Go ignores nil-channel cases
+	// in a select, and the same Lock call cancels ctx so ctx.Done() exits the loop.
 
-	// Snapshot retry restores the baseline view of funds after transient read
-	// failures. It is separate from settle retry and timer-driven inside the
-	// select loop, so new VTXO/UTXO events can still schedule settlement before
-	// the baseline retry succeeds.
+	// Snapshot retry restores the baseline view of funds: VTXOs/UTXOs that
+	// already existed when auto-settle started. Event channels cover new changes,
+	// but they do not guarantee replay of that existing state. Keeping the retry
+	// timer in the select loop lets new events schedule settlement while the
+	// baseline read is waiting to be retried.
 	var snapshotRetryTimer *time.Timer
 	var snapshotRetryCh <-chan time.Time
 	var snapshotRetryBackoff time.Duration
 
 	// stopSnapshotRetry is used on loop exit to release a pending retry timer and
-	// reset retry state. Draining the timer channel avoids a stale tick being read
-	// if Stop races with the timer firing.
+	// reset retry state.
 	stopSnapshotRetry := func() {
-		if snapshotRetryTimer == nil {
-			return
-		}
-		if !snapshotRetryTimer.Stop() {
-			select {
-			case <-snapshotRetryTimer.C:
-			default:
-			}
+		if snapshotRetryTimer != nil {
+			snapshotRetryTimer.Stop()
 		}
 		snapshotRetryTimer = nil
 		snapshotRetryCh = nil
@@ -187,9 +181,9 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 	}
 	defer stopSnapshotRetry()
 
-	// scheduleSnapshotRetry arms exactly one baseline snapshot retry. Keeping the
-	// timer channel in snapshotRetryCh lets the main select keep processing
-	// VTXO/UTXO events while waiting for the retry delay to elapse.
+	// scheduleSnapshotRetry arms exactly one baseline snapshot retry. The retry
+	// stops once scheduleFromCurrentFunds returns true; another retry is armed
+	// only when that snapshot read fails again.
 	scheduleSnapshotRetry := func() {
 		if snapshotRetryTimer != nil || ctx.Err() != nil {
 			return
@@ -246,11 +240,12 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 			}
 
 		case <-snapshotRetryCh:
-			// A successful snapshot read means the baseline was restored, even if
-			// there were no funds to schedule. Only read failures keep retrying.
 			snapshotRetryTimer = nil
 			snapshotRetryCh = nil
 			if a.scheduleFromCurrentFunds(ctx, cfg, hooks) {
+				// A successful snapshot read means the baseline was restored, even
+				// if there were no funds to schedule. Clear backoff and do not arm
+				// another retry.
 				snapshotRetryBackoff = 0
 				continue
 			}
