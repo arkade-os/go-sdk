@@ -10,7 +10,7 @@ import (
 func (a *arkClient) getSigningKeyRefs(
 	ctx context.Context, vtxos []clientTypes.VtxoWithTapTree, utxos []clientTypes.Utxo,
 ) (map[string]string, error) {
-	keys, err := a.getKeysForVtxos(ctx, vtxos)
+	vtxoKeys, err := a.getKeysForVtxos(ctx, vtxos)
 	if err != nil {
 		return nil, err
 	}
@@ -19,6 +19,10 @@ func (a *arkClient) getSigningKeyRefs(
 		return nil, err
 	}
 
+	keys := make(map[string]string)
+	for k, v := range vtxoKeys {
+		keys[k] = v
+	}
 	for k, v := range utxoKeys {
 		keys[k] = v
 	}
@@ -28,6 +32,10 @@ func (a *arkClient) getSigningKeyRefs(
 func (a *arkClient) getKeysForVtxos(
 	ctx context.Context, vtxos []clientTypes.VtxoWithTapTree,
 ) (map[string]string, error) {
+	if len(vtxos) == 0 {
+		return nil, nil
+	}
+
 	scripts := make([]string, 0, len(vtxos))
 	for _, vtxo := range vtxos {
 		scripts = append(scripts, vtxo.Script)
@@ -36,9 +44,12 @@ func (a *arkClient) getKeysForVtxos(
 }
 
 func (a *arkClient) getKeysForUtxos(
-	ctx context.Context,
-	utxos []clientTypes.Utxo,
+	ctx context.Context, utxos []clientTypes.Utxo,
 ) (map[string]string, error) {
+	if len(utxos) == 0 {
+		return nil, nil
+	}
+
 	scripts := make([]string, 0, len(utxos))
 	for _, utxo := range utxos {
 		scripts = append(scripts, utxo.Script)
@@ -47,12 +58,7 @@ func (a *arkClient) getKeysForUtxos(
 }
 
 func (a *arkClient) getKeys(ctx context.Context, scripts []string) (map[string]string, error) {
-	var opts []contract.FilterOption
-	if len(scripts) > 0 {
-		opts = append(opts, contract.WithScripts(scripts))
-	}
-
-	contracts, err := a.contractManager.GetContracts(ctx, opts...)
+	contracts, err := a.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
 	if err != nil {
 		return nil, err
 	}

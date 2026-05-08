@@ -17,7 +17,8 @@ import (
 type Manager interface {
 	// GetSupportedContractTypes returns the list of contract types supported by the manager.
 	GetSupportedContractTypes(ctx context.Context) []types.ContractType
-	// ScanContracts
+	// ScanContracts looks for untracked contracts to store of any type, and for each of them
+	// stops when gapLimit consecutive unused contracts have been found.
 	ScanContracts(ctx context.Context, gapLimit uint32) error
 	// NewContract creates and stores a new contract. The key is derived from the key provider,
 	// all required parameters are fetched by the proper handler based on the contract type.

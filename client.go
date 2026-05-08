@@ -894,8 +894,6 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 					continue
 				}
 			}
-		case <-ctx.Done():
-			return
 		}
 	}
 }

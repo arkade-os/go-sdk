@@ -103,7 +103,9 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	})
 	if err != nil {
 		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
-			return fmt.Errorf("unlock: get config: %w (rollback lock failed: %v)", err, lockErr)
+			return fmt.Errorf(
+				"unlock: init contract manager: %w (rollback lock failed: %v)", err, lockErr,
+			)
 		}
 		return fmt.Errorf("failed to init contract manager: %w", err)
 	}
@@ -165,6 +167,11 @@ func (a *arkClient) Lock(ctx context.Context) error {
 
 	if a.stopFn != nil {
 		a.stopFn()
+	}
+
+	if a.contractManager != nil {
+		a.contractManager.Close()
+		a.contractManager = nil
 	}
 
 	a.syncMu.Lock()

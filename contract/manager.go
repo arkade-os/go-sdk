@@ -216,7 +216,7 @@ func (m *contractManager) scanContracts(
 	if contract != nil {
 		keyRef, err := handler.GetKeyRef(*contract)
 		if err != nil {
-			return fmt.Errorf("failed to get key rer for contract %s: %w", contract.Script, err)
+			return fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 		}
 		currentKeyId = keyRef.Id
 		currentIdx, err := m.keyProvider.GetKeyIndex(ctx, currentKeyId)

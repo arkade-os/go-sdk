@@ -378,6 +378,114 @@ func TestManagerScanContracts(t *testing.T) {
 			require.ErrorContains(t, err, "indexer down")
 		})
 	})
+
+	// Boarding mirrors offchain but exercises the explorer-backed scan path:
+	// findUsedBoardingContracts queries the explorer per-address rather than
+	// the indexer in batch. The same gap-limit / persist-up-to-lastUsedIdx /
+	// chain-currentKeyId-across-batches invariants must hold; only the data
+	// source differs.
+	t.Run("boarding", func(t *testing.T) {
+		t.Run("fresh wallet with no usage stores nothing", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(t.Context())
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+
+		t.Run("usage at the very first key persists m/0/0", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.markBoardingUsed(t, "m/0/0")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(
+				t.Context(), contract.WithType(types.ContractTypeBoarding),
+			)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{"m/0/0"}, ownerKeyIds(got))
+		})
+
+		t.Run("sparse hit inside one batch persists up to last used", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.markBoardingUsed(t, "m/0/2")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(
+				t.Context(), contract.WithType(types.ContractTypeBoarding),
+			)
+			require.NoError(t, err)
+			require.ElementsMatch(
+				t, []string{"m/0/0", "m/0/1", "m/0/2"}, ownerKeyIds(got),
+			)
+		})
+
+		t.Run("hits across multiple batches advance currentKeyId correctly", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.markBoardingUsed(t, "m/0/2", "m/0/4", "m/0/7")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 3))
+
+			got, err := mgr.GetContracts(
+				t.Context(), contract.WithType(types.ContractTypeBoarding),
+			)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{
+				"m/0/0", "m/0/1", "m/0/2",
+				"m/0/3", "m/0/4", "m/0/5",
+				"m/0/6", "m/0/7",
+			}, ownerKeyIds(got))
+		})
+
+		t.Run("re-scan with no new usage is a no-op", func(t *testing.T) {
+			_, mgr, _ := newTestManagerWithEnv(t)
+			for i := 0; i < 5; i++ {
+				_, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 3))
+
+			got, err := mgr.GetContracts(
+				t.Context(), contract.WithType(types.ContractTypeBoarding),
+			)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{
+				"m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4",
+			}, ownerKeyIds(got))
+		})
+
+		t.Run("re-scan picks up new usage past the latest stored", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+			for i := 0; i < 5; i++ {
+				_, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+				require.NoError(t, err)
+			}
+			env.markBoardingUsed(t, "m/0/7")
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 3))
+
+			got, err := mgr.GetContracts(
+				t.Context(), contract.WithType(types.ContractTypeBoarding),
+			)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{
+				"m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4",
+				"m/0/5", "m/0/6", "m/0/7",
+			}, ownerKeyIds(got))
+		})
+
+		t.Run("explorer error is propagated", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+			env.explorer.err = errors.New("explorer down")
+
+			err := mgr.ScanContracts(t.Context(), 5)
+			require.ErrorContains(t, err, "explorer down")
+		})
+	})
 }
 
 func TestManagerClean(t *testing.T) {

@@ -190,10 +190,28 @@ func (m *mockIndexer) GetVtxos(
 	return &indexer.VtxosResponse{Vtxos: vtxos}, nil
 }
 
-// mockExplorer satisfies contract.onchainDataProvider with no-op responses.
-type mockExplorer struct{}
+// mockExplorer satisfies contract.onchainDataProvider. Tests that don't
+// exercise the boarding scan leave usedAddresses nil and the mock returns
+// an empty response. Boarding scan tests populate usedAddresses (or set
+// err) before scanning.
+//
+// The boarding scan queries one address per contract and treats a
+// non-empty txs slice as "used", so any sentinel struct works as the
+// payload.
+type mockExplorer struct {
+	usedAddresses map[string]struct{}
+	err           error
+}
 
-func (m *mockExplorer) GetTxs(_ string) ([]explorer.Tx, error) { return nil, nil }
+func (m *mockExplorer) GetTxs(addr string) ([]explorer.Tx, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if _, ok := m.usedAddresses[addr]; ok {
+		return []explorer.Tx{{}}, nil
+	}
+	return nil, nil
+}
 
 // mockedEnv bundles the mocked dependencies the contract manager is built
 // on top of, so tests can stage indexer responses or pre-derive the same
@@ -201,11 +219,12 @@ func (m *mockExplorer) GetTxs(_ string) ([]explorer.Tx, error) { return nil, nil
 // reaching into manager internals. The manager itself is intentionally
 // not part of the env — see newTestManagerWithEnv for the wiring.
 type mockedEnv struct {
-	indexer   *mockIndexer
-	explorer  *mockExplorer
-	transport *mockTransportClient
-	wsvc      wallet.WalletService
-	derive    func(keyId string) types.Contract
+	indexer        *mockIndexer
+	explorer       *mockExplorer
+	transport      *mockTransportClient
+	wsvc           wallet.WalletService
+	derive         func(keyId string) types.Contract
+	deriveBoarding func(keyId string) types.Contract
 }
 
 func newMockedEnv(t *testing.T) *mockedEnv {
@@ -228,31 +247,43 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 	_, err = wsvc.Unlock(t.Context(), testPassword)
 	require.NoError(t, err)
 
-	// Mirror the manager's offchain derivation: same wallet, same default
-	// handler (isOnchain=false). derive(keyId) yields the same contract the
-	// scan loop would produce when the next key it asks for happens to be
-	// keyId.
-	handler := defaultHandler.NewHandler(transport, testNetwork, false)
+	// Mirror the manager's derivation across both contract types: same
+	// wallet, same handlers, same key chain. derive(keyId) yields the
+	// offchain contract the scan loop would produce; deriveBoarding(keyId)
+	// the boarding (onchain) one. The boarding handler is the same impl
+	// parameterized with isOnchain=true — see contract/handlers/default.
+	offchainHandler := defaultHandler.NewHandler(transport, testNetwork, false)
+	boardingHandler := defaultHandler.NewHandler(transport, testNetwork, true)
 	derive := func(keyId string) types.Contract {
 		t.Helper()
 		keyRef, err := wsvc.GetKey(t.Context(), keyId)
 		require.NoError(t, err)
-		c, err := handler.NewContract(t.Context(), *keyRef)
+		c, err := offchainHandler.NewContract(t.Context(), *keyRef)
+		require.NoError(t, err)
+		return *c
+	}
+	deriveBoarding := func(keyId string) types.Contract {
+		t.Helper()
+		keyRef, err := wsvc.GetKey(t.Context(), keyId)
+		require.NoError(t, err)
+		c, err := boardingHandler.NewContract(t.Context(), *keyRef)
 		require.NoError(t, err)
 		return *c
 	}
 
 	return &mockedEnv{
-		indexer:   &mockIndexer{},
-		explorer:  &mockExplorer{},
-		transport: transport,
-		wsvc:      wsvc,
-		derive:    derive,
+		indexer:        &mockIndexer{},
+		explorer:       &mockExplorer{},
+		transport:      transport,
+		wsvc:           wsvc,
+		derive:         derive,
+		deriveBoarding: deriveBoarding,
 	}
 }
 
-// markUsed configures the mock indexer to report the given key ids as used.
-// Each key id is resolved via derive() to the script the scan would generate.
+// markUsed configures the mock indexer to report the given key ids as
+// used (offchain scan path). Each key id is resolved via derive() to the
+// script the scan would generate.
 func (e *mockedEnv) markUsed(t *testing.T, keyIds ...string) {
 	t.Helper()
 	if e.indexer.usedScripts == nil {
@@ -260,5 +291,19 @@ func (e *mockedEnv) markUsed(t *testing.T, keyIds ...string) {
 	}
 	for _, k := range keyIds {
 		e.indexer.usedScripts[e.derive(k).Script] = struct{}{}
+	}
+}
+
+// markBoardingUsed configures the mock explorer to report the given key
+// ids as used (boarding scan path). Each key id is resolved via
+// deriveBoarding() to the onchain (taproot) address the scan would
+// generate — the boarding scan keys lookup by Address, not Script.
+func (e *mockedEnv) markBoardingUsed(t *testing.T, keyIds ...string) {
+	t.Helper()
+	if e.explorer.usedAddresses == nil {
+		e.explorer.usedAddresses = make(map[string]struct{}, len(keyIds))
+	}
+	for _, k := range keyIds {
+		e.explorer.usedAddresses[e.deriveBoarding(k).Address] = struct{}{}
 	}
 }
