@@ -107,16 +107,17 @@ func (a *arkClient) resolveAutoSettleHooks() autoSettleHooks {
 //
 // Lifecycle:
 //
-//  1. Delegate-mode guard: if the placeholder delegateMode field is true, log
-//     and exit immediately.
-//  2. Wait for the initial sync to complete via a.IsSynced(ctx) so that
-//     ListSpendableVtxos returns a populated set.
+//  1. Defensive delegate-mode guard: option validation rejects auto-settle with
+//     delegate mode, but internally-constructed clients can still set both.
+//  2. Wait for the initial sync to complete via a.IsSynced(ctx) so wallet state
+//     is ready for VTXO/UTXO reads. The snapshot may still be empty.
 //  3. Subscribe to VTXO and UTXO event channels before any immediate Settle()
 //     call, so settlement-created events cannot be missed.
 //  4. Read spendable VTXOs plus unspent boarding UTXOs and compute the next
-//     settlement-relevant expiry. If a VTXO expiry is already in the past,
-//     trigger Settle() immediately, otherwise schedule a single-shot
-//     timer for expiry - 2 * SessionDuration.
+//     settlement-relevant expiry. Transient snapshot read failures are retried
+//     with backoff while the loop keeps processing VTXO/UTXO events. If a VTXO
+//     expiry is already in the past, trigger Settle() immediately; otherwise,
+//     schedule a single-shot timer for expiry - 2 * SessionDuration.
 //  5. On every VtxosAdded or boarding UTXO add/confirm/replace event, reschedule
 //     if the new event's expiry produces an earlier fire time.
 //  6. On ctx.Done(), stop any pending timer, clear nextSettleAt, and exit.
@@ -155,16 +156,21 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 	vtxoCh := a.GetVtxoEventChannel(ctx)
 	utxoCh := a.GetUtxoEventChannel(ctx)
 	// These channels may be nil if the wallet was locked between Unlock and the
-	// start of this loop. A select on a nil channel blocks forever, so this is
-	// safe — ctx.Done() will still fire on Lock/Stop.
+	// start of this loop. Nil channel cases in a select are disabled, so the loop
+	// will still exit through ctx.Done() on Lock/Stop instead of blocking on an
+	// event channel that was never opened.
 
-	// Snapshot retry is separate from settle retry. It only handles transient
-	// failures while reading the current wallet funds; successful settlements
-	// still rely on VTXO/UTXO events to drive future scheduling.
+	// Snapshot retry restores the baseline view of funds after transient read
+	// failures. It is separate from settle retry and timer-driven inside the
+	// select loop, so new VTXO/UTXO events can still schedule settlement before
+	// the baseline retry succeeds.
 	var snapshotRetryTimer *time.Timer
 	var snapshotRetryCh <-chan time.Time
 	var snapshotRetryBackoff time.Duration
 
+	// stopSnapshotRetry is used on loop exit to release a pending retry timer and
+	// reset retry state. Draining the timer channel avoids a stale tick being read
+	// if Stop races with the timer firing.
 	stopSnapshotRetry := func() {
 		if snapshotRetryTimer == nil {
 			return
@@ -181,6 +187,9 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 	}
 	defer stopSnapshotRetry()
 
+	// scheduleSnapshotRetry arms exactly one baseline snapshot retry. Keeping the
+	// timer channel in snapshotRetryCh lets the main select keep processing
+	// VTXO/UTXO events while waiting for the retry delay to elapse.
 	scheduleSnapshotRetry := func() {
 		if snapshotRetryTimer != nil || ctx.Err() != nil {
 			return
@@ -250,9 +259,11 @@ func (a *arkClient) autoSettleLoop(ctx context.Context) {
 	}
 }
 
-// scheduleFromCurrentFunds returns true when the current funds snapshot was read,
-// even if there are no funds to schedule. It returns false only when the snapshot
-// could not be read and should be retried.
+// scheduleFromCurrentFunds reads the current spendable VTXOs and unspent boarding
+// UTXOs, then schedules the earliest settlement-relevant expiry found. A true
+// return means the snapshot read succeeded, even if the wallet had no funds to
+// schedule; false means the read failed and the caller should retry the baseline
+// snapshot later.
 func (a *arkClient) scheduleFromCurrentFunds(
 	ctx context.Context, cfg *clientTypes.Config, hooks autoSettleHooks,
 ) bool {
