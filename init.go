@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -224,7 +225,11 @@ func (a *arkClient) scheduleNextSettlement() {
 	if nextSettlement.IsZero() || nextExpiration.Before(nextSettlement) {
 		task := func() {
 			if _, err := a.Settle(context.Background()); err != nil {
-				log.WithError(err).Error("failed to auto-renew vtxos close to expiration")
+				if errors.Is(err, ErrNoFundsToSettle) {
+					log.Debugf("no vtxos to auto-settle, skipping")
+					return
+				}
+				log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
 			}
 		}
 		if err := a.scheduler.ScheduleTask(task, nextExpiration); err != nil {
