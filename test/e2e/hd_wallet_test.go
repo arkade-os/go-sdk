@@ -47,10 +47,10 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.Len(t, offchainAddrs, 2)
 	require.Len(t, boardingAddrs, 2)
 	require.Len(t, redemptionAddrs, 2)
-	require.Contains(t, offchainAddrs, hdOffchain1)
-	require.Contains(t, offchainAddrs, hdOffchain2)
-	require.Contains(t, boardingAddrs, hdBoarding1)
-	require.Contains(t, boardingAddrs, hdBoarding2)
+	require.Contains(t, addrStrings(offchainAddrs), hdOffchain1)
+	require.Contains(t, addrStrings(offchainAddrs), hdOffchain2)
+	require.Contains(t, addrStrings(boardingAddrs), hdBoarding1)
+	require.Contains(t, addrStrings(boardingAddrs), hdBoarding2)
 	require.Contains(t, onchainAddrs, hdOnchain1)
 	require.Contains(t, onchainAddrs, hdOnchain2)
 }
@@ -544,6 +544,14 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond,
 		"restored wallet did not recover the boarding-only funded key — "+
 			"this is review H1: discoverHDWalletKeys only scans offchain VTXOs")
+}
+
+func addrStrings(addrs []clientTypes.Address) []string {
+	strs := make([]string, len(addrs))
+	for i, a := range addrs {
+		strs[i] = a.Address
+	}
+	return strs
 }
 
 func sumVtxoAmounts(vtxos []clientTypes.Vtxo) uint64 {
