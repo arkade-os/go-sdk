@@ -470,6 +470,130 @@ func TestGetKey(t *testing.T) {
 	})
 }
 
+func TestNextKeyId(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		svc := newTestCreatedWallet(t)
+		_, err := svc.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		// Empty input is the documented "official" way for callers (e.g. the
+		// contract manager on a fresh wallet) to obtain the very first key id
+		// without knowing the derivation format. It must NOT error.
+		t.Run("empty id returns first key id", func(t *testing.T) {
+			next, err := svc.NextKeyId(t.Context(), "")
+			require.NoError(t, err)
+			require.Equal(t, "m/0/0", next)
+		})
+
+		t.Run("advances trailing index by one", func(t *testing.T) {
+			fixtures := []struct {
+				in   string
+				want string
+			}{
+				{in: "m/0/0", want: "m/0/1"},
+				{in: "m/0/5", want: "m/0/6"},
+				{in: "m/0/41", want: "m/0/42"},
+			}
+			for _, f := range fixtures {
+				next, err := svc.NextKeyId(t.Context(), f.in)
+				require.NoError(t, err)
+				require.Equal(t, f.want, next)
+			}
+		})
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		svc := newTestCreatedWallet(t)
+		_, err := svc.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		fixtures := []struct {
+			name            string
+			id              string
+			wantErrContains string
+		}{
+			{
+				name:            "hardened key id",
+				id:              "m/0'/0",
+				wantErrContains: "forbidden hardened index",
+			},
+			{
+				name:            "malformed key id",
+				id:              "m/0/notanumber",
+				wantErrContains: "failed to parse derivation index",
+			},
+		}
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				_, err := svc.NextKeyId(t.Context(), f.id)
+				require.ErrorContains(t, err, f.wantErrContains)
+			})
+		}
+	})
+}
+
+func TestGetKeyIndex(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		svc := newTestCreatedWallet(t)
+		_, err := svc.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		// Empty input pairs with NextKeyId's empty-input behavior so the
+		// contract manager can compute startIdx without special-casing the
+		// "no contracts yet" branch.
+		t.Run("empty id returns zero", func(t *testing.T) {
+			idx, err := svc.GetKeyIndex(t.Context(), "")
+			require.NoError(t, err)
+			require.Equal(t, uint32(0), idx)
+		})
+
+		t.Run("returns trailing path index", func(t *testing.T) {
+			fixtures := []struct {
+				in   string
+				want uint32
+			}{
+				{in: "m/0/0", want: 0},
+				{in: "m/0/1", want: 1},
+				{in: "m/0/42", want: 42},
+			}
+			for _, f := range fixtures {
+				got, err := svc.GetKeyIndex(t.Context(), f.in)
+				require.NoError(t, err)
+				require.Equal(t, f.want, got)
+			}
+		})
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		svc := newTestCreatedWallet(t)
+		_, err := svc.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		fixtures := []struct {
+			name            string
+			id              string
+			wantErrContains string
+		}{
+			{
+				name:            "hardened key id",
+				id:              "m/0'/0",
+				wantErrContains: "forbidden hardened index",
+			},
+			{
+				name:            "malformed key id",
+				id:              "m/0/notanumber",
+				wantErrContains: "failed to parse derivation index",
+			},
+		}
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				_, err := svc.GetKeyIndex(t.Context(), f.id)
+				require.ErrorContains(t, err, f.wantErrContains)
+			})
+		}
+	})
+}
+
 func TestListKeys(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("no allocations", func(t *testing.T) {

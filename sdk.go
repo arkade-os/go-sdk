@@ -10,16 +10,19 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 )
 
 var Version string
 
 type ArkClient interface {
+	Store() types.Store
 	Wallet() wallet.WalletService
 	Explorer() explorer.Explorer
 	Indexer() indexer.Indexer
 	Client() transport.TransportClient
+	ContractManager() contract.Manager
 
 	GetVersion() string
 	GetConfigStore() clientTypes.ConfigStore
@@ -78,6 +81,10 @@ type ArkClient interface {
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
+	// WhenNextSettlement returns the time at which the next automatic settlement
+	// is scheduled to fire. Returns the zero time.Time when auto-settle is
+	// disabled or no settlement is currently scheduled.
+	WhenNextSettlement() time.Time
 }
 
 type InitArgs struct {

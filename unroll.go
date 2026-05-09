@@ -5,9 +5,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/wire"
 	log "github.com/sirupsen/logrus"
 )
@@ -17,26 +21,16 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	allVtxos, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := a.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return err
 	}
 
-	if len(allVtxos) == 0 {
+	if len(vtxos) == 0 {
 		return fmt.Errorf("no vtxos to unroll")
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
-	if err != nil {
-		return err
-	}
-
-	vtxos := make([]clientTypes.Vtxo, 0, len(allVtxos))
-	for _, vtxo := range allVtxos {
-		vtxos = append(vtxos, vtxo.Vtxo)
-	}
-
-	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(allVtxos), client.WithKeys(signingKeys))
+	res, err := a.ArkClient.Unroll(ctx, client.WithVtxos(vtxos))
 	if err != nil {
 		return err
 	}
@@ -52,8 +46,9 @@ func (a *arkClient) Unroll(ctx context.Context) error {
 		vtxosToUpdate := make([]clientTypes.Vtxo, 0, len(vtxos))
 		for _, vtxo := range vtxos {
 			if vtxo.Txid == parentTxid {
-				vtxo.Unrolled = true
-				vtxosToUpdate = append(vtxosToUpdate, vtxo)
+				v := vtxo.Vtxo
+				v.Unrolled = true
+				vtxosToUpdate = append(vtxosToUpdate, v)
 			}
 		}
 		count, err := a.store.VtxoStore().UnrollVtxos(ctx, vtxosToUpdate)
@@ -72,12 +67,36 @@ func (a *arkClient) CompleteUnroll(ctx context.Context, to string) (string, erro
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	utxos, err := a.getMatureUtxos(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	return a.ArkClient.CompleteUnroll(ctx, to, client.WithKeys(signingKeys))
+	if len(utxos) <= 0 {
+		return "", fmt.Errorf("no mature utxos to claim")
+	}
+
+	unrolledVtxos := make([]clientTypes.VtxoWithTapTree, 0, len(utxos))
+	for _, utxo := range utxos {
+		unrolledVtxos = append(unrolledVtxos, clientTypes.VtxoWithTapTree{
+			Vtxo: clientTypes.Vtxo{
+				Outpoint: clientTypes.Outpoint{
+					Txid: utxo.Txid,
+					VOut: utxo.VOut,
+				},
+				Script: utxo.Script,
+				Amount: utxo.Amount,
+			},
+		})
+	}
+
+	signingKeys, err := a.getSigningKeyRefs(ctx, unrolledVtxos, nil)
+	if err != nil {
+		return "", err
+	}
+
+	opts := []client.UnrollOption{client.WithUtxosToClaim(utxos), client.WithKeys(signingKeys)}
+	return a.ArkClient.CompleteUnroll(ctx, to, opts...)
 }
 
 func (a *arkClient) WithdrawFromAllExpiredBoardings(
@@ -87,7 +106,22 @@ func (a *arkClient) WithdrawFromAllExpiredBoardings(
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	contracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
+	if err != nil {
+		return "", err
+	}
+	// Nothing to do
+	if len(contracts) <= 0 {
+		return "", nil
+	}
+
+	scripts := make([]string, 0, len(contracts))
+	for _, contract := range contracts {
+		scripts = append(scripts, contract.Script)
+	}
+	signingKeys, err := a.getKeys(ctx, scripts)
 	if err != nil {
 		return "", err
 	}
@@ -100,10 +134,85 @@ func (a *arkClient) OnboardAgainAllExpiredBoardings(ctx context.Context) (string
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	contracts, err := a.contractManager.GetContracts(
+		ctx, contract.WithType(types.ContractTypeBoarding),
+	)
+	if err != nil {
+		return "", err
+	}
+	// Nothing to do
+	if len(contracts) <= 0 {
+		return "", nil
+	}
+
+	scripts := make([]string, 0, len(contracts))
+	for _, contract := range contracts {
+		scripts = append(scripts, contract.Script)
+	}
+	signingKeys, err := a.getKeys(ctx, scripts)
 	if err != nil {
 		return "", err
 	}
 
 	return a.ArkClient.OnboardAgainAllExpiredBoardings(ctx, client.WithKeys(signingKeys))
+}
+
+func (a *arkClient) getMatureUtxos(ctx context.Context) ([]clientTypes.Utxo, error) {
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	contracts, err := a.contractManager.GetContracts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	explorer := a.Explorer()
+
+	addresses := make([]string, 0, len(contracts))
+	type params struct {
+		exitDelay  arklib.RelativeLocktime
+		tapscripts []string
+	}
+	addrParams := make(map[string]params)
+	for _, contract := range contracts {
+		if contract.Type == types.ContractTypeBoarding {
+			continue
+		}
+
+		addr := toOnchainAddress(contract.Address, cfg.Network)
+
+		handler, err := a.contractManager.GetHandler(ctx, contract)
+		if err != nil {
+			return nil, err
+		}
+		exitDelay, err := handler.GetExitDelay(contract)
+		if err != nil {
+			return nil, err
+		}
+		tapscripts, err := handler.GetTapscripts(contract)
+		if err != nil {
+			return nil, err
+		}
+
+		addresses = append(addresses, addr)
+		addrParams[contract.Script] = params{*exitDelay, tapscripts}
+	}
+
+	fetchedUtxos, err := explorer.GetUtxos(addresses)
+	if err != nil {
+		return nil, err
+	}
+
+	utxos := make([]clientTypes.Utxo, 0, len(fetchedUtxos))
+	for _, utxo := range fetchedUtxos {
+		params := addrParams[utxo.Script]
+		u := utxo.ToUtxo(params.exitDelay, params.tapscripts)
+		if u.SpendableAt.Before(now) {
+			utxos = append(utxos, u)
+		}
+	}
+	return utxos, nil
 }

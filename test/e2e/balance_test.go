@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"os"
@@ -112,8 +112,10 @@ func TestBalance(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
+		carol := setupClient(t, "")
+		faucetOffchain(t, carol, 0.03)
 
-		faucetNewOffchainAddress(t, alice, 0.001)
+		sendOffchainFromTo(t, alice, carol, 0.001)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -159,15 +161,17 @@ func TestBalance(t *testing.T) {
 			ctx := t.Context()
 			alice := setupClient(t, "")
 			bob := setupClient(t, "")
+			carol := setupClient(t, "")
+			faucetOffchain(t, carol, 0.03)
 
-			faucetNewOffchainAddress(t, bob, 0.0005)
+			sendOffchainFromTo(t, bob, carol, 0.0005)
 			initialBobBalance, err := bob.Balance(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, initialBobBalance)
 			require.Greater(t, int(initialBobBalance.OffchainBalance.Settled), 0)
 			require.Zero(t, initialBobBalance.OffchainBalance.Preconfirmed)
 
-			faucetNewOffchainAddress(t, alice, 0.001)
+			sendOffchainFromTo(t, alice, carol, 0.001)
 
 			bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 			require.NoError(t, err)
@@ -207,8 +211,10 @@ func TestBalance(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
+		carol := setupClient(t, "")
+		faucetOffchain(t, carol, 0.03)
 
-		faucetNewOffchainAddress(t, alice, 0.001)
+		sendOffchainFromTo(t, alice, carol, 0.001)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -246,8 +252,10 @@ func TestBalance(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
+		carol := setupClient(t, "")
+		faucetOffchain(t, carol, 0.03)
 
-		faucetNewOffchainAddress(t, alice, 0.001)
+		sendOffchainFromTo(t, alice, carol, 0.001)
 
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 		require.NoError(t, err)
@@ -293,8 +301,10 @@ func TestBalance(t *testing.T) {
 
 		ctx := t.Context()
 		alice := setupClient(t, "")
+		carol := setupClient(t, "")
+		faucetOffchain(t, carol, 0.03)
 
-		faucetNewOffchainAddress(t, alice, 0.00005)
+		sendOffchainFromTo(t, alice, carol, 0.00005)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 
@@ -329,14 +339,18 @@ func TestBalance(t *testing.T) {
 	})
 }
 
-func faucetNewOffchainAddress(
-	t *testing.T, client sdk.ArkClient, amount float64,
-) clientTypes.Vtxo {
+func sendOffchainFromTo(
+	t *testing.T, client sdk.ArkClient, bobClient sdk.ArkClient, amount float64,
+) {
 	t.Helper()
 
 	addr, err := client.NewOffchainAddress(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, addr)
 
-	return faucetOffchain(t, client, addr, amount)
+	_, err = bobClient.SendOffChain(t.Context(), []clientTypes.Receiver{{
+		To:     addr,
+		Amount: 21000,
+	}})
+	require.NoError(t, err)
 }
