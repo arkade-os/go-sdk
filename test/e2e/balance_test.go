@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -350,7 +351,7 @@ func sendOffchainFromTo(
 
 	_, err = sender.SendOffChain(t.Context(), []clientTypes.Receiver{{
 		To:     addr,
-		Amount: amount,
+		Amount: uint64(math.Round(amount * 1e8)),
 	}})
 	require.NoError(t, err)
 }
