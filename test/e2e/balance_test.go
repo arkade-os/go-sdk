@@ -340,17 +340,17 @@ func TestBalance(t *testing.T) {
 }
 
 func sendOffchainFromTo(
-	t *testing.T, client sdk.ArkClient, bobClient sdk.ArkClient, amount float64,
+	t *testing.T, recipient sdk.ArkClient, sender sdk.ArkClient, amount float64,
 ) {
 	t.Helper()
 
-	addr, err := client.NewOffchainAddress(t.Context())
+	addr, err := recipient.NewOffchainAddress(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, addr)
 
-	_, err = bobClient.SendOffChain(t.Context(), []clientTypes.Receiver{{
+	_, err = sender.SendOffChain(t.Context(), []clientTypes.Receiver{{
 		To:     addr,
-		Amount: 21000,
+		Amount: amount,
 	}})
 	require.NoError(t, err)
 }
