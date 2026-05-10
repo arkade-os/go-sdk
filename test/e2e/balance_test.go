@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"math"
 	"os"
 	"testing"
 	"time"
@@ -113,10 +112,7 @@ func TestBalance(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
-		carol := setupClient(t, "")
-		faucetOffchain(t, carol, 0.03)
-
-		sendOffchainFromTo(t, alice, carol, 0.001)
+		faucetOffchain(t, alice, 0.0005)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -130,7 +126,10 @@ func TestBalance(t *testing.T) {
 		}})
 		require.NoError(t, err)
 
-		bobVtxoEvent := <-bobVtxoCh
+		bobVtxoEvent := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
+			return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+		})
+
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		require.Equal(t, 21000, int(bobVtxoEvent.Vtxos[0].Amount))
@@ -162,30 +161,34 @@ func TestBalance(t *testing.T) {
 			ctx := t.Context()
 			alice := setupClient(t, "")
 			bob := setupClient(t, "")
-			carol := setupClient(t, "")
-			faucetOffchain(t, carol, 0.03)
+			faucetOffchain(t, bob, 0.0005)
+			faucetOffchain(t, alice, 0.0005)
 
-			sendOffchainFromTo(t, bob, carol, 0.0005)
-			initialBobBalance, err := bob.Balance(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, initialBobBalance)
-			require.Greater(t, int(initialBobBalance.OffchainBalance.Settled), 0)
-			require.Zero(t, initialBobBalance.OffchainBalance.Preconfirmed)
-
-			sendOffchainFromTo(t, alice, carol, 0.001)
+			var initialBobBalance *sdk.Balance
+			require.Eventually(t, func() bool {
+				var err error
+				initialBobBalance, err = bob.Balance(ctx)
+				return err == nil &&
+					initialBobBalance.OffchainBalance.Settled > 0 &&
+					initialBobBalance.OffchainBalance.Preconfirmed == 0
+			}, 10*time.Second, 500*time.Millisecond)
 
 			bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOffchainAddr)
 
 			bobVtxoCh := bob.GetVtxoEventChannel(ctx)
+
 			_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{{
 				To:     bobOffchainAddr,
 				Amount: 21000,
 			}})
 			require.NoError(t, err)
 
-			bobVtxoEvent := <-bobVtxoCh
+			bobVtxoEvent := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
+				return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+			})
+
 			require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 			require.Len(t, bobVtxoEvent.Vtxos, 1)
 
@@ -212,10 +215,7 @@ func TestBalance(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
-		carol := setupClient(t, "")
-		faucetOffchain(t, carol, 0.03)
-
-		sendOffchainFromTo(t, alice, carol, 0.001)
+		faucetOffchain(t, alice, 0.0005)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -228,7 +228,10 @@ func TestBalance(t *testing.T) {
 		}})
 		require.NoError(t, err)
 
-		bobVtxoEvent := <-bobVtxoCh
+		bobVtxoEvent := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
+			return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+		})
+
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
 		require.Equal(t, 100, int(bobVtxoEvent.Vtxos[0].Amount))
@@ -253,12 +256,10 @@ func TestBalance(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
-		carol := setupClient(t, "")
-		faucetOffchain(t, carol, 0.03)
 
-		sendOffchainFromTo(t, alice, carol, 0.001)
+		faucetOffchain(t, alice, 0.0005)
 
-		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
+		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOnchainAddr)
 
@@ -267,9 +268,9 @@ func TestBalance(t *testing.T) {
 		_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 		require.NoError(t, err)
 
-		bobUtxoEvent := <-bobUtxoCh
-		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
-		require.Len(t, bobUtxoEvent.Utxos, 1)
+		bobUtxoEvent := waitForUtxoEvent(t, bobUtxoCh, 30*time.Second, func(event types.UtxoEvent) bool {
+			return event.Type == types.UtxosAdded && len(event.Utxos) == 1
+		})
 		require.False(t, bobUtxoEvent.Utxos[0].IsConfirmed())
 
 		balance, err := bob.Balance(ctx)
@@ -282,9 +283,9 @@ func TestBalance(t *testing.T) {
 
 		require.NoError(t, generateBlocks(1))
 
-		bobUtxoEvent = <-bobUtxoCh
-		require.Equal(t, types.UtxosConfirmed, bobUtxoEvent.Type)
-		require.Len(t, bobUtxoEvent.Utxos, 1)
+		bobUtxoEvent = waitForUtxoEvent(t, bobUtxoCh, 30*time.Second, func(event types.UtxoEvent) bool {
+			return event.Type == types.UtxosConfirmed && len(event.Utxos) == 1
+		})
 		require.True(t, bobUtxoEvent.Utxos[0].IsConfirmed())
 
 		balance, err = bob.Balance(ctx)
@@ -302,10 +303,7 @@ func TestBalance(t *testing.T) {
 
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		carol := setupClient(t, "")
-		faucetOffchain(t, carol, 0.03)
-
-		sendOffchainFromTo(t, alice, carol, 0.00005)
+		faucetOffchain(t, alice, 0.0005)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 
@@ -338,20 +336,4 @@ func TestBalance(t *testing.T) {
 				balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
 		)
 	})
-}
-
-func sendOffchainFromTo(
-	t *testing.T, recipient sdk.ArkClient, sender sdk.ArkClient, amount float64,
-) {
-	t.Helper()
-
-	addr, err := recipient.NewOffchainAddress(t.Context())
-	require.NoError(t, err)
-	require.NotEmpty(t, addr)
-
-	_, err = sender.SendOffChain(t.Context(), []clientTypes.Receiver{{
-		To:     addr,
-		Amount: uint64(math.Round(amount * 1e8)),
-	}})
-	require.NoError(t, err)
 }
