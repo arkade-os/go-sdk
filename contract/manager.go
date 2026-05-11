@@ -247,70 +247,72 @@ func (m *contractManager) NewDelegate(
 		ExitDelay: exitDelay,
 	}
 
-	m.mu.Lock()
+	contract, isNew, err := func() (*types.Contract, bool, error) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
 
-	delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
-	existing, err := m.findDelegateContractByKey(ctx, delegateKeyHex)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, err
-	}
-	if existing != nil {
-		m.mu.Unlock()
-		return existing, nil
-	}
-
-	latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, err
-	}
-
-	var keyId string
-	if latestContract != nil {
-		dh := &DelegateHandler{}
-		keyRef, err := dh.GetKeyRef(*latestContract)
+		delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
+		existing, err := m.findDelegateContractByKey(ctx, delegateKeyHex)
 		if err != nil {
-			m.mu.Unlock()
-			return nil, fmt.Errorf("failed to get key ref for latest delegate contract: %w", err)
+			return nil, false, err
 		}
-		keyId = keyRef.Id
-	}
+		if existing != nil {
+			return existing, false, nil
+		}
 
-	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to compute next key index: %w", err)
-	}
+		latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
+		if err != nil {
+			return nil, false, err
+		}
 
-	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
-	}
+		var keyId string
+		if latestContract != nil {
+			dh := &DelegateHandler{}
+			keyRef, err := dh.GetKeyRef(*latestContract)
+			if err != nil {
+				return nil, false, fmt.Errorf(
+					"failed to get key ref for latest delegate contract: %w",
+					err,
+				)
+			}
+			keyId = keyRef.Id
+		}
 
-	dh := &DelegateHandler{}
-	contract, err := dh.DeriveContract(ctx, *keyRef, cfg, delegateKey)
+		nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to compute next key index: %w", err)
+		}
+
+		keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to derive key for contract: %w", err)
+		}
+
+		dh := &DelegateHandler{}
+		contract, err := dh.DeriveContract(ctx, *keyRef, cfg, delegateKey)
+		if err != nil {
+			return nil, false, err
+		}
+
+		keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to get key index: %w", err)
+		}
+
+		if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+			return nil, false, fmt.Errorf("failed to store delegate contract: %w", err)
+		}
+
+		log.Debugf("%s added new delegate contract %s", logPrefix, contract.Script)
+		return contract, true, nil
+	}()
 	if err != nil {
-		m.mu.Unlock()
 		return nil, err
 	}
 
-	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to get key index: %w", err)
+	if isNew {
+		m.emit(*contract)
 	}
-
-	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to store delegate contract: %w", err)
-	}
-
-	log.Debugf("%s added new delegate contract %s", logPrefix, contract.Script)
-	m.mu.Unlock()
-
-	m.emit(*contract)
 
 	return contract, nil
 }
