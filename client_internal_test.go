@@ -59,7 +59,7 @@ func TestCommittedNetAmount(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			amount, txType, ok := committedNetAmount(tc.myVtxos, tc.boardingTxs, tc.vtxosToAdd)
+			amount, txType, ok := commitmentTxNetAmount(tc.myVtxos, tc.boardingTxs, tc.vtxosToAdd)
 			require.Equal(t, tc.wantOk, ok)
 			require.Equal(t, tc.wantAmount, amount)
 			require.Equal(t, tc.wantType, txType)
@@ -108,7 +108,7 @@ func TestArkNetAmount(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			amount, txType, ok := arkNetAmount(tc.myVtxos, tc.vtxosToAdd)
+			amount, txType, ok := arkTxNetAmount(tc.myVtxos, tc.vtxosToAdd)
 			require.Equal(t, tc.wantOk, ok)
 			require.Equal(t, tc.wantAmount, amount)
 			require.Equal(t, tc.wantType, txType)

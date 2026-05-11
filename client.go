@@ -1398,7 +1398,7 @@ func (a *arkClient) handleCommitmentTx(
 			}
 		}
 	} else {
-		if amount, txType, ok := committedNetAmount(myVtxos, pendingBoardingTxs, vtxosToAdd); ok {
+		if amount, txType, ok := commitmentTxNetAmount(myVtxos, pendingBoardingTxs, vtxosToAdd); ok {
 			txsToAdd = append(txsToAdd, clientTypes.Transaction{
 				TransactionKey: clientTypes.TransactionKey{
 					CommitmentTxid: commitmentTx.Txid,
@@ -1520,7 +1520,7 @@ func (a *arkClient) handleArkTx(
 			})
 		}
 	} else {
-		if amount, txType, ok := arkNetAmount(myVtxos, vtxosToAdd); ok {
+		if amount, txType, ok := arkTxNetAmount(myVtxos, vtxosToAdd); ok {
 			txsToAdd = append(txsToAdd, clientTypes.Transaction{
 				TransactionKey: clientTypes.TransactionKey{
 					ArkTxid: arkTx.Txid,
@@ -2095,10 +2095,10 @@ func (a *arkClient) saveBatchTransaction(
 	return nil
 }
 
-// committedNetAmount returns the net amount a commitment tx moves for us and
+// commitmentTxNetAmount returns the net amount a commitment tx moves for us and
 // its direction. ok is false when our inputs equal our outputs (nothing to
-// record). Boarding utxos count as inputs since they are funds we contributed.
-func committedNetAmount(
+// record).
+func commitmentTxNetAmount(
 	myVtxos []clientTypes.Vtxo,
 	boardingTxs []clientTypes.Transaction,
 	vtxosToAdd []clientTypes.Vtxo,
@@ -2117,9 +2117,9 @@ func committedNetAmount(
 	return netAmount(totalIn, totalOut)
 }
 
-// arkNetAmount returns the net amount an ark tx moves for us and its direction.
+// arkTxNetAmount returns the net amount an ark tx moves for us and its direction.
 // ok is false when our inputs equal our outputs (nothing to record).
-func arkNetAmount(myVtxos, vtxosToAdd []clientTypes.Vtxo) (amount uint64, txType clientTypes.TxType, ok bool) {
+func arkTxNetAmount(myVtxos, vtxosToAdd []clientTypes.Vtxo) (amount uint64, txType clientTypes.TxType, ok bool) {
 	totalIn := uint64(0)
 	for _, v := range myVtxos {
 		totalIn += v.Amount
