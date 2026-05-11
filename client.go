@@ -1398,24 +1398,12 @@ func (a *arkClient) handleCommitmentTx(
 			}
 		}
 	} else {
-		totalIn := uint64(0)
-		for _, v := range myVtxos {
-			totalIn += v.Amount
-		}
-		for _, tx := range pendingBoardingTxs {
-			totalIn += tx.Amount
-		}
-		totalOut := uint64(0)
-		for _, v := range vtxosToAdd {
-			totalOut += v.Amount
-		}
-
-		if totalIn > totalOut {
+		if sent, ok := committedSentAmount(myVtxos, pendingBoardingTxs, vtxosToAdd); ok {
 			txsToAdd = append(txsToAdd, clientTypes.Transaction{
 				TransactionKey: clientTypes.TransactionKey{
 					CommitmentTxid: commitmentTx.Txid,
 				},
-				Amount:    totalIn - totalOut,
+				Amount:    sent,
 				Type:      clientTypes.TxSent,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
@@ -1533,24 +1521,18 @@ func (a *arkClient) handleArkTx(
 		}
 	} else {
 		// Otherwise, add a new spent tx to the history.
-		inAmount := uint64(0)
-		for _, vtxo := range myVtxos {
-			inAmount += vtxo.Amount
+		if sent, ok := arkSentAmount(myVtxos, vtxosToAdd); ok {
+			txsToAdd = append(txsToAdd, clientTypes.Transaction{
+				TransactionKey: clientTypes.TransactionKey{
+					ArkTxid: arkTx.Txid,
+				},
+				Amount:      sent,
+				Type:        clientTypes.TxSent,
+				CreatedAt:   time.Now(),
+				AssetPacket: assetPacket,
+				Hex:         arkTx.Tx,
+			})
 		}
-		outAmount := uint64(0)
-		for _, vtxo := range vtxosToAdd {
-			outAmount += vtxo.Amount
-		}
-		txsToAdd = append(txsToAdd, clientTypes.Transaction{
-			TransactionKey: clientTypes.TransactionKey{
-				ArkTxid: arkTx.Txid,
-			},
-			Amount:      inAmount - outAmount,
-			Type:        clientTypes.TxSent,
-			CreatedAt:   time.Now(),
-			AssetPacket: assetPacket,
-			Hex:         arkTx.Tx,
-		})
 	}
 
 	if len(txsToAdd) > 0 {
@@ -2112,4 +2094,41 @@ func (a *arkClient) saveBatchTransaction(
 	}
 
 	return nil
+}
+
+func committedSentAmount(
+	myVtxos []clientTypes.Vtxo,
+	boardingTxs []clientTypes.Transaction,
+	vtxosToAdd []clientTypes.Vtxo,
+) (uint64, bool) {
+	totalIn := uint64(0)
+	for _, v := range myVtxos {
+		totalIn += v.Amount
+	}
+	for _, tx := range boardingTxs {
+		totalIn += tx.Amount
+	}
+	totalOut := uint64(0)
+	for _, v := range vtxosToAdd {
+		totalOut += v.Amount
+	}
+	if totalIn > totalOut {
+		return totalIn - totalOut, true
+	}
+	return 0, false
+}
+
+func arkSentAmount(myVtxos, vtxosToAdd []clientTypes.Vtxo) (uint64, bool) {
+	inAmount := uint64(0)
+	for _, v := range myVtxos {
+		inAmount += v.Amount
+	}
+	outAmount := uint64(0)
+	for _, v := range vtxosToAdd {
+		outAmount += v.Amount
+	}
+	if inAmount > outAmount {
+		return inAmount - outAmount, true
+	}
+	return 0, false
 }
