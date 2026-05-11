@@ -7,6 +7,115 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCommitmentTxNetAmount(t *testing.T) {
+	t.Parallel()
+
+	vtxo := func(amount uint64) clientTypes.Vtxo { return clientTypes.Vtxo{Amount: amount} }
+	boarding := func(amount uint64) clientTypes.Transaction { return clientTypes.Transaction{Amount: amount} }
+
+	tests := []struct {
+		name        string
+		myVtxos     []clientTypes.Vtxo
+		boardingTxs []clientTypes.Transaction
+		vtxosToAdd  []clientTypes.Vtxo
+		wantAmount  uint64
+		wantType    clientTypes.TxType
+		wantOk      bool
+	}{
+		{
+			name:       "pure send: inputs exceed change",
+			myVtxos:    []clientTypes.Vtxo{vtxo(10_000), vtxo(5_000)},
+			vtxosToAdd: []clientTypes.Vtxo{vtxo(3_000)},
+			wantAmount: 12_000,
+			wantType:   clientTypes.TxSent,
+			wantOk:     true,
+		},
+		{
+			name:        "boarding + vtxo spend in same round: boarding counts as input",
+			myVtxos:     []clientTypes.Vtxo{vtxo(1_000)},
+			boardingTxs: []clientTypes.Transaction{boarding(20_000)},
+			vtxosToAdd:  []clientTypes.Vtxo{vtxo(18_000)},
+			wantAmount:  3_000,
+			wantType:    clientTypes.TxSent,
+			wantOk:      true,
+		},
+		{
+			name:       "net receive: outputs exceed inputs (no underflow)",
+			myVtxos:    []clientTypes.Vtxo{vtxo(1_000)},
+			vtxosToAdd: []clientTypes.Vtxo{vtxo(9_000)},
+			wantAmount: 8_000,
+			wantType:   clientTypes.TxReceived,
+			wantOk:     true,
+		},
+		{
+			name:       "inputs equal outputs: nothing recorded",
+			myVtxos:    []clientTypes.Vtxo{vtxo(5_000)},
+			vtxosToAdd: []clientTypes.Vtxo{vtxo(5_000)},
+			wantAmount: 0,
+			wantOk:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			amount, txType, ok := commitmentTxNetAmount(tc.myVtxos, tc.boardingTxs, tc.vtxosToAdd)
+			require.Equal(t, tc.wantOk, ok)
+			require.Equal(t, tc.wantAmount, amount)
+			require.Equal(t, tc.wantType, txType)
+		})
+	}
+}
+
+func TestArkTxNetAmount(t *testing.T) {
+	t.Parallel()
+
+	vtxo := func(amount uint64) clientTypes.Vtxo { return clientTypes.Vtxo{Amount: amount} }
+
+	tests := []struct {
+		name       string
+		myVtxos    []clientTypes.Vtxo
+		vtxosToAdd []clientTypes.Vtxo
+		wantAmount uint64
+		wantType   clientTypes.TxType
+		wantOk     bool
+	}{
+		{
+			name:       "pure send: inputs exceed change",
+			myVtxos:    []clientTypes.Vtxo{vtxo(10_000), vtxo(5_000)},
+			vtxosToAdd: []clientTypes.Vtxo{vtxo(3_000)},
+			wantAmount: 12_000,
+			wantType:   clientTypes.TxSent,
+			wantOk:     true,
+		},
+		{
+			name:       "net receive in same ark tx: outputs exceed inputs (no underflow)",
+			myVtxos:    []clientTypes.Vtxo{vtxo(1_000)},
+			vtxosToAdd: []clientTypes.Vtxo{vtxo(9_000)},
+			wantAmount: 8_000,
+			wantType:   clientTypes.TxReceived,
+			wantOk:     true,
+		},
+		{
+			name:       "inputs equal outputs: nothing recorded",
+			myVtxos:    []clientTypes.Vtxo{vtxo(5_000)},
+			vtxosToAdd: []clientTypes.Vtxo{vtxo(5_000)},
+			wantAmount: 0,
+			wantOk:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			amount, txType, ok := arkTxNetAmount(tc.myVtxos, tc.vtxosToAdd)
+			require.Equal(t, tc.wantOk, ok)
+			require.Equal(t, tc.wantAmount, amount)
+			require.Equal(t, tc.wantType, txType)
+		})
+	}
+}
+
 func TestGroupSpentVtxosByTx(t *testing.T) {
 	t.Parallel()
 

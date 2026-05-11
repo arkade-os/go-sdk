@@ -1398,21 +1398,14 @@ func (a *arkClient) handleCommitmentTx(
 			}
 		}
 	} else {
-		amount := uint64(0)
-		for _, v := range myVtxos {
-			amount += v.Amount
-		}
-		for _, v := range vtxosToAdd {
-			amount -= v.Amount
-		}
-
-		if amount > 0 {
+		amount, txType, ok := commitmentTxNetAmount(myVtxos, pendingBoardingTxs, vtxosToAdd)
+		if ok {
 			txsToAdd = append(txsToAdd, clientTypes.Transaction{
 				TransactionKey: clientTypes.TransactionKey{
 					CommitmentTxid: commitmentTx.Txid,
 				},
 				Amount:    amount,
-				Type:      clientTypes.TxSent,
+				Type:      txType,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
 			})
@@ -1528,25 +1521,18 @@ func (a *arkClient) handleArkTx(
 			})
 		}
 	} else {
-		// Otherwise, add a new spent tx to the history.
-		inAmount := uint64(0)
-		for _, vtxo := range myVtxos {
-			inAmount += vtxo.Amount
+		if amount, txType, ok := arkTxNetAmount(myVtxos, vtxosToAdd); ok {
+			txsToAdd = append(txsToAdd, clientTypes.Transaction{
+				TransactionKey: clientTypes.TransactionKey{
+					ArkTxid: arkTx.Txid,
+				},
+				Amount:      amount,
+				Type:        txType,
+				CreatedAt:   time.Now(),
+				AssetPacket: assetPacket,
+				Hex:         arkTx.Tx,
+			})
 		}
-		outAmount := uint64(0)
-		for _, vtxo := range vtxosToAdd {
-			outAmount += vtxo.Amount
-		}
-		txsToAdd = append(txsToAdd, clientTypes.Transaction{
-			TransactionKey: clientTypes.TransactionKey{
-				ArkTxid: arkTx.Txid,
-			},
-			Amount:      inAmount - outAmount,
-			Type:        clientTypes.TxSent,
-			CreatedAt:   time.Now(),
-			AssetPacket: assetPacket,
-			Hex:         arkTx.Tx,
-		})
 	}
 
 	if len(txsToAdd) > 0 {
@@ -2108,4 +2094,53 @@ func (a *arkClient) saveBatchTransaction(
 	}
 
 	return nil
+}
+
+// commitmentTxNetAmount returns the net amount a commitment tx moves for us and
+// its direction. ok is false when our inputs equal our outputs (nothing to
+// record).
+func commitmentTxNetAmount(
+	myVtxos []clientTypes.Vtxo,
+	boardingTxs []clientTypes.Transaction,
+	vtxosToAdd []clientTypes.Vtxo,
+) (amount uint64, txType clientTypes.TxType, ok bool) {
+	totalIn := uint64(0)
+	for _, v := range myVtxos {
+		totalIn += v.Amount
+	}
+	for _, tx := range boardingTxs {
+		totalIn += tx.Amount
+	}
+	totalOut := uint64(0)
+	for _, v := range vtxosToAdd {
+		totalOut += v.Amount
+	}
+	return netAmount(totalIn, totalOut)
+}
+
+// arkTxNetAmount returns the net amount an ark tx moves for us and its direction.
+// ok is false when our inputs equal our outputs (nothing to record).
+func arkTxNetAmount(
+	myVtxos, vtxosToAdd []clientTypes.Vtxo,
+) (amount uint64, txType clientTypes.TxType, ok bool) {
+	totalIn := uint64(0)
+	for _, v := range myVtxos {
+		totalIn += v.Amount
+	}
+	totalOut := uint64(0)
+	for _, v := range vtxosToAdd {
+		totalOut += v.Amount
+	}
+	return netAmount(totalIn, totalOut)
+}
+
+func netAmount(totalIn, totalOut uint64) (uint64, clientTypes.TxType, bool) {
+	switch {
+	case totalIn > totalOut:
+		return totalIn - totalOut, clientTypes.TxSent, true
+	case totalOut > totalIn:
+		return totalOut - totalIn, clientTypes.TxReceived, true
+	default:
+		return 0, "", false
+	}
 }
