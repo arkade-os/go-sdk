@@ -249,6 +249,17 @@ func (m *contractManager) NewDelegate(
 
 	m.mu.Lock()
 
+	delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
+	existing, err := m.findDelegateContractByKey(ctx, delegateKeyHex)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	if existing != nil {
+		m.mu.Unlock()
+		return existing, nil
+	}
+
 	latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
 	if err != nil {
 		m.mu.Unlock()
@@ -496,6 +507,21 @@ func (m *contractManager) findUsedContracts(
 		used[vtxo.Script] = struct{}{}
 	}
 	return used, nil
+}
+
+func (m *contractManager) findDelegateContractByKey(
+	ctx context.Context, delegateKeyHex string,
+) (*types.Contract, error) {
+	contracts, err := m.store.GetContractsByType(ctx, types.ContractTypeDelegate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delegate contracts: %w", err)
+	}
+	for i := range contracts {
+		if contracts[i].Params[ParamDelegateKey] == delegateKeyHex {
+			return &contracts[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (m *contractManager) findUsedBoardingContracts(

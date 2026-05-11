@@ -75,6 +75,12 @@ func (h *DelegateHandler) DeriveContract(
 	if delegateKey == nil {
 		return nil, fmt.Errorf("delegate key must not be nil")
 	}
+	if key.PubKey == nil {
+		return nil, fmt.Errorf("owner key must not be nil")
+	}
+	if cfg.SignerKey == nil {
+		return nil, fmt.Errorf("signer key must not be nil")
+	}
 	if delegateKey.IsEqual(key.PubKey) {
 		return nil, fmt.Errorf("delegate key must differ from owner key")
 	}
