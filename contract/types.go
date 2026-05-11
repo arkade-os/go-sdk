@@ -14,6 +14,17 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 )
 
+// DelegateCreator is implemented by Manager implementations that support
+// creating delegate contracts. Kept separate from Manager so that existing
+// Manager implementors are not forced to add NewDelegate.
+type DelegateCreator interface {
+	// NewDelegate creates and stores a new delegate contract for the given
+	// delegate public key. The owner key is derived from the key provider.
+	// Returns an error if delegateKey is nil or matches the owner or signer key.
+	// If a contract for this delegate key already exists it is returned as-is.
+	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*types.Contract, error)
+}
+
 // Manager manages the lifecycle of contracts derived from wallet keys.
 type Manager interface {
 	// GetSupportedContractTypes returns the list of contract types supported by the manager.
@@ -35,10 +46,6 @@ type Manager interface {
 	// GetTapscripts, GetExitDelay, …) directly. Errors when the contract type
 	// is not supported.
 	GetHandler(ctx context.Context, contract types.Contract) (handlers.Handler, error)
-	// NewDelegate creates and stores a new delegate contract for the given delegate
-	// public key. The owner key is derived from the key provider. Returns an error if
-	// delegateKey is nil or matches the owner or signer key.
-	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*types.Contract, error)
 	// NewVHTLC stores a VHTLC contract derived from the given raw params.
 	// If a contract with the same script already exists, it is returned as-is.
 	// rawParams must include: sender, receiver, hash, refundLocktime,
