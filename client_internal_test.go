@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCommittedNetAmount(t *testing.T) {
+func TestCommitmentTxNetAmount(t *testing.T) {
 	t.Parallel()
 
 	vtxo := func(amount uint64) clientTypes.Vtxo { return clientTypes.Vtxo{Amount: amount} }
@@ -67,7 +67,7 @@ func TestCommittedNetAmount(t *testing.T) {
 	}
 }
 
-func TestArkNetAmount(t *testing.T) {
+func TestArkTxNetAmount(t *testing.T) {
 	t.Parallel()
 
 	vtxo := func(amount uint64) clientTypes.Vtxo { return clientTypes.Vtxo{Amount: amount} }
