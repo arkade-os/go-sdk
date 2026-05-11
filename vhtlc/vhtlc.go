@@ -170,7 +170,7 @@ func NewVhtlcScript(
 }
 
 // GetRevealedTapscripts returns all six leaf scripts as hex-encoded strings.
-func (v *VHTLCScript) GetRevealedTapscripts() []string {
+func (v *VHTLCScript) GetRevealedTapscripts() ([]string, error) {
 	var scripts []string
 	for _, closure := range []script.Closure{
 		v.ClaimClosure,
@@ -180,11 +180,13 @@ func (v *VHTLCScript) GetRevealedTapscripts() []string {
 		v.UnilateralRefundClosure,
 		v.UnilateralRefundWithoutReceiverClosure,
 	} {
-		if s, err := closure.Script(); err == nil {
-			scripts = append(scripts, hex.EncodeToString(s))
+		s, err := closure.Script()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize closure script: %w", err)
 		}
+		scripts = append(scripts, hex.EncodeToString(s))
 	}
-	return scripts
+	return scripts, nil
 }
 
 // Address returns the Ark bech32m address for this VHTLC.

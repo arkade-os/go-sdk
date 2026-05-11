@@ -85,7 +85,10 @@ func (h *VHTLCHandler) DeriveContract(
 		return nil, fmt.Errorf("encode ark address: %w", err)
 	}
 
-	tapscripts := vtxoScript.GetRevealedTapscripts()
+	tapscripts, err := vtxoScript.GetRevealedTapscripts()
+	if err != nil {
+		return nil, fmt.Errorf("vhtlc tapscripts: %w", err)
+	}
 
 	vtxoTapKey, _, err := vtxoScript.TapTree()
 	if err != nil {
@@ -97,7 +100,10 @@ func (h *VHTLCHandler) DeriveContract(
 		return nil, fmt.Errorf("pkScript: %w", err)
 	}
 
-	params := serializeVHTLCOpts(opts)
+	params, err := serializeVHTLCOpts(opts)
+	if err != nil {
+		return nil, err
+	}
 	if keyID, ok := rawParams[ParamKeyID]; ok && keyID != "" {
 		params[ParamKeyID] = keyID
 	}
@@ -145,7 +151,10 @@ func (h *VHTLCHandler) SelectPath(
 			return sel, nil
 		}
 		if role == "sender" && isVHTLCCltvSatisfied(c.Params, pctx) {
-			lt, _ := vhtlcRefundLocktime(c.Params)
+			lt, err := vhtlcRefundLocktime(c.Params)
+			if err != nil {
+				return nil, err
+			}
 			return tapLeafSelection(tapscripts[2], nil, &lt)
 		}
 		return nil, nil
@@ -204,8 +213,11 @@ func (h *VHTLCHandler) GetSpendablePaths(
 			sel.ExtraWitness = [][]byte{pctx.Preimage}
 			paths = append(paths, *sel)
 		}
-		if role == "sender" {
-			lt, _ := vhtlcRefundLocktime(c.Params)
+		if role == "sender" && isVHTLCCltvSatisfied(c.Params, pctx) {
+			lt, err := vhtlcRefundLocktime(c.Params)
+			if err != nil {
+				return nil, err
+			}
 			sel, err := tapLeafSelection(tapscripts[2], nil, &lt)
 			if err != nil {
 				return nil, err
@@ -322,10 +334,19 @@ func parseVHTLCOpts(raw map[string]string, defaultServer *btcec.PublicKey) (vhtl
 	}, nil
 }
 
-func serializeVHTLCOpts(opts vhtlc.Opts) map[string]string {
-	claimSeq, _ := arklib.BIP68Sequence(opts.UnilateralClaimDelay)
-	refundSeq, _ := arklib.BIP68Sequence(opts.UnilateralRefundDelay)
-	noRcvrSeq, _ := arklib.BIP68Sequence(opts.UnilateralRefundWithoutReceiverDelay)
+func serializeVHTLCOpts(opts vhtlc.Opts) (map[string]string, error) {
+	claimSeq, err := arklib.BIP68Sequence(opts.UnilateralClaimDelay)
+	if err != nil {
+		return nil, fmt.Errorf("BIP68 sequence for claim delay: %w", err)
+	}
+	refundSeq, err := arklib.BIP68Sequence(opts.UnilateralRefundDelay)
+	if err != nil {
+		return nil, fmt.Errorf("BIP68 sequence for refund delay: %w", err)
+	}
+	noRcvrSeq, err := arklib.BIP68Sequence(opts.UnilateralRefundWithoutReceiverDelay)
+	if err != nil {
+		return nil, fmt.Errorf("BIP68 sequence for refund without receiver delay: %w", err)
+	}
 
 	return map[string]string{
 		ParamVHTLCSender:                hex.EncodeToString(schnorr.SerializePubKey(opts.Sender)),
@@ -336,7 +357,7 @@ func serializeVHTLCOpts(opts vhtlc.Opts) map[string]string {
 		ParamVHTLCClaimDelay:            strconv.FormatUint(uint64(claimSeq), 10),
 		ParamVHTLCRefundDelay:           strconv.FormatUint(uint64(refundSeq), 10),
 		ParamVHTLCRefundNoReceiverDelay: strconv.FormatUint(uint64(noRcvrSeq), 10),
-	}
+	}, nil
 }
 
 func vhtlcParsePubKeyBytes(raw map[string]string, key string) ([]byte, error) {
