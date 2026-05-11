@@ -193,7 +193,7 @@ func TestBreak_GetTxBlockTimeUnconfirmedReturnsZero(t *testing.T) {
 // requestTimeout. listen()'s reconnect path currently does NOT flush c.pending,
 // so callers wait for their individual timeouts before learning the conn died.
 //
-// Real-world impact: during wallet restore (discoverHDWalletKeys fires hundreds
+// Real-world impact: during wallet restore (ScanContracts fires hundreds
 // of GetTxs in succession), if the server restarts mid-restore, every in-flight
 // request blocks the restore for 15 s × in-flight count.
 func TestBreak_PendingRequestHangsOnDisconnect(t *testing.T) {

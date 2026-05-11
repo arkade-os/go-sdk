@@ -50,6 +50,11 @@ type explorerSvc struct {
 	// concurrent goroutines from racing to subscribe the same address, which
 	// would orphan notification channels and cause Stop() to deadlock.
 	subscribingSet map[string]struct{}
+	// stopped is set to true by Stop() under subscribedMu before draining
+	// subscribedMap. SubscribeForAddresses checks this flag (also under
+	// subscribedMu) before calling notifWg.Add(1), preventing a race between
+	// Add and the Wait() call in Stop().
+	stopped bool
 
 	// notifWg tracks the per-address goroutines spawned in SubscribeForAddresses.
 	// Stop() waits on this before returning to ensure no goroutine outlives the svc.
@@ -165,9 +170,11 @@ func (e *explorerSvc) Stop() {
 	}
 	e.client.shutdown()
 
-	// Close all per-address notification channels so that the goroutines spawned
-	// in SubscribeForAddresses exit and notifWg can complete.
+	// Set stopped and drain subscribedMap under the same lock so that any
+	// concurrent SubscribeForAddresses call sees stopped=true before calling
+	// notifWg.Add(1), preventing a race with the notifWg.Wait() below.
 	e.subscribedMu.Lock()
+	e.stopped = true
 	for _, state := range e.subscribedMap {
 		e.client.unsubscribeLocal(state.scripthash)
 	}
@@ -604,10 +611,18 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			return fmt.Errorf("failed to subscribe for %s: %w", addr, err)
 		}
 
+		// Move notifWg.Add(1) inside subscribedMu so it is serialised with
+		// Stop()'s stopped=true assignment. This prevents a race between Add
+		// and the notifWg.Wait() call in Stop().
 		e.subscribedMu.Lock()
 		delete(e.subscribingSet, addr)
+		if e.stopped {
+			e.subscribedMu.Unlock()
+			return fmt.Errorf("electrum explorer is stopped")
+		}
 		state := &addressState{scripthash: sh, utxos: initialUTXOs, notifCh: notifCh}
 		e.subscribedMap[addr] = state
+		e.notifWg.Add(1)
 		e.subscribedMu.Unlock()
 
 		e.scripthashToAddrMu.Lock()
@@ -616,7 +631,6 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 
 		// When ElectrumX pushes a notification for this scripthash, immediately poll
 		// the address rather than waiting for the next ticker cycle.
-		e.notifWg.Add(1)
 		go func(addr, sh string, notifCh <-chan string) {
 			defer e.notifWg.Done()
 			for range notifCh {

@@ -78,11 +78,24 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{contract.Address}); err != nil {
-			log.WithError(err).Error("failed to subscribe for boarding address")
+	bgCtx := a.bgCtx
+	if bgCtx == nil {
+		bgCtx = context.Background()
+	}
+	go func(ctx context.Context) {
+		for {
+			if err := a.Explorer().SubscribeForAddresses([]string{contract.Address}); err == nil {
+				return
+			} else {
+				log.WithError(err).Warn("failed to subscribe for boarding address, retrying...")
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
 		}
-	}()
+	}(bgCtx)
 	return contract.Address, nil
 }
 

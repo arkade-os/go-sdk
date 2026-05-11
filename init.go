@@ -139,6 +139,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	a.stopFn = cancel
+	a.bgCtx = bgCtx
 
 	go func() {
 		a.Explorer().Start()
@@ -189,13 +190,12 @@ func (a *arkClient) Lock(ctx context.Context) error {
 		return err
 	}
 
+	if a.stopFn != nil {
+		a.stopFn()
+	}
 	a.Explorer().Stop()
 	if a.scheduler != nil {
 		a.scheduler.Stop()
-	}
-
-	if a.stopFn != nil {
-		a.stopFn()
 	}
 
 	if a.contractManager != nil {

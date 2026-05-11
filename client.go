@@ -54,6 +54,7 @@ type arkClient struct {
 	syncErr           error
 	syncListeners     *syncListeners
 	stopFn            context.CancelFunc
+	bgCtx             context.Context
 	stopOnce          sync.Once
 	refreshDbInterval time.Duration
 	dbMu              *sync.Mutex
@@ -320,6 +321,13 @@ func (a *arkClient) Reset(ctx context.Context) {
 func (a *arkClient) Stop() {
 	a.stopOnce.Do(func() {
 		a.ArkClient.Stop()
+		// Cancel the background context before stopping the explorer so that
+		// background goroutines (listenForOnchainTxs, etc.) start exiting and
+		// stop calling explorer methods. Explorer().Stop() then shuts down the
+		// electrum client which makes any in-flight RPC fail fast.
+		if a.stopFn != nil {
+			a.stopFn()
+		}
 		a.Explorer().Stop()
 		// Tear down the auto-settle scheduler before the store closes,
 		// otherwise an already-scheduled refresh task can fire after Stop()
@@ -333,10 +341,6 @@ func (a *arkClient) Stop() {
 		a.syncDone = false
 		a.syncErr = nil
 		a.syncMu.Unlock()
-
-		if a.stopFn != nil {
-			a.stopFn()
-		}
 		if a.syncListeners != nil {
 			a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
 			a.syncListeners.clear()

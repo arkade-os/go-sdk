@@ -72,7 +72,7 @@
 //  3. NewExplorer constructs a fresh electrumClient with empty subscription
 //     and cache state.
 //  4. Unlock() calls Explorer().Start(), which dials, runs
-//     discoverHDWalletKeys + refreshDb to rebuild wallet state from the
+//     ScanContracts + refreshDb to rebuild wallet state from the
 //     persistent store + chain, then hands off to the polling loop.
 //
 // During restore the SDK fires bursts of GetTxs / GetUtxos calls. The
