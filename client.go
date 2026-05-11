@@ -1398,20 +1398,24 @@ func (a *arkClient) handleCommitmentTx(
 			}
 		}
 	} else {
-		amount := uint64(0)
+		totalIn := uint64(0)
 		for _, v := range myVtxos {
-			amount += v.Amount
+			totalIn += v.Amount
 		}
+		for _, tx := range pendingBoardingTxs {
+			totalIn += tx.Amount
+		}
+		totalOut := uint64(0)
 		for _, v := range vtxosToAdd {
-			amount -= v.Amount
+			totalOut += v.Amount
 		}
 
-		if amount > 0 {
+		if totalIn > totalOut {
 			txsToAdd = append(txsToAdd, clientTypes.Transaction{
 				TransactionKey: clientTypes.TransactionKey{
 					CommitmentTxid: commitmentTx.Txid,
 				},
-				Amount:    amount,
+				Amount:    totalIn - totalOut,
 				Type:      clientTypes.TxSent,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
