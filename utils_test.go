@@ -25,7 +25,10 @@ func (m *mockWallet) Unlock(_ context.Context, _ string) (bool, error) {
 func (m *mockWallet) IsLocked() bool {
 	return false
 }
-func (m *mockWallet) NextIndex(_ context.Context) (uint32, error) {
+func (m *mockWallet) NextKeyId(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (m *mockWallet) GetKeyIndex(_ context.Context, _ string) (uint32, error) {
 	return 0, nil
 }
 func (m *mockWallet) NewKey(_ context.Context) (*wallet.KeyRef, error) {

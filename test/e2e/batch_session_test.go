@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"sync"
@@ -231,13 +231,9 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, boardingAddr)
 
-		offchainAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		require.NotEmpty(t, offchainAddr)
-
 		// Send alice offchain funds
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
-		faucetOffchain(t, alice, offchainAddr, 0.00005)
+		faucetOffchain(t, alice, 0.00005)
 
 		vtxoEvent := recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
@@ -272,7 +268,7 @@ func TestBatchSession(t *testing.T) {
 		require.True(t, res.Vtxos[0].Swept)
 
 		// Repeat the operation to have many funds that are going to be swept and renewed
-		faucetOffchain(t, alice, offchainAddr, 0.00003)
+		faucetOffchain(t, alice, 0.00003)
 
 		vtxoEvent = recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)

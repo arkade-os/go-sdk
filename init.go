@@ -2,7 +2,9 @@ package arksdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	clientexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	"github.com/arkade-os/go-sdk/contract"
 	electrum_explorer "github.com/arkade-os/go-sdk/explorer/electrum"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -99,6 +102,31 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 	}
 	a.logMu.Unlock()
 
+	cfg, err := a.GetConfigData(ctx)
+	if err != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
+			return fmt.Errorf("unlock: get config: %w (rollback lock failed: %v)", err, lockErr)
+		}
+		return fmt.Errorf("unlock: get config: %w", err)
+	}
+	mgr, err := contract.NewManager(contract.Args{
+		Store:       a.store.ContractStore(),
+		KeyProvider: a.Wallet(),
+		Client:      a.Transport(),
+		Indexer:     a.Indexer(),
+		Explorer:    a.Explorer(),
+		Network:     cfg.Network,
+	})
+	if err != nil {
+		if lockErr := a.Wallet().Lock(ctx); lockErr != nil {
+			return fmt.Errorf(
+				"unlock: init contract manager: %w (rollback lock failed: %v)", err, lockErr,
+			)
+		}
+		return fmt.Errorf("failed to init contract manager: %w", err)
+	}
+
+	a.contractManager = mgr
 	a.resetSyncStateForUnlock()
 	a.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	a.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
@@ -114,15 +142,22 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 	go func() {
 		a.Explorer().Start()
+		if a.scheduler != nil {
+			a.scheduler.Start()
+		}
 
 		ctx := bgCtx
 
-		if _, err := a.discoverHDWalletKeys(ctx); err != nil {
+		// Look for missing contracts to track: the wallet restores at every unlock.
+		if err := a.contractManager.ScanContracts(ctx, a.hdGapLimit); err != nil {
 			a.syncCh <- err
 			close(a.syncCh)
 			return
 		}
 
+		// Finalize any pending txs that were submitted before this restore.
+		// Call client-lib directly (not the go-sdk wrapper) to avoid a second
+		// refreshDb before the primary one below runs.
 		// TODO: For this is a best-effort attempt to finalize any pending txs. Find a way to let
 		// the user aware of this so he can proceed with a manual finalization
 		if _, err := a.finalizePendingTxs(ctx, nil); err != nil {
@@ -134,15 +169,15 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		// immediately after (e.g. from NewBoardingAddress) are not dropped before
 		// listenForOnchainTxs can start consuming.
 		explorerCh := a.Explorer().GetAddressesEvents()
+		if err == nil {
+			a.scheduleNextSettlement()
+		}
 		a.syncCh <- err
 		close(a.syncCh)
 
-		// start listening to stream events
 		go a.listenForArkTxs(ctx)
-		go a.listenForOnchainTxs(ctx, explorerCh)
+		go a.listenForOnchainTxs(ctx, cfg.Network, explorerCh)
 		go a.listenDbEvents(ctx)
-
-		// start periodic refresh db
 		go a.periodicRefreshDb(ctx)
 	}()
 
@@ -155,15 +190,23 @@ func (a *arkClient) Lock(ctx context.Context) error {
 	}
 
 	a.Explorer().Stop()
+	if a.scheduler != nil {
+		a.scheduler.Stop()
+	}
+
+	if a.stopFn != nil {
+		a.stopFn()
+	}
+
+	if a.contractManager != nil {
+		a.contractManager.Close()
+		a.contractManager = nil
+	}
 
 	a.syncMu.Lock()
 	a.syncDone = false
 	a.syncErr = nil
 	a.syncMu.Unlock()
-
-	if a.stopFn != nil {
-		a.stopFn()
-	}
 	if a.syncListeners != nil {
 		a.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
 		a.syncListeners.clear()
@@ -192,4 +235,48 @@ func newExplorer(
 		opts = append(opts, mempool_explorer.WithPollInterval(pollInterval))
 	}
 	return mempool_explorer.NewExplorer(url, net, opts...)
+}
+
+func (a *arkClient) scheduleNextSettlement() {
+	// If auto-settle is disabled, nothing to do
+	if a.scheduler == nil {
+		return
+	}
+
+	nextSettlement := a.scheduler.GetTaskScheduledAt()
+
+	vtxos, err := a.store.VtxoStore().GetSpendableVtxos(context.Background())
+	if err != nil {
+		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next settlement")
+		return
+	}
+
+	// Nothing to do
+	if len(vtxos) <= 0 {
+		return
+	}
+
+	sort.SliceStable(vtxos, func(i, j int) bool {
+		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
+	})
+
+	// Reduce the real vtxo expiration date of 10%
+	expiry := time.Until(vtxos[0].ExpiresAt)
+	nextExpiration := time.Now().Add(expiry * 9 / 10)
+	if nextSettlement.IsZero() || nextExpiration.Before(nextSettlement) {
+		task := func() {
+			if _, err := a.Settle(context.Background()); err != nil {
+				if errors.Is(err, ErrNoFundsToSettle) {
+					log.Debugf("no vtxos to auto-settle, skipping")
+					return
+				}
+				log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
+			}
+		}
+		if err := a.scheduler.ScheduleTask(task, nextExpiration); err != nil {
+			log.WithError(err).Warn("failed to schedule next settlement")
+			return
+		}
+		log.Debugf("scheduled next settlement at %s", nextExpiration.Format(time.RFC3339))
+	}
 }

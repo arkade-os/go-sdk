@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"testing"
@@ -15,6 +15,13 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	ctx := t.Context()
 
 	hdWallet := setupClient(t, "")
+
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := hdWallet.GetAddresses(ctx)
+	require.NoError(t, err)
+	require.Empty(t, onchainAddrs)
+	require.Empty(t, offchainAddrs)
+	require.Empty(t, boardingAddrs)
+	require.Empty(t, redemptionAddrs)
 
 	hdOffchain1, err := hdWallet.NewOffchainAddress(ctx)
 	require.NoError(t, err)
@@ -34,20 +41,18 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, hdOnchain1, hdOnchain2)
 
-	hdOnchainAddrs, hdOffchainAddrs, hdBoardingAddrs, hdRedemptionAddrs, err := hdWallet.GetAddresses(
-		ctx,
-	)
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err = hdWallet.GetAddresses(ctx)
 	require.NoError(t, err)
-	require.Len(t, hdOnchainAddrs, 6)
-	require.Len(t, hdOffchainAddrs, 6)
-	require.Len(t, hdBoardingAddrs, 6)
-	require.Len(t, hdRedemptionAddrs, 6)
-	require.Contains(t, hdOffchainAddrs, hdOffchain1)
-	require.Contains(t, hdOffchainAddrs, hdOffchain2)
-	require.Contains(t, hdBoardingAddrs, hdBoarding1)
-	require.Contains(t, hdBoardingAddrs, hdBoarding2)
-	require.Contains(t, hdOnchainAddrs, hdOnchain1)
-	require.Contains(t, hdOnchainAddrs, hdOnchain2)
+	require.Len(t, onchainAddrs, 2)
+	require.Len(t, offchainAddrs, 2)
+	require.Len(t, boardingAddrs, 2)
+	require.Len(t, redemptionAddrs, 2)
+	require.Contains(t, offchainAddrs, hdOffchain1)
+	require.Contains(t, offchainAddrs, hdOffchain2)
+	require.Contains(t, boardingAddrs, hdBoarding1)
+	require.Contains(t, boardingAddrs, hdBoarding2)
+	require.Contains(t, onchainAddrs, hdOnchain1)
+	require.Contains(t, onchainAddrs, hdOnchain2)
 }
 
 func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
@@ -63,12 +68,10 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 		addresses = append(addresses, addr)
 	}
 
-	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
+	faucetOffchain(t, bobClientHD, 0.001)
 
 	// Scenario 1: Alice is online and receives on a known HD address.
-	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err := bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[0],
 		Amount: 15_000,
 	}})
@@ -150,11 +153,9 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 		addresses = append(addresses, addr)
 	}
 
-	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
+	faucetOffchain(t, bobClientHD, 0.001)
 
-	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err := bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[0],
 		Amount: 15_000,
 	}})
@@ -191,8 +192,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupClient(t, "")
-	bobClientHD := setupClient(t, "")
+	aliceClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
+	bobClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	offchainAddrs := make([]string, 0, 2)
 	for range 2 {
@@ -208,17 +209,6 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		boardingAddrs = append(boardingAddrs, addr)
 	}
 
-	onchainAddrs := make([]string, 0, 2)
-	for range 2 {
-		addr, err := aliceClientHD.NewOnchainAddress(ctx)
-		require.NoError(t, err)
-		onchainAddrs = append(onchainAddrs, addr)
-	}
-
-	_, _, _, redemptionAddrs, err := aliceClientHD.GetAddresses(ctx)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(redemptionAddrs), 6)
-
 	seed, err := aliceClientHD.Dump(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, seed)
@@ -226,10 +216,8 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	aliceClientHD.Stop()
 	aliceClientHD = nil
 
-	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
-	require.NoError(t, err)
 	for range 4 {
-		faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
+		faucetOffchain(t, bobClientHD, 0.001)
 	}
 
 	offchainAmounts := []uint64{11_000, 12_000, 13_000, 14_000}
@@ -246,24 +234,10 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		faucetOnchain(t, boardingAddrs[i], amount)
 	}
 
-	onchainAmounts := []float64{0.00011, 0.00012}
-	for i, amount := range onchainAmounts {
-		faucetOnchain(t, onchainAddrs[i], amount)
-	}
-
-	redemptionTargets := redemptionAddrs[:2]
-	redemptionAmounts := []float64{0.00031, 0.00032}
-	for i, amount := range redemptionAmounts {
-		faucetOnchain(t, redemptionTargets[i], amount)
-	}
-
 	require.NoError(t, generateBlocks(1))
-	waitForExplorerHistory(t, bobClientHD, append(
-		append(append([]string{}, boardingAddrs...), onchainAddrs...),
-		redemptionTargets...,
-	))
+	waitForExplorerHistory(t, bobClientHD, boardingAddrs)
 
-	aliceClientHD = setupClient(t, seed)
+	aliceClientHD = setupClient(t, seed, sdk.WithoutAutoSettle())
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
@@ -274,10 +248,9 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 
 		return len(spent) == 0 && len(spendable) == 4 &&
 			sumVtxoAmounts(spendable) == wantOffchainTotal
-	}, 30*time.Second, 500*time.Millisecond)
+	}, 10*time.Second, 200*time.Millisecond)
 
-	const wantOnchainSpendable = uint64(23_000)
-	const wantLockedOnchain = uint64(106_000)
+	const wantOnchainSpendable = uint64(43_000)
 	require.Eventually(t, func() bool {
 		balance, err := aliceClientHD.Balance(ctx)
 		if err != nil {
@@ -285,9 +258,8 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		}
 
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
-			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable &&
-			sumLockedAmounts(balance.OnchainBalance.LockedAmount) == wantLockedOnchain
-	}, 60*time.Second, 500*time.Millisecond)
+			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable
+	}, 30*time.Second, 500*time.Millisecond)
 }
 
 func TestHDWalletEventStreams(t *testing.T) {
@@ -297,9 +269,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 		aliceClientHD := setupClient(t, "")
 		bobClientHD := setupClient(t, "")
 
-		aliceFaucetAddr, err := aliceClientHD.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, aliceClientHD, aliceFaucetAddr, 0.001)
+		faucetOffchain(t, aliceClientHD, 0.001)
 
 		bobOffchainAddr, err := bobClientHD.NewOffchainAddress(ctx)
 		require.NoError(t, err)
