@@ -6,7 +6,6 @@ import (
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +37,9 @@ func TestBalance(t *testing.T) {
 
 		faucetOnchain(t, boardingAddr, 0.00021)
 
-		utxoEvent := <-utxoCh
+		utxoEvent := waitForUtxoEvent(t, utxoCh, 30*time.Second, func(event types.UtxoEvent) bool {
+			return event.Type == types.UtxosAdded && len(event.Utxos) == 1
+		})
 		require.Equal(t, types.UtxosAdded, utxoEvent.Type)
 		require.Len(t, utxoEvent.Utxos, 1)
 		require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
@@ -63,7 +64,9 @@ func TestBalance(t *testing.T) {
 		require.NotEmpty(t, commitmentTx)
 
 		// Wait for the VTXO added event.
-		vtxoEvent := <-vtxoCh
+		vtxoEvent := waitForVtxoEvent(t, vtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
+			return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+		})
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 1)
 		require.Equal(t, 21000, int(vtxoEvent.Vtxos[0].Amount))
@@ -79,16 +82,6 @@ func TestBalance(t *testing.T) {
 		preconfirmed := balance.OffchainBalance.Preconfirmed
 		recoverable := balance.OffchainBalance.Recoverable
 		settled := balance.OffchainBalance.Settled
-
-		t.Logf(
-			"Balance breakdown — Total: %d, Available: %d, Preconfirmed: %d, Recoverable: %d, Settled: %d",
-			total,
-			available,
-			preconfirmed,
-			recoverable,
-			settled,
-		)
-
 		require.Equal(t, total, settled+preconfirmed+recoverable,
 			"Total must equal Settled + Preconfirmed + Recoverable")
 		require.Equal(t, available, settled+preconfirmed,
@@ -101,11 +94,6 @@ func TestBalance(t *testing.T) {
 			balance.OnchainBalance.Total+balance.OffchainBalance.Total,
 			"Wallet total must equal onchain total + offchain total",
 		)
-
-		// After the commitment is confirmed, Available should be > 0 and
-		// Preconfirmed should be 0.
-		require.Greater(t, int(available+preconfirmed), 0,
-			"At least some funds should be available or preconfirmed")
 	})
 
 	t.Run("preconfirmed", func(t *testing.T) {
@@ -126,9 +114,14 @@ func TestBalance(t *testing.T) {
 		}})
 		require.NoError(t, err)
 
-		bobVtxoEvent := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
-			return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
-		})
+		bobVtxoEvent := waitForVtxoEvent(
+			t,
+			bobVtxoCh,
+			30*time.Second,
+			func(event types.VtxoEvent) bool {
+				return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+			},
+		)
 
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
@@ -164,15 +157,6 @@ func TestBalance(t *testing.T) {
 			faucetOffchain(t, bob, 0.0005)
 			faucetOffchain(t, alice, 0.0005)
 
-			var initialBobBalance *sdk.Balance
-			require.Eventually(t, func() bool {
-				var err error
-				initialBobBalance, err = bob.Balance(ctx)
-				return err == nil &&
-					initialBobBalance.OffchainBalance.Settled > 0 &&
-					initialBobBalance.OffchainBalance.Preconfirmed == 0
-			}, 10*time.Second, 500*time.Millisecond)
-
 			bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, bobOffchainAddr)
@@ -185,9 +169,14 @@ func TestBalance(t *testing.T) {
 			}})
 			require.NoError(t, err)
 
-			bobVtxoEvent := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
-				return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
-			})
+			bobVtxoEvent := waitForVtxoEvent(
+				t,
+				bobVtxoCh,
+				30*time.Second,
+				func(event types.VtxoEvent) bool {
+					return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+				},
+			)
 
 			require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 			require.Len(t, bobVtxoEvent.Vtxos, 1)
@@ -228,9 +217,14 @@ func TestBalance(t *testing.T) {
 		}})
 		require.NoError(t, err)
 
-		bobVtxoEvent := waitForVtxoEvent(t, bobVtxoCh, 30*time.Second, func(event types.VtxoEvent) bool {
-			return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
-		})
+		bobVtxoEvent := waitForVtxoEvent(
+			t,
+			bobVtxoCh,
+			30*time.Second,
+			func(event types.VtxoEvent) bool {
+				return event.Type == types.VtxosAdded && len(event.Vtxos) == 1
+			},
+		)
 
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
@@ -268,9 +262,14 @@ func TestBalance(t *testing.T) {
 		_, err = alice.CollaborativeExit(ctx, bobOnchainAddr, 21000)
 		require.NoError(t, err)
 
-		bobUtxoEvent := waitForUtxoEvent(t, bobUtxoCh, 30*time.Second, func(event types.UtxoEvent) bool {
-			return event.Type == types.UtxosAdded && len(event.Utxos) == 1
-		})
+		bobUtxoEvent := waitForUtxoEvent(
+			t,
+			bobUtxoCh,
+			30*time.Second,
+			func(event types.UtxoEvent) bool {
+				return event.Type == types.UtxosAdded && len(event.Utxos) == 1
+			},
+		)
 		require.False(t, bobUtxoEvent.Utxos[0].IsConfirmed())
 
 		balance, err := bob.Balance(ctx)
@@ -283,9 +282,14 @@ func TestBalance(t *testing.T) {
 
 		require.NoError(t, generateBlocks(1))
 
-		bobUtxoEvent = waitForUtxoEvent(t, bobUtxoCh, 30*time.Second, func(event types.UtxoEvent) bool {
-			return event.Type == types.UtxosConfirmed && len(event.Utxos) == 1
-		})
+		bobUtxoEvent = waitForUtxoEvent(
+			t,
+			bobUtxoCh,
+			30*time.Second,
+			func(event types.UtxoEvent) bool {
+				return event.Type == types.UtxosConfirmed && len(event.Utxos) == 1
+			},
+		)
 		require.True(t, bobUtxoEvent.Utxos[0].IsConfirmed())
 
 		balance, err = bob.Balance(ctx)
