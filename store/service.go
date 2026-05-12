@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ const (
 )
 
 type service struct {
+	db            *sql.DB
 	utxoStore     types.UtxoStore
 	vtxoStore     types.VtxoStore
 	txStore       types.TransactionStore
@@ -81,6 +83,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 	contractStore := sqlstore.NewContractStore(db)
 
 	return &service{
+		db:            db,
 		utxoStore:     utxoStore,
 		vtxoStore:     vtxoStore,
 		txStore:       txStore,
@@ -133,19 +136,11 @@ func (s *service) Clean(ctx context.Context) {
 }
 
 func (s *service) Close() {
-	if s.utxoStore != nil {
-		s.utxoStore.Close()
-	}
-	if s.txStore != nil {
-		s.txStore.Close()
-	}
-	if s.vtxoStore != nil {
-		s.vtxoStore.Close()
-	}
-	if s.assetStore != nil {
-		s.assetStore.Close()
-	}
-	if s.contractStore != nil {
-		s.contractStore.Close()
+	// All sub-stores share the same *sql.DB, so we close it once here
+	// instead of delegating to each sub-store (which would call db.Close()
+	// multiple times).
+	if s.db != nil {
+		//nolint:all
+		s.db.Close()
 	}
 }
