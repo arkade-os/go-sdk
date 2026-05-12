@@ -36,57 +36,42 @@ type Config struct {
 }
 
 func NewStore(storeConfig Config) (types.Store, error) {
-	var (
-		utxoStore     types.UtxoStore
-		vtxoStore     types.VtxoStore
-		txStore       types.TransactionStore
-		assetStore    types.AssetStore
-		contractStore types.ContractStore
-		err           error
-
-		dir = storeConfig.BaseDir
-	)
-
-	if len(storeConfig.AppDataStoreType) > 0 {
-		switch storeConfig.AppDataStoreType {
-		case types.SQLStore:
-			dbFile := filepath.Join(dir, sqliteDbFile)
-			db, err := sqlstore.OpenDb(dbFile)
-			if err != nil {
-				return nil, err
-			}
-			driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to open store: %s", err)
-			}
-
-			source, err := iofs.New(migrations, "sql/migration")
-			if err != nil {
-				return nil, fmt.Errorf("failed to embed migrations: %s", err)
-			}
-
-			m, err := migrate.NewWithInstance("iofs", source, "arkdb", driver)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create migration instance: %s", err)
-			}
-
-			if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-				return nil, fmt.Errorf("failed to run migrations: %s", err)
-			}
-			utxoStore = sqlstore.NewUtxoStore(db)
-			vtxoStore = sqlstore.NewVtxoStore(db)
-			txStore = sqlstore.NewTransactionStore(db)
-			assetStore = sqlstore.NewAssetStore(db)
-			contractStore = sqlstore.NewContractStore(db)
-		default:
-			err = fmt.Errorf("unknown appdata store type")
-		}
-		if err != nil {
-			return nil, err
-		}
+	dbFile := filepath.Join(storeConfig.BaseDir, sqliteDbFile)
+	db, err := sqlstore.OpenDb(dbFile)
+	if err != nil {
+		return nil, err
+	}
+	driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open store: %s", err)
 	}
 
-	return &service{utxoStore, vtxoStore, txStore, assetStore, contractStore}, nil
+	source, err := iofs.New(migrations, "sql/migration")
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed migrations: %s", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", source, "arkdb", driver)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migration instance: %s", err)
+	}
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return nil, fmt.Errorf("failed to run migrations: %s", err)
+	}
+	utxoStore := sqlstore.NewUtxoStore(db)
+	vtxoStore := sqlstore.NewVtxoStore(db)
+	txStore := sqlstore.NewTransactionStore(db)
+	assetStore := sqlstore.NewAssetStore(db)
+	contractStore := sqlstore.NewContractStore(db)
+
+	return &service{
+		utxoStore:     utxoStore,
+		vtxoStore:     vtxoStore,
+		txStore:       txStore,
+		assetStore:    assetStore,
+		contractStore: contractStore,
+	}, nil
 }
 
 func (s *service) UtxoStore() types.UtxoStore {

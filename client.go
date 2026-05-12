@@ -84,20 +84,18 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
+	if len(datadir) == 0 {
+		return nil, errors.New("datadir must be specified")
+	}
+
 	datadir = strings.TrimSpace(datadir)
 	clientDbConfig := clientStore.Config{
-		ConfigStoreType: clientTypes.InMemoryStore,
+		ConfigStoreType: clientTypes.FileStore,
+		BaseDir:         datadir,
 	}
-	dbConfig := store.Config{}
-	if len(datadir) > 0 {
-		clientDbConfig = clientStore.Config{
-			ConfigStoreType: clientTypes.FileStore,
-			BaseDir:         datadir,
-		}
-		dbConfig = store.Config{
-			AppDataStoreType: types.SQLStore,
-			BaseDir:          datadir,
-		}
+	dbConfig := store.Config{
+		AppDataStoreType: types.SQLStore,
+		BaseDir:          datadir,
 	}
 
 	clientDb, err := clientStore.NewStore(clientDbConfig)
