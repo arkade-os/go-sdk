@@ -36,11 +36,23 @@ type Config struct {
 }
 
 func NewStore(storeConfig Config) (types.Store, error) {
+	if len(storeConfig.AppDataStoreType) > 0 && storeConfig.AppDataStoreType != types.SQLStore {
+		return nil, fmt.Errorf("unknown appdata store type")
+	}
+
 	dbFile := filepath.Join(storeConfig.BaseDir, sqliteDbFile)
 	db, err := sqlstore.OpenDb(dbFile)
 	if err != nil {
 		return nil, err
 	}
+
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			db.Close()
+		}
+	}()
+
 	driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open store: %s", err)
@@ -59,6 +71,8 @@ func NewStore(storeConfig Config) (types.Store, error) {
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return nil, fmt.Errorf("failed to run migrations: %s", err)
 	}
+
+	succeeded = true
 	utxoStore := sqlstore.NewUtxoStore(db)
 	vtxoStore := sqlstore.NewVtxoStore(db)
 	txStore := sqlstore.NewTransactionStore(db)
