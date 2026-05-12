@@ -345,26 +345,32 @@ func (m *contractManager) NewVHTLC(
 		return nil, err
 	}
 
-	m.mu.Lock()
+	stored, err := func() (*types.Contract, error) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
 
-	existing, err := m.store.GetContractsByScripts(ctx, []string{c.Script})
+		existing, err := m.store.GetContractsByScripts(ctx, []string{c.Script})
+		if err != nil {
+			return nil, err
+		}
+		if len(existing) > 0 {
+			return &existing[0], nil
+		}
+
+		c.CreatedAt = time.Now()
+		if err := m.store.AddContract(ctx, *c, 0); err != nil {
+			return nil, fmt.Errorf("failed to store vhtlc contract: %w", err)
+		}
+
+		log.Debugf("%s added new vhtlc contract %s", logPrefix, c.Script)
+		return nil, nil
+	}()
 	if err != nil {
-		m.mu.Unlock()
 		return nil, err
 	}
-	if len(existing) > 0 {
-		m.mu.Unlock()
-		return &existing[0], nil
+	if stored != nil {
+		return stored, nil
 	}
-
-	c.CreatedAt = time.Now()
-	if err := m.store.AddContract(ctx, *c, 0); err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to store vhtlc contract: %w", err)
-	}
-
-	log.Debugf("%s added new vhtlc contract %s", logPrefix, c.Script)
-	m.mu.Unlock()
 
 	m.emit(*c)
 	return c, nil
