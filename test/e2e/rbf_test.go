@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +20,7 @@ import (
 // vout index changes in the replacement transaction.
 func TestSettleAfterRBFBumpFee(t *testing.T) {
 	ctx := t.Context()
-	client := setupClient(t, "")
+	client := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 	// Get the boarding address.
 	boardingAddr, err := client.NewBoardingAddress(ctx)

@@ -326,7 +326,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 	t.Run("boarding receive and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
-		aliceClientHD := setupClient(t, "")
+		aliceClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		boardingAddr, err := aliceClientHD.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -510,7 +510,7 @@ func waitForTxEvent(
 func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	boardingAddr, err := alice.NewBoardingAddress(ctx)
 	require.NoError(t, err)
@@ -528,7 +528,7 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 
 	alice.Stop()
 
-	restoredAlice := setupClient(t, seed)
+	restoredAlice := setupClient(t, seed, sdk.WithoutAutoSettle())
 
 	// The restored wallet should re-discover the key that backs the funded
 	// boarding address and surface the UTXO in its onchain balance.
