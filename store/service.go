@@ -49,6 +49,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 	succeeded := false
 	defer func() {
 		if !succeeded {
+			//nolint
 			db.Close()
 		}
 	}()
