@@ -356,12 +356,6 @@ func TestService(t *testing.T) {
 			config store.Config
 		}{
 			{
-				name: "kv",
-				config: store.Config{
-					AppDataStoreType: types.KVStore,
-				},
-			},
-			{
 				name: "sql",
 				config: store.Config{
 					AppDataStoreType: types.SQLStore,

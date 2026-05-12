@@ -88,10 +88,7 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
 	}
-	dbConfig := store.Config{
-		AppDataStoreType: types.KVStore,
-		BaseDir:          datadir,
-	}
+	dbConfig := store.Config{}
 	if len(datadir) > 0 {
 		clientDbConfig = clientStore.Config{
 			ConfigStoreType: clientTypes.FileStore,
@@ -161,10 +158,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 	clientDbConfig := clientStore.Config{
 		ConfigStoreType: clientTypes.InMemoryStore,
 	}
-	dbConfig := store.Config{
-		AppDataStoreType: types.KVStore,
-		BaseDir:          datadir,
-	}
+	dbConfig := store.Config{}
 	if len(datadir) > 0 {
 		clientDbConfig = clientStore.Config{
 			ConfigStoreType: clientTypes.FileStore,

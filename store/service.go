@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	kvstore "github.com/arkade-os/go-sdk/store/kv"
 	sqlstore "github.com/arkade-os/go-sdk/store/sql"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/golang-migrate/migrate/v4"
@@ -50,24 +49,6 @@ func NewStore(storeConfig Config) (types.Store, error) {
 
 	if len(storeConfig.AppDataStoreType) > 0 {
 		switch storeConfig.AppDataStoreType {
-		case types.KVStore:
-			utxoStore, err = kvstore.NewUtxoStore(dir, nil)
-			if err != nil {
-				return nil, err
-			}
-			vtxoStore, err = kvstore.NewVtxoStore(dir, nil)
-			if err != nil {
-				return nil, err
-			}
-			assetStore, err = kvstore.NewAssetStore(dir, nil)
-			if err != nil {
-				return nil, err
-			}
-			txStore, err = kvstore.NewTransactionStore(dir, nil, assetStore)
-			if err != nil {
-				return nil, err
-			}
-			contractStore, err = kvstore.NewContractStore(dir, nil)
 		case types.SQLStore:
 			dbFile := filepath.Join(dir, sqliteDbFile)
 			db, err := sqlstore.OpenDb(dbFile)
