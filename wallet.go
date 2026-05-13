@@ -112,7 +112,7 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		o.scheduler = nil
 	}
 
-	// Disable underlying finalizatio of pending txs as we are handling that ourselves
+	// Disable underlying finalization of pending txs as we are handling that ourselves
 	clientOpts := []clientwallet.ServiceOption{
 		clientwallet.WithoutFinalizePendingTxs(),
 	}
@@ -191,7 +191,7 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		o.scheduler = nil
 	}
 
-	// Disable underlying finalizatio of pending txs as we are handling that ourselves
+	// Disable underlying finalization of pending txs as we are handling that ourselves
 	clientOpts := []clientwallet.ServiceOption{
 		clientwallet.WithoutFinalizePendingTxs(),
 	}

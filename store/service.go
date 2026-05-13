@@ -75,7 +75,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			dir, ok := storeConfig.Args.(string)
 			if !ok {
 				return nil, fmt.Errorf(
-					"invalid store config args for kv store: expected string datadir, got %T",
+					"invalid config args for sqlite store: expected string datadir, got %T",
 					storeConfig.Args,
 				)
 			}
