@@ -73,6 +73,7 @@ func (w *wallet) Init(
 		true,
 		pollInterval,
 		initOpts.electrumEsploraURL,
+		initOpts.electrumWsURL,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to init explorer: %v", err)
@@ -222,7 +223,8 @@ func (w *wallet) Lock(ctx context.Context) error {
 // on the URL scheme. URLs starting with "tcp://" or "ssl://" use ElectrumX;
 // all others use the mempool.space REST/WebSocket implementation.
 func newExplorer(
-	url string, net arklib.Network, tracker bool, pollInterval time.Duration, esploraURL string,
+	url string, net arklib.Network, tracker bool, pollInterval time.Duration,
+	esploraURL, wsURL string,
 ) (clientexplorer.Explorer, error) {
 	if strings.HasPrefix(url, "tcp://") || strings.HasPrefix(url, "ssl://") {
 		opts := []electrum_explorer.Option{electrum_explorer.WithTracker(tracker)}
@@ -231,6 +233,9 @@ func newExplorer(
 		}
 		if esploraURL != "" {
 			opts = append(opts, electrum_explorer.WithEsploraURL(esploraURL))
+		}
+		if wsURL != "" {
+			opts = append(opts, electrum_explorer.WithWebSocketURL(wsURL))
 		}
 		return electrum_explorer.NewExplorer(url, net, opts...)
 	}

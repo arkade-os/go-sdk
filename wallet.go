@@ -206,7 +206,7 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
 			pollInterval = 2 * time.Second
 		}
-		explorerSvc, err = newExplorer(explorerUrl, cfgData.Network, true, pollInterval, "")
+		explorerSvc, err = newExplorer(explorerUrl, cfgData.Network, true, pollInterval, "", "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to init explorer: %v", err)
 		}

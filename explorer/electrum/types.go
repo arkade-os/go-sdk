@@ -79,3 +79,44 @@ type esploraTxEntry struct {
 	Vout   []esploraVout `json:"vout"`
 	Status esploraStatus `json:"status"`
 }
+
+// mempool.space-compatible WebSocket address-tracking protocol, as served by
+// electrs-esplora and proxied by nigiri-chopsticks. Used as a P2TR-aware
+// notification path when WithWebSocketURL is configured, because the Electrum
+// protocol relies on scripthash indexes that older electrs builds do not
+// populate for taproot scripts.
+
+type wsAddressNotification struct {
+	MultiAddrTx map[string]wsTxNotificationSet `json:"multi-address-transactions"`
+	Error       string                         `json:"track-addresses-error"`
+}
+
+type wsTxNotificationSet struct {
+	Mempool   []wsTxNotification `json:"mempool"`
+	Confirmed []wsTxNotification `json:"confirmed"`
+	Removed   []wsTxNotification `json:"removed"`
+}
+
+type wsTxNotification struct {
+	Txid    string             `json:"txid"`
+	Inputs  []wsTxInput        `json:"vin"`
+	Outputs []wsTxPrevout      `json:"vout"`
+	Status  wsTxStatusEnvelope `json:"status"`
+}
+
+type wsTxStatusEnvelope struct {
+	Confirmed bool  `json:"confirmed"`
+	BlockTime int64 `json:"block_time"`
+}
+
+type wsTxInput struct {
+	Prevout wsTxPrevout `json:"prevout"`
+	Txid    string      `json:"txid"`
+	Vout    uint32      `json:"vout"`
+}
+
+type wsTxPrevout struct {
+	Script  string `json:"scriptpubkey"`
+	Address string `json:"scriptpubkey_address"`
+	Amount  uint64 `json:"value"`
+}

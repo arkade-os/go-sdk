@@ -38,6 +38,8 @@ type explorerSvc struct {
 	client     *electrumClient
 	serverURL  string
 	esploraURL string // optional HTTP REST base URL for package broadcasts
+	wsURL      string // optional mempool.space-compatible WS URL for live address tracking
+	ws         *wsTracker
 	netParams  *chaincfg.Params
 
 	noTracking   bool
@@ -142,6 +144,11 @@ func (e *explorerSvc) Start() {
 			return
 		}
 
+		if e.wsURL != "" {
+			e.ws = newWSTracker(e.wsURL, e.netParams, e.listeners)
+			e.ws.start()
+		}
+
 		stopCh := make(chan struct{})
 		e.stopTracking = sync.OnceFunc(func() { close(stopCh) })
 		go e.pollLoop(stopCh)
@@ -167,6 +174,10 @@ func (e *explorerSvc) Stop() {
 	if e.stopTracking != nil {
 		e.stopTracking()
 		e.stopTracking = nil
+	}
+	if e.ws != nil {
+		e.ws.stop()
+		e.ws = nil
 	}
 	e.client.shutdown()
 
@@ -642,6 +653,12 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		e.scripthashToAddr[sh] = addr
 		e.scripthashToAddrMu.Unlock()
 
+		// Mirror the subscription onto the WS tracker so taproot addresses get
+		// live notifications even when the scripthash index is empty.
+		if e.ws != nil {
+			e.ws.subscribe(addr)
+		}
+
 		// When ElectrumX pushes a notification for this scripthash, immediately poll
 		// the address rather than waiting for the next ticker cycle. The initial
 		// pollAddress call establishes the UTXO baseline so that the first push
@@ -673,6 +690,9 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 			delete(e.scripthashToAddr, state.scripthash)
 			e.scripthashToAddrMu.Unlock()
 			e.client.unsubscribeLocal(state.scripthash)
+			if e.ws != nil {
+				e.ws.unsubscribe(addr)
+			}
 		}
 	}
 	return nil

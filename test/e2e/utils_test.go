@@ -32,6 +32,7 @@ var explorerUrl = func() string {
 }()
 
 var esploraUrl = os.Getenv("ARK_ESPLORA_URL")
+var electrumWsUrl = os.Getenv("ARK_ELECTRUM_WS_URL")
 
 func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
 	t.Helper()
@@ -42,6 +43,9 @@ func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet
 	initOpts := []sdk.InitOption{sdk.WithElectrumExplorer(explorerUrl)}
 	if esploraUrl != "" {
 		initOpts = append(initOpts, sdk.WithElectrumPackageBroadcastURL(esploraUrl))
+	}
+	if electrumWsUrl != "" {
+		initOpts = append(initOpts, sdk.WithElectrumWebSocketURL(electrumWsUrl))
 	}
 	err = arkClient.Init(
 		t.Context(),

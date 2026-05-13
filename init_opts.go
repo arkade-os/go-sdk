@@ -75,9 +75,28 @@ func WithElectrumPackageBroadcastURL(url string) InitOption {
 	}
 }
 
+// WithElectrumWebSocketURL configures a mempool.space-compatible WebSocket
+// endpoint for live address tracking. Used in parallel with Electrum scripthash
+// subscriptions so taproot (P2TR) addresses surface activity even against
+// electrs builds that lack a taproot index. Expected URL form:
+// ws://host:port/v1/ws or wss://host:port/v1/ws.
+func WithElectrumWebSocketURL(url string) InitOption {
+	return func(o *initOptions) error {
+		if url == "" {
+			return fmt.Errorf("electrum websocket url cannot be empty")
+		}
+		if !strings.HasPrefix(url, "ws://") && !strings.HasPrefix(url, "wss://") {
+			return fmt.Errorf("electrum websocket url must start with ws:// or wss://")
+		}
+		o.electrumWsURL = url
+		return nil
+	}
+}
+
 type initOptions struct {
 	explorerUrl        string
 	electrumEsploraURL string
+	electrumWsURL      string
 }
 
 func newDefaultInitOptions() *initOptions {

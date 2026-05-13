@@ -47,3 +47,16 @@ func WithEsploraURL(url string) Option {
 		svc.esploraURL = url
 	}
 }
+
+// WithWebSocketURL enables a mempool.space-compatible WebSocket notification
+// path (track-addresses protocol) used in parallel with Electrum scripthash
+// subscriptions. Required when the upstream electrs build does not index
+// taproot scripts: scripthash queries silently return empty for P2TR, so the
+// WS payload (which carries full output address/amount data live) is the only
+// path that surfaces boarding-address activity. Expected URL form:
+// ws://host:port/v1/ws or wss://host:port/v1/ws.
+func WithWebSocketURL(url string) Option {
+	return func(svc *explorerSvc) {
+		svc.wsURL = url
+	}
+}
