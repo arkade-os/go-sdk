@@ -9,15 +9,15 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
+	hdidentity "github.com/arkade-os/go-sdk/identity"
+	"github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
-	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/require"
@@ -51,13 +51,13 @@ func newTestManagerWithEnv(
 
 	env := newMockedEnv(t)
 
-	svc, err := store.NewStore(store.Config{AppDataStoreType: types.KVStore})
+	svc, err := store.NewStore(store.Config{StoreType: types.KVStore})
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
 
 	mgr, err := contract.NewManager(contract.Args{
 		Store:       svc.ContractStore(),
-		KeyProvider: env.wsvc,
+		KeyProvider: env.identity,
 		Client:      env.transport,
 		Indexer:     env.indexer,
 		Explorer:    env.explorer,
@@ -222,7 +222,7 @@ type mockedEnv struct {
 	indexer        *mockIndexer
 	explorer       *mockExplorer
 	transport      *mockTransportClient
-	wsvc           wallet.WalletService
+	identity       identity.Identity
 	derive         func(keyId string) types.Contract
 	deriveBoarding func(keyId string) types.Contract
 }
@@ -240,7 +240,7 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 		},
 	}
 
-	wsvc, err := hdwallet.NewService(inmemorywalletstore.NewStore())
+	wsvc, err := hdidentity.NewIdentity(identityinmemorystore.NewStore())
 	require.NoError(t, err)
 	_, err = wsvc.Create(t.Context(), chaincfg.RegressionNetParams, testPassword, "")
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 	require.NoError(t, err)
 
 	// Mirror the manager's derivation across both contract types: same
-	// wallet, same handlers, same key chain. derive(keyId) yields the
+	// identity, same handlers, same key chain. derive(keyId) yields the
 	// offchain contract the scan loop would produce; deriveBoarding(keyId)
 	// the boarding (onchain) one. The boarding handler is the same impl
 	// parameterized with isOnchain=true — see contract/handlers/default.
@@ -275,7 +275,7 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 		indexer:        &mockIndexer{},
 		explorer:       &mockExplorer{},
 		transport:      transport,
-		wsvc:           wsvc,
+		identity:       wsvc,
 		derive:         derive,
 		deriveBoarding: deriveBoarding,
 	}

@@ -32,8 +32,8 @@ type service struct {
 }
 
 type Config struct {
-	AppDataStoreType string
-	BaseDir          string
+	StoreType string
+	Args      any
 }
 
 func NewStore(storeConfig Config) (types.Store, error) {
@@ -44,13 +44,16 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		assetStore    types.AssetStore
 		contractStore types.ContractStore
 		err           error
-
-		dir = storeConfig.BaseDir
 	)
 
-	if len(storeConfig.AppDataStoreType) > 0 {
-		switch storeConfig.AppDataStoreType {
+	if len(storeConfig.StoreType) > 0 {
+		switch storeConfig.StoreType {
 		case types.KVStore:
+			dir, ok := storeConfig.Args.(string)
+			if !ok {
+				dir = ""
+			}
+
 			utxoStore, err = kvstore.NewUtxoStore(dir, nil)
 			if err != nil {
 				return nil, err
@@ -69,6 +72,14 @@ func NewStore(storeConfig Config) (types.Store, error) {
 			}
 			contractStore, err = kvstore.NewContractStore(dir, nil)
 		case types.SQLStore:
+			dir, ok := storeConfig.Args.(string)
+			if !ok {
+				return nil, fmt.Errorf(
+					"invalid store config args for kv store: expected string datadir, got %T",
+					storeConfig.Args,
+				)
+			}
+
 			dbFile := filepath.Join(dir, sqliteDbFile)
 			db, err := sqlstore.OpenDb(dbFile)
 			if err != nil {

@@ -1,13 +1,13 @@
-package hdwallet
+package identity
 
 import (
 	"encoding/hex"
 	"sync"
 	"testing"
 
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	walletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store"
-	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/identity/store"
+	"github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -26,7 +26,7 @@ const (
 func TestCreate(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("without mnemonic", func(t *testing.T) {
-			svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+			svc := newIdentity(t, identityinmemorystore.NewStore())
 			seed, err := svc.Create(t.Context(), network, testPassword, "")
 			require.NoError(t, err)
 			require.NotEmpty(t, seed)
@@ -35,7 +35,7 @@ func TestCreate(t *testing.T) {
 		})
 
 		t.Run("with mnemonic", func(t *testing.T) {
-			svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+			svc := newIdentity(t, identityinmemorystore.NewStore())
 			seed, err := svc.Create(t.Context(), network, testPassword, testMnemonic)
 			require.NoError(t, err)
 			require.Equal(t, testMnemonic, seed)
@@ -45,21 +45,21 @@ func TestCreate(t *testing.T) {
 
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			seed            string
 			wantErrContains string
 		}{
 			{
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				setup: func(t *testing.T) identity.Identity {
+					return newIdentity(t, identityinmemorystore.NewStore())
 				},
 				seed:            "not a valid mnemonic",
 				wantErrContains: "invalid mnemonic",
 			},
 			{
-				setup:           newTestCreatedWallet,
+				setup:           newInitializedIdentity,
 				seed:            "",
-				wantErrContains: "wallet already initialized",
+				wantErrContains: ErrAlreadyInitialized.Error(),
 			},
 		}
 
@@ -74,7 +74,7 @@ func TestCreate(t *testing.T) {
 func TestUnlock(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("after create", func(t *testing.T) {
-			svc := newTestCreatedWallet(t)
+			svc := newInitializedIdentity(t)
 			require.True(t, svc.IsLocked())
 
 			restored, err := svc.Unlock(t.Context(), testPassword)
@@ -82,7 +82,7 @@ func TestUnlock(t *testing.T) {
 			require.False(t, restored)
 			require.False(t, svc.IsLocked())
 
-			// Idempotent on an already-unlocked wallet.
+			// Idempotent on an already-unlocked identity.
 			restored, err = svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 			require.False(t, restored)
@@ -90,12 +90,12 @@ func TestUnlock(t *testing.T) {
 		})
 
 		t.Run("cold start", func(t *testing.T) {
-			store := inmemorywalletstore.NewStore()
-			seeder := newTestHDWalletService(t, store)
+			store := identityinmemorystore.NewStore()
+			seeder := newIdentity(t, store)
 			_, err := seeder.Create(t.Context(), network, testPassword, testMnemonic)
 			require.NoError(t, err)
 
-			svc := newTestHDWalletService(t, store)
+			svc := newIdentity(t, store)
 			restored, err := svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 			require.False(t, restored)
@@ -103,8 +103,8 @@ func TestUnlock(t *testing.T) {
 		})
 
 		t.Run("restored", func(t *testing.T) {
-			store := inmemorywalletstore.NewStore()
-			seeder := newTestHDWalletService(t, store)
+			store := identityinmemorystore.NewStore()
+			seeder := newIdentity(t, store)
 			_, err := seeder.Create(t.Context(), network, testPassword, testMnemonic)
 			require.NoError(t, err)
 			_, err = seeder.Unlock(t.Context(), testPassword)
@@ -114,14 +114,14 @@ func TestUnlock(t *testing.T) {
 			_, err = seeder.NewKey(t.Context())
 			require.NoError(t, err)
 
-			svc := newTestHDWalletService(t, store)
+			svc := newIdentity(t, store)
 			restored, err := svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 			require.True(t, restored)
 		})
 
-		t.Run("locked wallet", func(t *testing.T) {
-			svc := newTestCreatedWallet(t)
+		t.Run("locked identity", func(t *testing.T) {
+			svc := newInitializedIdentity(t)
 			require.True(t, svc.IsLocked())
 
 			restored, err := svc.Unlock(t.Context(), testPassword)
@@ -152,38 +152,38 @@ func TestUnlock(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			password        string
 			wantErrContains string
 		}{
 			{
 				name:            "invalid password",
-				setup:           newTestCreatedWallet,
+				setup:           newInitializedIdentity,
 				password:        "wrong",
 				wantErrContains: "invalid password",
 			},
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					svc := newIdentity(t, identityinmemorystore.NewStore())
 					return svc
 				},
 				password:        testPassword,
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 			{
-				name: "wrong wallet type",
-				setup: func(t *testing.T) wallet.WalletService {
-					store := inmemorywalletstore.NewStore()
-					require.NoError(t, store.Save(t.Context(), walletstore.State{
-						WalletType:           "lnd",
+				name: "wrong identity type",
+				setup: func(t *testing.T) identity.Identity {
+					store := identityinmemorystore.NewStore()
+					require.NoError(t, store.Save(t.Context(), identitystore.IdentityData{
+						Type:                 "lnd",
 						EncryptedExtendedKey: "deadbeef",
 						EncryptedMnemonic:    "deadbeef",
 					}))
-					return newTestHDWalletService(t, store)
+					return newIdentity(t, store)
 				},
 				password:        testPassword,
-				wantErrContains: "store is not for HD wallet type",
+				wantErrContains: "persisted data is not for this identity",
 			},
 		}
 
@@ -199,7 +199,7 @@ func TestUnlock(t *testing.T) {
 
 func TestLock(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		require.NoError(t, svc.Lock(t.Context()))
 		require.True(t, svc.IsLocked())
 
@@ -213,14 +213,14 @@ func TestLock(t *testing.T) {
 		require.NoError(t, svc.Lock(t.Context()))
 		require.True(t, svc.IsLocked())
 
-		// Post-Lock the wallet must still be unlockable from the persisted store.
+		// Post-Lock the identity must still be unlockable from the persisted store.
 		_, err = svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 		require.False(t, svc.IsLocked())
 	})
 
 	t.Run("zeroes in-memory mnemonic", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 
@@ -240,16 +240,16 @@ func TestLock(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			wantErrContains string
 		}{
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					svc := newIdentity(t, identityinmemorystore.NewStore())
 					return svc
 				},
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 		}
 
@@ -266,7 +266,7 @@ func TestLock(t *testing.T) {
 func TestDump(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("after unlock", func(t *testing.T) {
-			svc := newTestCreatedWallet(t)
+			svc := newInitializedIdentity(t)
 			_, err := svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 
@@ -276,12 +276,12 @@ func TestDump(t *testing.T) {
 		})
 
 		t.Run("after cold start", func(t *testing.T) {
-			store := inmemorywalletstore.NewStore()
-			seeder := newTestHDWalletService(t, store)
+			store := identityinmemorystore.NewStore()
+			seeder := newIdentity(t, store)
 			_, err := seeder.Create(t.Context(), network, testPassword, testMnemonic)
 			require.NoError(t, err)
 
-			svc := newTestHDWalletService(t, store)
+			svc := newIdentity(t, store)
 			_, err = svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 
@@ -294,22 +294,22 @@ func TestDump(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			wantErrContains string
 		}{
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					return newIdentity(t, identityinmemorystore.NewStore())
 				},
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 			{
-				name: "wallet is locked",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestCreatedWallet(t)
+				name: "identity is locked",
+				setup: func(t *testing.T) identity.Identity {
+					return newInitializedIdentity(t)
 				},
-				wantErrContains: "wallet is locked",
+				wantErrContains: ErrIsLocked.Error(),
 			},
 		}
 
@@ -325,8 +325,8 @@ func TestDump(t *testing.T) {
 
 func TestNewKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		store := inmemorywalletstore.NewStore()
-		svc := newTestHDWalletService(t, store)
+		store := identityinmemorystore.NewStore()
+		svc := newIdentity(t, store)
 		_, err := svc.Create(t.Context(), network, testPassword, testMnemonic)
 		require.NoError(t, err)
 		_, err = svc.Unlock(t.Context(), testPassword)
@@ -344,30 +344,30 @@ func TestNewKey(t *testing.T) {
 			t, first.PubKey.SerializeCompressed(), second.PubKey.SerializeCompressed(),
 		)
 
-		state, err := store.Load(t.Context())
+		data, err := store.Load(t.Context())
 		require.NoError(t, err)
-		require.EqualValues(t, 2, state.NextIndex)
+		require.EqualValues(t, 2, data.NextIndex)
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			wantErrContains string
 		}{
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					return newIdentity(t, identityinmemorystore.NewStore())
 				},
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 			{
-				name: "wallet is locked",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestCreatedWallet(t)
+				name: "identity is locked",
+				setup: func(t *testing.T) identity.Identity {
+					return newInitializedIdentity(t)
 				},
-				wantErrContains: "wallet is locked",
+				wantErrContains: ErrIsLocked.Error(),
 			},
 		}
 
@@ -383,7 +383,7 @@ func TestNewKey(t *testing.T) {
 
 func TestGetKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 
@@ -405,30 +405,30 @@ func TestGetKey(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			id              string
 			wantErrContains string
 		}{
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					return newIdentity(t, identityinmemorystore.NewStore())
 				},
 				id:              "m/0/0",
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 			{
-				name: "wallet is locked",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestCreatedWallet(t)
+				name: "identity is locked",
+				setup: func(t *testing.T) identity.Identity {
+					return newInitializedIdentity(t)
 				},
 				id:              "m/0/0",
-				wantErrContains: "wallet is locked",
+				wantErrContains: ErrIsLocked.Error(),
 			},
 			{
 				name: "missing key id",
-				setup: func(t *testing.T) wallet.WalletService {
-					svc := newTestCreatedWallet(t)
+				setup: func(t *testing.T) identity.Identity {
+					svc := newInitializedIdentity(t)
 					_, err := svc.Unlock(t.Context(), testPassword)
 					require.NoError(t, err)
 					return svc
@@ -438,8 +438,8 @@ func TestGetKey(t *testing.T) {
 			},
 			{
 				name: "hardened key id",
-				setup: func(t *testing.T) wallet.WalletService {
-					svc := newTestCreatedWallet(t)
+				setup: func(t *testing.T) identity.Identity {
+					svc := newInitializedIdentity(t)
 					_, err := svc.Unlock(t.Context(), testPassword)
 					require.NoError(t, err)
 					return svc
@@ -449,8 +449,8 @@ func TestGetKey(t *testing.T) {
 			},
 			{
 				name: "malformed key id",
-				setup: func(t *testing.T) wallet.WalletService {
-					svc := newTestCreatedWallet(t)
+				setup: func(t *testing.T) identity.Identity {
+					svc := newInitializedIdentity(t)
 					_, err := svc.Unlock(t.Context(), testPassword)
 					require.NoError(t, err)
 					return svc
@@ -472,7 +472,7 @@ func TestGetKey(t *testing.T) {
 
 func TestNextKeyId(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 
@@ -503,7 +503,7 @@ func TestNextKeyId(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 
@@ -534,7 +534,7 @@ func TestNextKeyId(t *testing.T) {
 
 func TestGetKeyIndex(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 
@@ -565,7 +565,7 @@ func TestGetKeyIndex(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
 
@@ -597,7 +597,7 @@ func TestGetKeyIndex(t *testing.T) {
 func TestListKeys(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("no allocations", func(t *testing.T) {
-			svc := newTestCreatedWallet(t)
+			svc := newInitializedIdentity(t)
 			_, err := svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 
@@ -607,7 +607,7 @@ func TestListKeys(t *testing.T) {
 		})
 
 		t.Run("after allocations sorted", func(t *testing.T) {
-			svc := newTestCreatedWallet(t)
+			svc := newInitializedIdentity(t)
 			_, err := svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 
@@ -632,20 +632,20 @@ func TestListKeys(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			wantErrContains string
 		}{
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					return newIdentity(t, identityinmemorystore.NewStore())
 				},
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 			{
-				name:            "wallet is locked",
-				setup:           newTestCreatedWallet,
-				wantErrContains: "wallet is locked",
+				name:            "identity is locked",
+				setup:           newInitializedIdentity,
+				wantErrContains: ErrIsLocked.Error(),
 			},
 		}
 
@@ -661,7 +661,7 @@ func TestListKeys(t *testing.T) {
 
 func TestSignMessage(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		svc := newTestCreatedWallet(t)
+		svc := newInitializedIdentity(t)
 
 		_, err := svc.Unlock(t.Context(), testPassword)
 		require.NoError(t, err)
@@ -683,36 +683,36 @@ func TestSignMessage(t *testing.T) {
 		require.NotEqual(t, sig1, sigOther)
 
 		// Verify the signature was produced by the documented fixed key m/0/0.
-		signingKey, err := svc.(*service).keyProvider.DeriveKeyAt("m/0/0")
+		signingKey, err := svc.GetKey(t.Context(), "m/0/0")
 		require.NoError(t, err)
 
 		sigBytes, err := hex.DecodeString(sig1)
 		require.NoError(t, err)
 		parsedSig, err := schnorr.ParseSignature(sigBytes)
 		require.NoError(t, err)
-		require.True(t, parsedSig.Verify(msg, signingKey.PubKey()))
+		require.True(t, parsedSig.Verify(msg, signingKey.PubKey))
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			setup           func(t *testing.T) wallet.WalletService
+			setup           func(t *testing.T) identity.Identity
 			msg             []byte
 			wantErrContains string
 		}{
 			{
-				name: "wallet not initialized",
-				setup: func(t *testing.T) wallet.WalletService {
-					return newTestHDWalletService(t, inmemorywalletstore.NewStore())
+				name: "identity not initialized",
+				setup: func(t *testing.T) identity.Identity {
+					return newIdentity(t, identityinmemorystore.NewStore())
 				},
 				msg:             make([]byte, 32),
-				wantErrContains: "wallet not initialized",
+				wantErrContains: ErrNotInitialized.Error(),
 			},
 			{
-				name:            "wallet is locked",
-				setup:           newTestCreatedWallet,
+				name:            "identity is locked",
+				setup:           newInitializedIdentity,
 				msg:             make([]byte, 32),
-				wantErrContains: "wallet is locked",
+				wantErrContains: ErrIsLocked.Error(),
 			},
 		}
 
@@ -724,76 +724,13 @@ func TestSignMessage(t *testing.T) {
 	})
 }
 
-func TestEncryption(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		plaintext := []byte("test secret data")
-		password := []byte("mypassword")
-
-		encrypted, err := encryptAES256(plaintext, password)
-		require.NoError(t, err)
-
-		decrypted, err := decryptAES256(encrypted, password)
-		require.NoError(t, err)
-		require.Equal(t, plaintext, decrypted)
-
-		// Same plaintext+password must produce a different ciphertext (random salt).
-		encryptedAgain, err := encryptAES256(plaintext, password)
-		require.NoError(t, err)
-		require.NotEqual(t, encrypted, encryptedAgain)
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		rightCiphertext, err := encryptAES256([]byte("plaintext"), []byte("mypassword"))
-		require.NoError(t, err)
-
-		fixtures := []struct {
-			name            string
-			ciphertext      []byte
-			password        []byte
-			wantErrContains string
-		}{
-			{
-				name:            "missing data",
-				ciphertext:      nil,
-				password:        []byte("mypassword"),
-				wantErrContains: "missing encrypted data",
-			},
-			{
-				name:            "missing password",
-				ciphertext:      []byte("nonempty"),
-				password:        nil,
-				wantErrContains: "missing password",
-			},
-			{
-				name:            "wrong data lenght",
-				ciphertext:      []byte("short"),
-				password:        []byte("mypassword"),
-				wantErrContains: "encrypted data too short",
-			},
-			{
-				name:            "wrong password",
-				ciphertext:      rightCiphertext,
-				password:        []byte("nottherightpassword"),
-				wantErrContains: "invalid password",
-			},
-		}
-
-		for _, f := range fixtures {
-			t.Run(f.name, func(t *testing.T) {
-				_, err := decryptAES256(f.ciphertext, f.password)
-				require.ErrorContains(t, err, f.wantErrContains)
-			})
-		}
-	})
-}
-
 func TestGetType(t *testing.T) {
-	svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+	svc := newIdentity(t, identityinmemorystore.NewStore())
 	require.Equal(t, Type, svc.GetType())
 }
 
 func TestIsLocked(t *testing.T) {
-	svc := newTestCreatedWallet(t)
+	svc := newInitializedIdentity(t)
 	require.True(t, svc.IsLocked())
 
 	_, err := svc.Unlock(t.Context(), testPassword)
@@ -805,7 +742,7 @@ func TestIsLocked(t *testing.T) {
 }
 
 func TestNewVtxoTreeSigner(t *testing.T) {
-	svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+	svc := newIdentity(t, identityinmemorystore.NewStore())
 
 	first, err := svc.NewVtxoTreeSigner(t.Context())
 	require.NoError(t, err)
@@ -824,7 +761,7 @@ func TestNewVtxoTreeSigner(t *testing.T) {
 // and runs additional logic (persistState, safeCheck) that must also be
 // race-safe.
 func TestServiceConcurrentAccess(t *testing.T) {
-	svc := newTestCreatedWallet(t)
+	svc := newInitializedIdentity(t)
 	_, err := svc.Unlock(t.Context(), testPassword)
 	require.NoError(t, err)
 
@@ -867,7 +804,7 @@ func TestServiceConcurrentAccess(t *testing.T) {
 	require.Len(t, keys, allocs)
 }
 
-func createTestMasterKey(t *testing.T) *hdkeychain.ExtendedKey {
+func newMasterKey(t *testing.T) *hdkeychain.ExtendedKey {
 	t.Helper()
 	seed := bip39.NewSeed(testMnemonic, "")
 	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.RegressionNetParams)
@@ -875,16 +812,16 @@ func createTestMasterKey(t *testing.T) *hdkeychain.ExtendedKey {
 	return masterKey
 }
 
-func newTestHDWalletService(t *testing.T, store walletstore.Store) wallet.WalletService {
+func newIdentity(t *testing.T, store identitystore.IdentityStore) identity.Identity {
 	t.Helper()
-	svc, err := NewService(store)
+	svc, err := NewIdentity(store)
 	require.NoError(t, err)
 	return svc
 }
 
-func newTestCreatedWallet(t *testing.T) wallet.WalletService {
+func newInitializedIdentity(t *testing.T) identity.Identity {
 	t.Helper()
-	svc := newTestHDWalletService(t, inmemorywalletstore.NewStore())
+	svc := newIdentity(t, identityinmemorystore.NewStore())
 	_, err := svc.Create(t.Context(), network, testPassword, testMnemonic)
 	require.NoError(t, err)
 	return svc

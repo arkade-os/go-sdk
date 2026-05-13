@@ -4,39 +4,39 @@ import (
 	"context"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 
-func (a *arkClient) GetAddresses(ctx context.Context) (
+func (w *wallet) GetAddresses(ctx context.Context) (
 	onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
 	err error,
 ) {
-	if err := a.safeCheck(); err != nil {
+	if err := w.safeCheck(); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	cfg, err := a.GetConfigData(ctx)
+	cfg, err := w.client.GetConfigData(ctx)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	onchainAddrs, _, _, _, err := a.ArkClient.GetAddresses(ctx)
+	onchainAddrs, _, _, _, err := w.client.GetAddresses(ctx)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	contracts, err := a.contractManager.GetContracts(
+	contracts, err := w.contractManager.GetContracts(
 		ctx, contract.WithType(types.ContractTypeDefault),
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	boardingContracts, err := a.contractManager.GetContracts(
+	boardingContracts, err := w.contractManager.GetContracts(
 		ctx, contract.WithType(types.ContractTypeBoarding),
 	)
 	if err != nil {
@@ -59,19 +59,19 @@ func (a *arkClient) GetAddresses(ctx context.Context) (
 	return
 }
 
-func (a *arkClient) NewOffchainAddress(ctx context.Context) (string, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) NewOffchainAddress(ctx context.Context) (string, error) {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
-	return a.newOffchainAddress(ctx)
+	return w.newOffchainAddress(ctx)
 }
 
-func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) NewBoardingAddress(ctx context.Context) (string, error) {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
-	contract, err := a.contractManager.NewContract(
+	contract, err := w.contractManager.NewContract(
 		ctx, types.ContractTypeBoarding,
 	)
 	if err != nil {
@@ -79,42 +79,42 @@ func (a *arkClient) NewBoardingAddress(ctx context.Context) (string, error) {
 	}
 
 	go func() {
-		if err := a.Explorer().SubscribeForAddresses([]string{contract.Address}); err != nil {
+		if err := w.Explorer().SubscribeForAddresses([]string{contract.Address}); err != nil {
 			log.WithError(err).Error("failed to subscribe for boarding address")
 		}
 	}()
 	return contract.Address, nil
 }
 
-func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) NewOnchainAddress(ctx context.Context) (string, error) {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
-	onchainAddr, _, _, err := a.Receive(ctx)
+	onchainAddr, _, _, err := w.client.Receive(ctx)
 	return onchainAddr, err
 }
 
-func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) Balance(ctx context.Context) (*clientwallet.Balance, error) {
+	if err := w.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	balance := &client.Balance{
-		OnchainBalance: client.OnchainBalance{
+	balance := &clientwallet.Balance{
+		OnchainBalance: clientwallet.OnchainBalance{
 			SpendableAmount: 0,
-			LockedAmount:    make([]client.LockedOnchainBalance, 0),
+			LockedAmount:    make([]clientwallet.LockedOnchainBalance, 0),
 		},
-		OffchainBalance: client.OffchainBalance{
+		OffchainBalance: clientwallet.OffchainBalance{
 			Total:          0,
 			NextExpiration: "",
-			Details:        make([]client.VtxoDetails, 0),
+			Details:        make([]clientwallet.VtxoDetails, 0),
 		},
 		AssetBalances: make(map[string]uint64, 0),
 	}
 
 	// offchain balance
-	offchainBalance, amountByExpiration, assetBalances, err := a.getOffchainBalance(ctx)
+	offchainBalance, amountByExpiration, assetBalances, err := w.getOffchainBalance(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
 	balance.AssetBalances = assetBalances
 
 	// onchain balance
-	utxoStore := a.store.UtxoStore()
+	utxoStore := w.store.UtxoStore()
 	utxos, _, err := utxoStore.GetAllUtxos(ctx)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
 
 		balance.OnchainBalance.LockedAmount = append(
 			balance.OnchainBalance.LockedAmount,
-			client.LockedOnchainBalance{
+			clientwallet.LockedOnchainBalance{
 				SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
 				Amount:      utxo.Amount,
 			},
@@ -155,28 +155,36 @@ func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
 	return balance, nil
 }
 
-func (a *arkClient) ListSpendableVtxos(ctx context.Context) ([]clientTypes.Vtxo, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) ListSpendableVtxos(ctx context.Context) ([]clienttypes.Vtxo, error) {
+	if err := w.safeCheck(); err != nil {
 		return nil, err
 	}
 
 	// TODO: add safe check
-	return a.store.VtxoStore().GetSpendableVtxos(ctx)
+	return w.store.VtxoStore().GetSpendableVtxos(ctx)
 }
 
-func (a *arkClient) ListVtxos(
+func (w *wallet) ListVtxos(
 	ctx context.Context,
-) ([]clientTypes.Vtxo, []clientTypes.Vtxo, error) {
-	if err := a.safeCheck(); err != nil {
+) ([]clienttypes.Vtxo, []clienttypes.Vtxo, error) {
+	if err := w.safeCheck(); err != nil {
 		return nil, nil, err
 	}
 
-	// TODO: add safe check
-	return a.store.VtxoStore().GetAllVtxos(ctx)
+	return w.store.VtxoStore().GetAllVtxos(ctx)
 }
 
-func (a *arkClient) newOffchainAddress(ctx context.Context) (string, error) {
-	contract, err := a.contractManager.NewContract(ctx, types.ContractTypeDefault)
+func (w *wallet) NotifyIncomingFunds(
+	ctx context.Context, addr string,
+) ([]clienttypes.Vtxo, error) {
+	if err := w.safeCheck(); err != nil {
+		return nil, err
+	}
+	return w.client.NotifyIncomingFunds(ctx, addr)
+}
+
+func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
+	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault)
 	if err != nil {
 		return "", err
 	}
@@ -184,14 +192,14 @@ func (a *arkClient) newOffchainAddress(ctx context.Context) (string, error) {
 	return contract.Address, nil
 }
 
-func (a *arkClient) getOffchainBalance(ctx context.Context) (
+func (w *wallet) getOffchainBalance(ctx context.Context) (
 	balance uint64, amountByExpiration map[int64]uint64,
 	assetBalances map[string]uint64, err error,
 ) {
 	assetBalances = make(map[string]uint64, 0)
 	amountByExpiration = make(map[int64]uint64, 0)
 
-	vtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
+	vtxos, _, err := w.store.VtxoStore().GetAllVtxos(ctx)
 	if err != nil {
 		return
 	}

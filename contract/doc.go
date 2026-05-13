@@ -1,16 +1,16 @@
-// Package contract manages the lifecycle of contracts derived from an HD
-// wallet for an Ark client: it owns the per-type handlers, persists the
-// contracts via a pluggable store, and reconstructs them on a fresh wallet
-// from a mnemonic via a gap-limit HD scan.
+// Package contract manages the lifecycle of contracts derived from an
+// identity for a Wallet: it owns the per-type handlers, persists the
+// contracts via a pluggable store, and rescans for not-yet tracked contracts
+// to store.
 //
 // # Components
 //
 // Manager is the only surface external callers touch. Concrete callers go
-// through the [Manager] interface returned by [NewManager]; everything else
-// in this package is wiring it depends on.
+// through the [Manager] interface returned by [NewManager]; everything
+// else in this package is wiring it depends on.
 //
 //   - Handlers live in contract/handlers/ and provide per-type strategies
-//     for building a contract from a wallet KeyRef and for the standard
+//     for building a contract from an identity.KeyRef and for the standard
 //     getters (GetKeyRefs / GetSignerKey / GetTapscripts / GetExitDelay).
 //     The "default" (offchain) and "boarding" (onchain) handlers are the
 //     same implementation parameterized at construction with an isOnchain
@@ -25,17 +25,17 @@
 //     which the manager uses to find the next free derivation index
 //     without scanning the entire row set.
 //
-//   - infoCache (see info_cache.go) memoizes client.TransportClient.GetInfo
-//     responses. NewManager wraps args.Client once with a cachingClient and
-//     hands the wrapped client to every registered handler, so all
+//   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
+//     responses. NewManager wraps args.Client once with a cachingClient
+//     and hands the wrapped client to every registered handler, so all
 //     handlers (and any future vhtlc/delegate kinds) share a single
 //     GetInfo cache rather than fanning one out per handler.
 //
 //   - keyProvider (unexported, defined in types.go) is the subset of the
-//     wallet.WalletService surface the manager needs to derive contracts:
+//     identity.Identity surface the manager needs to derive contracts:
 //     GetKeyIndex, NextKeyId, GetKey. Keeping it unexported decouples the
-//     manager from the wallet implementation and lets us grow the surface
-//     without leaking new wallet methods to callers of NewManager.
+//     manager from the identity implementation and lets us grow the
+//     surface without leaking new methods to callers of NewManager.
 //
 // # Creating a contract
 //
@@ -45,8 +45,8 @@
 //     last-used keyId from it (or start at the first key id when the pool
 //     is empty).
 //  3. Advance with keyProvider.NextKeyId, then GetKey to derive the new
-//     keyRef.
-//  4. Hand the keyRef to handler.NewContract — the handler builds the
+//     KeyRef.
+//  4. Hand the KeyRef to handler.NewContract — the handler builds the
 //     script, address, and contract-type-specific params.
 //  5. Persist via store.AddContract with the resolved key index.
 //
@@ -57,8 +57,8 @@
 //
 //   - ContractTypeDefault uses the indexer's batched GetVtxos endpoint
 //     (one round-trip per batch).
-//   - ContractTypeBoarding uses the explorer's per-address GetTxs endpoint
-//     (throttled to dodge rate limits).
+//   - ContractTypeBoarding uses the explorer's per-address GetTxs
+//     endpoint (throttled to dodge rate limits).
 //
 // The scan derives gapLimit contracts at a time, asks the data source
 // which scripts have been used, and stops once it has seen gapLimit
@@ -69,8 +69,8 @@
 //
 // Recoverability follows BIP-44 semantics: only externally observable
 // (used) addresses are recoverable from a mnemonic. Addresses that the
-// original wallet derived but never received funds at are not visible to
-// the indexer/explorer and are therefore unreachable on restore.
+// original identity derived but never received funds at are not visible
+// to the indexer/explorer and are therefore unreachable on restore.
 //
 // # Concurrency
 //

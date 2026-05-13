@@ -1,4 +1,4 @@
-package hdwallet
+package identity
 
 import (
 	"bytes"
@@ -11,8 +11,8 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	walletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/identity/store"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -23,52 +23,59 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-const (
-	// Type is the wallet type identifier for HD wallets.
-	Type = "hd"
-	// DefaultGapLimit is the number of unused addresses to check during discovery.
-	DefaultGapLimit = uint32(20)
+// Type is the identity type identifier for HD identities.
+const Type = "hd"
+
+var (
+	ErrNotInitialized     = fmt.Errorf("identity not initialized")
+	ErrIsLocked           = fmt.Errorf("identity is locked")
+	ErrAlreadyInitialized = fmt.Errorf("identity already initialized")
 )
 
-// service implements wallet.WalletService using HD key derivation.
+// service implements identity.Identity using HD key derivation.
 type service struct {
 	keyProvider *keyService
-	store       walletstore.Store
+	store       identitystore.IdentityStore
 	// mnemonic holds the BIP39 mnemonic decrypted in memory only while the
-	// wallet is unlocked. Stored as []byte (not string) so Lock can zero the
+	// identity is unlocked. Stored as []byte (not string) so Lock can zero the
 	// underlying memory.
 	mnemonic []byte
 	locked   bool
 	mu       sync.RWMutex
 }
 
-// NewService creates a new HD wallet service with all known dependencies.
-func NewService(store walletstore.Store) (wallet.WalletService, error) {
+// NewIdentity creates a new HD identity service with all known dependencies.
+func NewIdentity(store identitystore.IdentityStore) (identity.Identity, error) {
 	if store == nil {
-		return nil, fmt.Errorf("missing wallet store")
+		return nil, fmt.Errorf("missing identity store")
 	}
-	return &service{store: store}, nil
+	data, err := store.Load(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to read from identity store: %w", err)
+	}
+	isLocked := data != nil
+	return &service{store: store, locked: isLocked}, nil
 }
 
-func (w *service) GetType() string {
+func (s *service) GetType() string {
 	return Type
 }
 
-// Create initializes the HD wallet using one of three seed modes:
+// Create initializes the HD identity using one of three seed modes:
 // - empty seed: generate and return a new BIP39 mnemonic
 // - valid mnemonic: restore from that mnemonic and return it unchanged
-func (w *service) Create(
+func (s *service) Create(
 	ctx context.Context, network chaincfg.Params, password, seed string,
 ) (string, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	existing, err := w.store.Load(ctx)
+	existing, err := s.store.Load(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to check existing wallet state: %w", err)
+		return "", fmt.Errorf("failed to check existing identity data: %w", err)
 	}
 	if existing != nil {
-		return "", fmt.Errorf("wallet already initialized")
+		return "", ErrAlreadyInitialized
 	}
 
 	var mnemonic string
@@ -122,59 +129,58 @@ func (w *service) Create(
 		return "", fmt.Errorf("failed to encrypt mnemonic: %w", err)
 	}
 
-	// Store encrypted data
-	state := walletstore.State{
-		WalletType:           Type,
+	if err := s.store.Save(ctx, identitystore.IdentityData{
+		Type:                 Type,
 		EncryptedExtendedKey: hex.EncodeToString(encryptedKey),
 		EncryptedMnemonic:    hex.EncodeToString(encryptedMnemonic),
+	}); err != nil {
+		return "", fmt.Errorf("failed to save identity data: %w", err)
 	}
 
-	if err := w.store.Save(ctx, state); err != nil {
-		return "", fmt.Errorf("failed to save wallet state: %w", err)
-	}
-
-	w.mnemonic = []byte(mnemonic)
-	w.locked = true
+	s.mnemonic = []byte(mnemonic)
+	s.locked = true
 
 	return mnemonic, nil
 }
 
-func (w *service) Lock(_ context.Context) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *service) Lock(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if w.locked {
+	if s.locked {
 		return nil
 	}
-	if w.keyProvider == nil {
-		return fmt.Errorf("wallet not initialized")
+	if s.keyProvider == nil {
+		return ErrNotInitialized
 	}
 
-	w.keyProvider = nil
-	zeroBytes(w.mnemonic)
-	w.mnemonic = nil
-	w.locked = true
+	s.keyProvider = nil
+	zeroBytes(s.mnemonic)
+	s.mnemonic = nil
+	s.locked = true
 	return nil
 }
 
-func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *service) Unlock(ctx context.Context, password string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	state, err := w.store.Load(ctx)
+	data, err := s.store.Load(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to load wallet state: %w", err)
+		return false, fmt.Errorf("failed to load identity data: %w", err)
 	}
-	if state == nil {
-		return false, fmt.Errorf("wallet not initialized")
+	if data == nil {
+		return false, ErrNotInitialized
 	}
-	if state.WalletType != Type {
-		return false, fmt.Errorf("store is not for HD wallet type")
+	if data.Type != Type {
+		return false, fmt.Errorf(
+			"persisted data is not for this identity: got type %s, expected %s", data.Type, Type,
+		)
 	}
 
 	// Already unlocked
-	if !w.locked && w.keyProvider != nil {
-		return w.keyProvider.GetNextKeyIndex() > 0, nil
+	if !s.locked && s.keyProvider != nil {
+		return s.keyProvider.GetNextKeyIndex() > 0, nil
 	}
 
 	pwd := []byte(password)
@@ -182,7 +188,7 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 	// Password verification is performed implicitly by AES-GCM decryption: any
 	// wrong password fails the AEAD tag check below and surfaces as an
 	// "invalid password" error from decryptAES256.
-	encryptedMnemonic, err := hex.DecodeString(state.EncryptedMnemonic)
+	encryptedMnemonic, err := hex.DecodeString(data.EncryptedMnemonic)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode mnemonic: %w", err)
 	}
@@ -193,7 +199,7 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 	}
 
 	// Decrypt xpriv
-	encryptedXpriv, err := hex.DecodeString(state.EncryptedExtendedKey)
+	encryptedXpriv, err := hex.DecodeString(data.EncryptedExtendedKey)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode xpriv: %w", err)
 	}
@@ -210,29 +216,29 @@ func (w *service) Unlock(ctx context.Context, password string) (bool, error) {
 
 	// Load and restore
 	keyProvider := newHDKeyService(extendedKey)
-	restored := state.NextIndex > 0
+	restored := data.NextIndex > 0
 	if restored {
-		if err := keyProvider.LoadState(*state); err != nil {
+		if err := keyProvider.LoadState(*data); err != nil {
 			return false, fmt.Errorf("failed to restore key state: %w", err)
 		}
 	}
 
-	w.keyProvider = keyProvider
-	w.mnemonic = mnemonic
-	w.locked = false
+	s.keyProvider = keyProvider
+	s.mnemonic = mnemonic
+	s.locked = false
 
 	return restored, nil
 }
 
-func (w *service) IsLocked() bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.locked
+func (s *service) IsLocked() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.locked
 }
 
-func (w *service) NextKeyId(_ context.Context, id string) (string, error) {
+func (s *service) NextKeyId(_ context.Context, id string) (string, error) {
 	if len(id) <= 0 {
-		return w.keyProvider.derivationPath(0), nil
+		return toDerivationPath(0), nil
 	}
 
 	path, err := parseDerivationIndex(id)
@@ -241,10 +247,10 @@ func (w *service) NextKeyId(_ context.Context, id string) (string, error) {
 	}
 	index := path[len(path)-1]
 	nextIndex := index + 1
-	return w.keyProvider.derivationPath(nextIndex), nil
+	return toDerivationPath(nextIndex), nil
 }
 
-func (w *service) GetKeyIndex(_ context.Context, id string) (uint32, error) {
+func (s *service) GetKeyIndex(_ context.Context, id string) (uint32, error) {
 	if len(id) <= 0 {
 		return 0, nil
 	}
@@ -256,41 +262,41 @@ func (w *service) GetKeyIndex(_ context.Context, id string) (uint32, error) {
 	return path[len(path)-1], nil
 }
 
-func (w *service) Dump(_ context.Context) (string, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+func (s *service) Dump(_ context.Context) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	if err := w.safeCheck(); err != nil {
+	if err := s.safeCheck(); err != nil {
 		return "", err
 	}
-	return string(w.mnemonic), nil
+	return string(s.mnemonic), nil
 }
 
-func (w *service) NewKey(ctx context.Context) (*wallet.KeyRef, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *service) NewKey(ctx context.Context) (*identity.KeyRef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if err := w.safeCheck(); err != nil {
+	if err := s.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	_, pubKey, keyId, err := w.keyProvider.GetNextKey()
+	_, pubKey, keyId, err := s.keyProvider.GetNextKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key: %w", err)
 	}
 
-	if err := w.persistState(ctx); err != nil {
+	if err := s.persistState(ctx); err != nil {
 		return nil, err
 	}
 
-	return &wallet.KeyRef{Id: keyId, PubKey: pubKey}, nil
+	return &identity.KeyRef{Id: keyId, PubKey: pubKey}, nil
 }
 
-func (w *service) GetKey(_ context.Context, keyId string) (*wallet.KeyRef, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+func (s *service) GetKey(_ context.Context, keyId string) (*identity.KeyRef, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	if err := w.safeCheck(); err != nil {
+	if err := s.safeCheck(); err != nil {
 		return nil, err
 	}
 
@@ -298,23 +304,23 @@ func (w *service) GetKey(_ context.Context, keyId string) (*wallet.KeyRef, error
 		return nil, fmt.Errorf("key id is required")
 	}
 
-	privKey, err := w.keyProvider.DeriveKeyAt(keyId)
+	privKey, err := s.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key %q: %w", keyId, err)
 	}
 
-	return &wallet.KeyRef{Id: keyId, PubKey: privKey.PubKey()}, nil
+	return &identity.KeyRef{Id: keyId, PubKey: privKey.PubKey()}, nil
 }
 
-func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+func (s *service) ListKeys(_ context.Context) ([]identity.KeyRef, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	if err := w.safeCheck(); err != nil {
+	if err := s.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	keys := w.keyProvider.GetAllKeyRefs()
+	keys := s.keyProvider.GetAllKeyRefs()
 
 	sort.SliceStable(keys, func(i, j int) bool {
 		return keys[i].Id < keys[j].Id
@@ -323,17 +329,17 @@ func (w *service) ListKeys(_ context.Context) ([]wallet.KeyRef, error) {
 	return keys, nil
 }
 
-func (w *service) SignTransaction(
+func (s *service) SignTransaction(
 	_ context.Context, tx string, keys map[string]string,
 ) (string, error) {
 	if len(keys) <= 0 {
 		return "", fmt.Errorf("missing key ids by script")
 	}
 
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	if err := w.safeCheck(); err != nil {
+	if err := s.safeCheck(); err != nil {
 		return "", err
 	}
 
@@ -347,7 +353,7 @@ func (w *service) SignTransaction(
 		return "", fmt.Errorf("failed to create PSBT updater: %w", err)
 	}
 
-	// Every input must carry its own prevout info — the wallet does not fetch
+	// Every input must carry its own prevout info — the identity does not fetch
 	// missing data from the network. The PSBT must be fully populated by the
 	// caller, otherwise signing fails loudly.
 	prevouts := make(map[wire.OutPoint]*wire.TxOut)
@@ -386,13 +392,13 @@ func (w *service) SignTransaction(
 
 		switch {
 		case len(input.TaprootLeafScript) > 0:
-			if err := w.signTapscriptSpend(
+			if err := s.signTapscriptSpend(
 				updater, input, i, txsighashes, prevoutFetcher, inputKeyID,
 			); err != nil {
 				return "", err
 			}
 		case len(input.TaprootInternalKey) > 0:
-			if err := w.signTaprootKeySpend(
+			if err := s.signTaprootKeySpend(
 				updater, input, i, txsighashes, prevoutFetcher, inputKeyID,
 			); err != nil {
 				return "", err
@@ -408,15 +414,15 @@ func (w *service) SignTransaction(
 	return ptx.B64Encode()
 }
 
-func (w *service) SignMessage(_ context.Context, message []byte) (string, error) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+func (s *service) SignMessage(_ context.Context, message []byte) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	if err := w.safeCheck(); err != nil {
+	if err := s.safeCheck(); err != nil {
 		return "", err
 	}
 
-	privKey, err := w.keyProvider.DeriveKeyAt("m/0/0")
+	privKey, err := s.keyProvider.DeriveKeyAt("m/0/0")
 	if err != nil {
 		return "", fmt.Errorf("failed to get signing key: %w", err)
 	}
@@ -429,7 +435,7 @@ func (w *service) SignMessage(_ context.Context, message []byte) (string, error)
 	return hex.EncodeToString(sig.Serialize()), nil
 }
 
-func (w *service) NewVtxoTreeSigner(_ context.Context) (tree.SignerSession, error) {
+func (s *service) NewVtxoTreeSigner(_ context.Context) (tree.SignerSession, error) {
 	key, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
@@ -437,17 +443,17 @@ func (w *service) NewVtxoTreeSigner(_ context.Context) (tree.SignerSession, erro
 	return tree.NewTreeSignerSession(key), nil
 }
 
-func (w *service) safeCheck() error {
-	if w.locked {
-		return fmt.Errorf("wallet is locked")
+func (s *service) safeCheck() error {
+	if s.locked {
+		return ErrIsLocked
 	}
-	if w.keyProvider == nil {
-		return fmt.Errorf("wallet not initialized")
+	if s.keyProvider == nil {
+		return ErrNotInitialized
 	}
 	return nil
 }
 
-func (w *service) signTapscriptSpend(
+func (s *service) signTapscriptSpend(
 	updater *psbt.Updater,
 	input psbt.PInput,
 	inputIndex int,
@@ -455,7 +461,7 @@ func (w *service) signTapscriptSpend(
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
 	keyId string,
 ) error {
-	prvkey, err := w.keyProvider.DeriveKeyAt(keyId)
+	prvkey, err := s.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
 	}
@@ -534,7 +540,7 @@ func (w *service) signTapscriptSpend(
 	return nil
 }
 
-func (w *service) signTaprootKeySpend(
+func (s *service) signTaprootKeySpend(
 	updater *psbt.Updater,
 	input psbt.PInput,
 	inputIndex int,
@@ -552,7 +558,7 @@ func (w *service) signTaprootKeySpend(
 		return fmt.Errorf("invalid taproot internal key on input %d: %w", inputIndex, err)
 	}
 
-	prvkey, err := w.keyProvider.DeriveKeyAt(keyId)
+	prvkey, err := s.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
 	}
@@ -586,17 +592,17 @@ func (w *service) signTaprootKeySpend(
 	return nil
 }
 
-func (w *service) persistState(ctx context.Context) error {
-	existing, err := w.store.Load(ctx)
+func (s *service) persistState(ctx context.Context) error {
+	existing, err := s.store.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load existing state: %w", err)
 	}
 
 	if existing == nil {
-		return fmt.Errorf("cannot persist state: wallet credentials missing from store")
+		return fmt.Errorf("cannot persist state: %w", ErrNotInitialized)
 	}
 
-	return w.store.Save(ctx, walletstore.State{
-		NextIndex: w.keyProvider.GetNextKeyIndex(),
+	return s.store.Save(ctx, identitystore.IdentityData{
+		NextIndex: s.keyProvider.GetNextKeyIndex(),
 	})
 }

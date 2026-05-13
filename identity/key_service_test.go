@@ -1,19 +1,19 @@
-package hdwallet
+package identity
 
 import (
 	"encoding/hex"
 	"sync"
 	"testing"
 
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	walletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/identity/store"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDeriveKeyAt(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("deterministic", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 
 			priv1, err := provider.DeriveKeyAt("m/0/0")
 			require.NoError(t, err)
@@ -28,7 +28,7 @@ func TestDeriveKeyAt(t *testing.T) {
 		})
 
 		t.Run("different indices", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 
 			priv0, err := provider.DeriveKeyAt("m/0/0")
 			require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestDeriveKeyAt(t *testing.T) {
 		})
 
 		t.Run("ids idempotency", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 
 			ids := []string{"5", "0/5", "m/5", "m/0/5"}
 			derivedKeys := make(map[string]struct{})
@@ -55,7 +55,7 @@ func TestDeriveKeyAt(t *testing.T) {
 		})
 
 		t.Run("ignores custom chain in derivation path", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 
 			ids := []string{"m/0/5", "m/1/5", "m/2/5"}
 			derivedKeys := make(map[string]struct{})
@@ -94,7 +94,7 @@ func TestDeriveKeyAt(t *testing.T) {
 
 		for _, f := range fixtures {
 			t.Run(f.name, func(t *testing.T) {
-				provider := newHDKeyService(createTestMasterKey(t))
+				provider := newHDKeyService(newMasterKey(t))
 				_, err := provider.DeriveKeyAt(f.keyId)
 				require.ErrorContains(t, err, f.wantErrContains)
 			})
@@ -104,7 +104,7 @@ func TestDeriveKeyAt(t *testing.T) {
 
 func TestGetNextKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		provider := newHDKeyService(createTestMasterKey(t))
+		provider := newHDKeyService(newMasterKey(t))
 
 		priv0, _, keyId0, err := provider.GetNextKey()
 		require.NoError(t, err)
@@ -141,12 +141,12 @@ func TestGetNextKey(t *testing.T) {
 func TestGetNextKeyIndex(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("initial", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 			require.EqualValues(t, 0, provider.GetNextKeyIndex())
 		})
 
 		t.Run("after allocations", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 			for i := 0; i < 3; i++ {
 				_, _, _, err := provider.GetNextKey()
 				require.NoError(t, err)
@@ -154,9 +154,9 @@ func TestGetNextKeyIndex(t *testing.T) {
 			require.EqualValues(t, 3, provider.GetNextKeyIndex())
 		})
 
-		t.Run("after load state", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
-			require.NoError(t, provider.LoadState(walletstore.State{NextIndex: 7}))
+		t.Run("after load data", func(t *testing.T) {
+			provider := newHDKeyService(newMasterKey(t))
+			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 7}))
 			require.EqualValues(t, 7, provider.GetNextKeyIndex())
 		})
 	})
@@ -165,12 +165,12 @@ func TestGetNextKeyIndex(t *testing.T) {
 func TestGetAllKeyRefs(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("empty", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 			require.Empty(t, provider.GetAllKeyRefs())
 		})
 
 		t.Run("after get next key", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 			_, _, _, err := provider.GetNextKey()
 			require.NoError(t, err)
 			_, _, _, err = provider.GetNextKey()
@@ -183,7 +183,7 @@ func TestGetAllKeyRefs(t *testing.T) {
 		})
 
 		t.Run("after derive key at", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 			_, err := provider.DeriveKeyAt("m/0/3")
 			require.NoError(t, err)
 
@@ -193,28 +193,28 @@ func TestGetAllKeyRefs(t *testing.T) {
 	})
 }
 
-func TestLoadState(t *testing.T) {
+func TestLoadData(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("sets next index", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
-			require.NoError(t, provider.LoadState(walletstore.State{NextIndex: 12}))
+			provider := newHDKeyService(newMasterKey(t))
+			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 12}))
 			require.EqualValues(t, 12, provider.GetNextKeyIndex())
 		})
 
 		t.Run("clears cache", func(t *testing.T) {
-			provider := newHDKeyService(createTestMasterKey(t))
+			provider := newHDKeyService(newMasterKey(t))
 			_, err := provider.DeriveKeyAt("m/0/0")
 			require.NoError(t, err)
 			require.NotEmpty(t, provider.derivedKeyCache)
 
-			require.NoError(t, provider.LoadState(walletstore.State{NextIndex: 5}))
+			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 5}))
 			require.Empty(t, provider.derivedKeyCache)
 		})
 	})
 }
 
 func TestConcurrentKeyGeneration(t *testing.T) {
-	provider := newHDKeyService(createTestMasterKey(t))
+	provider := newHDKeyService(newMasterKey(t))
 
 	var wg sync.WaitGroup
 	count := 100
@@ -233,7 +233,7 @@ func TestConcurrentKeyGeneration(t *testing.T) {
 	require.EqualValues(t, count, provider.GetNextKeyIndex())
 }
 
-func keyRefIds(refs []wallet.KeyRef) []string {
+func keyRefIds(refs []identity.KeyRef) []string {
 	ids := make([]string, 0, len(refs))
 	for _, r := range refs {
 		ids = append(ids, r.Id)

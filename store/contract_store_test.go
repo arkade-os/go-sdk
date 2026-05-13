@@ -494,15 +494,15 @@ func forEachContractBackend(t *testing.T, fn func(t *testing.T, s types.Contract
 		name   string
 		config store.Config
 	}{
-		{name: "kv", config: store.Config{AppDataStoreType: types.KVStore}},
-		{name: "sql", config: store.Config{AppDataStoreType: types.SQLStore}},
+		{name: "kv", config: store.Config{StoreType: types.KVStore}},
+		{name: "sql", config: store.Config{StoreType: types.SQLStore}},
 	}
 
 	for _, b := range backends {
 		t.Run(b.name, func(t *testing.T) {
 			cfg := b.config
 			if b.name == "sql" {
-				cfg.BaseDir = t.TempDir()
+				cfg.Args = t.TempDir()
 			}
 
 			svc, err := store.NewStore(cfg)

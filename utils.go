@@ -7,44 +7,50 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	client "github.com/arkade-os/arkd/pkg/client-lib"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
-	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
-	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	hdidentity "github.com/arkade-os/go-sdk/identity"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
+	"github.com/arkade-os/go-sdk/identity/store/file"
+	"github.com/arkade-os/go-sdk/identity/store/inmemory"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 )
 
-func newDefaultHDWallet(datadir string) (wallet.WalletService, error) {
-	walletStore := inmemorywalletstore.NewStore()
-	if len(datadir) > 0 {
-		var err error
-		walletStore, err = filewalletstore.NewStore(datadir)
-		if err != nil {
-			return nil, err
-		}
-	}
-	hdWallet, err := hdwallet.NewService(walletStore)
+func newDefaultHDIdentity(datadir string) (identity.Identity, error) {
+	store, err := newHDIdentityStore(datadir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup wallet: %s", err)
+		return nil, err
 	}
-	return hdWallet, nil
+	identity, err := hdidentity.NewIdentity(store)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup identity: %s", err)
+	}
+	return identity, nil
 }
 
-func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []client.VtxoDetails) {
+func newHDIdentityStore(datadir string) (identitystore.IdentityStore, error) {
+	if len(datadir) > 0 {
+		return identityfilestore.NewStore(datadir)
+	}
+	return identityinmemorystore.NewStore(), nil
+}
+
+func getOffchainBalanceDetails(
+	amountByExpiration map[int64]uint64,
+) (int64, []clientwallet.VtxoDetails) {
 	nextExpiration := int64(0)
-	details := make([]client.VtxoDetails, 0)
+	details := make([]clientwallet.VtxoDetails, 0)
 	for timestamp, amount := range amountByExpiration {
 		if nextExpiration == 0 || timestamp < nextExpiration {
 			nextExpiration = timestamp
 		}
 
 		fancyTime := time.Unix(timestamp, 0).Format(time.RFC3339)
-		details = append(details, client.VtxoDetails{
+		details = append(details, clientwallet.VtxoDetails{
 			ExpiryTime: fancyTime,
 			Amount:     amount,
 		})
@@ -82,18 +88,18 @@ func getFancyTimeExpiration(nextExpiration int64) string {
 }
 
 func findVtxosSpentInSettlement(
-	vtxos []clientTypes.Vtxo,
-	vtxo clientTypes.Vtxo,
-) []clientTypes.Vtxo {
+	vtxos []clienttypes.Vtxo,
+	vtxo clienttypes.Vtxo,
+) []clienttypes.Vtxo {
 	if vtxo.Preconfirmed {
 		return nil
 	}
 	return findVtxosSettled(vtxos, vtxo.CommitmentTxids[0])
 }
 
-func findVtxosSettled(vtxos []clientTypes.Vtxo, id string) []clientTypes.Vtxo {
-	var result []clientTypes.Vtxo
-	leftVtxos := make([]clientTypes.Vtxo, 0)
+func findVtxosSettled(vtxos []clienttypes.Vtxo, id string) []clienttypes.Vtxo {
+	var result []clienttypes.Vtxo
+	leftVtxos := make([]clienttypes.Vtxo, 0)
 	for _, v := range vtxos {
 		if v.SettledBy == id {
 			result = append(result, v)
@@ -106,9 +112,9 @@ func findVtxosSettled(vtxos []clientTypes.Vtxo, id string) []clientTypes.Vtxo {
 	return result
 }
 
-func findVtxosSpent(vtxos []clientTypes.Vtxo, id string) []clientTypes.Vtxo {
-	var result []clientTypes.Vtxo
-	leftVtxos := make([]clientTypes.Vtxo, 0)
+func findVtxosSpent(vtxos []clienttypes.Vtxo, id string) []clienttypes.Vtxo {
+	var result []clienttypes.Vtxo
+	leftVtxos := make([]clienttypes.Vtxo, 0)
 	for _, v := range vtxos {
 		if v.ArkTxid == id {
 			result = append(result, v)
@@ -121,7 +127,7 @@ func findVtxosSpent(vtxos []clientTypes.Vtxo, id string) []clientTypes.Vtxo {
 	return result
 }
 
-func reduceVtxosAmount(vtxos []clientTypes.Vtxo) uint64 {
+func reduceVtxosAmount(vtxos []clienttypes.Vtxo) uint64 {
 	var total uint64
 	for _, v := range vtxos {
 		total += v.Amount
@@ -129,15 +135,15 @@ func reduceVtxosAmount(vtxos []clientTypes.Vtxo) uint64 {
 	return total
 }
 
-func findVtxosSpentInPayment(vtxos []clientTypes.Vtxo, vtxo clientTypes.Vtxo) []clientTypes.Vtxo {
+func findVtxosSpentInPayment(vtxos []clienttypes.Vtxo, vtxo clienttypes.Vtxo) []clienttypes.Vtxo {
 	return findVtxosSpent(vtxos, vtxo.Txid)
 }
 
 func findVtxosResultedFromSettledBy(
-	vtxos []clientTypes.Vtxo,
+	vtxos []clienttypes.Vtxo,
 	commitmentTxid string,
-) []clientTypes.Vtxo {
-	var result []clientTypes.Vtxo
+) []clienttypes.Vtxo {
+	var result []clienttypes.Vtxo
 	for _, v := range vtxos {
 		if v.Preconfirmed || len(v.CommitmentTxids) != 1 {
 			continue
@@ -149,8 +155,8 @@ func findVtxosResultedFromSettledBy(
 	return result
 }
 
-func findVtxosResultedFromSpentBy(vtxos []clientTypes.Vtxo, spentByTxid string) []clientTypes.Vtxo {
-	var result []clientTypes.Vtxo
+func findVtxosResultedFromSpentBy(vtxos []clienttypes.Vtxo, spentByTxid string) []clienttypes.Vtxo {
+	var result []clienttypes.Vtxo
 	for _, v := range vtxos {
 		if v.Txid == spentByTxid {
 			result = append(result, v)
@@ -159,17 +165,50 @@ func findVtxosResultedFromSpentBy(vtxos []clientTypes.Vtxo, spentByTxid string) 
 	return result
 }
 
-func getVtxo(usedVtxos []clientTypes.Vtxo, spentByVtxos []clientTypes.Vtxo) clientTypes.Vtxo {
+func getVtxo(usedVtxos []clienttypes.Vtxo, spentByVtxos []clienttypes.Vtxo) clienttypes.Vtxo {
 	if len(usedVtxos) > 0 {
 		return usedVtxos[0]
 	} else if len(spentByVtxos) > 0 {
 		return spentByVtxos[0]
 	}
-	return clientTypes.Vtxo{}
+	return clienttypes.Vtxo{}
+}
+
+func groupSpentVtxosByTx(
+	spentVtxos []clienttypes.Vtxo, oldSpendableVtxoMap map[clienttypes.Outpoint]clienttypes.Vtxo,
+) (
+	map[string]map[clienttypes.Outpoint]string,
+	map[string]map[clienttypes.Outpoint]string,
+) {
+	// Spent vtxos include swept and redeemed, let's make sure to update only vtxos
+	// that were previously spendable.
+	vtxosToSpend := make(map[string]map[clienttypes.Outpoint]string)
+	vtxosToSettle := make(map[string]map[clienttypes.Outpoint]string)
+
+	for _, vtxo := range spentVtxos {
+		if _, ok := oldSpendableVtxoMap[vtxo.Outpoint]; !ok {
+			continue
+		}
+
+		if vtxo.SettledBy != "" {
+			if _, ok := vtxosToSettle[vtxo.SettledBy]; !ok {
+				vtxosToSettle[vtxo.SettledBy] = make(map[clienttypes.Outpoint]string)
+			}
+			vtxosToSettle[vtxo.SettledBy][vtxo.Outpoint] = vtxo.SpentBy
+			continue
+		}
+
+		if _, ok := vtxosToSpend[vtxo.ArkTxid]; !ok {
+			vtxosToSpend[vtxo.ArkTxid] = make(map[clienttypes.Outpoint]string)
+		}
+		vtxosToSpend[vtxo.ArkTxid][vtxo.Outpoint] = vtxo.SpentBy
+	}
+
+	return vtxosToSpend, vtxosToSettle
 }
 
 func toOnchainAddress(arkAddress string, network arklib.Network) string {
-	netParams := toBitcoinNetwork(network)
+	netParams := utils.ToBitcoinNetwork(network)
 
 	// nolint
 	decodedAddr, _ := arklib.DecodeAddressV0(arkAddress)
@@ -177,25 +216,6 @@ func toOnchainAddress(arkAddress string, network arklib.Network) string {
 	// nolint
 	addr, _ := btcutil.NewAddressTaproot(witnessProgram, &netParams)
 	return addr.String()
-}
-
-func toBitcoinNetwork(net arklib.Network) chaincfg.Params {
-	switch net.Name {
-	case arklib.Bitcoin.Name:
-		return chaincfg.MainNetParams
-	case arklib.BitcoinTestNet.Name:
-		return chaincfg.TestNet3Params
-	//case arklib.BitcoinTestNet4.Name: //TODO uncomment once supported
-	//	return chaincfg.TestNet4Params
-	case arklib.BitcoinSigNet.Name:
-		return chaincfg.SigNetParams
-	case arklib.BitcoinMutinyNet.Name:
-		return arklib.MutinyNetSigNetParams
-	case arklib.BitcoinRegTest.Name:
-		return chaincfg.RegressionNetParams
-	default:
-		return chaincfg.MainNetParams
-	}
 }
 
 func networkFromString(net string) arklib.Network {
@@ -220,8 +240,8 @@ func networkFromString(net string) arklib.Network {
 // utxoReplacement represents a mapping from an old UTXO outpoint to its
 // replacement outpoint after an RBF (Replace-By-Fee) transaction.
 type utxoReplacement struct {
-	from clientTypes.Outpoint
-	to   clientTypes.Outpoint
+	from clienttypes.Outpoint
+	to   clienttypes.Outpoint
 }
 
 // matchReplacementOutputs maps stored UTXOs from a replaced transaction to the
@@ -229,7 +249,7 @@ type utxoReplacement struct {
 // (pkScript). This correctly handles cases where Bitcoin Core's bumpfee
 // reorders outputs, which would break a naive index-based mapping.
 func matchReplacementOutputs(
-	storedUtxos []clientTypes.Utxo,
+	storedUtxos []clienttypes.Utxo,
 	replacementTxid string,
 	replacementTx *wire.MsgTx,
 ) []utxoReplacement {
@@ -245,7 +265,7 @@ func matchReplacementOutputs(
 			if hex.EncodeToString(txOut.PkScript) == stored.Script {
 				replacements = append(replacements, utxoReplacement{
 					from: stored.Outpoint,
-					to: clientTypes.Outpoint{
+					to: clienttypes.Outpoint{
 						Txid: replacementTxid,
 						VOut: uint32(newIdx),
 					},

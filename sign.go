@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 )
 
-func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) SignTransaction(ctx context.Context, tx string) (string, error) {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
@@ -31,7 +31,7 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 		}
 		scripts = append(scripts, hex.EncodeToString(v.WitnessUtxo.PkScript))
 	}
-	signingKeys, err := a.getKeys(ctx, scripts)
+	signingKeys, err := w.getKeys(ctx, scripts)
 	if err != nil {
 		return "", err
 	}
@@ -40,23 +40,23 @@ func (a *arkClient) SignTransaction(ctx context.Context, tx string) (string, err
 		return tx, nil
 	}
 
-	return a.ArkClient.SignTransaction(ctx, tx, client.WithKeys(signingKeys))
+	return w.client.SignTransaction(ctx, tx, clientwallet.WithKeys(signingKeys))
 }
 
-func (a *arkClient) FinalizePendingTxs(
+func (w *wallet) FinalizePendingTxs(
 	ctx context.Context, createdAfter *time.Time,
 ) ([]string, error) {
-	if err := a.safeCheck(); err != nil {
+	if err := w.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	return a.finalizePendingTxs(ctx, createdAfter)
+	return w.finalizePendingTxs(ctx, createdAfter)
 }
 
-func (a *arkClient) finalizePendingTxs(
+func (w *wallet) finalizePendingTxs(
 	ctx context.Context, createdAfter *time.Time,
 ) ([]string, error) {
-	contracts, err := a.contractManager.GetContracts(ctx)
+	contracts, err := w.contractManager.GetContracts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (a *arkClient) finalizePendingTxs(
 		contractsByScript[contract.Script] = contract
 	}
 
-	resp, err := a.Indexer().GetVtxos(ctx, indexer.WithPendingOnly(), indexer.WithScripts(scripts))
+	resp, err := w.Indexer().GetVtxos(ctx, indexer.WithPendingOnly(), indexer.WithScripts(scripts))
 	if err != nil {
 		return nil, err
 	}
@@ -84,10 +84,10 @@ func (a *arkClient) finalizePendingTxs(
 		return nil, nil
 	}
 
-	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(resp.Vtxos))
+	vtxos := make([]clienttypes.VtxoWithTapTree, 0, len(resp.Vtxos))
 	for _, vtxo := range resp.Vtxos {
 		c := contractsByScript[vtxo.Script]
-		handler, err := a.contractManager.GetHandler(ctx, c)
+		handler, err := w.contractManager.GetHandler(ctx, c)
 		if err != nil {
 			return nil, err
 		}
@@ -95,17 +95,17 @@ func (a *arkClient) finalizePendingTxs(
 		if err != nil {
 			return nil, err
 		}
-		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
+		vtxos = append(vtxos, clienttypes.VtxoWithTapTree{
 			Vtxo:       vtxo,
 			Tapscripts: tapscripts,
 		})
 	}
 
-	signingKeys, err := a.getSigningKeyRefs(ctx, vtxos, nil)
+	signingKeys, err := w.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := []client.SendOption{client.WithVtxos(vtxos), client.WithKeys(signingKeys)}
-	return a.ArkClient.FinalizePendingTxs(ctx, createdAfter, opts...)
+	opts := []clientwallet.SendOption{clientwallet.WithVtxos(vtxos), clientwallet.WithKeys(signingKeys)}
+	return w.client.FinalizePendingTxs(ctx, createdAfter, opts...)
 }
