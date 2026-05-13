@@ -395,7 +395,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 	})
 }
 
-func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []string) {
+func waitForExplorerHistory(t *testing.T, client sdk.Wallet, addresses []string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
@@ -416,7 +416,7 @@ func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []stri
 }
 
 func waitForSpendableVtxos(
-	t *testing.T, client sdk.ArkClient, wantCount int, wantTotal uint64,
+	t *testing.T, client sdk.Wallet, wantCount int, wantTotal uint64,
 ) []clientTypes.Vtxo {
 	t.Helper()
 
@@ -541,6 +541,7 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond,
 		"restored wallet did not recover the boarding-only funded key")
 }
+
 
 func sumVtxoAmounts(vtxos []clientTypes.Vtxo) uint64 {
 	var total uint64

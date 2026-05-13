@@ -33,10 +33,10 @@ var explorerUrl = func() string {
 
 var esploraUrl = os.Getenv("ARK_ESPLORA_URL")
 
-func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkClient {
+func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
+	arkClient, err := sdk.NewWallet(t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	initOpts := []sdk.InitOption{sdk.WithElectrumExplorer(explorerUrl)}
@@ -70,7 +70,7 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 }
 
 func faucetOffchain(
-	t *testing.T, client sdk.ArkClient, amount float64,
+	t *testing.T, client sdk.Wallet, amount float64,
 ) clientTypes.Vtxo {
 	ctx := t.Context()
 

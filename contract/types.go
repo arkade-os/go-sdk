@@ -7,8 +7,8 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
 )
@@ -44,7 +44,7 @@ type Manager interface {
 type Args struct {
 	Store       types.ContractStore
 	KeyProvider keyProvider
-	Client      client.TransportClient
+	Client      client.Client
 	Indexer     offchainDataProvider
 	Explorer    onchainDataProvider
 	Network     arklib.Network
@@ -80,7 +80,7 @@ func (a Args) validate() error {
 type keyProvider interface {
 	GetKeyIndex(ctx context.Context, id string) (uint32, error)
 	NextKeyId(ctx context.Context, id string) (string, error)
-	GetKey(ctx context.Context, id string) (*wallet.KeyRef, error)
+	GetKey(ctx context.Context, id string) (*identity.KeyRef, error)
 }
 
 type onchainDataProvider interface {

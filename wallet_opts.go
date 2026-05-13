@@ -4,31 +4,31 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/scheduler"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 )
 
 const (
-	minInterval = 30 * time.Second
+	minInterval     = 30 * time.Second
+	defaultGapLimit = 20
 )
 
-type ClientOption func(*clientOptions) error
+type WalletOption func(*walletOptions) error
 
-// ApplyClientOptions applies opts to a new default clientOptions and returns
+// ApplyWalletOptions applies opts to a new default clientOptions and returns
 // the first error encountered, if any.
 // Exposed for use in external (arksdk_test) test packages.
-func ApplyClientOptions(opts ...ClientOption) error {
-	_, err := applyClientOptions(opts...)
+func ApplyWalletOptions(opts ...WalletOption) error {
+	_, err := applyWalletOptions(opts...)
 	return err
 }
 
 // WithRefreshDbInterval sets the interval at which the local database is
 // periodically refreshed from the server. Must be at least 30s. Can only be set once.
-// If no ClientOption is passed, refreshDbInterval defaults to zero, which
+// If no WalletOption is passed, refreshDbInterval defaults to zero, which
 // disables periodic refresh entirely.
-func WithRefreshDbInterval(d time.Duration) ClientOption {
-	return func(o *clientOptions) error {
+func WithRefreshDbInterval(d time.Duration) WalletOption {
+	return func(o *walletOptions) error {
 		if o.refreshDbInterval != 0 {
 			return fmt.Errorf("refresh db interval already set")
 		}
@@ -41,8 +41,8 @@ func WithRefreshDbInterval(d time.Duration) ClientOption {
 }
 
 // WithVerbose enables verbose logging.
-func WithVerbose() ClientOption {
-	return func(o *clientOptions) error {
+func WithVerbose() WalletOption {
+	return func(o *walletOptions) error {
 		o.verbose = true
 		return nil
 	}
@@ -50,8 +50,8 @@ func WithVerbose() ClientOption {
 
 // WithGapLimit sets the HD wallet discovery gap limit used during startup
 // recovery. Must be greater than zero.
-func WithGapLimit(limit uint32) ClientOption {
-	return func(o *clientOptions) error {
+func WithGapLimit(limit uint32) WalletOption {
+	return func(o *walletOptions) error {
 		if o.hdGapLimitSet {
 			return fmt.Errorf("gap limit already set")
 		}
@@ -64,24 +64,24 @@ func WithGapLimit(limit uint32) ClientOption {
 	}
 }
 
-// WithWallet injects a custom WalletService implementation for key management.
+// WithIdentity injects a custom Identity implementation for key management.
 // Can only be set once and must not be nil.
-func WithWallet(walletSvc wallet.WalletService) ClientOption {
-	return func(o *clientOptions) error {
-		if o.wallet != nil {
-			return fmt.Errorf("wallet already set")
+func WithIdentity(identitySvc identity.Identity) WalletOption {
+	return func(o *walletOptions) error {
+		if o.identity != nil {
+			return fmt.Errorf("identity already set")
 		}
-		if walletSvc == nil {
-			return fmt.Errorf("wallet cannot be nil")
+		if identitySvc == nil {
+			return fmt.Errorf("identity cannot be nil")
 		}
-		o.wallet = walletSvc
+		o.identity = identitySvc
 		return nil
 	}
 }
 
 // WithScheduler injects a custom SchedulerService implementation for task scheduling.
-func WithScheduler(svc scheduler.SchedulerService) ClientOption {
-	return func(o *clientOptions) error {
+func WithScheduler(svc scheduler.SchedulerService) WalletOption {
+	return func(o *walletOptions) error {
 		if svc == nil {
 			return fmt.Errorf("scheduler cannot be nil")
 		}
@@ -97,8 +97,8 @@ func WithScheduler(svc scheduler.SchedulerService) ClientOption {
 }
 
 // WithoutAutoSettle disables the auto-settle feature.
-func WithoutAutoSettle() ClientOption {
-	return func(o *clientOptions) error {
+func WithoutAutoSettle() WalletOption {
+	return func(o *walletOptions) error {
 		if o.scheduler != nil {
 			return fmt.Errorf("cannot disable auto-settle when scheduler is set")
 		}
@@ -107,11 +107,11 @@ func WithoutAutoSettle() ClientOption {
 	}
 }
 
-func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
-	o := newDefaultClientOptions()
+func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
+	o := newDefaultWalletOptions()
 	for _, opt := range opts {
 		if opt == nil {
-			return nil, fmt.Errorf("client option cannot be nil")
+			return nil, fmt.Errorf("wallet option cannot be nil")
 		}
 		if err := opt(o); err != nil {
 			return nil, err
@@ -120,18 +120,18 @@ func applyClientOptions(opts ...ClientOption) (*clientOptions, error) {
 	return o, nil
 }
 
-type clientOptions struct {
+type walletOptions struct {
 	refreshDbInterval time.Duration
 	verbose           bool
 	hdGapLimit        uint32
 	hdGapLimitSet     bool
-	wallet            wallet.WalletService
+	identity          identity.Identity
 	scheduler         scheduler.SchedulerService
 	disableAutoSettle bool
 }
 
-// newDefaultClientOptions returns a zero-value clientOptions.
+// newDefaultWalletOptions returns a zero-value walletOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
-func newDefaultClientOptions() *clientOptions {
-	return &clientOptions{hdGapLimit: hdwallet.DefaultGapLimit}
+func newDefaultWalletOptions() *walletOptions {
+	return &walletOptions{hdGapLimit: defaultGapLimit}
 }

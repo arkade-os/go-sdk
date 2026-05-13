@@ -1,4 +1,4 @@
-.PHONY: proto test vet lint migrate sqlc regtest regtestdown integrationtest smoketest bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smoketest bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -17,11 +17,6 @@ define require_commit
 		exit 1; \
 	fi
 endef
-
-proto:
-	@echo "Compiling stubs..."
-	@docker build -q -t buf -f buf.Dockerfile . &> /dev/null
-	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate
 
 ## test: runs unit tests
 test:

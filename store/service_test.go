@@ -326,12 +326,12 @@ func TestNewStore(t *testing.T) {
 		}{
 			{
 				name:            "unknown store type",
-				config:          store.Config{AppDataStoreType: "unknown"},
-				wantErrContains: "unknown appdata store type",
+				config:          store.Config{StoreType: "unknown"},
+				wantErrContains: "unknown store type",
 			},
 			{
 				name:   "SQL store with non-creatable path",
-				config: store.Config{AppDataStoreType: types.SQLStore, BaseDir: "/dev/null/subdir"},
+				config: store.Config{StoreType: types.SQLStore, Args: "/dev/null/subdir"},
 			},
 		}
 
@@ -356,16 +356,10 @@ func TestService(t *testing.T) {
 			config store.Config
 		}{
 			{
-				name: "kv",
-				config: store.Config{
-					AppDataStoreType: types.KVStore,
-				},
-			},
-			{
 				name: "sql",
 				config: store.Config{
-					AppDataStoreType: types.SQLStore,
-					BaseDir:          dbDir,
+					StoreType: types.SQLStore,
+					Args:      dbDir,
 				},
 			},
 		}
@@ -374,9 +368,9 @@ func TestService(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				svc, err := store.NewStore(tt.config)
 				require.NoError(t, err)
-				testUtxoStore(t, svc.UtxoStore(), tt.config.AppDataStoreType)
-				testVtxoStore(t, svc.VtxoStore(), tt.config.AppDataStoreType)
-				testTxStore(t, svc.TransactionStore(), tt.config.AppDataStoreType)
+				testUtxoStore(t, svc.UtxoStore(), tt.config.StoreType)
+				testVtxoStore(t, svc.VtxoStore(), tt.config.StoreType)
+				testTxStore(t, svc.TransactionStore(), tt.config.StoreType)
 				testAssetStore(t, svc.AssetStore())
 				require.NotNil(t, svc.ContractStore())
 				svc.Close()

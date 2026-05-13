@@ -1,21 +1,21 @@
-package walletstore_test
+package identitystore_test
 
 import (
 	"testing"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/go-sdk/wallet/hdwallet"
-	walletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store"
-	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
-	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
+	"github.com/arkade-os/go-sdk/identity"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
+	identityfilestore "github.com/arkade-os/go-sdk/identity/store/file"
+	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/stretchr/testify/require"
 )
 
 var (
 	storeImpls = []string{types.InMemoryStore, types.FileStore}
 
-	validState = walletstore.State{
-		WalletType:           hdwallet.Type,
+	testData = identitystore.IdentityData{
+		Type:                 identity.Type,
 		EncryptedMnemonic:    "encryptedMnemonic",
 		EncryptedExtendedKey: "encryptedXPriv",
 		NextIndex:            15,
@@ -28,20 +28,23 @@ func TestSave(t *testing.T) {
 			t.Run("valid", func(t *testing.T) {
 				t.Run("first write", func(t *testing.T) {
 					s := newStore(t, impl)
-					require.NoError(t, s.Save(t.Context(), validState))
+					require.NoError(t, s.Save(t.Context(), testData))
 
 					loaded, err := s.Load(t.Context())
 					require.NoError(t, err)
-					require.Equal(t, validState, *loaded)
+					require.Equal(t, testData, *loaded)
 				})
 
 				t.Run("update next index only", func(t *testing.T) {
 					s := newStore(t, impl)
-					require.NoError(t, s.Save(t.Context(), validState))
+					require.NoError(t, s.Save(t.Context(), testData))
 
-					require.NoError(t, s.Save(t.Context(), walletstore.State{NextIndex: 16}))
+					require.NoError(
+						t,
+						s.Save(t.Context(), identitystore.IdentityData{NextIndex: 16}),
+					)
 
-					expected := validState
+					expected := testData
 					expected.NextIndex = 16
 					loaded, err := s.Load(t.Context())
 					require.NoError(t, err)
@@ -50,10 +53,10 @@ func TestSave(t *testing.T) {
 
 				t.Run("save after clear", func(t *testing.T) {
 					s := newStore(t, impl)
-					require.NoError(t, s.Save(t.Context(), validState))
+					require.NoError(t, s.Save(t.Context(), testData))
 					require.NoError(t, s.Clear(t.Context()))
 
-					reseed := validState
+					reseed := testData
 					reseed.NextIndex = 99
 					require.NoError(t, s.Save(t.Context(), reseed))
 
@@ -66,29 +69,29 @@ func TestSave(t *testing.T) {
 			t.Run("invalid", func(t *testing.T) {
 				fixtures := []struct {
 					name            string
-					state           walletstore.State
+					data            identitystore.IdentityData
 					wantErrContains string
 				}{
 					{
-						name: "missing wallet type",
-						state: walletstore.State{
+						name: "missing identity type",
+						data: identitystore.IdentityData{
 							EncryptedExtendedKey: "encryptedXPriv",
 							EncryptedMnemonic:    "encryptedMnemonic",
 						},
-						wantErrContains: "missing wallet type",
+						wantErrContains: "missing identity type",
 					},
 					{
 						name: "missing encrypted extended key",
-						state: walletstore.State{
-							WalletType:        hdwallet.Type,
+						data: identitystore.IdentityData{
+							Type:              identity.Type,
 							EncryptedMnemonic: "encryptedMnemonic",
 						},
 						wantErrContains: "missing encrypted extended key",
 					},
 					{
 						name: "missing encrypted mnemonic",
-						state: walletstore.State{
-							WalletType:           hdwallet.Type,
+						data: identitystore.IdentityData{
+							Type:                 identity.Type,
 							EncryptedExtendedKey: "encryptedXPriv",
 						},
 						wantErrContains: "missing encrypted mnemonic",
@@ -98,7 +101,7 @@ func TestSave(t *testing.T) {
 				for _, f := range fixtures {
 					t.Run(f.name, func(t *testing.T) {
 						s := newStore(t, impl)
-						err := s.Save(t.Context(), f.state)
+						err := s.Save(t.Context(), f.data)
 						require.ErrorContains(t, err, f.wantErrContains)
 					})
 				}
@@ -121,11 +124,11 @@ func TestLoad(t *testing.T) {
 
 				t.Run("populated", func(t *testing.T) {
 					s := newStore(t, impl)
-					require.NoError(t, s.Save(t.Context(), validState))
+					require.NoError(t, s.Save(t.Context(), testData))
 
 					loaded, err := s.Load(t.Context())
 					require.NoError(t, err)
-					require.Equal(t, validState, *loaded)
+					require.Equal(t, testData, *loaded)
 				})
 			})
 		})
@@ -147,7 +150,7 @@ func TestClear(t *testing.T) {
 
 				t.Run("populated", func(t *testing.T) {
 					s := newStore(t, impl)
-					require.NoError(t, s.Save(t.Context(), validState))
+					require.NoError(t, s.Save(t.Context(), testData))
 					require.NoError(t, s.Clear(t.Context()))
 
 					loaded, err := s.Load(t.Context())
@@ -159,13 +162,13 @@ func TestClear(t *testing.T) {
 	}
 }
 
-func newStore(t *testing.T, impl string) walletstore.Store {
+func newStore(t *testing.T, impl string) identitystore.IdentityStore {
 	t.Helper()
 	switch impl {
 	case types.InMemoryStore:
-		return inmemorywalletstore.NewStore()
+		return identityinmemorystore.NewStore()
 	case types.FileStore:
-		s, err := filewalletstore.NewStore(t.TempDir())
+		s, err := identityfilestore.NewStore(t.TempDir())
 		require.NoError(t, err)
 		return s
 	}
