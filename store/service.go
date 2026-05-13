@@ -136,9 +136,6 @@ func (s *service) Clean(ctx context.Context) {
 }
 
 func (s *service) Close() {
-	// All sub-stores share the same *sql.DB, so we close it once here
-	// instead of delegating to each sub-store (which would call db.Close()
-	// multiple times).
 	if s.db != nil {
 		//nolint:all
 		s.db.Close()
