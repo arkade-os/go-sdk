@@ -32,7 +32,7 @@ const (
 
 var testNetwork = arklib.BitcoinRegTest
 
-// newTestManager wires a contract manager with a fresh in-memory KV store
+// newTestManager wires a contract manager with a fresh SQLite store
 // and a brand-new mocked env. Tests that don't need to drive the mocks call
 // this; tests that do should reach for newTestManagerWithEnv instead.
 func newTestManager(t *testing.T) (contract.Manager, types.ContractStore) {
@@ -51,7 +51,10 @@ func newTestManagerWithEnv(
 
 	env := newMockedEnv(t)
 
-	svc, err := store.NewStore(store.Config{StoreType: types.KVStore})
+	svc, err := store.NewStore(store.Config{
+		StoreType: types.SQLStore,
+		Args:      t.TempDir(),
+	})
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
 

@@ -87,7 +87,7 @@ var (
 			"extra2":        "value2",
 		},
 		// JSON-decoded numbers land as float64 — use it directly so SQL/JSON
-		// round-trip matches the in-memory KV path.
+		// round-trip works correctly.
 		Metadata: map[string]string{
 			"version": "1",
 			"tag":     "test",
@@ -494,18 +494,12 @@ func forEachContractBackend(t *testing.T, fn func(t *testing.T, s types.Contract
 		name   string
 		config store.Config
 	}{
-		{name: "kv", config: store.Config{StoreType: types.KVStore}},
-		{name: "sql", config: store.Config{StoreType: types.SQLStore}},
+		{name: "sql", config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()}},
 	}
 
 	for _, b := range backends {
 		t.Run(b.name, func(t *testing.T) {
-			cfg := b.config
-			if b.name == "sql" {
-				cfg.Args = t.TempDir()
-			}
-
-			svc, err := store.NewStore(cfg)
+			svc, err := store.NewStore(b.config)
 			require.NoError(t, err)
 			t.Cleanup(svc.Close)
 

@@ -78,22 +78,17 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	datadir = strings.TrimSpace(datadir)
+	if len(datadir) == 0 {
+		return nil, errors.New("datadir must be specified")
+	}
+
 	clientDbConfig := clientstore.Config{
-		ConfigStoreType: clienttypes.InMemoryStore,
+		ConfigStoreType: clienttypes.FileStore,
+		BaseDir:         datadir,
 	}
 	dbConfig := store.Config{
-		StoreType: types.KVStore,
+		StoreType: types.SQLStore,
 		Args:      datadir,
-	}
-	if len(datadir) > 0 {
-		clientDbConfig = clientstore.Config{
-			ConfigStoreType: clienttypes.FileStore,
-			BaseDir:         datadir,
-		}
-		dbConfig = store.Config{
-			StoreType: types.SQLStore,
-			Args:      datadir,
-		}
 	}
 
 	clientDb, err := clientstore.NewStore(clientDbConfig)
@@ -157,22 +152,17 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	datadir = strings.TrimSpace(datadir)
+	if len(datadir) == 0 {
+		return nil, errors.New("datadir must be specified")
+	}
+
 	clientDbConfig := clientstore.Config{
-		ConfigStoreType: clienttypes.InMemoryStore,
+		ConfigStoreType: clienttypes.FileStore,
+		BaseDir:         datadir,
 	}
 	dbConfig := store.Config{
-		StoreType: types.KVStore,
+		StoreType: types.SQLStore,
 		Args:      datadir,
-	}
-	if len(datadir) > 0 {
-		clientDbConfig = clientstore.Config{
-			ConfigStoreType: clienttypes.FileStore,
-			BaseDir:         datadir,
-		}
-		dbConfig = store.Config{
-			StoreType: types.SQLStore,
-			Args:      datadir,
-		}
 	}
 
 	clientDb, err := clientstore.NewStore(clientDbConfig)

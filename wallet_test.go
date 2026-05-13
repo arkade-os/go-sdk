@@ -20,17 +20,8 @@ func TestNewWallet(t *testing.T) {
 			datadir string
 		}{
 			{
-				name:    "empty datadir uses in-memory stores",
-				datadir: "",
-			},
-			{
 				name:    "non-empty datadir uses file and SQL stores",
 				datadir: t.TempDir(),
-			},
-			{
-				// whitespace is trimmed, so this behaves identically to empty datadir
-				name:    "whitespace-only datadir uses in-memory stores",
-				datadir: "   ",
 			},
 		}
 
@@ -49,6 +40,16 @@ func TestNewWallet(t *testing.T) {
 			datadir         string
 			wantErrContains string
 		}{
+			{
+				name:            "empty datadir",
+				datadir:         "",
+				wantErrContains: "datadir must be specified",
+			},
+			{
+				name:            "whitespace-only datadir",
+				datadir:         "   ",
+				wantErrContains: "datadir must be specified",
+			},
 			{
 				// /dev/null is a character device, not a directory, so
 				// creating a subdirectory inside it fails.
@@ -105,15 +106,14 @@ func TestLoadWallet(t *testing.T) {
 			wantErrContains string
 		}{
 			{
-				name:            "empty datadir with no existing config",
+				name:            "empty datadir",
 				datadir:         "",
-				wantErrContains: "not initialized",
+				wantErrContains: "datadir must be specified",
 			},
 			{
-				// whitespace is trimmed to "", so this behaves identically to empty datadir
-				name:            "whitespace-only datadir with no existing config",
+				name:            "whitespace-only datadir",
 				datadir:         "   ",
-				wantErrContains: "not initialized",
+				wantErrContains: "datadir must be specified",
 			},
 			{
 				name:            "fresh datadir with no existing config",
@@ -143,7 +143,7 @@ func TestLoadWallet(t *testing.T) {
 func TestWhenNextSettlement(t *testing.T) {
 	t.Run("returns injected scheduler time", func(t *testing.T) {
 		nextSettlement := time.Now().Add(time.Hour)
-		c, err := arksdk.NewWallet("", arksdk.WithScheduler(&testScheduler{
+		c, err := arksdk.NewWallet(t.TempDir(), arksdk.WithScheduler(&testScheduler{
 			scheduledAt: nextSettlement,
 		}))
 		require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestWhenNextSettlement(t *testing.T) {
 	})
 
 	t.Run("returns zero when auto settle is disabled", func(t *testing.T) {
-		c, err := arksdk.NewWallet("", arksdk.WithoutAutoSettle())
+		c, err := arksdk.NewWallet(t.TempDir(), arksdk.WithoutAutoSettle())
 		require.NoError(t, err)
 
 		require.True(t, c.WhenNextSettlement().IsZero())

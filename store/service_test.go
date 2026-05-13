@@ -327,7 +327,7 @@ func TestNewStore(t *testing.T) {
 			{
 				name:            "unknown store type",
 				config:          store.Config{StoreType: "unknown"},
-				wantErrContains: "unknown appdata store type",
+				wantErrContains: "unknown store type",
 			},
 			{
 				name:   "SQL store with non-creatable path",
@@ -355,12 +355,6 @@ func TestService(t *testing.T) {
 			name   string
 			config store.Config
 		}{
-			{
-				name: "kv",
-				config: store.Config{
-					StoreType: types.KVStore,
-				},
-			},
 			{
 				name: "sql",
 				config: store.Config{

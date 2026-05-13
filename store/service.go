@@ -2,12 +2,12 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
 	"path/filepath"
 
-	kvstore "github.com/arkade-os/go-sdk/store/kv"
 	sqlstore "github.com/arkade-os/go-sdk/store/sql"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/golang-migrate/migrate/v4"
@@ -24,6 +24,7 @@ const (
 )
 
 type service struct {
+	db            *sql.DB
 	utxoStore     types.UtxoStore
 	vtxoStore     types.VtxoStore
 	txStore       types.TransactionStore
@@ -37,86 +38,66 @@ type Config struct {
 }
 
 func NewStore(storeConfig Config) (types.Store, error) {
-	var (
-		utxoStore     types.UtxoStore
-		vtxoStore     types.VtxoStore
-		txStore       types.TransactionStore
-		assetStore    types.AssetStore
-		contractStore types.ContractStore
-		err           error
-	)
-
-	if len(storeConfig.StoreType) > 0 {
-		switch storeConfig.StoreType {
-		case types.KVStore:
-			dir, ok := storeConfig.Args.(string)
-			if !ok {
-				dir = ""
-			}
-
-			utxoStore, err = kvstore.NewUtxoStore(dir, nil)
-			if err != nil {
-				return nil, err
-			}
-			vtxoStore, err = kvstore.NewVtxoStore(dir, nil)
-			if err != nil {
-				return nil, err
-			}
-			assetStore, err = kvstore.NewAssetStore(dir, nil)
-			if err != nil {
-				return nil, err
-			}
-			txStore, err = kvstore.NewTransactionStore(dir, nil, assetStore)
-			if err != nil {
-				return nil, err
-			}
-			contractStore, err = kvstore.NewContractStore(dir, nil)
-		case types.SQLStore:
-			dir, ok := storeConfig.Args.(string)
-			if !ok {
-				return nil, fmt.Errorf(
-					"invalid config args for sqlite store: expected string datadir, got %T",
-					storeConfig.Args,
-				)
-			}
-
-			dbFile := filepath.Join(dir, sqliteDbFile)
-			db, err := sqlstore.OpenDb(dbFile)
-			if err != nil {
-				return nil, err
-			}
-			driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to open store: %s", err)
-			}
-
-			source, err := iofs.New(migrations, "sql/migration")
-			if err != nil {
-				return nil, fmt.Errorf("failed to embed migrations: %s", err)
-			}
-
-			m, err := migrate.NewWithInstance("iofs", source, "arkdb", driver)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create migration instance: %s", err)
-			}
-
-			if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-				return nil, fmt.Errorf("failed to run migrations: %s", err)
-			}
-			utxoStore = sqlstore.NewUtxoStore(db)
-			vtxoStore = sqlstore.NewVtxoStore(db)
-			txStore = sqlstore.NewTransactionStore(db)
-			assetStore = sqlstore.NewAssetStore(db)
-			contractStore = sqlstore.NewContractStore(db)
-		default:
-			err = fmt.Errorf("unknown appdata store type")
-		}
-		if err != nil {
-			return nil, err
-		}
+	if storeConfig.StoreType != types.SQLStore {
+		return nil, fmt.Errorf("unknown store type")
 	}
 
-	return &service{utxoStore, vtxoStore, txStore, assetStore, contractStore}, nil
+	dir, ok := storeConfig.Args.(string)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid config args for sqlite store: expected string datadir, got %T",
+			storeConfig.Args,
+		)
+	}
+
+	dbFile := filepath.Join(dir, sqliteDbFile)
+	db, err := sqlstore.OpenDb(dbFile)
+	if err != nil {
+		return nil, err
+	}
+
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			//nolint
+			db.Close()
+		}
+	}()
+
+	driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open store: %s", err)
+	}
+
+	source, err := iofs.New(migrations, "sql/migration")
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed migrations: %s", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", source, "arkdb", driver)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migration instance: %s", err)
+	}
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return nil, fmt.Errorf("failed to run migrations: %s", err)
+	}
+
+	succeeded = true
+	utxoStore := sqlstore.NewUtxoStore(db)
+	vtxoStore := sqlstore.NewVtxoStore(db)
+	txStore := sqlstore.NewTransactionStore(db)
+	assetStore := sqlstore.NewAssetStore(db)
+	contractStore := sqlstore.NewContractStore(db)
+
+	return &service{
+		db:            db,
+		utxoStore:     utxoStore,
+		vtxoStore:     vtxoStore,
+		txStore:       txStore,
+		assetStore:    assetStore,
+		contractStore: contractStore,
+	}, nil
 }
 
 func (s *service) UtxoStore() types.UtxoStore {
@@ -163,19 +144,8 @@ func (s *service) Clean(ctx context.Context) {
 }
 
 func (s *service) Close() {
-	if s.utxoStore != nil {
-		s.utxoStore.Close()
-	}
-	if s.txStore != nil {
-		s.txStore.Close()
-	}
-	if s.vtxoStore != nil {
-		s.vtxoStore.Close()
-	}
-	if s.assetStore != nil {
-		s.assetStore.Close()
-	}
-	if s.contractStore != nil {
-		s.contractStore.Close()
+	if s.db != nil {
+		//nolint:all
+		s.db.Close()
 	}
 }
