@@ -303,7 +303,7 @@ func (w *wallet) Identity() identity.Identity {
 }
 
 func (w *wallet) ContractManager() contract.Manager {
-	return w.contractManager
+	return w.contractMgr()
 }
 
 func (w *wallet) IsSynced(ctx context.Context) <-chan types.SyncEvent {
@@ -524,7 +524,12 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 	w.dbMu.Lock()
 	defer w.dbMu.Unlock()
 
-	allContracts, err := w.contractManager.GetContracts(ctx)
+	mgr := w.contractMgr()
+	if mgr == nil {
+		return ErrNotInitialized
+	}
+
+	allContracts, err := mgr.GetContracts(ctx)
 	if err != nil {
 		return err
 	}
@@ -589,7 +594,7 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 		addrParams := make(map[string]params, len(boardingContracts))
 		for _, contract := range boardingContracts {
 			boardingAddresses = append(boardingAddresses, contract.Address)
-			handler, err := w.contractManager.GetHandler(ctx, contract)
+			handler, err := mgr.GetHandler(ctx, contract)
 			if err != nil {
 				return err
 			}
@@ -1019,22 +1024,9 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(update.Error).Error("received error from explorer")
 				continue
 			}
-			txsToAdd := make([]clienttypes.Transaction, 0)
 			txsToConfirm := make([]string, 0)
 			utxosToConfirm := make(map[clienttypes.Outpoint]int64)
 			utxosToSpend := make(map[clienttypes.Outpoint]string)
-			if len(update.NewUtxos) > 0 {
-				for _, u := range update.NewUtxos {
-					txsToAdd = append(txsToAdd, clienttypes.Transaction{
-						TransactionKey: clienttypes.TransactionKey{
-							BoardingTxid: u.Txid,
-						},
-						Amount:    u.Amount,
-						Type:      clienttypes.TxReceived,
-						CreatedAt: u.CreatedAt,
-					})
-				}
-			}
 			if len(update.ConfirmedUtxos) > 0 {
 				for _, u := range update.ConfirmedUtxos {
 					txsToConfirm = append(txsToConfirm, u.Txid)
@@ -1044,21 +1036,6 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 			if len(update.SpentUtxos) > 0 {
 				for _, u := range update.SpentUtxos {
 					utxosToSpend[u.Outpoint] = u.SpentBy
-				}
-			}
-
-			if len(txsToAdd) > 0 {
-				w.dbMu.Lock()
-				count, err := w.store.TransactionStore().AddTransactions(
-					ctx, txsToAdd,
-				)
-				w.dbMu.Unlock()
-				if err != nil {
-					log.WithError(err).Error("failed to add new boarding transactions")
-					continue
-				}
-				if count > 0 {
-					log.Debugf("added %d boarding transaction(s)", count)
 				}
 			}
 
@@ -1138,6 +1115,10 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 
 			if len(update.NewUtxos) > 0 {
 				utxosToAdd := make([]clienttypes.Utxo, 0, len(update.NewUtxos))
+				// Pair each tx row with its UTXO so a UTXO skipped below
+				// (LookupAddress/GetTxHex failure) does not leave an orphan
+				// Transaction row in history.
+				txsToAdd := make([]clienttypes.Transaction, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
 					addrInfo, ok := watcher.LookupAddress(u.Script)
 					if !ok {
@@ -1170,6 +1151,14 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 						CreatedAt:   u.CreatedAt,
 						SpendableAt: spendableAt,
 					})
+					txsToAdd = append(txsToAdd, clienttypes.Transaction{
+						TransactionKey: clienttypes.TransactionKey{
+							BoardingTxid: u.Txid,
+						},
+						Amount:    u.Amount,
+						Type:      clienttypes.TxReceived,
+						CreatedAt: u.CreatedAt,
+					})
 				}
 
 				w.dbMu.Lock()
@@ -1181,6 +1170,21 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 				}
 				if count > 0 {
 					log.Debugf("added %d new boarding utxo(s)", count)
+				}
+
+				if len(txsToAdd) > 0 {
+					w.dbMu.Lock()
+					txCount, err := w.store.TransactionStore().AddTransactions(
+						ctx, txsToAdd,
+					)
+					w.dbMu.Unlock()
+					if err != nil {
+						log.WithError(err).Error("failed to add new boarding transactions")
+						continue
+					}
+					if txCount > 0 {
+						log.Debugf("added %d boarding transaction(s)", txCount)
+					}
 				}
 			}
 
@@ -1626,7 +1630,7 @@ func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotificati
 }
 
 func (w *wallet) safeCheck() error {
-	if w.client == nil || w.contractManager == nil {
+	if w.client == nil || w.contractMgr() == nil {
 		return ErrNotInitialized
 	}
 	if w.client.Identity().IsLocked() {
@@ -1806,7 +1810,11 @@ func (w *wallet) saveSendTransaction(
 		return err
 	}
 
-	contracts, err := w.contractManager.GetContracts(ctx)
+	mgr := w.contractMgr()
+	if mgr == nil {
+		return ErrNotInitialized
+	}
+	contracts, err := mgr.GetContracts(ctx)
 	if err != nil {
 		return err
 	}
