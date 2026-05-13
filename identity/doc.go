@@ -81,9 +81,9 @@
 // # Security notes
 //
 //   - Seed material is encrypted with AES-256-GCM at rest; the password
-//     is stretched via scrypt with a per-record salt (see utils.go:
-//     deriveEncryptionKey). A wrong password surfaces as an AEAD tag
-//     failure on Unlock.
+//     is stretched via PBKDF2-HMAC-SHA256 (600,000 iterations) with a
+//     per-record salt (see utils.go: deriveEncryptionKey). A wrong
+//     password surfaces as an AEAD tag failure on Unlock.
 //   - Lock zeroes the in-memory mnemonic byte buffer. It can't zero
 //     intermediate copies the runtime may have made (encryption inputs,
 //     etc.) — for callers that need stronger memory guarantees, restart

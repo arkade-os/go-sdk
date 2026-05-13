@@ -83,8 +83,9 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	if w.client == nil {
 		return ErrNotInitialized
 	}
-	identitySvc := w.Identity()
-	if !identitySvc.IsLocked() {
+
+	// If already unlocked, nothing to do
+	if id := w.Identity(); id != nil && !id.IsLocked() && w.contractManager != nil {
 		return nil
 	}
 

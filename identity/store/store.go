@@ -17,6 +17,6 @@ type IdentityStore interface {
 	Save(ctx context.Context, data IdentityData) error
 	// Load loads the persisted identity data, if any.
 	Load(ctx context.Context) (*IdentityData, error)
-	// Delete deletes the persisted identity data, if any.
+	// Clear deletes the persisted identity data, if any.
 	Clear(ctx context.Context) error
 }

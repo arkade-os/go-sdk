@@ -160,7 +160,6 @@ func (w *wallet) ListSpendableVtxos(ctx context.Context) ([]clienttypes.Vtxo, er
 		return nil, err
 	}
 
-	// TODO: add safe check
 	return w.store.VtxoStore().GetSpendableVtxos(ctx)
 }
 
