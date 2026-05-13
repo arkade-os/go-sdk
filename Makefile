@@ -53,7 +53,7 @@ regtestdown:
 	@docker compose -f test/docker/docker-compose.yml down
 
 integrationtest:
-	@ARK_ELECTRUM_URL=$${ARK_ELECTRUM_URL:-tcp://127.0.0.1:50001} ARK_ESPLORA_URL=$${ARK_ESPLORA_URL:-http://localhost:5000} go test -v -count=1 -race -timeout 40m ./test/e2e
+	@ARK_ELECTRUM_URL=$${ARK_ELECTRUM_URL:-tcp://127.0.0.1:50001} ARK_ESPLORA_URL=$${ARK_ESPLORA_URL:-http://localhost:3000} go test -v -count=1 -race -timeout 40m ./test/e2e
 
 ## smoketest: runs long-running e2e smoke tests (skipped in CI). Smoke
 ## test files are gated behind the "smoke" build tag and tests follow the
