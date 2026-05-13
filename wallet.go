@@ -1120,6 +1120,10 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 				// Transaction row in history.
 				txsToAdd := make([]clienttypes.Transaction, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
+					// LookupAddress can miss only if addContractAddresses
+					// failed for this contract (handler error) or has not
+					// yet recorded the address. The event recurs on the
+					// next explorer poll so the warn is recoverable.
 					addrInfo, ok := watcher.LookupAddress(u.Script)
 					if !ok {
 						log.WithField("script", u.Script).
