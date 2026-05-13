@@ -362,7 +362,10 @@ func (w *wallet) Stop() {
 
 	w.stopOnce.Do(func() {
 		w.client.Stop()
-		w.Explorer().Stop()
+
+		if explorer := w.Explorer(); explorer != nil {
+			explorer.Stop()
+		}
 		// Tear down the auto-settle scheduler before the store closes,
 		// otherwise an already-scheduled refresh task can fire after Stop()
 		// and try to begin a transaction on a closed DB. Mirrors what Lock()
