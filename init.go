@@ -170,6 +170,10 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		}
 
 		err := w.refreshDb(ctx)
+		// Register the explorer listener before signaling IsSynced so events
+		// fired immediately after (e.g. from NewBoardingAddress) are not
+		// dropped before listenForOnchainTxs can start consuming.
+		explorerCh := w.Explorer().GetAddressesEvents()
 		if err == nil {
 			w.scheduleNextSettlement()
 		}
@@ -177,7 +181,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		close(w.syncCh)
 
 		go w.listenForArkTxs(ctx)
-		go w.listenForOnchainTxs(ctx, w.network)
+		go w.listenForOnchainTxs(ctx, w.network, explorerCh)
 		go w.listenDbEvents(ctx)
 		go w.periodicRefreshDb(ctx)
 	}()

@@ -943,7 +943,10 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 	}
 }
 
-func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network) {
+func (w *wallet) listenForOnchainTxs(
+	ctx context.Context, network arklib.Network,
+	ch <-chan clienttypes.OnchainAddressEvent,
+) {
 	explorer := w.client.Explorer()
 	if explorer == nil {
 		// Should be unreachable
@@ -990,7 +993,6 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 		}
 	}
 
-	ch := explorer.GetAddressesEvents()
 	log.Debugf("subscribed for %d addresses", len(addresses))
 	for {
 		select {
