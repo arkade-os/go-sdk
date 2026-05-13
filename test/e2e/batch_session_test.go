@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -15,8 +16,8 @@ func TestBatchSession(t *testing.T) {
 	// refresh their vtxos together in another commitment tx
 	t.Run("refresh vtxos", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
-		bob := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -175,7 +176,7 @@ func TestBatchSession(t *testing.T) {
 	// they can be redeeemed only once
 	t.Run("redeem notes", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 		offchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, offchainAddr)
@@ -225,7 +226,7 @@ func TestBatchSession(t *testing.T) {
 	// renews a vtxo and a recoverable (expired) vtxo
 	t.Run("onboard and renew expired funds", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		boardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)

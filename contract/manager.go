@@ -24,7 +24,7 @@ const logPrefix = "contract manager:"
 type contractManager struct {
 	store       types.ContractStore
 	keyProvider keyProvider
-	client      client.TransportClient
+	client      client.Client
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network

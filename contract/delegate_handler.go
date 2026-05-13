@@ -10,7 +10,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -68,7 +68,7 @@ var _ handlers.Handler = (*DelegateHandler)(nil)
 // it is picked ahead of the 3-of-3 delegate at index [2]. Do not reorder.
 func (h *DelegateHandler) DeriveContract(
 	_ context.Context,
-	key wallet.KeyRef,
+	key identity.KeyRef,
 	cfg DelegateConfig,
 	delegateKey *btcec.PublicKey,
 ) (*types.Contract, error) {
@@ -152,11 +152,11 @@ func (h *DelegateHandler) DeriveContract(
 
 // NewContract returns an error: delegate contracts require a delegate key.
 // Use Manager.NewDelegate instead.
-func (h *DelegateHandler) NewContract(_ context.Context, _ wallet.KeyRef) (*types.Contract, error) {
+func (h *DelegateHandler) NewContract(_ context.Context, _ identity.KeyRef) (*types.Contract, error) {
 	return nil, fmt.Errorf("delegate contracts require a delegate key: use Manager.NewDelegate")
 }
 
-func (h *DelegateHandler) GetKeyRef(c types.Contract) (*wallet.KeyRef, error) {
+func (h *DelegateHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
 	if len(c.Params) == 0 {
 		return nil, fmt.Errorf("contract %s has no parameters", c.Script)
 	}
@@ -176,7 +176,7 @@ func (h *DelegateHandler) GetKeyRef(c types.Contract) (*wallet.KeyRef, error) {
 	if err != nil {
 		return nil, fmt.Errorf("contract %s has invalid owner key: %w", c.Script, err)
 	}
-	return &wallet.KeyRef{Id: keyId, PubKey: ownerKey}, nil
+	return &identity.KeyRef{Id: keyId, PubKey: ownerKey}, nil
 }
 
 func (h *DelegateHandler) GetKeyRefs(c types.Contract) (map[string]string, error) {

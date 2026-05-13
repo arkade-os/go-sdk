@@ -22,7 +22,7 @@ func TestRbfReplacementWithReorderedOutputs(t *testing.T) {
 	}{
 		{
 			name:   "sql",
-			config: store.Config{AppDataStoreType: types.SQLStore, BaseDir: t.TempDir()},
+			config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()},
 		},
 	}
 

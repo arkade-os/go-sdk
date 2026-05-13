@@ -14,15 +14,19 @@ go get github.com/arkade-os/go-sdk
 
 Here's a comprehensive guide on how to use the Arkade Go SDK:
 
-### 1. Setting up the Ark Client
+### 1. Setting up the Wallet
 
-`NewArkClient(datadir string, opts ...ClientOption)` creates a brand new client and can't be used to load an existing one.  
-`LoadArkClient(datadir string, opts ...ClientOption)` loads an existing client and can't be used to create a new one.  
-Both accept one required parameter plus optional client options:
-- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing, loading an existing client won't work for obvious reasons).
-- `opts` — optional `ClientOption` values:
+`NewWallet(datadir string, opts ...WalletOption)` creates a brand new wallet and can't be used to load an existing one.  
+`LoadWallet(datadir string, opts ...WalletOption)` loads an existing wallet and can't be used to create a new one.  
+Both accept one required parameter plus optional wallet options:
+- `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing; loading from an in-memory datadir won't work for obvious reasons).
+- `opts` — optional `WalletOption` values:
   - `WithRefreshDbInterval(d time.Duration)` — enable periodic background refresh of the local database from the server. Must be at least 30s. Disabled by default (zero value).
   - `WithVerbose()` — enables verbose logging.
+  - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to a reasonable BIP-44-style value.
+  - `WithIdentity(svc identity.Identity)` — inject a custom key-management implementation. By default the SDK creates an HD identity (BIP86) backed by the persistent datadir; see the `identity` package for the default implementation.
+  - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-settle. Defaults to a gocron-backed in-process scheduler.
+  - `WithoutAutoSettle()` — disable the background auto-settle loop entirely. By default the wallet schedules a Settle at ~90% of each spendable vtxo's remaining lifetime and re-schedules as fresher vtxos arrive.
 
 ```go
 import arksdk (
@@ -33,136 +37,75 @@ import arksdk (
 )
 
 // In-memory storage
-client, err := arksdk.NewArkClient("")
+wallet, err := arksdk.NewWallet("")
 
 // Persistent storage
-var client arksdk.ArkClient
+var wallet arksdk.Wallet
 var err error
-// Try to load the client (with default options).
-client, err = arksdk.LoadArkClient("/path/to/data/dir")
+// Try to load the wallet (with default options).
+wallet, err = arksdk.LoadWallet("/path/to/data/dir")
 if err != nil {
     if !errors.Is(err, arksdk.ErrNotInitialized) {
         return err
     }
     // If not initialized, create a new one (with default options).
-    client, err = arksdk.NewArkClient("/path/to/data/dir")
+    wallet, err = arksdk.NewWallet("/path/to/data/dir")
     if err != nil {
         log.Fatal(err)
     }
 }
 
-// Client with periodic DB refresh every 5 minutes and verbose logs
-client, err := arksdk.NewArkClient(
+// Wallet with periodic DB refresh every 5 minutes and verbose logs
+wallet, err := arksdk.NewWallet(
     "/path/to/data/dir", arksdk.WithRefreshDbInterval(5 * time.Minute), arksdk.WithVerbose(),
 )
 ```
 
-Once you have a client, call `Init` to connect it to an Arkade server and set up the wallet:
+Once you have a wallet, call `Init` to connect it to an Arkade server and set up the identity:
 
 ```go
-// Minimal — single-key wallet, default explorer URL for the network.
-if err := client.Init(ctx, "localhost:7070", "your_seed", "your_password"); err != nil {
+// Generate a fresh HD identity (default). Pass an empty seed.
+if err := wallet.Init(ctx, "localhost:7070", "", "your_password"); err != nil {
     return fmt.Errorf("failed to initialize wallet: %s", err)
 }
 
-// Restore an existing wallet from seed.
-if err := client.Init(ctx, "localhost:7070", "your_seed", "your_password"); err != nil {
+// Restore an existing HD identity from its BIP39 mnemonic.
+if err := wallet.Init(
+    ctx, "localhost:7070", "abandon abandon ...", "your_password",
+); err != nil {
     return fmt.Errorf("failed to restore wallet: %s", err)
 }
 
 // Custom explorer URL.
-if err := client.Init(
+if err := wallet.Init(
     ctx, "localhost:7070", "your_seed", "your_password",
     arksdk.WithExplorerURL("https://example.com"),
 ); err != nil {
     return fmt.Errorf("failed to initialize wallet: %s", err)
 }
-
-// Bring your own wallet implementation.
-if err := client.Init(
-    ctx, "localhost:7070", "your_seed", "your_password",
-    arksdk.WithWallet(myWalletService),
-); err != nil {
-    return fmt.Errorf("failed to initialize wallet: %s", err)
-}
 ```
 
-#### Using the HD wallet
-
-The SDK also supports an HD wallet implementation backed by a mnemonic seed.
-
-```go
-import (
-    arksdk "github.com/arkade-os/go-sdk"
-    "github.com/arkade-os/go-sdk/wallet/hdwallet"
-)
-
-client, err := arksdk.NewArkClient("/path/to/data/dir")
-if err != nil {
-    return err
-}
-
-hdStore := hdwallet.NewStore(client.GetConfigStore())
-
-// Create a new HD wallet. Pass an empty seed to generate a new mnemonic.
-if err := client.Init(
-    ctx,
-    "localhost:7070",
-    "",
-    "your_password",
-    arksdk.WithHDWallet(hdStore),
-); err != nil {
-    return err
-}
-
-mnemonic, err := client.Dump(ctx)
-if err != nil {
-    return err
-}
-log.Printf("backup mnemonic: %s", mnemonic)
-```
-
-To restore an existing HD wallet, pass the mnemonic to `Init`:
-
-```go
-client, err := arksdk.LoadArkClient("/path/to/data/dir")
-if err != nil && !errors.Is(err, arksdk.ErrNotInitialized) {
-    return err
-}
-
-hdStore := hdwallet.NewConfigStoreBackend(client.GetConfigStore())
-if err := client.Init(
-    ctx,
-    "localhost:7070",
-    "abandon ...",
-    "your_password",
-    arksdk.WithHDWallet(hdStore),
-); err != nil {
-    return err
-}
-```
-
-After unlocking an HD wallet, wait for sync to complete before using balances or
+After `Init` + `Unlock`, wait for sync to complete before using balances or
 history. The SDK performs HD key discovery on unlock and restores any known
-offchain, boarding, redemption, and direct onchain state.
+offchain, boarding, redemption, and direct onchain state from the configured
+gap limit (see `WithGapLimit` in §1).
 
 ```go
-if err := client.Unlock(ctx, "your_password"); err != nil {
+if err := wallet.Unlock(ctx, "your_password"); err != nil {
     return err
 }
 
-syncEvent := <-client.IsSynced(ctx)
+syncEvent := <-wallet.IsSynced(ctx)
 if syncEvent.Err != nil {
     return syncEvent.Err
 }
 ```
 
-The HD wallet differs from the built-in single-key wallet in one important way:
-each call to `NewOnchainAddress`, `NewBoardingAddress`, and
-`NewOffchainAddress` allocates a fresh derived key, so `GetAddresses()` returns
-the full discovered address set instead of a single stable address per family.
+Each call to `NewOnchainAddress`, `NewBoardingAddress`, and `NewOffchainAddress`
+allocates a fresh derived key, so `GetAddresses()` returns the full discovered
+address set rather than a single stable address per family.
 
-### 2. Client Configuration Options
+### 2. Init Options
 
 `Init` has the following signature:
 
@@ -171,14 +114,13 @@ Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) 
 ```
 
 - `serverUrl` — address of the Arkade server (e.g. `"localhost:7070"`).
-- `seed` — wallet secret used for initialization or restoration:
-  - hex-encoded private key for the built-in single-key wallet
-  - mnemonic seed phrase for the HD wallet
-- `password` — password used to encrypt and protect the wallet.
+- `seed` — BIP39 mnemonic. Pass `""` to have the SDK generate a fresh one (recoverable via `Dump`).
+- `password` — used to encrypt and protect the identity material at rest.
 - `opts` — optional functional options:
   - `WithExplorerURL(url string)` — override the default mempool explorer URL for the network.
-  - `WithWallet(wallet wallet.WalletService)` — supply a custom wallet implementation instead of the built-in single-key wallet.
-  - `WithHDWallet(store hdwallet.Store)` — use the built-in HD wallet implementation backed by the provided config store.
+
+To plug in a non-HD identity (hardware wallet, KMS, remote signer, …), inject
+it at construction time via `arksdk.WithIdentity(svc)` — see §1.
 
 Note: Always keep your seed and password secure. Never share them or store them in plaintext.
 
@@ -187,10 +129,10 @@ Note: Always keep your seed and password secure. Never share them or store them 
 #### Unlock and Lock the Wallet
 
 ```go
-if err := arkClient.Unlock(ctx, password); err != nil {
+if err := wallet.Unlock(ctx, password); err != nil {
     log.Fatal(err)
 }
-defer arkClient.Lock(ctx)
+defer wallet.Lock(ctx)
 ```
 
 #### Receive Funds
@@ -198,19 +140,19 @@ defer arkClient.Lock(ctx)
 The old `Receive` API has been split into three dedicated methods:
 
 ```go
-onchainAddr, err := arkClient.NewOnchainAddress(ctx)
+onchainAddr, err := wallet.NewOnchainAddress(ctx)
 if err != nil {
     log.Fatal(err)
 }
 log.Infof("Onchain address: %s", onchainAddr)
 
-boardingAddr, err := arkClient.NewBoardingAddress(ctx)
+boardingAddr, err := wallet.NewBoardingAddress(ctx)
 if err != nil {
     log.Fatal(err)
 }
 log.Infof("Boarding address: %s", boardingAddr)
 
-offchainAddr, err := arkClient.NewOffchainAddress(ctx)
+offchainAddr, err := wallet.NewOffchainAddress(ctx)
 if err != nil {
     log.Fatal(err)
 }
@@ -220,7 +162,7 @@ log.Infof("Offchain address: %s", offchainAddr)
 #### Check Balance
 
 ```go
-balance, err := arkClient.Balance(ctx)
+balance, err := wallet.Balance(ctx)
 if err != nil {
     log.Fatal(err)
 }
@@ -242,7 +184,7 @@ import clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 receivers := []clientTypes.Receiver{
     {To: recipientOffchainAddr, Amount: 1000},
 }
-txid, err := arkClient.SendOffChain(ctx, receivers)
+txid, err := wallet.SendOffChain(ctx, receivers)
 if err != nil {
     log.Fatal(err)
 }
@@ -257,7 +199,7 @@ assetReceivers := []clientTypes.Receiver{
         },
     },
 }
-txid, err = arkClient.SendOffChain(ctx, assetReceivers)
+txid, err = wallet.SendOffChain(ctx, assetReceivers)
 if err != nil {
     log.Fatal(err)
 }
@@ -266,7 +208,7 @@ log.Infof("Asset transfer completed: %s", txid)
 
 #### Submit Transaction
 
-`SendOffChain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `TransportClient.SubmitTx` and `TransportClient.FinalizeTx` APIs.
+`SendOffChain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `Client.SubmitTx` and `Client.FinalizeTx` APIs (the transport client, exposed via `wallet.Client()` or built standalone with `grpcclient.NewClient`).
 
 ```go
 // Create a new transport client
@@ -284,7 +226,7 @@ arkTx, checkpointTxs, err := offchain.BuildTxs(
 	batchOutputSweepClosure,
 )
 
-signedArkTx, err := arkClient.SignTransaction(ctx, arkTx)
+signedArkTx, err := wallet.SignTransaction(ctx, arkTx)
 if err != nil {
 	return "", err
 }
@@ -327,7 +269,7 @@ import (
 )
 
 // 1. Fixed supply — no control asset. Returns one asset ID.
-txid, assetIds, err := arkClient.IssueAsset(ctx, 5000, nil, nil)
+txid, assetIds, err := wallet.IssueAsset(ctx, 5000, nil, nil)
 if err != nil {
     log.Fatal(err)
 }
@@ -336,7 +278,7 @@ log.Infof("Issued asset %s in tx %s", assetID, txid)
 
 // 2. With a new control asset issued together with the controlled one.
 //    Returns two asset IDs: [controlAssetId, issuedAssetId].
-txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, clientTypes.NewControlAsset{Amount: 1}, nil)
+txid, assetIds, err = wallet.IssueAsset(ctx, 5000, clientTypes.NewControlAsset{Amount: 1}, nil)
 if err != nil {
     log.Fatal(err)
 }
@@ -346,7 +288,7 @@ log.Infof("Control asset: %s, issued asset: %s", controlAssetID, assetID)
 
 // 3. With an existing control asset.
 //    Returns one asset ID for the newly issued asset.
-txid, assetIds, err = arkClient.IssueAsset(
+txid, assetIds, err = wallet.IssueAsset(
     ctx, 5000, clientTypes.ExistingControlAsset{ID: controlAssetID}, nil,
 )
 if err != nil {
@@ -359,7 +301,7 @@ meta := []asset.Metadata{
     {Key: "name", Value: "My Token"},
     {Key: "ticker", Value: "MTK"},
 }
-txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, clientTypes.NewControlAsset{Amount: 1}, meta)
+txid, assetIds, err = wallet.IssueAsset(ctx, 5000, clientTypes.NewControlAsset{Amount: 1}, meta)
 ```
 
 ##### Reissue Asset
@@ -367,7 +309,7 @@ txid, assetIds, err = arkClient.IssueAsset(ctx, 5000, clientTypes.NewControlAsse
 The caller must hold the control asset vtxo in their wallet.
 
 ```go
-txid, err := arkClient.ReissueAsset(ctx, assetID, 1000)
+txid, err := wallet.ReissueAsset(ctx, assetID, 1000)
 if err != nil {
     log.Fatal(err)
 }
@@ -379,7 +321,7 @@ log.Infof("Reissued 1000 units of %s in tx %s", assetID, txid)
 Destroys the specified amount. Any remaining balance is returned to the caller's address as change.
 
 ```go
-txid, err := arkClient.BurnAsset(ctx, assetID, 500)
+txid, err := wallet.BurnAsset(ctx, assetID, 500)
 if err != nil {
     log.Fatal(err)
 }
@@ -398,7 +340,7 @@ receivers := []clientTypes.Receiver{
     {To: recipient1OffchainAddr, Amount: amount1},
     {To: recipient2OffchainAddr, Amount: amount2},
 }
-txid, err = arkClient.SendOffChain(ctx, receivers)
+txid, err = wallet.SendOffChain(ctx, receivers)
 ```
 
 #### Settle
@@ -407,14 +349,14 @@ Finalize pending boarding or preconfirmed funds into a commitment transaction:
 
 ```go
 // Basic settle
-txid, err := arkClient.Settle(ctx)
+txid, err := wallet.Settle(ctx)
 if err != nil {
     log.Fatal(err)
 }
 log.Infof("commitment tx: %s", txid)
 
 // Settle with automatic retries on failure (max 5)
-txid, err = arkClient.Settle(ctx, arksdk.WithRetries(3))
+txid, err = wallet.Settle(ctx, arksdk.WithRetries(3))
 if err != nil {
     log.Fatal(err)
 }
@@ -427,37 +369,60 @@ To redeem offchain funds to onchain:
 
 ```go
 // Basic collaborative exit
-txid, err := arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount)
+txid, err := wallet.CollaborativeExit(ctx, onchainAddress, redeemAmount)
 if err != nil {
     log.Fatal(err)
 }
 log.Infof("commitment tx: %s", txid)
 
 // Collaborative exit with automatic retries on failure (max 5)
-txid, err = arkClient.CollaborativeExit(ctx, onchainAddress, redeemAmount, arksdk.WithRetries(3))
+txid, err = wallet.CollaborativeExit(ctx, onchainAddress, redeemAmount, arksdk.WithRetries(3))
 if err != nil {
     log.Fatal(err)
 }
 log.Infof("Redeemed with tx: %s", txid)
 ```
 
-### 5. Additional Client Functions
+### 5. Additional Wallet Methods
 
-The `ArkClient` interface exposes a number of utility methods beyond the
-basic workflow shown above. Here is a quick overview:
+The `Wallet` interface exposes a number of utility methods beyond the basic
+workflow shown above. Here is a quick overview:
 
-- `GetVersion()` - return the SDK version.
-- `GetConfigData(ctx)` - retrieve Arkade server configuration details.
-- `Init(ctx, serverUrl, seed, password, opts...)` - create or restore a wallet and connect to the server. See §2 for available options.
+#### Lifecycle & metadata
+
+- `Version() string` - return the SDK version.
+- `Init(ctx, serverUrl, seed, password, opts...)` - create or restore an identity and connect to the server. See §2 for available options.
 - `IsLocked(ctx)` - check if the wallet is currently locked.
 - `Unlock(ctx, password)` / `Lock(ctx)` - unlock or lock the wallet.
 - `IsSynced(ctx) <-chan types.SyncEvent` - returns a channel that emits once the local database has finished syncing after unlock.
+- `Reset(ctx)` - wipe the local state (clears stores and locks the identity). Use for "logout" / re-init flows.
+- `Stop()` - stop any running background loops (sync, listeners, scheduler).
+
+#### Dependency accessors
+
+These return the underlying services so callers can drive lower-level flows directly:
+
+- `Store() types.Store` - the wallet's persistent store (per-domain repositories).
+- `Identity() identity.Identity` - the active identity (HD by default).
+- `Explorer() explorer.Explorer` - the mempool explorer client.
+- `Indexer() indexer.Indexer` - the arkd indexer client.
+- `Client() client.Client` - the transport client. See §6.
+- `ContractManager() contract.Manager` - the contract manager. See the [`contract`](./contract/doc.go) package for its surface.
+
+#### Balances and addresses
+
 - `Balance(ctx)` - query onchain and offchain balances. The returned struct includes `AssetBalances map[string]uint64` keyed by asset ID.
+- `GetAddresses(ctx)` - return all known onchain, offchain, boarding and redemption addresses.
+- `NewOnchainAddress(ctx)` / `NewBoardingAddress(ctx)` / `NewOffchainAddress(ctx)` - derive a fresh address of the respective type.
+
+#### Assets
+
 - `IssueAsset(ctx, amount, controlAsset, metadata)` — mint a new offchain asset. Pass `nil` for a fixed-supply asset, `types.NewControlAsset{Amount}` to create a reissuable asset with a new control asset, or `types.ExistingControlAsset{ID}` to issue under an existing control asset. Returns the ark txid and the resulting asset IDs.
 - `ReissueAsset(ctx, assetId, amount)` — mint additional supply of an existing controllable asset. Requires the caller to hold the corresponding control asset vtxo.
 - `BurnAsset(ctx, assetID, amount)` — permanently destroy a quantity of an asset. Remaining balance is returned as change to the caller's address.
-- `GetAddresses(ctx)` - return all known onchain, offchain, boarding and redemption addresses.
-- `NewOnchainAddress(ctx)` / `NewBoardingAddress(ctx)` / `NewOffchainAddress(ctx)` - derive a fresh address of the respective type.
+
+#### Spending and batching
+
 - `SendOffChain(ctx, receivers)` - send funds offchain. Each `clientTypes.Receiver` can carry an `Assets []clientTypes.Asset` slice to transfer assets alongside sats.
 - `Settle(ctx, opts ...BatchSessionOption) (string, error)` - finalize pending or preconfirmed funds into a commitment transaction. Accepts `WithRetries(n)` to retry on failure (max 5 retries).
 - `RegisterIntent(...)` / `DeleteIntent(...)` - manage spend intents for collaborative transactions.
@@ -466,20 +431,23 @@ basic workflow shown above. Here is a quick overview:
 - `CompleteUnroll(ctx, to string) (string, error)` - finalize an unroll and sweep to an onchain address.
 - `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
 - `WithdrawFromAllExpiredBoardings(ctx, to string) (string, error)` - withdraw expired boarding amounts onchain.
+- `WhenNextSettlement() time.Time` - inspect the next auto-settle firing time. Returns the zero value when auto-settle is disabled or nothing is scheduled.
+
+#### State, signing, and notifications
+
 - `ListVtxos(ctx) (spendable, spent []clientTypes.Vtxo, err error)` - list virtual UTXOs. Each `Vtxo` includes an `Assets []types.Asset` field listing any assets it carries.
 - `ListSpendableVtxos(ctx)` - list only spendable virtual UTXOs.
-- `Dump(ctx) (seed string, error)` - export the wallet seed.
+- `Dump(ctx) (seed string, error)` - export the identity's seed (BIP39 mnemonic for the default HD identity).
 - `GetTransactionHistory(ctx)` - fetch past transactions.
 - `GetTransactionEventChannel(ctx)`, `GetVtxoEventChannel(ctx)` and `GetUtxoEventChannel(ctx)` - subscribe to wallet events.
 - `FinalizePendingTxs(ctx, createdAfter *time.Time) ([]string, error)` - finalize any pending transactions, optionally filtered by creation time.
 - `RedeemNotes(ctx, notes)` - redeem Arkade notes back to your wallet.
 - `SignTransaction(ctx, tx)` - sign an arbitrary transaction.
-- `NotifyIncomingFunds(ctx, address)` - wait until a specific offchain address receives funds.
-- `Stop()` - stop any running listeners.
+- `NotifyIncomingFunds(ctx, address)` - wait until a specific offchain address receives funds and return the resulting vtxos.
 
 ### 6. Transport Client
 
-For lower-level control over transaction batching you can use the `TransportClient` interface directly:
+For lower-level control over transaction batching you can use the `client.Client` transport interface directly (obtained via `wallet.Client()` or constructed standalone):
 
 - `GetInfo(ctx)` - return server configuration and network data.
 - `RegisterIntent(ctx, signature, message)` and `DeleteIntent(ctx, signature, message)` - manage collaborative intents.
@@ -505,7 +473,7 @@ make regtestdown
 
 ## Full Example
 
-The snippet below shows the complete flow from client creation to an offchain send:
+The snippet below shows the complete flow from wallet creation to an offchain send:
 
 ```go
 package main
@@ -521,43 +489,43 @@ import (
 
 func main() {
     ctx := context.Background()
-	prvkey := "ff694aab53abf53843f5cd1ffd8d488d743b08b35f48598bdcbab3f71d430e01"
-	password := "secret"
-	serverUrl := "localhost:7070"
+    seed := "" // empty → generate a fresh BIP39 mnemonic; recoverable via Dump
+    password := "secret"
+    serverUrl := "localhost:7070"
 
-    // Create a persistent client with debug logs enabled.
-    client, err := arksdk.NewArkClient("/path/to/data/dir")
+    // Create a persistent wallet.
+    wallet, err := arksdk.NewWallet("/path/to/data/dir")
     if err != nil {
         log.Fatal(err)
     }
-    defer client.Stop()
+    defer wallet.Stop()
 
-    // Connect to the server and set up the wallet.
-    if err := client.Init(ctx, serverUrl, prvkey, password); err != nil {
+    // Connect to the server and set up the identity.
+    if err := wallet.Init(ctx, serverUrl, seed, password); err != nil {
         log.Fatal(err)
     }
 
     // Unlock the wallet to start syncing.
-    if err := client.Unlock(ctx, password); err != nil {
+    if err := wallet.Unlock(ctx, password); err != nil {
         log.Fatal(err)
     }
-    defer client.Lock(ctx)
+    defer wallet.Lock(ctx)
 
     // Wait for the local database to finish syncing.
-    syncCh := client.IsSynced(ctx)
+    syncCh := wallet.IsSynced(ctx)
     if event := <-syncCh; event.Err != nil {
         log.Fatal(event.Err)
     }
 
     // Generate a fresh offchain address to receive funds.
-    offchainAddr, err := client.NewOffchainAddress(ctx)
+    offchainAddr, err := wallet.NewOffchainAddress(ctx)
     if err != nil {
         log.Fatal(err)
     }
     fmt.Println("Offchain address:", offchainAddr)
 
     // Check balance.
-    balance, err := client.Balance(ctx)
+    balance, err := wallet.Balance(ctx)
     if err != nil {
         log.Fatal(err)
     }
@@ -567,7 +535,7 @@ func main() {
     receivers := []clientTypes.Receiver{
         {To: "<recipient_offchain_addr>", Amount: 1000},
     }
-    txid, err := client.SendOffChain(ctx, receivers)
+    txid, err := wallet.SendOffChain(ctx, receivers)
     if err != nil {
         log.Fatal(err)
     }

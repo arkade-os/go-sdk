@@ -16,16 +16,18 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	client "github.com/arkade-os/arkd/pkg/client-lib"
-	transport "github.com/arkade-os/arkd/pkg/client-lib/client"
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
-	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	mempoolexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
-	clientStore "github.com/arkade-os/arkd/pkg/client-lib/store"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientstore "github.com/arkade-os/arkd/pkg/client-lib/store"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/scheduler"
-	cronScheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
+	cronscheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -40,28 +42,29 @@ var (
 	ErrIsSyncing      = fmt.Errorf("wallet is still syncing")
 )
 
-type arkClient struct {
-	client.ArkClient
-
-	verbose         bool
+type wallet struct {
+	client          clientwallet.Wallet
+	clientStore     clienttypes.Store
 	store           types.Store
-	clientStore     clientTypes.Store
 	contractManager contract.Manager
+	scheduler       scheduler.SchedulerService
 
-	syncMu *sync.Mutex
-	// TODO drop the channel
-	syncCh            chan error
-	syncDone          bool
-	syncErr           error
-	syncListeners     *syncListeners
-	stopFn            context.CancelFunc
-	stopOnce          sync.Once
+	syncMu        *sync.Mutex
+	syncCh        chan error
+	syncDone      bool
+	syncErr       error
+	syncListeners *syncListeners
+	stopFn        context.CancelFunc
+	stopOnce      sync.Once
+	dbMu          *sync.Mutex
+	logMu         *sync.Mutex
+
+	verbose           bool
 	refreshDbInterval time.Duration
-	dbMu              *sync.Mutex
-	logMu             *sync.Mutex
 	lastUpdate        time.Time
 	hdGapLimit        uint32
-	scheduler         scheduler.SchedulerService
+	network           arklib.Network
+	dustAmount        uint64
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -71,18 +74,8 @@ type arkClient struct {
 	watcher *contract.Watcher
 }
 
-func resolveScheduler(o *clientOptions) scheduler.SchedulerService {
-	if o.disableAutoSettle {
-		return nil
-	}
-	if o.scheduler != nil {
-		return o.scheduler
-	}
-	return cronScheduler.NewScheduler()
-}
-
-func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
-	o, err := applyClientOptions(opts...)
+func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
+	o, err := applyWalletOptions(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,16 +85,16 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, errors.New("datadir must be specified")
 	}
 
-	clientDbConfig := clientStore.Config{
-		ConfigStoreType: clientTypes.FileStore,
+	clientDbConfig := clientstore.Config{
+		ConfigStoreType: clienttypes.FileStore,
 		BaseDir:         datadir,
 	}
 	dbConfig := store.Config{
-		AppDataStoreType: types.SQLStore,
-		BaseDir:          datadir,
+		StoreType: types.SQLStore,
+		Args:      datadir,
 	}
 
-	clientDb, err := clientStore.NewStore(clientDbConfig)
+	clientDb, err := clientstore.NewStore(clientDbConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -110,29 +103,37 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
-	o.scheduler = resolveScheduler(o)
-
-	clientOpts := make([]client.ServiceOption, 0)
-	if o.verbose {
-		clientOpts = append(clientOpts, client.WithVerbose())
+	if o.scheduler == nil {
+		o.scheduler = cronscheduler.NewScheduler()
+	}
+	if o.disableAutoSettle {
+		o.scheduler = nil
 	}
 
-	if o.wallet == nil {
-		hdWallet, err := newDefaultHDWallet(datadir)
+	// Disable underlying finalization of pending txs as we are handling that ourselves
+	clientOpts := []clientwallet.ServiceOption{
+		clientwallet.WithoutFinalizePendingTxs(),
+	}
+	if o.verbose {
+		clientOpts = append(clientOpts, clientwallet.WithVerbose())
+	}
+
+	if o.identity == nil {
+		hdIdentity, err := newDefaultHDIdentity(datadir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup wallet: %s", err)
 		}
-		o.wallet = hdWallet
+		o.identity = hdIdentity
 	}
-	clientOpts = append(clientOpts, client.WithWallet(o.wallet))
+	clientOpts = append(clientOpts, clientwallet.WithIdentity(o.identity))
 
-	cli, err := client.NewArkClient(clientDb, clientOpts...)
+	cli, err := clientwallet.NewWallet(clientDb, clientOpts...)
 	if err != nil {
 		return nil, err
 	}
 
-	client := &arkClient{
-		ArkClient:         cli,
+	return &wallet{
+		client:            cli,
 		verbose:           o.verbose,
 		store:             db,
 		clientStore:       clientDb,
@@ -144,13 +145,11 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
 		scheduler:         o.scheduler,
-	}
-
-	return client, nil
+	}, nil
 }
 
-func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
-	o, err := applyClientOptions(opts...)
+func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
+	o, err := applyWalletOptions(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -160,16 +159,16 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, errors.New("datadir must be specified")
 	}
 
-	clientDbConfig := clientStore.Config{
-		ConfigStoreType: clientTypes.FileStore,
+	clientDbConfig := clientstore.Config{
+		ConfigStoreType: clienttypes.FileStore,
 		BaseDir:         datadir,
 	}
 	dbConfig := store.Config{
-		AppDataStoreType: types.SQLStore,
-		BaseDir:          datadir,
+		StoreType: types.SQLStore,
+		Args:      datadir,
 	}
 
-	clientDb, err := clientStore.NewStore(clientDbConfig)
+	clientDb, err := clientstore.NewStore(clientDbConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -178,12 +177,20 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
-	o.scheduler = resolveScheduler(o)
+	if o.scheduler == nil {
+		o.scheduler = cronscheduler.NewScheduler()
+	}
+	if o.disableAutoSettle {
+		o.scheduler = nil
+	}
 
-	clientOpts := make([]client.ServiceOption, 0)
+	// Disable underlying finalization of pending txs as we are handling that ourselves
+	clientOpts := []clientwallet.ServiceOption{
+		clientwallet.WithoutFinalizePendingTxs(),
+	}
 	var explorerSvc explorer.Explorer
 	if o.verbose {
-		clientOpts = append(clientOpts, client.WithVerbose())
+		clientOpts = append(clientOpts, clientwallet.WithVerbose())
 	}
 
 	// client.LoadArkClient defaults to noTracking=true, which leaves the explorer's
@@ -199,35 +206,46 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		if len(explorerUrl) == 0 {
 			explorerUrl = defaultExplorerUrl[cfgData.Network.Name]
 		}
-		explorerOpts := []mempool_explorer.Option{mempool_explorer.WithTracker(true)}
+		explorerOpts := []mempoolexplorer.Option{mempoolexplorer.WithTracker(true)}
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
-			explorerOpts = append(explorerOpts, mempool_explorer.WithPollInterval(2*time.Second))
+			explorerOpts = append(explorerOpts, mempoolexplorer.WithPollInterval(2*time.Second))
 		}
-		explorerSvc, err = mempool_explorer.NewExplorer(
+		explorerSvc, err = mempoolexplorer.NewExplorer(
 			explorerUrl, cfgData.Network, explorerOpts...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init explorer: %v", err)
 		}
-		clientOpts = append(clientOpts, client.WithExplorer(explorerSvc))
+		clientOpts = append(clientOpts, clientwallet.WithExplorer(explorerSvc))
 	}
 
-	if o.wallet == nil {
-		hdWallet, err := newDefaultHDWallet(datadir)
+	if o.identity == nil {
+		identityStore, err := newHDIdentityStore(datadir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to setup wallet: %s", err)
+			return nil, fmt.Errorf("failed to setup identity store: %w", err)
 		}
-		o.wallet = hdWallet
+		data, err := identityStore.Load(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to load identity data from store: %w", err)
+		}
+		if data == nil {
+			return nil, ErrNotInitialized
+		}
+		hdIdentity, err := hdidentity.NewIdentity(identityStore)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup identity: %s", err)
+		}
+		o.identity = hdIdentity
 	}
-	clientOpts = append(clientOpts, client.WithWallet(o.wallet))
+	clientOpts = append(clientOpts, clientwallet.WithIdentity(o.identity))
 
-	cli, err := client.LoadArkClient(clientDb, clientOpts...)
+	cli, err := clientwallet.LoadWallet(clientDb, clientOpts...)
 	if err != nil {
 		return nil, err
 	}
 
-	client := &arkClient{
-		ArkClient:         cli,
+	return &wallet{
+		client:            cli,
 		verbose:           o.verbose,
 		store:             db,
 		clientStore:       clientDb,
@@ -239,50 +257,61 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
 		scheduler:         o.scheduler,
-	}
-
-	return client, nil
+		network:           cfgData.Network,
+	}, nil
 }
 
-func (a *arkClient) Store() types.Store {
-	return a.store
+func (w *wallet) Store() types.Store {
+	return w.store
+}
+
+func (w *wallet) Explorer() explorer.Explorer {
+	if w.client == nil {
+		return nil
+	}
+	return w.client.Explorer()
+}
+
+func (w *wallet) Indexer() indexer.Indexer {
+	if w.client == nil {
+		return nil
+	}
+	return w.client.Indexer()
 }
 
 // contractMgr returns the current contract manager under a read lock.
 // Callers must treat a nil return as "wallet is locked".
-func (a *arkClient) contractMgr() contract.Manager {
-	a.cmMu.RLock()
-	defer a.cmMu.RUnlock()
-	return a.contractManager
+func (w *wallet) contractMgr() contract.Manager {
+	w.cmMu.RLock()
+	defer w.cmMu.RUnlock()
+	return w.contractManager
 }
 
-func (a *arkClient) Explorer() explorer.Explorer {
-	return a.ArkClient.Explorer()
+func (w *wallet) Client() client.Client {
+	if w.client == nil {
+		return nil
+	}
+	return w.client.Client()
 }
 
-func (a *arkClient) Indexer() indexer.Indexer {
-	return a.ArkClient.Indexer()
+func (w *wallet) Identity() identity.Identity {
+	if w.client == nil {
+		return nil
+	}
+	return w.client.Identity()
 }
 
-func (a *arkClient) Client() transport.TransportClient {
-	return a.Transport()
+func (w *wallet) ContractManager() contract.Manager {
+	return w.contractManager
 }
 
-func (a *arkClient) ContractManager() contract.Manager {
-	return a.contractMgr()
-}
-
-func (a *arkClient) GetConfigStore() clientTypes.ConfigStore {
-	return a.clientStore.ConfigStore()
-}
-
-func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
+func (w *wallet) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 	ch := make(chan types.SyncEvent, 1)
 
-	a.syncMu.Lock()
-	syncDone := a.syncDone
-	syncErr := a.syncErr
-	a.syncMu.Unlock()
+	w.syncMu.Lock()
+	syncDone := w.syncDone
+	syncErr := w.syncErr
+	w.syncMu.Unlock()
 
 	if syncDone {
 		go func() {
@@ -294,91 +323,113 @@ func (a *arkClient) IsSynced(ctx context.Context) <-chan types.SyncEvent {
 		return ch
 	}
 
-	a.syncListeners.add(ch)
+	w.syncListeners.add(ch)
 	return ch
 }
 
-func (a *arkClient) Reset(ctx context.Context) {
-	a.ArkClient.Reset(ctx)
-	if exp := a.ArkClient.Explorer(); exp != nil {
+func (w *wallet) Reset(ctx context.Context) {
+	if w.client == nil {
+		return
+	}
+
+	w.client.Reset(ctx)
+	if exp := w.client.Explorer(); exp != nil {
 		exp.Stop()
 	}
 
-	a.syncMu.Lock()
-	a.syncDone = false
-	a.syncErr = nil
-	a.syncMu.Unlock()
+	w.syncMu.Lock()
+	w.syncDone = false
+	w.syncErr = nil
+	w.syncMu.Unlock()
 
-	if a.stopFn != nil {
-		a.stopFn()
+	if w.stopFn != nil {
+		w.stopFn()
 	}
-	if a.syncListeners != nil {
-		a.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
-		a.syncListeners.clear()
+	if w.syncListeners != nil {
+		w.syncListeners.broadcast(fmt.Errorf("wallet reset while restoring"))
+		w.syncListeners.clear()
 	}
-	a.cmMu.Lock()
-	if a.watcher != nil {
-		a.watcher.Stop()
-		a.watcher = nil
+	w.cmMu.Lock()
+	if w.watcher != nil {
+		w.watcher.Stop()
+		w.watcher = nil
 	}
-	if a.contractManager != nil {
-		a.contractManager.Close()
-		a.contractManager = nil
+	if w.contractManager != nil {
+		w.contractManager.Close()
+		w.contractManager = nil
 	}
-	a.cmMu.Unlock()
-	if a.store != nil {
-		a.store.Clean(ctx)
+	w.cmMu.Unlock()
+	if w.store != nil {
+		w.store.Clean(ctx)
 	}
-	a.lastUpdate = time.Time{}
+	w.lastUpdate = time.Time{}
 }
 
-func (a *arkClient) Stop() {
-	a.stopOnce.Do(func() {
-		a.ArkClient.Stop()
-		a.Explorer().Stop()
+func (w *wallet) Dump(ctx context.Context) (string, error) {
+	if w.client == nil {
+		return "", ErrNotInitialized
+	}
+	return w.client.Dump(ctx)
+}
+
+func (w *wallet) Version() string {
+	return Version
+}
+
+func (w *wallet) Stop() {
+	if w.client == nil {
+		return
+	}
+
+	w.stopOnce.Do(func() {
+		w.client.Stop()
+
+		if explorer := w.Explorer(); explorer != nil {
+			explorer.Stop()
+		}
 		// Tear down the auto-settle scheduler before the store closes,
 		// otherwise an already-scheduled refresh task can fire after Stop()
 		// and try to begin a transaction on a closed DB. Mirrors what Lock()
 		// already does.
-		if a.scheduler != nil {
-			a.scheduler.Stop()
+		if w.scheduler != nil {
+			w.scheduler.Stop()
 		}
 
-		a.syncMu.Lock()
-		a.syncDone = false
-		a.syncErr = nil
-		a.syncMu.Unlock()
+		w.syncMu.Lock()
+		w.syncDone = false
+		w.syncErr = nil
+		w.syncMu.Unlock()
 
-		if a.stopFn != nil {
-			a.stopFn()
+		if w.stopFn != nil {
+			w.stopFn()
 		}
-		if a.syncListeners != nil {
-			a.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
-			a.syncListeners.clear()
+		if w.syncListeners != nil {
+			w.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
+			w.syncListeners.clear()
 		}
-		a.cmMu.Lock()
-		if a.watcher != nil {
-			a.watcher.Stop()
-			a.watcher = nil
+		w.cmMu.Lock()
+		if w.watcher != nil {
+			w.watcher.Stop()
+			w.watcher = nil
 		}
-		if a.contractManager != nil {
-			a.contractManager.Close()
-			a.contractManager = nil
+		if w.contractManager != nil {
+			w.contractManager.Close()
+			w.contractManager = nil
 		}
-		a.cmMu.Unlock()
+		w.cmMu.Unlock()
 
-		a.store.Close()
+		w.store.Close()
 	})
 }
 
-func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]clientTypes.Transaction, error) {
-	if err := a.safeCheck(); err != nil {
+func (w *wallet) GetTransactionHistory(ctx context.Context) ([]clienttypes.Transaction, error) {
+	if err := w.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	a.dbMu.Lock()
-	history, err := a.store.TransactionStore().GetAllTransactions(ctx)
-	a.dbMu.Unlock()
+	w.dbMu.Lock()
+	history, err := w.store.TransactionStore().GetAllTransactions(ctx)
+	w.dbMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -388,23 +439,23 @@ func (a *arkClient) GetTransactionHistory(ctx context.Context) ([]clientTypes.Tr
 	return history, nil
 }
 
-func (a *arkClient) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
-	if a.txBroadcaster != nil {
-		return a.txBroadcaster.subscribe(0)
+func (w *wallet) GetTransactionEventChannel(_ context.Context) <-chan types.TransactionEvent {
+	if w.txBroadcaster != nil {
+		return w.txBroadcaster.subscribe(0)
 	}
 	return nil
 }
 
-func (a *arkClient) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
-	if a.vtxoBroadcaster != nil {
-		return a.vtxoBroadcaster.subscribe(0)
+func (w *wallet) GetVtxoEventChannel(_ context.Context) <-chan types.VtxoEvent {
+	if w.vtxoBroadcaster != nil {
+		return w.vtxoBroadcaster.subscribe(0)
 	}
 	return nil
 }
 
-func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
-	if a.utxoBroadcaster != nil {
-		return a.utxoBroadcaster.subscribe(0)
+func (w *wallet) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
+	if w.utxoBroadcaster != nil {
+		return w.utxoBroadcaster.subscribe(0)
 	}
 	return nil
 }
@@ -412,48 +463,48 @@ func (a *arkClient) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEven
 // WhenNextSettlement returns the time at which the next automatic settlement
 // is scheduled to fire. It returns the zero time when auto-settle is disabled
 // or no settlement is currently scheduled.
-func (a *arkClient) WhenNextSettlement() time.Time {
-	if a.scheduler == nil {
+func (w *wallet) WhenNextSettlement() time.Time {
+	if w.scheduler == nil {
 		return time.Time{}
 	}
-	return a.scheduler.GetTaskScheduledAt()
+	return w.scheduler.GetTaskScheduledAt()
 }
 
-func (a *arkClient) setRestored(err error) {
-	a.syncMu.Lock()
-	defer a.syncMu.Unlock()
+func (w *wallet) setRestored(err error) {
+	w.syncMu.Lock()
+	defer w.syncMu.Unlock()
 
-	a.syncDone = true
-	a.syncErr = err
+	w.syncDone = true
+	w.syncErr = err
 
-	a.syncListeners.broadcast(err)
-	a.syncListeners.clear()
+	w.syncListeners.broadcast(err)
+	w.syncListeners.clear()
 }
 
 // resetSyncStateForUnlock clears the sync flags and re-creates syncCh so the
 // next Unlock cycle can publish its own sync result without colliding with
 // readers (e.g. IsSynced). The mutex matches every other writer of these
 // fields (Lock, Reset, setRestored).
-func (a *arkClient) resetSyncStateForUnlock() {
-	a.syncMu.Lock()
-	defer a.syncMu.Unlock()
+func (w *wallet) resetSyncStateForUnlock() {
+	w.syncMu.Lock()
+	defer w.syncMu.Unlock()
 
-	a.syncDone = false
-	a.syncErr = nil
-	a.syncCh = make(chan error)
+	w.syncDone = false
+	w.syncErr = nil
+	w.syncCh = make(chan error)
 }
 
-func (a *arkClient) refreshDb(ctx context.Context) error {
+func (w *wallet) refreshDb(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 
-	allContracts, err := a.contractManager.GetContracts(ctx)
+	allContracts, err := w.contractManager.GetContracts(ctx)
 	if err != nil {
 		return err
 	}
@@ -473,7 +524,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	}
 
 	updateTime := time.Now()
-	var spendableVtxos, spentVtxos []clientTypes.Vtxo
+	var spendableVtxos, spentVtxos []clienttypes.Vtxo
 	// Fetch new and spent vtxos in time range, or full list at startup.
 	if len(offchainContracts) > 0 {
 		scripts := make([]string, 0, len(offchainContracts))
@@ -481,15 +532,15 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 			scripts = append(scripts, contract.Script)
 		}
 		opts := []indexer.GetVtxosOption{indexer.WithScripts(scripts)}
-		if !a.lastUpdate.IsZero() {
+		if !w.lastUpdate.IsZero() {
 			updateUnix := updateTime.Unix()
-			lastUpdateUnix := a.lastUpdate.Unix()
+			lastUpdateUnix := w.lastUpdate.Unix()
 			if updateUnix > lastUpdateUnix {
 				opts = append(opts, indexer.WithTimeRange(updateUnix, lastUpdateUnix))
 			}
 		}
 
-		res, err := a.Indexer().GetVtxos(ctx, opts...)
+		res, err := w.Indexer().GetVtxos(ctx, opts...)
 		if err != nil {
 			return err
 		}
@@ -504,8 +555,8 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	}
 
 	var (
-		spendableUtxos, spentUtxos []clientTypes.Utxo
-		onchainHistory             []clientTypes.Transaction
+		spendableUtxos, spentUtxos []clienttypes.Utxo
+		onchainHistory             []clienttypes.Transaction
 		commitmentTxsToIgnore      = make(map[string]struct{})
 	)
 	if len(boardingContracts) > 0 {
@@ -518,7 +569,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		addrParams := make(map[string]params, len(boardingContracts))
 		for _, contract := range boardingContracts {
 			boardingAddresses = append(boardingAddresses, contract.Address)
-			handler, err := a.contractManager.GetHandler(ctx, contract)
+			handler, err := w.contractManager.GetHandler(ctx, contract)
 			if err != nil {
 				return err
 			}
@@ -533,12 +584,12 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 			addrParams[contract.Script] = params{*exitDelay, tapscripts}
 		}
 
-		utxos, err := a.Explorer().GetUtxos(boardingAddresses)
+		utxos, err := w.Explorer().GetUtxos(boardingAddresses)
 		if err != nil {
 			return err
 		}
 
-		allUtxos := make([]clientTypes.Utxo, 0, len(utxos))
+		allUtxos := make([]clienttypes.Utxo, 0, len(utxos))
 		for _, utxo := range utxos {
 			params := addrParams[utxo.Script]
 			allUtxos = append(allUtxos, utxo.ToUtxo(params.exitDelay, params.tapscripts))
@@ -554,15 +605,15 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 		}
 
 		// Rebuild tx history.
-		unconfirmedTxs := make([]clientTypes.Transaction, 0)
-		confirmedTxs := make([]clientTypes.Transaction, 0)
+		unconfirmedTxs := make([]clienttypes.Transaction, 0)
+		confirmedTxs := make([]clienttypes.Transaction, 0)
 		for _, u := range allUtxos {
-			tx := clientTypes.Transaction{
-				TransactionKey: clientTypes.TransactionKey{
+			tx := clienttypes.Transaction{
+				TransactionKey: clienttypes.TransactionKey{
 					BoardingTxid: u.Txid,
 				},
 				Amount:    u.Amount,
-				Type:      clientTypes.TxReceived,
+				Type:      clienttypes.TxReceived,
 				CreatedAt: u.CreatedAt,
 				SettledBy: u.SpentBy,
 				Hex:       u.Tx,
@@ -585,7 +636,7 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	}
 
 	// TODO tx packet handling ?
-	offchainHistory, err := a.vtxosToTxs(ctx, spendableVtxos, spentVtxos, commitmentTxsToIgnore)
+	offchainHistory, err := w.vtxosToTxs(ctx, spendableVtxos, spentVtxos, commitmentTxsToIgnore)
 	if err != nil {
 		return err
 	}
@@ -606,36 +657,36 @@ func (a *arkClient) refreshDb(ctx context.Context) error {
 	// TODO goroutines
 
 	// Update tx history in db.
-	if err := a.refreshTxDb(ctx, history); err != nil {
+	if err := w.refreshTxDb(ctx, history); err != nil {
 		return err
 	}
 
 	// Update utxos in db.
-	if err := a.refreshUtxoDb(ctx, spendableUtxos, spentUtxos); err != nil {
+	if err := w.refreshUtxoDb(ctx, spendableUtxos, spentUtxos); err != nil {
 		return err
 	}
 
 	// Update vtxos in db.
-	if err := a.refreshVtxoDb(ctx, spendableVtxos, spentVtxos); err != nil {
+	if err := w.refreshVtxoDb(ctx, spendableVtxos, spentVtxos); err != nil {
 		return err
 	}
 
-	a.lastUpdate = updateTime
+	w.lastUpdate = updateTime
 
 	return nil
 }
 
-func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transaction) error {
+func (w *wallet) refreshTxDb(ctx context.Context, newTxs []clienttypes.Transaction) error {
 	// Fetch old data.
-	oldTxs, err := a.store.TransactionStore().GetAllTransactions(ctx)
+	oldTxs, err := w.store.TransactionStore().GetAllTransactions(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Index the old data for quick lookups.
-	oldTxsMap := make(map[string]clientTypes.Transaction, len(oldTxs))
-	updateTxsMap := make(map[string]clientTypes.Transaction, 0)
-	unconfirmedTxsMap := make(map[string]clientTypes.Transaction, 0)
+	oldTxsMap := make(map[string]clienttypes.Transaction, len(oldTxs))
+	updateTxsMap := make(map[string]clienttypes.Transaction, 0)
+	unconfirmedTxsMap := make(map[string]clienttypes.Transaction, 0)
 	for _, tx := range oldTxs {
 		if tx.CreatedAt.IsZero() {
 			unconfirmedTxsMap[tx.TransactionKey.String()] = tx
@@ -645,9 +696,9 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transa
 		oldTxsMap[tx.TransactionKey.String()] = tx
 	}
 
-	txsToAdd := make([]clientTypes.Transaction, 0, len(newTxs))
-	txsToSettle := make([]clientTypes.Transaction, 0, len(newTxs))
-	txsToConfirm := make([]clientTypes.Transaction, 0, len(newTxs))
+	txsToAdd := make([]clienttypes.Transaction, 0, len(newTxs))
+	txsToSettle := make([]clienttypes.Transaction, 0, len(newTxs))
+	txsToConfirm := make([]clienttypes.Transaction, 0, len(newTxs))
 	for _, tx := range newTxs {
 		if _, ok := oldTxsMap[tx.TransactionKey.String()]; !ok {
 			txsToAdd = append(txsToAdd, tx)
@@ -664,7 +715,7 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transa
 	}
 
 	if len(txsToAdd) > 0 {
-		count, err := a.store.TransactionStore().AddTransactions(ctx, txsToAdd)
+		count, err := w.store.TransactionStore().AddTransactions(ctx, txsToAdd)
 		if err != nil {
 			return err
 		}
@@ -673,7 +724,7 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transa
 		}
 	}
 	if len(txsToSettle) > 0 {
-		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToSettle)
+		count, err := w.store.TransactionStore().UpdateTransactions(ctx, txsToSettle)
 		if err != nil {
 			return err
 		}
@@ -682,7 +733,7 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transa
 		}
 	}
 	if len(txsToConfirm) > 0 {
-		count, err := a.store.TransactionStore().UpdateTransactions(ctx, txsToConfirm)
+		count, err := w.store.TransactionStore().UpdateTransactions(ctx, txsToConfirm)
 		if err != nil {
 			return err
 		}
@@ -694,23 +745,23 @@ func (a *arkClient) refreshTxDb(ctx context.Context, newTxs []clientTypes.Transa
 	return nil
 }
 
-func (a *arkClient) refreshUtxoDb(
-	ctx context.Context, spendableUtxos, spentUtxos []clientTypes.Utxo,
+func (w *wallet) refreshUtxoDb(
+	ctx context.Context, spendableUtxos, spentUtxos []clienttypes.Utxo,
 ) error {
 	// Fetch old data.
-	oldSpendableUtxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
+	oldSpendableUtxos, _, err := w.store.UtxoStore().GetAllUtxos(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Index old data for quick lookups.
-	oldSpendableUtxoMap := make(map[clientTypes.Outpoint]clientTypes.Utxo, 0)
+	oldSpendableUtxoMap := make(map[clienttypes.Outpoint]clienttypes.Utxo, 0)
 	for _, u := range oldSpendableUtxos {
 		oldSpendableUtxoMap[u.Outpoint] = u
 	}
 
-	utxosToAdd := make([]clientTypes.Utxo, 0, len(spendableUtxos))
-	utxosToConfirm := make(map[clientTypes.Outpoint]int64)
+	utxosToAdd := make([]clienttypes.Utxo, 0, len(spendableUtxos))
+	utxosToConfirm := make(map[clienttypes.Outpoint]int64)
 	for _, utxo := range spendableUtxos {
 		if _, ok := oldSpendableUtxoMap[utxo.Outpoint]; !ok {
 			utxosToAdd = append(utxosToAdd, utxo)
@@ -725,7 +776,7 @@ func (a *arkClient) refreshUtxoDb(
 
 	// Spent vtxos include swept and redeemed, let's make sure to update any vtxo that was
 	// previously spendable.
-	utxosToSpend := make(map[clientTypes.Outpoint]string)
+	utxosToSpend := make(map[clienttypes.Outpoint]string)
 	for _, utxo := range spentUtxos {
 		if _, ok := oldSpendableUtxoMap[utxo.Outpoint]; ok {
 			utxosToSpend[utxo.Outpoint] = utxo.SpentBy
@@ -733,7 +784,7 @@ func (a *arkClient) refreshUtxoDb(
 	}
 
 	if len(utxosToAdd) > 0 {
-		count, err := a.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
+		count, err := w.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
 		if err != nil {
 			return err
 		}
@@ -742,7 +793,7 @@ func (a *arkClient) refreshUtxoDb(
 		}
 	}
 	if len(utxosToConfirm) > 0 {
-		count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
+		count, err := w.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
 		if err != nil {
 			return err
 		}
@@ -751,7 +802,7 @@ func (a *arkClient) refreshUtxoDb(
 		}
 	}
 	if len(utxosToSpend) > 0 {
-		count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+		count, err := w.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
 		if err != nil {
 			return err
 		}
@@ -763,22 +814,22 @@ func (a *arkClient) refreshUtxoDb(
 	return nil
 }
 
-func (a *arkClient) refreshVtxoDb(
-	ctx context.Context, spendableVtxos, spentVtxos []clientTypes.Vtxo,
+func (w *wallet) refreshVtxoDb(
+	ctx context.Context, spendableVtxos, spentVtxos []clienttypes.Vtxo,
 ) error {
 	// Fetch old data.
-	oldSpendableVtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
+	oldSpendableVtxos, _, err := w.store.VtxoStore().GetAllVtxos(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Index old data for quick lookups.
-	oldSpendableVtxoMap := make(map[clientTypes.Outpoint]clientTypes.Vtxo, 0)
+	oldSpendableVtxoMap := make(map[clienttypes.Outpoint]clienttypes.Vtxo, 0)
 	for _, v := range oldSpendableVtxos {
 		oldSpendableVtxoMap[v.Outpoint] = v
 	}
 
-	vtxosToAdd := make([]clientTypes.Vtxo, 0, len(spendableVtxos))
+	vtxosToAdd := make([]clienttypes.Vtxo, 0, len(spendableVtxos))
 	for _, vtxo := range spendableVtxos {
 		if _, ok := oldSpendableVtxoMap[vtxo.Outpoint]; !ok {
 			vtxosToAdd = append(vtxosToAdd, vtxo)
@@ -788,7 +839,7 @@ func (a *arkClient) refreshVtxoDb(
 	vtxosToSpend, vtxosToSettle := groupSpentVtxosByTx(spentVtxos, oldSpendableVtxoMap)
 
 	if len(vtxosToAdd) > 0 {
-		count, err := a.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
+		count, err := w.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
 		if err != nil {
 			return err
 		}
@@ -798,7 +849,7 @@ func (a *arkClient) refreshVtxoDb(
 	}
 	totalSpent := 0
 	for arkTxid, spent := range vtxosToSpend {
-		count, err := a.store.VtxoStore().SpendVtxos(ctx, spent, arkTxid)
+		count, err := w.store.VtxoStore().SpendVtxos(ctx, spent, arkTxid)
 		if err != nil {
 			return err
 		}
@@ -810,7 +861,7 @@ func (a *arkClient) refreshVtxoDb(
 
 	totalSettled := 0
 	for settledBy, spent := range vtxosToSettle {
-		count, err := a.store.VtxoStore().SettleVtxos(ctx, spent, settledBy)
+		count, err := w.store.VtxoStore().SettleVtxos(ctx, spent, settledBy)
 		if err != nil {
 			return err
 		}
@@ -823,48 +874,14 @@ func (a *arkClient) refreshVtxoDb(
 	return nil
 }
 
-func groupSpentVtxosByTx(
-	spentVtxos []clientTypes.Vtxo,
-	oldSpendableVtxoMap map[clientTypes.Outpoint]clientTypes.Vtxo,
-) (
-	map[string]map[clientTypes.Outpoint]string,
-	map[string]map[clientTypes.Outpoint]string,
-) {
-	// Spent vtxos include swept and redeemed, let's make sure to update only vtxos
-	// that were previously spendable.
-	vtxosToSpend := make(map[string]map[clientTypes.Outpoint]string)
-	vtxosToSettle := make(map[string]map[clientTypes.Outpoint]string)
-
-	for _, vtxo := range spentVtxos {
-		if _, ok := oldSpendableVtxoMap[vtxo.Outpoint]; !ok {
-			continue
-		}
-
-		if vtxo.SettledBy != "" {
-			if _, ok := vtxosToSettle[vtxo.SettledBy]; !ok {
-				vtxosToSettle[vtxo.SettledBy] = make(map[clientTypes.Outpoint]string)
-			}
-			vtxosToSettle[vtxo.SettledBy][vtxo.Outpoint] = vtxo.SpentBy
-			continue
-		}
-
-		if _, ok := vtxosToSpend[vtxo.ArkTxid]; !ok {
-			vtxosToSpend[vtxo.ArkTxid] = make(map[clientTypes.Outpoint]string)
-		}
-		vtxosToSpend[vtxo.ArkTxid][vtxo.Outpoint] = vtxo.SpentBy
-	}
-
-	return vtxosToSpend, vtxosToSettle
-}
-
-func (a *arkClient) listenForArkTxs(ctx context.Context) {
-	wallet := a.Wallet()
+func (w *wallet) listenForArkTxs(ctx context.Context) {
+	wallet := w.client.Identity()
 	if wallet == nil {
 		// Should be unreachable
 		log.Error("failed to listen for offchain txs, wallet is nil")
 		return
 	}
-	client := a.Transport()
+	client := w.Client()
 	if client == nil {
 		// Should be unreachable
 		log.Error("failed to listen for offchain txs, client is nil")
@@ -904,7 +921,7 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 				return
 			}
 
-			mgr := a.contractMgr()
+			mgr := w.contractMgr()
 			if mgr == nil {
 				continue
 			}
@@ -923,29 +940,29 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 			}
 
 			if event.CommitmentTx != nil {
-				if err := a.handleCommitmentTx(ctx, myScripts, event.CommitmentTx); err != nil {
+				if err := w.handleCommitmentTx(ctx, myScripts, event.CommitmentTx); err != nil {
 					if ctx.Err() != nil {
 						return
 					}
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
-				a.scheduleNextSettlement()
+				w.scheduleNextSettlement()
 			}
 
 			if event.ArkTx != nil {
-				if err := a.handleArkTx(ctx, myScripts, event.ArkTx); err != nil {
+				if err := w.handleArkTx(ctx, myScripts, event.ArkTx); err != nil {
 					if ctx.Err() != nil {
 						return
 					}
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
-				a.scheduleNextSettlement()
+				w.scheduleNextSettlement()
 			}
 
 			if event.SweepTx != nil {
-				if err := a.handleSweepTx(ctx, event.SweepTx); err != nil {
+				if err := w.handleSweepTx(ctx, event.SweepTx); err != nil {
 					if ctx.Err() != nil {
 						return
 					}
@@ -957,15 +974,15 @@ func (a *arkClient) listenForArkTxs(ctx context.Context) {
 	}
 }
 
-func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
-	a.cmMu.RLock()
-	watcher := a.watcher
-	a.cmMu.RUnlock()
+func (w *wallet) listenForOnchainTxs(ctx context.Context) {
+	w.cmMu.RLock()
+	watcher := w.watcher
+	w.cmMu.RUnlock()
 	if watcher == nil {
 		log.Error("cannot listen for onchain txs: watcher is nil")
 		return
 	}
-	explorer := a.ArkClient.Explorer()
+	explorer := w.Explorer()
 	if explorer == nil {
 		log.Error("failed to listen for onchain txs, explorer is nil")
 		return
@@ -982,18 +999,18 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				log.WithError(update.Error).Error("received error from explorer")
 				continue
 			}
-			txsToAdd := make([]clientTypes.Transaction, 0)
+			txsToAdd := make([]clienttypes.Transaction, 0)
 			txsToConfirm := make([]string, 0)
-			utxosToConfirm := make(map[clientTypes.Outpoint]int64)
-			utxosToSpend := make(map[clientTypes.Outpoint]string)
+			utxosToConfirm := make(map[clienttypes.Outpoint]int64)
+			utxosToSpend := make(map[clienttypes.Outpoint]string)
 			if len(update.NewUtxos) > 0 {
 				for _, u := range update.NewUtxos {
-					txsToAdd = append(txsToAdd, clientTypes.Transaction{
-						TransactionKey: clientTypes.TransactionKey{
+					txsToAdd = append(txsToAdd, clienttypes.Transaction{
+						TransactionKey: clienttypes.TransactionKey{
 							BoardingTxid: u.Txid,
 						},
 						Amount:    u.Amount,
-						Type:      clientTypes.TxReceived,
+						Type:      clienttypes.TxReceived,
 						CreatedAt: u.CreatedAt,
 					})
 				}
@@ -1011,11 +1028,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(txsToAdd) > 0 {
-				a.dbMu.Lock()
-				count, err := a.store.TransactionStore().AddTransactions(
+				w.dbMu.Lock()
+				count, err := w.store.TransactionStore().AddTransactions(
 					ctx, txsToAdd,
 				)
-				a.dbMu.Unlock()
+				w.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to add new boarding transactions")
 					continue
@@ -1026,11 +1043,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(txsToConfirm) > 0 {
-				a.dbMu.Lock()
-				count, err := a.store.TransactionStore().ConfirmTransactions(
+				w.dbMu.Lock()
+				count, err := w.store.TransactionStore().ConfirmTransactions(
 					ctx, txsToConfirm, time.Now(),
 				)
-				a.dbMu.Unlock()
+				w.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to update boarding transactions")
 					continue
@@ -1041,9 +1058,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(update.Replacements) > 0 {
-				a.dbMu.Lock()
-				count, err := a.store.TransactionStore().RbfTransactions(ctx, update.Replacements)
-				a.dbMu.Unlock()
+				w.dbMu.Lock()
+				count, err := w.store.TransactionStore().RbfTransactions(ctx, update.Replacements)
+				w.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to update rbf boarding transactions")
 					continue
@@ -1067,11 +1084,11 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						continue
 					}
 
-					utxoStore := a.store.UtxoStore()
+					utxoStore := w.store.UtxoStore()
 
-					a.dbMu.Lock()
+					w.dbMu.Lock()
 					storedUtxos, err := utxoStore.GetUtxosByTxid(ctx, replacedTxid)
-					a.dbMu.Unlock()
+					w.dbMu.Unlock()
 					if err != nil {
 						log.WithError(err).Error("failed to get stored utxos")
 						continue
@@ -1084,9 +1101,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						storedUtxos, replacementTxid, &tx,
 					)
 					for _, r := range utxoReplacements {
-						a.dbMu.Lock()
+						w.dbMu.Lock()
 						err := utxoStore.ReplaceUtxo(ctx, r.from, r.to)
-						a.dbMu.Unlock()
+						w.dbMu.Unlock()
 						if err != nil {
 							log.WithError(err).Error("failed to replace boarding utxo")
 						} else {
@@ -1100,7 +1117,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(update.NewUtxos) > 0 {
-				utxosToAdd := make([]clientTypes.Utxo, 0, len(update.NewUtxos))
+				utxosToAdd := make([]clienttypes.Utxo, 0, len(update.NewUtxos))
 				for _, u := range update.NewUtxos {
 					addrInfo, ok := watcher.LookupAddress(u.Script)
 					if !ok {
@@ -1123,7 +1140,7 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 						)
 					}
 
-					utxosToAdd = append(utxosToAdd, clientTypes.Utxo{
+					utxosToAdd = append(utxosToAdd, clienttypes.Utxo{
 						Outpoint:    u.Outpoint,
 						Amount:      u.Amount,
 						Script:      u.Script,
@@ -1135,9 +1152,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 					})
 				}
 
-				a.dbMu.Lock()
-				count, err := a.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
-				a.dbMu.Unlock()
+				w.dbMu.Lock()
+				count, err := w.store.UtxoStore().AddUtxos(ctx, utxosToAdd)
+				w.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to add new boarding utxos")
 					continue
@@ -1148,9 +1165,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 			}
 
 			if len(utxosToConfirm) > 0 {
-				a.dbMu.Lock()
-				count, err := a.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
-				a.dbMu.Unlock()
+				w.dbMu.Lock()
+				count, err := w.store.UtxoStore().ConfirmUtxos(ctx, utxosToConfirm)
+				w.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to add new boarding utxos")
 					continue
@@ -1160,9 +1177,9 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 				}
 			}
 			if len(utxosToSpend) > 0 {
-				a.dbMu.Lock()
-				count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
-				a.dbMu.Unlock()
+				w.dbMu.Lock()
+				count, err := w.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+				w.dbMu.Unlock()
 				if err != nil {
 					log.WithError(err).Error("failed to mark boarding utxos as spent")
 					continue
@@ -1175,27 +1192,27 @@ func (a *arkClient) listenForOnchainTxs(ctx context.Context) {
 	}
 }
 
-func (a *arkClient) listenDbEvents(ctx context.Context) {
+func (w *wallet) listenDbEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			time.Sleep(100 * time.Millisecond)
-			if a.utxoBroadcaster != nil {
-				a.utxoBroadcaster.close()
+			if w.utxoBroadcaster != nil {
+				w.utxoBroadcaster.close()
 			}
-			if a.vtxoBroadcaster != nil {
-				a.vtxoBroadcaster.close()
+			if w.vtxoBroadcaster != nil {
+				w.vtxoBroadcaster.close()
 			}
-			if a.txBroadcaster != nil {
-				a.txBroadcaster.close()
+			if w.txBroadcaster != nil {
+				w.txBroadcaster.close()
 			}
 			return
-		case event, ok := <-a.store.UtxoStore().GetEventChannel():
+		case event, ok := <-w.store.UtxoStore().GetEventChannel():
 			if !ok {
 				continue
 			}
 			go func() {
-				closedListeners := a.utxoBroadcaster.publish(event)
+				closedListeners := w.utxoBroadcaster.publish(event)
 				if closedListeners > 0 {
 					log.Warnf(
 						"failed to send utxo event to %d listeners and they've been removed",
@@ -1203,12 +1220,12 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 					)
 				}
 			}()
-		case event, ok := <-a.store.VtxoStore().GetEventChannel():
+		case event, ok := <-w.store.VtxoStore().GetEventChannel():
 			if !ok {
 				continue
 			}
 			go func() {
-				closedListeners := a.vtxoBroadcaster.publish(event)
+				closedListeners := w.vtxoBroadcaster.publish(event)
 				if closedListeners > 0 {
 					log.Warnf(
 						"failed to send vtxo event to %d listeners and they've been removed",
@@ -1216,12 +1233,12 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 					)
 				}
 			}()
-		case event, ok := <-a.store.TransactionStore().GetEventChannel():
+		case event, ok := <-w.store.TransactionStore().GetEventChannel():
 			if !ok {
 				continue
 			}
 			go func() {
-				closedListeners := a.txBroadcaster.publish(event)
+				closedListeners := w.txBroadcaster.publish(event)
 				if closedListeners > 0 {
 					log.Warnf(
 						"failed to send utxo event to %d listeners and they've been removed",
@@ -1233,19 +1250,19 @@ func (a *arkClient) listenDbEvents(ctx context.Context) {
 	}
 }
 
-func (a *arkClient) periodicRefreshDb(ctx context.Context) {
-	if a.refreshDbInterval == 0 {
+func (w *wallet) periodicRefreshDb(ctx context.Context) {
+	if w.refreshDbInterval == 0 {
 		return
 	}
-	ticker := time.NewTicker(a.refreshDbInterval)
+	ticker := time.NewTicker(w.refreshDbInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			log.Debugf("refreshing db (last update %s)...", a.lastUpdate.Format(time.RFC3339))
-			if err := a.refreshDb(ctx); err != nil {
+			log.Debugf("refreshing db (last update %s)...", w.lastUpdate.Format(time.RFC3339))
+			if err := w.refreshDb(ctx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
 				continue
 			}
@@ -1253,15 +1270,15 @@ func (a *arkClient) periodicRefreshDb(ctx context.Context) {
 	}
 }
 
-func (a *arkClient) handleCommitmentTx(
-	ctx context.Context, myScripts map[string]struct{}, commitmentTx *transport.TxNotification,
+func (w *wallet) handleCommitmentTx(
+	ctx context.Context, myScripts map[string]struct{}, commitmentTx *client.TxNotification,
 ) error {
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 
-	vtxosToAdd := make([]clientTypes.Vtxo, 0)
-	vtxosToSpend := make(map[clientTypes.Outpoint]string, 0)
-	txsToAdd := make([]clientTypes.Transaction, 0)
+	vtxosToAdd := make([]clienttypes.Vtxo, 0)
+	vtxosToSpend := make(map[clienttypes.Outpoint]string, 0)
+	txsToAdd := make([]clienttypes.Transaction, 0)
 	txsToSettle := make([]string, 0)
 
 	for _, vtxo := range commitmentTx.SpendableVtxos {
@@ -1271,18 +1288,18 @@ func (a *arkClient) handleCommitmentTx(
 	}
 
 	// Check if any of the spent vtxos is ours.
-	spentVtxos := make([]clientTypes.Outpoint, 0, len(commitmentTx.SpentVtxos))
-	indexedSpentVtxos := make(map[clientTypes.Outpoint]clientTypes.Vtxo)
+	spentVtxos := make([]clienttypes.Outpoint, 0, len(commitmentTx.SpentVtxos))
+	indexedSpentVtxos := make(map[clienttypes.Outpoint]clienttypes.Vtxo)
 	for _, vtxo := range commitmentTx.SpentVtxos {
 		if _, ok := myScripts[vtxo.Script]; ok {
-			spentVtxos = append(spentVtxos, clientTypes.Outpoint{
+			spentVtxos = append(spentVtxos, clienttypes.Outpoint{
 				Txid: vtxo.Txid,
 				VOut: vtxo.VOut,
 			})
 			indexedSpentVtxos[vtxo.Outpoint] = vtxo
 		}
 	}
-	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, spentVtxos)
+	myVtxos, err := w.store.VtxoStore().GetVtxos(ctx, spentVtxos)
 	if err != nil {
 		return err
 	}
@@ -1298,7 +1315,7 @@ func (a *arkClient) handleCommitmentTx(
 	for _, in := range rawTx.TxIn {
 		boardingTxids = append(boardingTxids, in.PreviousOutPoint.Hash.String())
 	}
-	pendingBoardingTxs, err := a.store.TransactionStore().GetTransactions(
+	pendingBoardingTxs, err := w.store.TransactionStore().GetTransactions(
 		ctx, boardingTxids,
 	)
 	if err != nil {
@@ -1329,12 +1346,12 @@ func (a *arkClient) handleCommitmentTx(
 			for _, v := range vtxosToAdd {
 				amount += v.Amount
 			}
-			txsToAdd = append(txsToAdd, clientTypes.Transaction{
-				TransactionKey: clientTypes.TransactionKey{
+			txsToAdd = append(txsToAdd, clienttypes.Transaction{
+				TransactionKey: clienttypes.TransactionKey{
 					CommitmentTxid: commitmentTx.Txid,
 				},
 				Amount:    amount,
-				Type:      clientTypes.TxReceived,
+				Type:      clienttypes.TxReceived,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
 			})
@@ -1348,12 +1365,12 @@ func (a *arkClient) handleCommitmentTx(
 				settledBoardingAmount += tx.Amount
 			}
 			if vtxosToAddAmount > 0 && vtxosToAddAmount < settledBoardingAmount {
-				txsToAdd = append(txsToAdd, clientTypes.Transaction{
-					TransactionKey: clientTypes.TransactionKey{
+				txsToAdd = append(txsToAdd, clienttypes.Transaction{
+					TransactionKey: clienttypes.TransactionKey{
 						CommitmentTxid: commitmentTx.Txid,
 					},
 					Amount:    settledBoardingAmount - vtxosToAddAmount,
-					Type:      clientTypes.TxSent,
+					Type:      clienttypes.TxSent,
 					CreatedAt: time.Now(),
 					Hex:       commitmentTx.Tx,
 				})
@@ -1369,12 +1386,12 @@ func (a *arkClient) handleCommitmentTx(
 		}
 
 		if amount > 0 {
-			txsToAdd = append(txsToAdd, clientTypes.Transaction{
-				TransactionKey: clientTypes.TransactionKey{
+			txsToAdd = append(txsToAdd, clienttypes.Transaction{
+				TransactionKey: clienttypes.TransactionKey{
 					CommitmentTxid: commitmentTx.Txid,
 				},
 				Amount:    amount,
-				Type:      clientTypes.TxSent,
+				Type:      clienttypes.TxSent,
 				CreatedAt: time.Now(),
 				Hex:       commitmentTx.Tx,
 			})
@@ -1382,7 +1399,7 @@ func (a *arkClient) handleCommitmentTx(
 	}
 
 	if len(txsToAdd) > 0 {
-		count, err := a.store.TransactionStore().AddTransactions(ctx, txsToAdd)
+		count, err := w.store.TransactionStore().AddTransactions(ctx, txsToAdd)
 		if err != nil {
 			return err
 		}
@@ -1392,7 +1409,7 @@ func (a *arkClient) handleCommitmentTx(
 	}
 
 	if len(txsToSettle) > 0 {
-		count, err := a.store.TransactionStore().
+		count, err := w.store.TransactionStore().
 			SettleTransactions(ctx, txsToSettle, commitmentTx.Txid)
 		if err != nil {
 			return err
@@ -1403,7 +1420,7 @@ func (a *arkClient) handleCommitmentTx(
 	}
 
 	if len(vtxosToAdd) > 0 {
-		count, err := a.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
+		count, err := w.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
 		if err != nil {
 			return err
 		}
@@ -1413,7 +1430,7 @@ func (a *arkClient) handleCommitmentTx(
 	}
 
 	if len(vtxosToSpend) > 0 {
-		count, err := a.store.VtxoStore().SettleVtxos(ctx, vtxosToSpend, commitmentTx.Txid)
+		count, err := w.store.VtxoStore().SettleVtxos(ctx, vtxosToSpend, commitmentTx.Txid)
 		if err != nil {
 			return err
 		}
@@ -1425,11 +1442,11 @@ func (a *arkClient) handleCommitmentTx(
 	return nil
 }
 
-func (a *arkClient) handleArkTx(
-	ctx context.Context, myScripts map[string]struct{}, arkTx *transport.TxNotification,
+func (w *wallet) handleArkTx(
+	ctx context.Context, myScripts map[string]struct{}, arkTx *client.TxNotification,
 ) error {
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 
 	arkPtx, err := psbt.NewFromRawBytes(strings.NewReader(arkTx.Tx), true)
 	if err != nil {
@@ -1443,9 +1460,9 @@ func (a *arkClient) handleArkTx(
 		assetPacket = ext.GetAssetPacket()
 	}
 
-	vtxosToAdd := make([]clientTypes.Vtxo, 0)
-	vtxosToSpend := make(map[clientTypes.Outpoint]string)
-	txsToAdd := make([]clientTypes.Transaction, 0)
+	vtxosToAdd := make([]clienttypes.Vtxo, 0)
+	vtxosToSpend := make(map[clienttypes.Outpoint]string)
+	txsToAdd := make([]clienttypes.Transaction, 0)
 
 	for _, vtxo := range arkTx.SpendableVtxos {
 		if _, ok := myScripts[vtxo.Script]; ok {
@@ -1454,14 +1471,14 @@ func (a *arkClient) handleArkTx(
 	}
 
 	// Check if any of the spent vtxos are ours.
-	spentVtxos := make([]clientTypes.Outpoint, 0, len(arkTx.SpentVtxos))
+	spentVtxos := make([]clienttypes.Outpoint, 0, len(arkTx.SpentVtxos))
 	for _, vtxo := range arkTx.SpentVtxos {
-		spentVtxos = append(spentVtxos, clientTypes.Outpoint{
+		spentVtxos = append(spentVtxos, clienttypes.Outpoint{
 			Txid: vtxo.Txid,
 			VOut: vtxo.VOut,
 		})
 	}
-	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, spentVtxos)
+	myVtxos, err := w.store.VtxoStore().GetVtxos(ctx, spentVtxos)
 	if err != nil {
 		return err
 	}
@@ -1478,12 +1495,12 @@ func (a *arkClient) handleArkTx(
 			for _, v := range vtxosToAdd {
 				amount += v.Amount
 			}
-			txsToAdd = append(txsToAdd, clientTypes.Transaction{
-				TransactionKey: clientTypes.TransactionKey{
+			txsToAdd = append(txsToAdd, clienttypes.Transaction{
+				TransactionKey: clienttypes.TransactionKey{
 					ArkTxid: arkTx.Txid,
 				},
 				Amount:      amount,
-				Type:        clientTypes.TxReceived,
+				Type:        clienttypes.TxReceived,
 				CreatedAt:   time.Now(),
 				Hex:         arkTx.Tx,
 				AssetPacket: assetPacket,
@@ -1499,12 +1516,12 @@ func (a *arkClient) handleArkTx(
 		for _, vtxo := range vtxosToAdd {
 			outAmount += vtxo.Amount
 		}
-		txsToAdd = append(txsToAdd, clientTypes.Transaction{
-			TransactionKey: clientTypes.TransactionKey{
+		txsToAdd = append(txsToAdd, clienttypes.Transaction{
+			TransactionKey: clienttypes.TransactionKey{
 				ArkTxid: arkTx.Txid,
 			},
 			Amount:      inAmount - outAmount,
-			Type:        clientTypes.TxSent,
+			Type:        clienttypes.TxSent,
 			CreatedAt:   time.Now(),
 			AssetPacket: assetPacket,
 			Hex:         arkTx.Tx,
@@ -1512,7 +1529,7 @@ func (a *arkClient) handleArkTx(
 	}
 
 	if len(txsToAdd) > 0 {
-		count, err := a.store.TransactionStore().AddTransactions(ctx, txsToAdd)
+		count, err := w.store.TransactionStore().AddTransactions(ctx, txsToAdd)
 		if err != nil {
 			return err
 		}
@@ -1522,7 +1539,7 @@ func (a *arkClient) handleArkTx(
 	}
 
 	if len(vtxosToAdd) > 0 {
-		count, err := a.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
+		count, err := w.store.VtxoStore().AddVtxos(ctx, vtxosToAdd)
 		if err != nil {
 			return err
 		}
@@ -1532,7 +1549,7 @@ func (a *arkClient) handleArkTx(
 	}
 
 	if len(vtxosToSpend) > 0 {
-		count, err := a.store.VtxoStore().SpendVtxos(ctx, vtxosToSpend, arkTx.Txid)
+		count, err := w.store.VtxoStore().SpendVtxos(ctx, vtxosToSpend, arkTx.Txid)
 		if err != nil {
 			return err
 		}
@@ -1540,7 +1557,7 @@ func (a *arkClient) handleArkTx(
 			log.Debugf("spent %d vtxo(s)", count)
 		}
 
-		count, err = a.store.TransactionStore().SettleTransactions(ctx, txsToSettle, "")
+		count, err = w.store.TransactionStore().SettleTransactions(ctx, txsToSettle, "")
 		if err != nil {
 			return err
 		}
@@ -1552,20 +1569,20 @@ func (a *arkClient) handleArkTx(
 	return nil
 }
 
-func (a *arkClient) handleSweepTx(ctx context.Context, sweepTx *transport.TxNotification) error {
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotification) error {
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 
 	if len(sweepTx.SweptVtxos) == 0 {
 		return nil
 	}
 
-	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, sweepTx.SweptVtxos)
+	myVtxos, err := w.store.VtxoStore().GetVtxos(ctx, sweepTx.SweptVtxos)
 	if err != nil {
 		return err
 	}
 
-	vtxosToSweep := make([]clientTypes.Vtxo, 0, len(myVtxos))
+	vtxosToSweep := make([]clienttypes.Vtxo, 0, len(myVtxos))
 	for _, vtxo := range myVtxos {
 		if vtxo.Swept {
 			continue
@@ -1577,7 +1594,7 @@ func (a *arkClient) handleSweepTx(ctx context.Context, sweepTx *transport.TxNoti
 		return nil
 	}
 
-	count, err := a.store.VtxoStore().SweepVtxos(ctx, vtxosToSweep)
+	count, err := w.store.VtxoStore().SweepVtxos(ctx, vtxosToSweep)
 	if err != nil {
 		return err
 	}
@@ -1588,21 +1605,18 @@ func (a *arkClient) handleSweepTx(ctx context.Context, sweepTx *transport.TxNoti
 	return nil
 }
 
-func (a *arkClient) safeCheck() error {
-	if a.Wallet() == nil {
+func (w *wallet) safeCheck() error {
+	if w.client == nil || w.contractManager == nil {
 		return ErrNotInitialized
 	}
-	if a.Wallet().IsLocked() {
+	if w.client.Identity().IsLocked() {
 		return ErrIsLocked
 	}
-	if a.contractManager == nil {
-		return ErrNotInitialized
-	}
 
-	a.syncMu.Lock()
-	syncDone := a.syncDone
-	syncErr := a.syncErr
-	a.syncMu.Unlock()
+	w.syncMu.Lock()
+	syncDone := w.syncDone
+	syncErr := w.syncErr
+	w.syncMu.Unlock()
 	if !syncDone {
 		if syncErr != nil {
 			return fmt.Errorf("failed to restore wallet: %s", syncErr)
@@ -1612,23 +1626,23 @@ func (a *arkClient) safeCheck() error {
 	return nil
 }
 
-func (i *arkClient) vtxosToTxs(
+func (w *wallet) vtxosToTxs(
 	ctx context.Context,
-	spendable, spent []clientTypes.Vtxo, commitmentTxsToIgnore map[string]struct{},
-) ([]clientTypes.Transaction, error) {
-	indexerSvc := i.ArkClient.Indexer()
+	spendable, spent []clienttypes.Vtxo, commitmentTxsToIgnore map[string]struct{},
+) ([]clienttypes.Transaction, error) {
+	indexerSvc := w.client.Indexer()
 	if indexerSvc == nil {
 		return nil, fmt.Errorf("indexer not initialized")
 	}
 
-	txs := make([]clientTypes.Transaction, 0)
+	txs := make([]clienttypes.Transaction, 0)
 
 	// Receivals
 
 	// All vtxos are receivals unless:
 	// - they resulted from a settlement (either boarding or refresh)
 	// - they are the change of a spend tx or a collaborative exit
-	vtxosLeftToCheck := append([]clientTypes.Vtxo{}, spent...)
+	vtxosLeftToCheck := append([]clienttypes.Vtxo{}, spent...)
 	for _, vtxo := range append(spendable, spent...) {
 		if _, ok := commitmentTxsToIgnore[vtxo.CommitmentTxids[0]]; !vtxo.Preconfirmed && ok {
 			continue
@@ -1655,13 +1669,13 @@ func (i *arkClient) vtxosToTxs(
 			settledBy = vtxo.SettledBy
 		}
 
-		txs = append(txs, clientTypes.Transaction{
-			TransactionKey: clientTypes.TransactionKey{
+		txs = append(txs, clienttypes.Transaction{
+			TransactionKey: clienttypes.TransactionKey{
 				CommitmentTxid: commitmentTxid,
 				ArkTxid:        arkTxid,
 			},
 			Amount:    vtxo.Amount - settleAmount - spentAmount,
-			Type:      clientTypes.TxReceived,
+			Type:      clienttypes.TxReceived,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: settledBy,
 		})
@@ -1672,14 +1686,14 @@ func (i *arkClient) vtxosToTxs(
 	// All spent vtxos are payments unless they are settlements of boarding utxos or refreshes
 
 	// aggregate settled vtxos by "settledBy" (commitment txid)
-	vtxosBySettledBy := make(map[string][]clientTypes.Vtxo)
+	vtxosBySettledBy := make(map[string][]clienttypes.Vtxo)
 	// aggregate spent vtxos by "arkTxid"
-	vtxosBySpentBy := make(map[string][]clientTypes.Vtxo)
+	vtxosBySpentBy := make(map[string][]clienttypes.Vtxo)
 	for _, v := range spent {
 		if v.SettledBy != "" {
 			if _, ok := commitmentTxsToIgnore[v.SettledBy]; !ok {
 				if _, ok := vtxosBySettledBy[v.SettledBy]; !ok {
-					vtxosBySettledBy[v.SettledBy] = make([]clientTypes.Vtxo, 0)
+					vtxosBySettledBy[v.SettledBy] = make([]clienttypes.Vtxo, 0)
 				}
 				vtxosBySettledBy[v.SettledBy] = append(vtxosBySettledBy[v.SettledBy], v)
 				continue
@@ -1691,7 +1705,7 @@ func (i *arkClient) vtxosToTxs(
 		}
 
 		if _, ok := vtxosBySpentBy[v.ArkTxid]; !ok {
-			vtxosBySpentBy[v.ArkTxid] = make([]clientTypes.Vtxo, 0)
+			vtxosBySpentBy[v.ArkTxid] = make([]clienttypes.Vtxo, 0)
 		}
 		vtxosBySpentBy[v.ArkTxid] = append(vtxosBySpentBy[v.ArkTxid], v)
 	}
@@ -1704,12 +1718,12 @@ func (i *arkClient) vtxosToTxs(
 		if forfeitAmount > resultedAmount {
 			vtxo := getVtxo(resultedVtxos, vtxosBySettledBy[sb])
 
-			txs = append(txs, clientTypes.Transaction{
-				TransactionKey: clientTypes.TransactionKey{
+			txs = append(txs, clienttypes.Transaction{
+				TransactionKey: clienttypes.TransactionKey{
 					CommitmentTxid: vtxo.CommitmentTxids[0],
 				},
 				Amount:    forfeitAmount - resultedAmount,
-				Type:      clientTypes.TxSent,
+				Type:      clienttypes.TxSent,
 				CreatedAt: vtxo.CreatedAt,
 			})
 		}
@@ -1726,7 +1740,7 @@ func (i *arkClient) vtxosToTxs(
 		if resultedAmount == 0 {
 			// send all: fetch the created vtxo to source creation and expiration timestamps
 			resp, err := indexerSvc.GetVtxos(
-				ctx, indexer.WithOutpoints([]clientTypes.Outpoint{{Txid: sb, VOut: 0}}),
+				ctx, indexer.WithOutpoints([]clienttypes.Outpoint{{Txid: sb, VOut: 0}}),
 			)
 			if err != nil {
 				return nil, err
@@ -1746,13 +1760,13 @@ func (i *arkClient) vtxosToTxs(
 			commitmentTxid = ""
 		}
 
-		txs = append(txs, clientTypes.Transaction{
-			TransactionKey: clientTypes.TransactionKey{
+		txs = append(txs, clienttypes.Transaction{
+			TransactionKey: clienttypes.TransactionKey{
 				CommitmentTxid: commitmentTxid,
 				ArkTxid:        arkTxid,
 			},
 			Amount:    spentAmount - resultedAmount,
-			Type:      clientTypes.TxSent,
+			Type:      clienttypes.TxSent,
 			CreatedAt: vtxo.CreatedAt,
 			SettledBy: vtxo.SettledBy,
 		})
@@ -1761,18 +1775,18 @@ func (i *arkClient) vtxosToTxs(
 	return txs, nil
 }
 
-func (a *arkClient) saveSendTransaction(
-	ctx context.Context, res client.OffchainTxRes,
+func (w *wallet) saveSendTransaction(
+	ctx context.Context, res clientwallet.OffchainTxRes,
 ) error {
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 
-	cfg, err := a.GetConfigData(ctx)
+	cfg, err := w.client.GetConfigData(ctx)
 	if err != nil {
 		return err
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx)
+	contracts, err := w.contractManager.GetContracts(ctx)
 	if err != nil {
 		return err
 	}
@@ -1795,7 +1809,7 @@ func (a *arkClient) saveSendTransaction(
 
 	txId := arkTx.UnsignedTx.TxHash().String()
 
-	spentVtxos := make(map[clientTypes.Outpoint]string)
+	spentVtxos := make(map[clienttypes.Outpoint]string)
 	spentAmount := uint64(0)
 	commitmentTxids := make(map[string]struct{}, 0)
 	smallestExpiration := time.Time{}
@@ -1849,7 +1863,7 @@ func (a *arkClient) saveSendTransaction(
 	}
 
 	// Prepare the new vtxos to be added to DB
-	newVtxos := make([]clientTypes.Vtxo, 0, len(res.Outputs))
+	newVtxos := make([]clienttypes.Vtxo, 0, len(res.Outputs))
 	for _, rcv := range res.Outputs {
 		// Only save change outputs that belong to us.
 		addr, err := arklib.DecodeAddressV0(rcv.To)
@@ -1887,8 +1901,8 @@ func (a *arkClient) saveSendTransaction(
 		}
 
 		// save change vtxo to DB
-		newVtxos = append(newVtxos, clientTypes.Vtxo{
-			Outpoint: clientTypes.Outpoint{
+		newVtxos = append(newVtxos, clienttypes.Vtxo{
+			Outpoint: clienttypes.Outpoint{
 				Txid: txId,
 				VOut: uint32(vout),
 			},
@@ -1907,7 +1921,7 @@ func (a *arkClient) saveSendTransaction(
 
 	// Add new vtxos to DB
 	if len(newVtxos) > 0 {
-		count, err := a.store.VtxoStore().AddVtxos(ctx, newVtxos)
+		count, err := w.store.VtxoStore().AddVtxos(ctx, newVtxos)
 		if err != nil {
 			return err
 		}
@@ -1915,7 +1929,7 @@ func (a *arkClient) saveSendTransaction(
 	}
 
 	// Mark vtxos as spent in DB
-	count, err := a.store.VtxoStore().SpendVtxos(ctx, spentVtxos, txId)
+	count, err := w.store.VtxoStore().SpendVtxos(ctx, spentVtxos, txId)
 	if err != nil {
 		return fmt.Errorf("failed to update vtxos: %s, skipping marking vtxo as spent", err)
 	}
@@ -1924,13 +1938,13 @@ func (a *arkClient) saveSendTransaction(
 	}
 
 	// Add sent transaction to DB
-	if _, err := a.store.TransactionStore().AddTransactions(ctx, []clientTypes.Transaction{
+	if _, err := w.store.TransactionStore().AddTransactions(ctx, []clienttypes.Transaction{
 		{
-			TransactionKey: clientTypes.TransactionKey{
+			TransactionKey: clienttypes.TransactionKey{
 				ArkTxid: txId,
 			},
 			Amount:      spentAmount,
-			Type:        clientTypes.TxSent,
+			Type:        clienttypes.TxSent,
 			CreatedAt:   createdAt,
 			Hex:         res.Tx,
 			AssetPacket: res.Extension.GetAssetPacket(),
@@ -1943,11 +1957,11 @@ func (a *arkClient) saveSendTransaction(
 	return nil
 }
 
-func (a *arkClient) saveBatchTransaction(
-	ctx context.Context, res client.BatchTxRes,
+func (w *wallet) saveBatchTransaction(
+	ctx context.Context, res clientwallet.BatchTxRes,
 ) error {
-	a.dbMu.Lock()
-	defer a.dbMu.Unlock()
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 
 	// 4. Add a sent tx record if the batch was a collaborative exit.
 	if len(res.UtxoOutputs) > 0 {
@@ -1959,13 +1973,13 @@ func (a *arkClient) saveBatchTransaction(
 			sentAmount -= vtxo.Amount
 		}
 		if sentAmount > 0 {
-			if _, err := a.store.TransactionStore().AddTransactions(ctx, []clientTypes.Transaction{
+			if _, err := w.store.TransactionStore().AddTransactions(ctx, []clienttypes.Transaction{
 				{
-					TransactionKey: clientTypes.TransactionKey{
+					TransactionKey: clienttypes.TransactionKey{
 						CommitmentTxid: res.CommitmentTxid,
 					},
 					Amount:      sentAmount,
-					Type:        clientTypes.TxSent,
+					Type:        clienttypes.TxSent,
 					CreatedAt:   time.Now(),
 					Hex:         res.CommitmentTx,
 					AssetPacket: res.Extension.GetAssetPacket(),
@@ -1982,7 +1996,7 @@ func (a *arkClient) saveBatchTransaction(
 		for _, utxo := range res.UtxoInputs {
 			boardingTxids = append(boardingTxids, utxo.Txid)
 		}
-		pendingBoardingTxs, err := a.store.TransactionStore().GetTransactions(ctx, boardingTxids)
+		pendingBoardingTxs, err := w.store.TransactionStore().GetTransactions(ctx, boardingTxids)
 		if err != nil {
 			return err
 		}
@@ -1991,7 +2005,7 @@ func (a *arkClient) saveBatchTransaction(
 			for _, tx := range pendingBoardingTxs {
 				pendingBoardingTxids = append(pendingBoardingTxids, tx.BoardingTxid)
 			}
-			count, err := a.store.TransactionStore().SettleTransactions(
+			count, err := w.store.TransactionStore().SettleTransactions(
 				ctx, pendingBoardingTxids, res.CommitmentTxid,
 			)
 			if err != nil {
@@ -2005,7 +2019,7 @@ func (a *arkClient) saveBatchTransaction(
 
 	// 1. Add new vtxos to the db.
 	if len(res.VtxoOutputs) > 0 {
-		count, err := a.store.VtxoStore().AddVtxos(ctx, res.VtxoOutputs)
+		count, err := w.store.VtxoStore().AddVtxos(ctx, res.VtxoOutputs)
 		if err != nil {
 			return err
 		}
@@ -2016,11 +2030,11 @@ func (a *arkClient) saveBatchTransaction(
 
 	// 2. Settle the vtxos spent in the batch.
 	if len(res.VtxoInputs) > 0 {
-		vtxosToSettle := make(map[clientTypes.Outpoint]string, len(res.VtxoInputs))
+		vtxosToSettle := make(map[clienttypes.Outpoint]string, len(res.VtxoInputs))
 		for _, vtxo := range res.VtxoInputs {
 			vtxosToSettle[vtxo.Outpoint] = res.CommitmentTxid
 		}
-		count, err := a.store.VtxoStore().SettleVtxos(ctx, vtxosToSettle, res.CommitmentTxid)
+		count, err := w.store.VtxoStore().SettleVtxos(ctx, vtxosToSettle, res.CommitmentTxid)
 		if err != nil {
 			return err
 		}
@@ -2031,11 +2045,11 @@ func (a *arkClient) saveBatchTransaction(
 
 	// 3. Spend the boarding utxos spent in the batch.
 	if len(res.UtxoInputs) > 0 {
-		utxosToSpend := make(map[clientTypes.Outpoint]string, len(res.UtxoInputs))
+		utxosToSpend := make(map[clienttypes.Outpoint]string, len(res.UtxoInputs))
 		for _, utxo := range res.UtxoInputs {
 			utxosToSpend[utxo.Outpoint] = res.CommitmentTxid
 		}
-		count, err := a.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
+		count, err := w.store.UtxoStore().SpendUtxos(ctx, utxosToSpend)
 		if err != nil {
 			return err
 		}
@@ -2054,13 +2068,13 @@ func (a *arkClient) saveBatchTransaction(
 		for _, v := range res.VtxoOutputs {
 			amount += v.Amount
 		}
-		if _, err := a.store.TransactionStore().AddTransactions(ctx, []clientTypes.Transaction{
+		if _, err := w.store.TransactionStore().AddTransactions(ctx, []clienttypes.Transaction{
 			{
-				TransactionKey: clientTypes.TransactionKey{
+				TransactionKey: clienttypes.TransactionKey{
 					CommitmentTxid: res.CommitmentTxid,
 				},
 				Amount:    amount,
-				Type:      clientTypes.TxReceived,
+				Type:      clienttypes.TxReceived,
 				CreatedAt: time.Now(),
 				Hex:       res.CommitmentTx,
 			},

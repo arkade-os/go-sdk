@@ -7,7 +7,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	sdktypes "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testKey(t *testing.T) wallet.KeyRef {
+func testKey(t *testing.T) identity.KeyRef {
 	t.Helper()
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
-	return wallet.KeyRef{Id: "test-key", PubKey: priv.PubKey()}
+	return identity.KeyRef{Id: "test-key", PubKey: priv.PubKey()}
 }
 
 func testCfg(t *testing.T) contract.DelegateConfig {
