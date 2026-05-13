@@ -1133,7 +1133,6 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 						continue
 					}
 
-
 					var spendableAt time.Time
 					if !u.CreatedAt.IsZero() {
 						spendableAt = u.CreatedAt.Add(
