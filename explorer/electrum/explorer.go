@@ -364,6 +364,12 @@ func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 		return nil, err
 	}
 
+	// Electrs versions that don't index P2TR scripts return an empty history for
+	// taproot addresses. Fall back to the esplora REST API when configured.
+	if len(history) == 0 && e.esploraURL != "" {
+		return e.esploraGetTxs(addr)
+	}
+
 	txs := make([]explorer.Tx, 0, len(history))
 	for _, entry := range history {
 		txHex, err := e.GetTxHex(entry.TxHash)
@@ -461,6 +467,13 @@ func (e *explorerSvc) GetUtxos(addresses []string) ([]explorer.Utxo, error) {
 		electrumUtxos, err := e.listUnspent(sh)
 		if err != nil {
 			return nil, err
+		}
+		if len(electrumUtxos) == 0 && e.esploraURL != "" {
+			if fallback, ferr := e.esploraListUnspent(addr); ferr == nil {
+				electrumUtxos = fallback
+			} else {
+				log.WithError(ferr).Debugf("electrum: esplora utxo fallback failed for %s", addr)
+			}
 		}
 		for _, u := range electrumUtxos {
 			var blocktime int64
@@ -711,6 +724,13 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 		})
 		return
 	}
+	if len(newUTXOs) == 0 && e.esploraURL != "" {
+		if fallback, ferr := e.esploraListUnspent(addr); ferr == nil {
+			newUTXOs = fallback
+		} else {
+			log.WithError(ferr).Debugf("electrum: esplora poll fallback failed for %s", addr)
+		}
+	}
 
 	script, err := addrToScript(addr, e.netParams)
 	if err != nil {
@@ -925,4 +945,80 @@ func addrToScript(addr string, params *chaincfg.Params) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(script), nil
+}
+
+// esploraListUnspent fetches unspent outputs for addr via the esplora REST API.
+// Used as a fallback when the electrum scripthash index returns empty (e.g.
+// older electrs builds that don't index P2TR scripts).
+func (e *explorerSvc) esploraListUnspent(addr string) ([]electrumUTXO, error) {
+	url := strings.TrimRight(e.esploraURL, "/") + "/address/" + addr + "/utxo"
+	resp, err := http.Get(url) // nolint
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() // nolint
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("esplora utxo lookup failed (%d)", resp.StatusCode)
+	}
+	var items []esploraUtxo
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	utxos := make([]electrumUTXO, 0, len(items))
+	for _, u := range items {
+		height := int64(0)
+		if u.Status.Confirmed {
+			height = u.Status.BlockHeight
+		}
+		utxos = append(utxos, electrumUTXO{
+			TxHash: u.Txid,
+			TxPos:  u.Vout,
+			Height: height,
+			Value:  u.Value,
+		})
+	}
+	return utxos, nil
+}
+
+// esploraGetTxs fetches the transaction history for addr via the esplora REST API.
+// Used as a fallback when the electrum scripthash index returns empty.
+func (e *explorerSvc) esploraGetTxs(addr string) ([]explorer.Tx, error) {
+	url := strings.TrimRight(e.esploraURL, "/") + "/address/" + addr + "/txs"
+	resp, err := http.Get(url) // nolint
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() // nolint
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("esplora tx history lookup failed (%d)", resp.StatusCode)
+	}
+	var items []esploraTxEntry
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	txs := make([]explorer.Tx, 0, len(items))
+	for _, t := range items {
+		vins := make([]explorer.Input, 0, len(t.Vin))
+		for _, vin := range t.Vin {
+			vins = append(vins, explorer.Input{Txid: vin.Txid, Vout: vin.Vout})
+		}
+		vouts := make([]explorer.Output, 0, len(t.Vout))
+		for _, vout := range t.Vout {
+			vouts = append(vouts, explorer.Output{
+				Script:  vout.Scriptpubkey,
+				Address: vout.ScriptpubkeyAddress,
+				Amount:  vout.Value,
+			})
+		}
+		txs = append(txs, explorer.Tx{
+			Txid: t.Txid,
+			Vin:  vins,
+			Vout: vouts,
+			Status: explorer.ConfirmedStatus{
+				Confirmed: t.Status.Confirmed,
+				BlockTime: t.Status.BlockTime,
+			},
+		})
+	}
+	return txs, nil
 }

@@ -44,3 +44,38 @@ type electrumUTXO struct {
 	Value  uint64 `json:"value"`
 	Height int64  `json:"height"`
 }
+
+// Esplora REST API response types, used as fallback when the electrum
+// scripthash index returns no results (e.g. for P2TR addresses on older
+// electrs that don't index taproot scripts).
+
+type esploraStatus struct {
+	Confirmed   bool  `json:"confirmed"`
+	BlockHeight int64 `json:"block_height"`
+	BlockTime   int64 `json:"block_time"`
+}
+
+type esploraUtxo struct {
+	Txid   string        `json:"txid"`
+	Vout   uint32        `json:"vout"`
+	Status esploraStatus `json:"status"`
+	Value  uint64        `json:"value"`
+}
+
+type esploraVin struct {
+	Txid string `json:"txid"`
+	Vout uint32 `json:"vout"`
+}
+
+type esploraVout struct {
+	Scriptpubkey        string `json:"scriptpubkey"`
+	ScriptpubkeyAddress string `json:"scriptpubkey_address"`
+	Value               uint64 `json:"value"`
+}
+
+type esploraTxEntry struct {
+	Txid   string        `json:"txid"`
+	Vin    []esploraVin  `json:"vin"`
+	Vout   []esploraVout `json:"vout"`
+	Status esploraStatus `json:"status"`
+}
