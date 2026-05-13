@@ -10,7 +10,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -30,7 +30,7 @@ const (
 
 type defaultHandler struct {
 	network   arklib.Network
-	client    client.TransportClient
+	client    client.Client
 	isOnchain bool
 }
 
@@ -44,7 +44,7 @@ type defaultHandler struct {
 // manager wraps it once and shares the cache across every handler so we
 // don't fan out one info-cache per handler kind.
 func NewHandler(
-	client client.TransportClient, network arklib.Network, isOnchain bool,
+	client client.Client, network arklib.Network, isOnchain bool,
 ) handlers.Handler {
 	return &defaultHandler{
 		network:   network,
@@ -54,7 +54,7 @@ func NewHandler(
 }
 
 func (h *defaultHandler) NewContract(
-	ctx context.Context, keyRef wallet.KeyRef,
+	ctx context.Context, keyRef identity.KeyRef,
 ) (*types.Contract, error) {
 	info, err := h.getInfo(ctx)
 	if err != nil {
@@ -194,7 +194,7 @@ func (h *defaultHandler) GetKeyRefs(contract types.Contract) (map[string]string,
 	}, nil
 }
 
-func (h *defaultHandler) GetKeyRef(contract types.Contract) (*wallet.KeyRef, error) {
+func (h *defaultHandler) GetKeyRef(contract types.Contract) (*identity.KeyRef, error) {
 	if len(contract.Params) <= 0 {
 		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
 	}
@@ -217,7 +217,7 @@ func (h *defaultHandler) GetKeyRef(contract types.Contract) (*wallet.KeyRef, err
 	if err != nil {
 		return nil, fmt.Errorf("contract %s has invalid owner key: %w", contract.Script, err)
 	}
-	return &wallet.KeyRef{Id: keyId, PubKey: ownerKey}, nil
+	return &identity.KeyRef{Id: keyId, PubKey: ownerKey}, nil
 }
 
 func (h *defaultHandler) GetExitDelay(contract types.Contract) (*arklib.RelativeLocktime, error) {

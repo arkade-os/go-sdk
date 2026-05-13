@@ -494,7 +494,7 @@ func forEachContractBackend(t *testing.T, fn func(t *testing.T, s types.Contract
 		name   string
 		config store.Config
 	}{
-		{name: "sql", config: store.Config{AppDataStoreType: types.SQLStore, BaseDir: t.TempDir()}},
+		{name: "sql", config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()}},
 	}
 
 	for _, b := range backends {

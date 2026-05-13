@@ -1,4 +1,4 @@
-package hdwallet
+package identity
 
 import (
 	"crypto/aes"
@@ -50,6 +50,10 @@ func parseDerivationIndex(keyId string) ([]uint32, error) {
 	}
 
 	return []uint32{defaultAccount, uint32(idx)}, nil
+}
+
+func toDerivationPath(index uint32) string {
+	return fmt.Sprintf("m/0/%d", index)
 }
 
 func encryptAES256(plaintext, password []byte) ([]byte, error) {
