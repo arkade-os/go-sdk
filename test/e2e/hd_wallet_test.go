@@ -542,7 +542,6 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 		"restored wallet did not recover the boarding-only funded key")
 }
 
-
 func sumVtxoAmounts(vtxos []clientTypes.Vtxo) uint64 {
 	var total uint64
 	for _, vtxo := range vtxos {
