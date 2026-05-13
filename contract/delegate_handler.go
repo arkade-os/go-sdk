@@ -152,7 +152,10 @@ func (h *DelegateHandler) DeriveContract(
 
 // NewContract returns an error: delegate contracts require a delegate key.
 // Use Manager.NewDelegate instead.
-func (h *DelegateHandler) NewContract(_ context.Context, _ identity.KeyRef) (*types.Contract, error) {
+func (h *DelegateHandler) NewContract(
+	_ context.Context,
+	_ identity.KeyRef,
+) (*types.Contract, error) {
 	return nil, fmt.Errorf("delegate contracts require a delegate key: use Manager.NewDelegate")
 }
 
