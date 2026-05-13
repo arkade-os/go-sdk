@@ -9,6 +9,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
 	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
@@ -34,16 +35,16 @@ func newDefaultHDWallet(datadir string) (wallet.WalletService, error) {
 	return hdWallet, nil
 }
 
-func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []VtxoDetails) {
+func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []types.VtxoDetails) {
 	nextExpiration := int64(0)
-	details := make([]VtxoDetails, 0)
+	details := make([]types.VtxoDetails, 0)
 	for timestamp, amount := range amountByExpiration {
 		if nextExpiration == 0 || timestamp < nextExpiration {
 			nextExpiration = timestamp
 		}
 
 		fancyTime := time.Unix(timestamp, 0).Format(time.RFC3339)
-		details = append(details, VtxoDetails{
+		details = append(details, types.VtxoDetails{
 			ExpiryTime: fancyTime,
 			Amount:     amount,
 		})

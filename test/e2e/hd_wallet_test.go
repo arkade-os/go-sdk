@@ -563,7 +563,7 @@ func vtxoAmounts(vtxos []clientTypes.Vtxo) []uint64 {
 	return amounts
 }
 
-func sumLockedAmounts(locked []sdk.LockedOnchainBalance) uint64 {
+func sumLockedAmounts(locked []types.LockedOnchainBalance) uint64 {
 	var total uint64
 	for _, utxo := range locked {
 		total += utxo.Amount

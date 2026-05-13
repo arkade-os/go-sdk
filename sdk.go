@@ -32,7 +32,7 @@ type ArkClient interface {
 	Unlock(ctx context.Context, password string) error
 	Lock(ctx context.Context) error
 	IsSynced(ctx context.Context) <-chan types.SyncEvent
-	Balance(ctx context.Context) (*Balance, error)
+	Balance(ctx context.Context) (*types.Balance, error)
 	GetAddresses(ctx context.Context) (
 		onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
 		err error,

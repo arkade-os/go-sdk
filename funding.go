@@ -94,23 +94,23 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	return onchainAddr, err
 }
 
-func (a *arkClient) Balance(ctx context.Context) (*Balance, error) {
+func (a *arkClient) Balance(ctx context.Context) (*types.Balance, error) {
 	if err := a.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	balance := &Balance{
-		OnchainBalance: OnchainBalance{
+	balance := &types.Balance{
+		OnchainBalance: types.OnchainBalance{
 			Confirmed:       0,
 			Unconfirmed:     0,
 			Total:           0,
 			SpendableAmount: 0,
-			LockedAmount:    make([]LockedOnchainBalance, 0),
+			LockedAmount:    make([]types.LockedOnchainBalance, 0),
 		},
-		OffchainBalance: OffchainBalance{
+		OffchainBalance: types.OffchainBalance{
 			Total:          0,
 			NextExpiration: "",
-			Details:        make([]VtxoDetails, 0),
+			Details:        make([]types.VtxoDetails, 0),
 		},
 		AssetBalances: make(map[string]uint64, 0),
 	}
@@ -156,7 +156,7 @@ func (a *arkClient) Balance(ctx context.Context) (*Balance, error) {
 
 		balance.OnchainBalance.LockedAmount = append(
 			balance.OnchainBalance.LockedAmount,
-			LockedOnchainBalance{
+			types.LockedOnchainBalance{
 				SpendableAt: utxo.SpendableAt.Format(time.RFC3339),
 				Amount:      utxo.Amount,
 			},
