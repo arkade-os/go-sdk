@@ -626,9 +626,12 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		e.scripthashToAddrMu.Unlock()
 
 		// When ElectrumX pushes a notification for this scripthash, immediately poll
-		// the address rather than waiting for the next ticker cycle.
+		// the address rather than waiting for the next ticker cycle. The initial
+		// pollAddress call establishes the UTXO baseline so that the first push
+		// notification correctly detects changes rather than comparing against nil.
 		go func(addr, sh string, notifCh <-chan string) {
 			defer e.notifWg.Done()
+			e.pollAddress(addr, sh)
 			for range notifCh {
 				e.pollAddress(addr, sh)
 			}

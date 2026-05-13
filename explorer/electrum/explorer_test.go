@@ -1144,14 +1144,23 @@ func TestConfirmedUTXOEventHasCreatedAt(t *testing.T) {
 	)
 	conn.Write([]byte(notif + "\n")) // nolint
 
-	select {
-	case event := <-eventCh:
-		require.NoError(t, event.Error)
-		require.Len(t, event.ConfirmedUtxos, 1, "expected a confirmed UTXO event")
-		require.Equal(t, "pendtx", event.ConfirmedUtxos[0].Txid)
-		require.Equal(t, time.Unix(fakeBlockTime, 0), event.ConfirmedUtxos[0].CreatedAt)
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected confirmed event with CreatedAt, got none")
+	// The initial poll fires a NewUtxos event for the pre-existing pending UTXO.
+	// Keep reading until we see the ConfirmedUtxos event from the push notification.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event := <-eventCh:
+			require.NoError(t, event.Error)
+			if len(event.ConfirmedUtxos) == 0 {
+				continue
+			}
+			require.Len(t, event.ConfirmedUtxos, 1, "expected a confirmed UTXO event")
+			require.Equal(t, "pendtx", event.ConfirmedUtxos[0].Txid)
+			require.Equal(t, time.Unix(fakeBlockTime, 0), event.ConfirmedUtxos[0].CreatedAt)
+			return
+		case <-deadline:
+			t.Fatal("expected confirmed event with CreatedAt, got none")
+		}
 	}
 }
 
@@ -1195,6 +1204,8 @@ func TestSpentUTXOEventHasSpentBy(t *testing.T) {
 			case spenderTxid:
 				writeResponse(conn, reqID(req), spendingTxHex(existTxid, 0))
 			}
+		case "blockchain.block.header":
+			writeResponse(conn, reqID(req), fakeBlockHeader)
 		case "blockchain.scripthash.get_history":
 			writeResponse(conn, reqID(req), []map[string]any{
 				{"tx_hash": existTxid, "height": 100},
@@ -1235,15 +1246,24 @@ func TestSpentUTXOEventHasSpentBy(t *testing.T) {
 	)
 	conn.Write([]byte(notif + "\n")) // nolint
 
-	select {
-	case event := <-eventCh:
-		require.NoError(t, event.Error)
-		require.Len(t, event.SpentUtxos, 1, "expected a spent UTXO event")
-		require.Equal(t, existTxid, event.SpentUtxos[0].Txid)
-		require.Equal(t, spenderTxid, event.SpentUtxos[0].SpentBy,
-			"SpentBy must be populated via GetTxOutspends")
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected spent event with SpentBy, got none")
+	// The initial poll fires a NewUtxos event for the pre-existing confirmed UTXO.
+	// Keep reading until we see the SpentUtxos event from the push notification.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event := <-eventCh:
+			require.NoError(t, event.Error)
+			if len(event.SpentUtxos) == 0 {
+				continue
+			}
+			require.Len(t, event.SpentUtxos, 1, "expected a spent UTXO event")
+			require.Equal(t, existTxid, event.SpentUtxos[0].Txid)
+			require.Equal(t, spenderTxid, event.SpentUtxos[0].SpentBy,
+				"SpentBy must be populated via GetTxOutspends")
+			return
+		case <-deadline:
+			t.Fatal("expected spent event with SpentBy, got none")
+		}
 	}
 }
 
