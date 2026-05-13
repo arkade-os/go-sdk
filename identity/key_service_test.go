@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/arkade-os/go-sdk/identity/store"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	"github.com/stretchr/testify/require"
 )
 

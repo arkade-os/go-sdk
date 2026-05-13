@@ -106,6 +106,8 @@ func (w *wallet) finalizePendingTxs(
 		return nil, err
 	}
 
-	opts := []clientwallet.SendOption{clientwallet.WithVtxos(vtxos), clientwallet.WithKeys(signingKeys)}
+	opts := []clientwallet.SendOption{
+		clientwallet.WithVtxos(vtxos), clientwallet.WithKeys(signingKeys),
+	}
 	return w.client.FinalizePendingTxs(ctx, createdAfter, opts...)
 }

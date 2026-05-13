@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/arkade-os/go-sdk/identity/store"
-	"github.com/arkade-os/go-sdk/identity/store/inmemory"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
+	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"

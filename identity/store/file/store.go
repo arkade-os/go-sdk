@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/arkade-os/go-sdk/identity/store"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
 )
 
 const identityDataFile = "identity.json"

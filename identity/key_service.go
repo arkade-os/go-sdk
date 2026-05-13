@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/arkade-os/go-sdk/identity/store"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 )

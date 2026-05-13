@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/arkade-os/go-sdk/identity/store"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
 )
 
 // store implements an in-memory Store for testing purposes.

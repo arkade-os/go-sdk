@@ -15,7 +15,7 @@ import (
 	"github.com/arkade-os/go-sdk/contract"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
-	"github.com/arkade-os/go-sdk/identity/store/inmemory"
+	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"

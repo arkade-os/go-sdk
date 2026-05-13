@@ -5,9 +5,9 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/identity"
-	"github.com/arkade-os/go-sdk/identity/store"
-	"github.com/arkade-os/go-sdk/identity/store/file"
-	"github.com/arkade-os/go-sdk/identity/store/inmemory"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
+	identityfilestore "github.com/arkade-os/go-sdk/identity/store/file"
+	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +39,10 @@ func TestSave(t *testing.T) {
 					s := newStore(t, impl)
 					require.NoError(t, s.Save(t.Context(), testData))
 
-					require.NoError(t, s.Save(t.Context(), identitystore.IdentityData{NextIndex: 16}))
+					require.NoError(
+						t,
+						s.Save(t.Context(), identitystore.IdentityData{NextIndex: 16}),
+					)
 
 					expected := testData
 					expected.NextIndex = 16

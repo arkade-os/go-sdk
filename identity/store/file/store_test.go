@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/arkade-os/go-sdk/identity/store"
-	"github.com/arkade-os/go-sdk/identity/store/file"
+	identitystore "github.com/arkade-os/go-sdk/identity/store"
+	identityfilestore "github.com/arkade-os/go-sdk/identity/store/file"
 	"github.com/stretchr/testify/require"
 )
 
