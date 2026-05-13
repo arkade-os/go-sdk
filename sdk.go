@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
@@ -49,7 +48,7 @@ type Wallet interface {
 	Unlock(ctx context.Context, password string) error
 	Lock(ctx context.Context) error
 	IsSynced(ctx context.Context) <-chan types.SyncEvent
-	Balance(ctx context.Context) (*clientwallet.Balance, error)
+	Balance(ctx context.Context) (*types.Balance, error)
 	GetAddresses(ctx context.Context) (
 		onchainAddresses, offchainAddresses, boardingAddresses, redemptionAddresses []string,
 		err error,

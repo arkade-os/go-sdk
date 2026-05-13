@@ -8,7 +8,6 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
@@ -16,6 +15,7 @@ import (
 	identityfilestore "github.com/arkade-os/go-sdk/identity/store/file"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
 	"github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
@@ -73,18 +73,16 @@ func newHDIdentityStore(datadir string) (identitystore.IdentityStore, error) {
 	return identityinmemorystore.NewStore(), nil
 }
 
-func getOffchainBalanceDetails(
-	amountByExpiration map[int64]uint64,
-) (int64, []clientwallet.VtxoDetails) {
+func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []types.VtxoDetails) {
 	nextExpiration := int64(0)
-	details := make([]clientwallet.VtxoDetails, 0)
+	details := make([]types.VtxoDetails, 0)
 	for timestamp, amount := range amountByExpiration {
 		if nextExpiration == 0 || timestamp < nextExpiration {
 			nextExpiration = timestamp
 		}
 
 		fancyTime := time.Unix(timestamp, 0).Format(time.RFC3339)
-		details = append(details, clientwallet.VtxoDetails{
+		details = append(details, types.VtxoDetails{
 			ExpiryTime: fancyTime,
 			Amount:     amount,
 		})
