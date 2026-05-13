@@ -215,6 +215,10 @@ func (m *contractManager) GetHandler(
 func (m *contractManager) NewDelegate(
 	ctx context.Context, delegateKey *btcec.PublicKey,
 ) (*types.Contract, error) {
+	if delegateKey == nil {
+		return nil, fmt.Errorf("delegate key must not be nil")
+	}
+
 	info, err := m.client.GetInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server info: %w", err)
@@ -247,23 +251,34 @@ func (m *contractManager) NewDelegate(
 		ExitDelay: exitDelay,
 	}
 
+	contract, isNew, err := m.newDelegateLocked(ctx, delegateKey, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if isNew {
+		m.emit(*contract)
+	}
+	return contract, nil
+}
+
+func (m *contractManager) newDelegateLocked(
+	ctx context.Context, delegateKey *btcec.PublicKey, cfg DelegateConfig,
+) (*types.Contract, bool, error) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
 	existing, err := m.findDelegateContractByKey(ctx, delegateKeyHex)
 	if err != nil {
-		m.mu.Unlock()
-		return nil, err
+		return nil, false, err
 	}
 	if existing != nil {
-		m.mu.Unlock()
-		return existing, nil
+		return existing, false, nil
 	}
 
 	latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
 	if err != nil {
-		m.mu.Unlock()
-		return nil, err
+		return nil, false, err
 	}
 
 	var keyId string
@@ -271,48 +286,38 @@ func (m *contractManager) NewDelegate(
 		dh := &DelegateHandler{}
 		keyRef, err := dh.GetKeyRef(*latestContract)
 		if err != nil {
-			m.mu.Unlock()
-			return nil, fmt.Errorf("failed to get key ref for latest delegate contract: %w", err)
+			return nil, false, fmt.Errorf("failed to get key ref for latest delegate contract: %w", err)
 		}
 		keyId = keyRef.Id
 	}
 
 	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
 	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to compute next key index: %w", err)
+		return nil, false, fmt.Errorf("failed to compute next key index: %w", err)
 	}
 
 	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
 	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
+		return nil, false, fmt.Errorf("failed to derive key for contract: %w", err)
 	}
 
 	dh := &DelegateHandler{}
 	contract, err := dh.DeriveContract(ctx, *keyRef, cfg, delegateKey)
 	if err != nil {
-		m.mu.Unlock()
-		return nil, err
+		return nil, false, err
 	}
 
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to get key index: %w", err)
+		return nil, false, fmt.Errorf("failed to get key index: %w", err)
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("failed to store delegate contract: %w", err)
+		return nil, false, fmt.Errorf("failed to store delegate contract: %w", err)
 	}
 
 	log.Debugf("%s added new delegate contract %s", logPrefix, contract.Script)
-	m.mu.Unlock()
-
-	m.emit(*contract)
-
-	return contract, nil
+	return contract, true, nil
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {
