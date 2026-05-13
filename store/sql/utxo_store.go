@@ -404,15 +404,6 @@ func (r *utxoRepository) Clean(ctx context.Context) error {
 	return nil
 }
 
-func (r *utxoRepository) Close() {
-	r.wg.Wait()
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
-	// nolint:all
-	r.db.Close()
-}
-
 func (r *utxoRepository) sendEvent(event types.UtxoEvent) {
 	r.lock.Lock()
 	defer r.lock.Unlock()

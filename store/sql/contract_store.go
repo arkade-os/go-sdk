@@ -160,14 +160,6 @@ func (v *contractStore) Clean(ctx context.Context) error {
 	return nil
 }
 
-func (v *contractStore) Close() {
-	v.lock.Lock()
-	defer v.lock.Unlock()
-
-	// nolint:all
-	v.db.Close()
-}
-
 func toContract(row queries.Contract) types.Contract {
 	params := make(map[string]string)
 	// nolint:errcheck
