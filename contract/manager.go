@@ -286,7 +286,10 @@ func (m *contractManager) newDelegateLocked(
 		dh := &DelegateHandler{}
 		keyRef, err := dh.GetKeyRef(*latestContract)
 		if err != nil {
-			return nil, false, fmt.Errorf("failed to get key ref for latest delegate contract: %w", err)
+			return nil, false, fmt.Errorf(
+				"failed to get key ref for latest delegate contract: %w",
+				err,
+			)
 		}
 		keyId = keyRef.Id
 	}
