@@ -24,7 +24,7 @@ const logPrefix = "contract manager:"
 type contractManager struct {
 	store       types.ContractStore
 	keyProvider keyProvider
-	client      client.TransportClient
+	client      client.Client
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
@@ -392,9 +392,7 @@ func (m *contractManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.store.Close()
-
-	log.Debugf("%s closed contract store", logPrefix)
+	log.Debugf("%s closed contract manager", logPrefix)
 }
 
 // findUsedFn returns the subset of `contracts`, keyed by Script, that have

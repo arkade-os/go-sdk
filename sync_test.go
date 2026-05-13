@@ -16,7 +16,7 @@ import (
 // Running this with `go test -race` will detect a regression if the writes
 // stop holding syncMu.
 func TestResetSyncStateForUnlockNoRace(t *testing.T) {
-	a := &arkClient{
+	a := &wallet{
 		syncMu:        &sync.Mutex{},
 		syncListeners: newReadyListeners(),
 		syncCh:        make(chan error, 1),

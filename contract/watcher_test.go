@@ -13,8 +13,8 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
@@ -135,7 +135,7 @@ type mockContractHandler struct{}
 
 func (h *mockContractHandler) NewContract(
 	_ context.Context,
-	_ wallet.KeyRef,
+	_ identity.KeyRef,
 ) (*types.Contract, error) {
 	return nil, nil
 }
@@ -145,7 +145,7 @@ func (h *mockContractHandler) GetKeyRefs(_ types.Contract) (map[string]string, e
 
 func (h *mockContractHandler) GetKeyRef(
 	_ types.Contract,
-) (*wallet.KeyRef, error) {
+) (*identity.KeyRef, error) {
 	return nil, nil
 }
 func (h *mockContractHandler) GetSignerKey(_ types.Contract) (*btcec.PublicKey, error) {
@@ -268,9 +268,9 @@ func makeBoardingContract(addr string) types.Contract {
 	}
 }
 
-// makeOnchainContract builds a second ContractTypeBoarding contract (used in
-// tests that need two distinct boarding addresses to subscribe).
-func makeOnchainContract(addr string) types.Contract {
+// makeSecondBoardingContract builds a second ContractTypeBoarding contract (used
+// in tests that need two distinct boarding addresses to subscribe).
+func makeSecondBoardingContract(addr string) types.Contract {
 	return types.Contract{
 		Script:  "ddeeff",
 		Type:    types.ContractTypeBoarding,
@@ -382,7 +382,7 @@ func TestWatcher_InitialSubscription(t *testing.T) {
 	mgr := &watcherMockManager{
 		contracts: []types.Contract{
 			makeBoardingContract(boarding),
-			makeOnchainContract(onchain),
+			makeSecondBoardingContract(onchain),
 		},
 	}
 
@@ -483,11 +483,14 @@ func TestWatcher_BackoffRetry(t *testing.T) {
 func TestWatcher_BackoffContextCancel(t *testing.T) {
 	t.Parallel()
 
+	addr := "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
 	exp := newMockWatcherExplorer()
 	exp.subErr = errors.New("connection refused")
 	// subErrN = 0: always fail (never auto-clears)
 
-	mgr := &watcherMockManager{}
+	mgr := &watcherMockManager{
+		contracts: []types.Contract{makeBoardingContract(addr)},
+	}
 
 	w := contract.NewWatcher(exp, mgr, regtest())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

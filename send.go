@@ -3,48 +3,42 @@ package arksdk
 import (
 	"context"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
 
-func (a *arkClient) SendOffChain(
-	ctx context.Context, receivers []clientTypes.Receiver,
+func (w *wallet) SendOffChain(
+	ctx context.Context, receivers []clienttypes.Receiver,
 ) (string, error) {
-	if err := a.safeCheck(); err != nil {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
-	vtxos, err := a.getSpendableVtxos(ctx, false)
+	vtxos, err := w.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
 	}
 
-	cfg, err := a.GetConfigData(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	signingKeyRefs, err := a.getSigningKeyRefs(ctx, vtxos, nil)
+	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", err
 	}
 
 	// Ensure asset-carrying receivers have at least dust sats as a carrier
-	clone := make([]clientTypes.Receiver, len(receivers))
+	clone := make([]clienttypes.Receiver, len(receivers))
 	copy(clone, receivers)
-	dust := cfg.Dust
 	for i, receiver := range clone {
-		if len(receiver.Assets) > 0 && receiver.Amount < dust {
-			clone[i].Amount = dust
+		if len(receiver.Assets) > 0 && receiver.Amount < w.dustAmount {
+			clone[i].Amount = w.dustAmount
 		}
 	}
 
-	opts := []client.SendOption{
-		client.WithVtxos(vtxos),
-		client.WithKeys(signingKeyRefs),
+	opts := []clientwallet.SendOption{
+		clientwallet.WithVtxos(vtxos),
+		clientwallet.WithKeys(signingKeyRefs),
 	}
 
 	outAmount := uint64(0)
@@ -56,36 +50,36 @@ func (a *arkClient) SendOffChain(
 		inAmount += v.Amount
 	}
 	if inAmount > outAmount {
-		addr, err := a.newOffchainAddress(ctx)
+		addr, err := w.newOffchainAddress(ctx)
 		if err != nil {
 			return "", err
 		}
-		opts = append(opts, client.WithReceiver(addr))
+		opts = append(opts, clientwallet.WithReceiver(addr))
 	}
 
-	res, err := a.ArkClient.SendOffChain(ctx, clone, opts...)
+	res, err := w.client.SendOffChain(ctx, clone, opts...)
 	if err != nil {
 		return "", err
 	}
 
-	if err := a.saveSendTransaction(ctx, *res); err != nil {
+	if err := w.saveSendTransaction(ctx, *res); err != nil {
 		return "", err
 	}
 
 	return res.Txid, nil
 }
 
-func (a *arkClient) getSpendableVtxos(
+func (w *wallet) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
-) ([]clientTypes.VtxoWithTapTree, error) {
-	a.dbMu.Lock()
-	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
-	a.dbMu.Unlock()
+) ([]clienttypes.VtxoWithTapTree, error) {
+	w.dbMu.Lock()
+	spendableVtxos, err := w.store.VtxoStore().GetSpendableVtxos(ctx)
+	w.dbMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 
-	eligible := make([]clientTypes.Vtxo, 0, len(spendableVtxos))
+	eligible := make([]clienttypes.Vtxo, 0, len(spendableVtxos))
 	scripts := make([]string, 0, len(spendableVtxos))
 	for _, v := range spendableVtxos {
 		if v.Unrolled || (!withRecoverable && v.IsRecoverable()) {
@@ -103,7 +97,7 @@ func (a *arkClient) getSpendableVtxos(
 		return nil, nil
 	}
 
-	contracts, err := a.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
+	contracts, err := w.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +107,7 @@ func (a *arkClient) getSpendableVtxos(
 		contractsByScript[c.Script] = c
 	}
 
-	vtxos := make([]clientTypes.VtxoWithTapTree, 0, len(eligible))
+	vtxos := make([]clienttypes.VtxoWithTapTree, 0, len(eligible))
 	for _, v := range eligible {
 		contract, ok := contractsByScript[v.Script]
 		if !ok {
@@ -121,7 +115,7 @@ func (a *arkClient) getSpendableVtxos(
 			continue
 		}
 
-		handler, err := a.contractManager.GetHandler(ctx, contract)
+		handler, err := w.contractManager.GetHandler(ctx, contract)
 		if err != nil {
 			log.WithError(err).Warnf("failed to get handler for contract %s", contract.Script)
 			continue
@@ -132,7 +126,7 @@ func (a *arkClient) getSpendableVtxos(
 			continue
 		}
 
-		vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
+		vtxos = append(vtxos, clienttypes.VtxoWithTapTree{
 			Vtxo:       v,
 			Tapscripts: tapscripts,
 		})

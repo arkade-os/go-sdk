@@ -10,7 +10,6 @@ import (
 const (
 	InMemoryStore = "inmemory"
 	FileStore     = "file"
-	KVStore       = "kv"
 	SQLStore      = "sql"
 )
 

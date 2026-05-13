@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -39,6 +40,8 @@ type Watcher struct {
 	mgr     Manager
 	network arklib.Network
 
+	started atomic.Bool
+
 	mu              sync.RWMutex
 	addresses       []string
 	addressByScript map[string]AddressInfo
@@ -62,9 +65,14 @@ func NewWatcher(exp explorer.Explorer, mgr Manager, network arklib.Network) *Wat
 
 // Start loads all current contracts, subscribes their addresses to the explorer,
 // and launches the listener goroutine. Newly created contracts are subscribed
-// dynamically. Start returns an error only if the initial address load fails;
-// subscription failures are retried internally with exponential backoff.
+// dynamically. Start returns an error only if the initial address load fails or
+// Start has already been called; subscription failures are retried internally
+// with exponential backoff.
 func (w *Watcher) Start(ctx context.Context) error {
+	if !w.started.CompareAndSwap(false, true) {
+		return fmt.Errorf("watcher: already started")
+	}
+
 	contracts, err := w.mgr.GetContracts(ctx, WithState(types.ContractStateActive))
 	if err != nil {
 		return fmt.Errorf("watcher: load contracts: %w", err)
@@ -199,6 +207,10 @@ func (w *Watcher) subscribeWithBackoff(ctx context.Context) error {
 		addrs := make([]string, len(w.addresses))
 		copy(addrs, w.addresses)
 		w.mu.RUnlock()
+
+		if len(addrs) == 0 {
+			return nil
+		}
 
 		if err := w.exp.SubscribeForAddresses(addrs); err != nil {
 			if ctx.Err() != nil {

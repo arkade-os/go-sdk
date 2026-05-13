@@ -8,7 +8,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	"github.com/arkade-os/go-sdk/types"
@@ -131,7 +131,7 @@ func TestHandlerNewContract(t *testing.T) {
 				for _, c := range cases {
 					t.Run(c.name, func(t *testing.T) {
 						h := defaultHandler.NewHandler(
-							&mockTransportClient{info: c.info, infoErr: c.infoErr},
+							&mockClient{info: c.info, infoErr: c.infoErr},
 							testNetwork, mode.isOnchain,
 						)
 						got, err := h.NewContract(t.Context(), keyRef)
@@ -587,13 +587,13 @@ func newTestHandler(t *testing.T, isOnchain bool) handlers.Handler {
 	t.Helper()
 	info := newTestInfo(t, newTestPubKey(t))
 	return defaultHandler.NewHandler(
-		&mockTransportClient{info: info}, testNetwork, isOnchain,
+		&mockClient{info: info}, testNetwork, isOnchain,
 	)
 }
 
-func newTestKeyRef(t *testing.T) wallet.KeyRef {
+func newTestKeyRef(t *testing.T) identity.KeyRef {
 	t.Helper()
-	return wallet.KeyRef{Id: "m/0/0", PubKey: newTestPubKey(t)}
+	return identity.KeyRef{Id: "m/0/0", PubKey: newTestPubKey(t)}
 }
 
 func newTestPubKey(t *testing.T) *btcec.PublicKey {
