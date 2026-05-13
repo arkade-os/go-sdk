@@ -38,6 +38,9 @@ type Manager interface {
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.
 	Close()
+	// OnContractEvent registers a callback invoked whenever a new contract is created.
+	// Returns an unsubscribe function.
+	OnContractEvent(cb func(types.Contract)) func()
 }
 
 // Args contains all services and params required to create a new contract manager.
