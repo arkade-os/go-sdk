@@ -465,15 +465,19 @@ func (e *explorerSvc) GetUtxos(addresses []string) ([]explorer.Utxo, error) {
 			return nil, err
 		}
 		electrumUtxos, err := e.listUnspent(sh)
-		if err != nil {
-			return nil, err
-		}
-		if len(electrumUtxos) == 0 && e.esploraURL != "" {
-			if fallback, ferr := e.esploraListUnspent(addr); ferr == nil {
+		// Same fallback shape as pollAddress: cover both empty results and
+		// hard errors (e.g. listunspent timeouts on P2TR scripts).
+		if (err != nil || len(electrumUtxos) == 0) && e.esploraURL != "" {
+			fallback, ferr := e.esploraListUnspent(addr)
+			if ferr == nil {
 				electrumUtxos = fallback
+				err = nil
 			} else {
 				log.WithError(ferr).Debugf("electrum: esplora utxo fallback failed for %s", addr)
 			}
+		}
+		if err != nil {
+			return nil, err
 		}
 		for _, u := range electrumUtxos {
 			var blocktime int64
@@ -717,19 +721,25 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 	defer state.mu.Unlock()
 
 	newUTXOs, err := e.listUnspent(scripthash)
+	// Fall back to esplora when electrum errors out (e.g. timeout on P2TR) or
+	// returns an empty list (electrs builds that don't index taproot). Without
+	// the error-path fallback, a single P2TR timeout permanently de-syncs the
+	// address's state because pollAddress would return before reconciling.
+	if (err != nil || len(newUTXOs) == 0) && e.esploraURL != "" {
+		fallback, ferr := e.esploraListUnspent(addr)
+		if ferr == nil {
+			newUTXOs = fallback
+			err = nil
+		} else {
+			log.WithError(ferr).Debugf("electrum: esplora poll fallback failed for %s", addr)
+		}
+	}
 	if err != nil {
 		log.WithError(err).Errorf("electrum: poll failed for %s", addr)
 		go e.listeners.broadcast(types.OnchainAddressEvent{
 			Error: fmt.Errorf("failed to poll %s: %w", addr, err),
 		})
 		return
-	}
-	if len(newUTXOs) == 0 && e.esploraURL != "" {
-		if fallback, ferr := e.esploraListUnspent(addr); ferr == nil {
-			newUTXOs = fallback
-		} else {
-			log.WithError(ferr).Debugf("electrum: esplora poll fallback failed for %s", addr)
-		}
 	}
 
 	script, err := addrToScript(addr, e.netParams)
