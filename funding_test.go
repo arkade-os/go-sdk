@@ -19,9 +19,9 @@ func TestGetOffchainBalanceClassifiesRecoverableVtxos(t *testing.T) {
 
 	now := time.Now()
 	vtxos := []clientTypes.Vtxo{
-		//unspent
+		//unspent leaf
 		balanceTestVtxo(0, 1_000, now.Add(time.Hour), nil),
-		//precomfirmed
+		//unspent precomfirmed
 		balanceTestVtxo(1, 2_000, now.Add(time.Hour), func(v *clientTypes.Vtxo) {
 			v.Preconfirmed = true
 		}),
