@@ -58,7 +58,7 @@ func TestCollaborativeExit(t *testing.T) {
 		require.False(t, bobUtxo.IsConfirmed())
 
 		// generate block to confirm the commitment transaction
-		require.NoError(t, generateBlocks(1))
+		generateBlocks(t, 1)
 
 		// next event received by bob utxo channel should be the confirmed event
 		// related to the commitment transaction
@@ -127,7 +127,7 @@ func TestCollaborativeExit(t *testing.T) {
 		require.False(t, bobUtxo.IsConfirmed())
 
 		// generate block to confirm the commitment transaction
-		require.NoError(t, generateBlocks(1))
+		generateBlocks(t, 1)
 
 		// next event received by bob utxo channel should be the confirmed event
 		// related to the commitment transaction
@@ -185,14 +185,13 @@ func TestUnilateralExit(t *testing.T) {
 		for {
 			err = alice.Unroll(ctx)
 			if err == nil {
-				err = generateBlocks(1)
-				require.NoError(t, err)
+				generateBlocks(t, 1)
 				time.Sleep(5 * time.Second)
 				continue
 			}
 
 			if errors.Is(err, client.ErrWaitingForConfirmation) {
-				require.NoError(t, generateBlocks(1))
+				generateBlocks(t, 1)
 				continue
 			}
 
@@ -207,8 +206,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 		require.True(t, spent[0].Unrolled)
 
-		err = generateBlocks(10)
-		require.NoError(t, err)
+		generateBlocks(t, 10)
 
 		time.Sleep(25 * time.Second)
 
@@ -283,14 +281,13 @@ func TestUnilateralExit(t *testing.T) {
 		for {
 			err = bob.Unroll(ctx)
 			if err == nil {
-				err = generateBlocks(1)
-				require.NoError(t, err)
+				generateBlocks(t, 1)
 				time.Sleep(5 * time.Second)
 				continue
 			}
 
 			if errors.Is(err, client.ErrWaitingForConfirmation) {
-				require.NoError(t, generateBlocks(1))
+				generateBlocks(t, 1)
 				continue
 			}
 
@@ -305,8 +302,7 @@ func TestUnilateralExit(t *testing.T) {
 		require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 		require.True(t, spent[0].Unrolled)
 
-		err = generateBlocks(10)
-		require.NoError(t, err)
+		generateBlocks(t, 10)
 
 		time.Sleep(20 * time.Second)
 

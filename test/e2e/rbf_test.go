@@ -50,7 +50,7 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	fundAddr = strings.TrimSpace(fundAddr)
 
 	faucetOnchain(t, fundAddr, 1)
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 
 	// Set a low fee rate so bumpfee has room to increase.
 	_, err = rpc("settxfee", "0.00001000")
@@ -80,7 +80,7 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(cleanBump), &bumpResp))
 
 		// Mine so the wallet's change is confirmed for the next iteration.
-		require.NoError(t, generateBlocks(1))
+		generateBlocks(t, 1)
 	}
 
 	// Wait for the SDK to detect the confirmed UTXOs, then settle.

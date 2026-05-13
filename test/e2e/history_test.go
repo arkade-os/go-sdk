@@ -171,7 +171,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, offchainReceivedTx, history[0], "")
 
 	// bob settles to get a non-recoverable VTXO before sending
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 	_, err = bob.Settle(ctx)
 	require.NoError(t, err)
 

@@ -253,8 +253,7 @@ func TestBatchSession(t *testing.T) {
 		// minimum (1 to confirm + 20 to expire). Use 25 for a small buffer.
 		// Fewer blocks here means fewer electrum notifications, keeping CI's electrs
 		// responsive for subsequent tests.
-		err = generateBlocks(25)
-		require.NoError(t, err)
+		generateBlocks(t, 25)
 
 		vtxoEvent = recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosSwept, vtxoEvent.Type)
