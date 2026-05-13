@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -19,6 +20,39 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 )
+
+// readSDKVersion resolves the SDK version from the current binary's
+// build info. Kept thin and delegating to readSDKVersionFrom so the
+// pure logic remains testable with crafted BuildInfo fixtures.
+func readSDKVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	return readSDKVersionFrom(info)
+}
+
+// readSDKVersionFrom is the pure half of readSDKVersion. Walks the
+// build info looking for the SDK's module path, first as the main
+// module (i.e. when the SDK itself is being built / tested) and then
+// among the importing binary's dependencies.
+func readSDKVersionFrom(info *debug.BuildInfo) string {
+	if info == nil {
+		return "unknown"
+	}
+	if info.Main.Path == modulePath {
+		if info.Main.Version != "" {
+			return info.Main.Version
+		}
+		return "(devel)"
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == modulePath {
+			return dep.Version
+		}
+	}
+	return "unknown"
+}
 
 func newDefaultHDIdentity(datadir string) (identity.Identity, error) {
 	store, err := newHDIdentityStore(datadir)

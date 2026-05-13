@@ -15,7 +15,25 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-var Version string
+// modulePath identifies the SDK to the build-info reader. Must match
+// the module path declared in go.mod.
+const modulePath = "github.com/arkade-os/go-sdk"
+
+// Version reports the SDK's module version as resolved by the Go module
+// system at build time of the importing binary. Populated from
+// runtime/debug.ReadBuildInfo on package init:
+//
+//   - For a binary that imported the SDK via `go get …@vX.Y.Z`, returns
+//     "vX.Y.Z".
+//   - For a pseudo-version (commit / branch import), returns
+//     "v0.0.0-<utc-timestamp>-<short-commit-sha>".
+//   - For a local replace directive (or `go test ./…` inside the SDK
+//     repo itself), returns "(devel)".
+//   - When build info is unavailable (vendored builds without modules,
+//     certain test harnesses), returns "unknown".
+//
+// Wallet.Version() proxies this value, so callers can read either.
+var Version = readSDKVersion()
 
 type Wallet interface {
 	Version() string
