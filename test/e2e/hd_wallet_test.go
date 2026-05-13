@@ -233,7 +233,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		faucetOnchain(t, boardingAddrs[i], amount)
 	}
 
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 	waitForExplorerHistory(t, bobClientHD, boardingAddrs)
 
 	aliceClientHD = setupClient(t, seed, sdk.WithoutAutoSettle())
@@ -412,7 +412,7 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 
 	const boardingAmount = 0.00021
 	faucetOnchain(t, boardingAddr, boardingAmount)
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 
 	waitForExplorerHistory(t, alice, []string{boardingAddr})
 

@@ -278,7 +278,7 @@ func TestBalance(t *testing.T) {
 		require.Equal(t, int(21000), int(balance.OnchainBalance.Total))
 		require.Zero(t, int(balance.OnchainBalance.SpendableAmount))
 
-		require.NoError(t, generateBlocks(1))
+		generateBlocks(t, 1)
 
 		bobUtxoEvent = waitForUtxoEvent(
 			t,
@@ -305,7 +305,7 @@ func TestBalance(t *testing.T) {
 		faucetOffchain(t, alice, 0.0005)
 
 		// Make the funds expire and be swept by the server
-		generateBlocks(21)
+		generateBlocks(t, 21)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 

@@ -131,7 +131,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
 
-	go func() {
+	w.bgWg.Go(func() {
 		w.Explorer().Start()
 		if w.scheduler != nil {
 			w.scheduler.Start()
@@ -162,11 +162,11 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		w.syncCh <- err
 		close(w.syncCh)
 
-		go w.listenForArkTxs(ctx)
-		go w.listenForOnchainTxs(ctx, w.network)
-		go w.listenDbEvents(ctx)
-		go w.periodicRefreshDb(ctx)
-	}()
+		w.bgWg.Go(func() { w.listenForArkTxs(ctx) })
+		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network) })
+		w.bgWg.Go(func() { w.listenDbEvents(ctx) })
+		w.bgWg.Go(func() { w.periodicRefreshDb(ctx) })
+	})
 
 	return nil
 }

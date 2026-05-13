@@ -56,6 +56,7 @@ type wallet struct {
 	syncListeners *syncListeners
 	stopFn        context.CancelFunc
 	stopOnce      sync.Once
+	bgWg          sync.WaitGroup
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
 
@@ -387,8 +388,27 @@ func (w *wallet) Stop() {
 			w.syncListeners.clear()
 		}
 
+		// Wait for background listeners (listenForArkTxs / listenForOnchainTxs /
+		// listenDbEvents / periodicRefreshDb) to exit before closing the store —
+		// otherwise an in-flight handler write can race the Close and leave
+		// SQLite WAL/Badger vlog tempfiles behind.
+		w.waitForBackground(5 * time.Second)
+
 		w.store.Close()
 	})
+}
+
+func (w *wallet) waitForBackground(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		w.bgWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warn("timed out waiting for background workers to exit")
+	}
 }
 
 func (w *wallet) GetTransactionHistory(ctx context.Context) ([]clienttypes.Transaction, error) {

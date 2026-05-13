@@ -172,7 +172,7 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 	return cmd
 }
 
-func generateBlocks(n int) error {
+func generateBlocks(t *testing.T, n int) {
 	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
-	return err
+	require.NoError(t, err)
 }

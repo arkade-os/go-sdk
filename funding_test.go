@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
@@ -21,33 +20,33 @@ func TestGetOffchainBalanceClassifiesRecoverableVtxos(t *testing.T) {
 	now := time.Now()
 	defaultExpiry := now.Add(time.Hour)
 	pastExpiry := now.Add(-(5 * time.Minute))
-	vtxos := []clientTypes.Vtxo{
+	vtxos := []clienttypes.Vtxo{
 		// Unspent leaf
 		balanceTestVtxo(t, 1_000, defaultExpiry, nil),
 		//u Unspent precomfirmed
-		balanceTestVtxo(t, 2_000, defaultExpiry, func(v *clientTypes.Vtxo) {
+		balanceTestVtxo(t, 2_000, defaultExpiry, func(v *clienttypes.Vtxo) {
 			v.Preconfirmed = true
 		}),
 		// Swept and not spent, recoverable
-		balanceTestVtxo(t, 3_000, pastExpiry, func(v *clientTypes.Vtxo) {
+		balanceTestVtxo(t, 3_000, pastExpiry, func(v *clienttypes.Vtxo) {
 			v.Swept = true
 		}),
 		// Expired but not swept, ie. server did not broadcasted the sweep tx yet
 		balanceTestVtxo(t, 4_000, pastExpiry, nil),
 		// Sub-dust, recoverable
-		balanceTestVtxo(t, 200, defaultExpiry, func(v *clientTypes.Vtxo) {
+		balanceTestVtxo(t, 200, defaultExpiry, func(v *clienttypes.Vtxo) {
 			v.Swept = true
 		}),
 		// Swept and spent, ignore
-		balanceTestVtxo(t, 5_000, pastExpiry, func(v *clientTypes.Vtxo) {
+		balanceTestVtxo(t, 5_000, pastExpiry, func(v *clienttypes.Vtxo) {
 			v.Swept = true
 			v.Spent = true
 		}),
 		// Unrolled, ignore
-		balanceTestVtxo(t, 6_000, defaultExpiry, func(v *clientTypes.Vtxo) {
+		balanceTestVtxo(t, 6_000, defaultExpiry, func(v *clienttypes.Vtxo) {
 			v.Unrolled = true
 		}),
-		balanceTestVtxo(t, 7_000, defaultExpiry, func(v *clientTypes.Vtxo) {
+		balanceTestVtxo(t, 7_000, defaultExpiry, func(v *clienttypes.Vtxo) {
 			v.Preconfirmed = true
 			v.Assets = []clienttypes.Asset{
 				{
@@ -80,8 +79,8 @@ func TestGetOffchainBalanceClassifiesRecoverableVtxos(t *testing.T) {
 }
 
 func balanceTestVtxo(
-	t *testing.T, amount uint64, expiresAt time.Time, mutate func(*clientTypes.Vtxo),
-) clientTypes.Vtxo {
+	t *testing.T, amount uint64, expiresAt time.Time, mutate func(*clienttypes.Vtxo),
+) clienttypes.Vtxo {
 	t.Helper()
 
 	txid := make([]byte, 32)
@@ -92,8 +91,8 @@ func balanceTestVtxo(
 	_, err = rand.Read(commitmentTxid)
 	require.NoError(t, err)
 
-	vtxo := clientTypes.Vtxo{
-		Outpoint: clientTypes.Outpoint{
+	vtxo := clienttypes.Vtxo{
+		Outpoint: clienttypes.Outpoint{
 			Txid: hex.EncodeToString(txid),
 			VOut: 0,
 		},
