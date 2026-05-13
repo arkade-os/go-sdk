@@ -50,19 +50,19 @@ func (c *infoCache) set(resp *client.Info) {
 // and serves it from a shared infoCache. Every other call passes through
 // to the embedded client unchanged via Go's method promotion.
 type cachingClient struct {
-	client.TransportClient
+	client.Client
 	cache *infoCache
 }
 
-func newCachingClient(c client.TransportClient, cache *infoCache) *cachingClient {
-	return &cachingClient{TransportClient: c, cache: cache}
+func newCachingClient(c client.Client, cache *infoCache) *cachingClient {
+	return &cachingClient{Client: c, cache: cache}
 }
 
 func (c *cachingClient) GetInfo(ctx context.Context) (*client.Info, error) {
 	if cached := c.cache.get(); cached != nil {
 		return cached, nil
 	}
-	resp, err := c.TransportClient.GetInfo(ctx)
+	resp, err := c.Client.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}

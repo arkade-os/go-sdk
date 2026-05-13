@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -19,15 +18,15 @@ func TestBalance(t *testing.T) {
 		balance, err := alice.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
-		require.Zero(t, balance.OffchainBalance.Total)
-		require.Zero(t, balance.Total)
-		require.Zero(t, balance.OffchainBalance.Available)
-		require.Zero(t, balance.OffchainBalance.Preconfirmed)
-		require.Zero(t, balance.OffchainBalance.Recoverable)
-		require.Zero(t, balance.OffchainBalance.Settled)
-		require.Zero(t, balance.OnchainBalance.Confirmed)
-		require.Zero(t, balance.OnchainBalance.Unconfirmed)
-		require.Zero(t, balance.OnchainBalance.Total)
+		require.Zero(t, int(balance.OffchainBalance.Total))
+		require.Zero(t, int(balance.Total))
+		require.Zero(t, int(balance.OffchainBalance.Available))
+		require.Zero(t, int(balance.OffchainBalance.Preconfirmed))
+		require.Zero(t, int(balance.OffchainBalance.Recoverable))
+		require.Zero(t, int(balance.OffchainBalance.Settled))
+		require.Zero(t, int(balance.OnchainBalance.Confirmed))
+		require.Zero(t, int(balance.OnchainBalance.Unconfirmed))
+		require.Zero(t, int(balance.OnchainBalance.Total))
 
 		// Fund Alice's boarding address and wait for the UTXO event.
 		boardingAddr, err := alice.NewBoardingAddress(ctx)
@@ -47,15 +46,15 @@ func TestBalance(t *testing.T) {
 		// Offchain balance should still be zero (funds are on-chain only).
 		balance, err = alice.Balance(ctx)
 		require.NoError(t, err)
-		require.Zero(t, balance.OffchainBalance.Total)
-		require.Equal(t, uint64(21000), balance.Total)
-		require.Zero(t, balance.OffchainBalance.Available)
-		require.Zero(t, balance.OffchainBalance.Preconfirmed)
-		require.Zero(t, balance.OffchainBalance.Recoverable)
-		require.Zero(t, balance.OffchainBalance.Settled)
-		require.Equal(t, uint64(21000), balance.OnchainBalance.Confirmed)
-		require.Zero(t, balance.OnchainBalance.Unconfirmed)
-		require.Equal(t, uint64(21000), balance.OnchainBalance.Total)
+		require.Zero(t, int(balance.OffchainBalance.Total))
+		require.Equal(t, int(21000), int(balance.Total))
+		require.Zero(t, int(balance.OffchainBalance.Available))
+		require.Zero(t, int(balance.OffchainBalance.Preconfirmed))
+		require.Zero(t, int(balance.OffchainBalance.Recoverable))
+		require.Zero(t, int(balance.OffchainBalance.Settled))
+		require.Equal(t, int(21000), int(balance.OnchainBalance.Confirmed))
+		require.Zero(t, int(balance.OnchainBalance.Unconfirmed))
+		require.Equal(t, int(21000), int(balance.OnchainBalance.Total))
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 
@@ -77,22 +76,14 @@ func TestBalance(t *testing.T) {
 		require.NotNil(t, balance)
 
 		// Invariant: Total == Available + Preconfirmed + Recoverable
-		total := balance.OffchainBalance.Total
-		available := balance.OffchainBalance.Available
 		preconfirmed := balance.OffchainBalance.Preconfirmed
 		recoverable := balance.OffchainBalance.Recoverable
 		settled := balance.OffchainBalance.Settled
-		require.Equal(t, total, settled+preconfirmed+recoverable,
-			"Total must equal Settled + Preconfirmed + Recoverable")
-		require.Equal(t, available, settled+preconfirmed,
-			"Available must equal Settled + Preconfirmed")
-		require.GreaterOrEqual(t, int(total), 21000,
-			"Total offchain balance should be at least 21000 sats")
+		require.Equal(t, int(settled+preconfirmed+recoverable), int(balance.OffchainBalance.Total))
+		require.Equal(t, int(settled+preconfirmed), int(balance.OffchainBalance.Available))
+		require.GreaterOrEqual(t, int(balance.OffchainBalance.Total), 21000)
 		require.Equal(
-			t,
-			balance.Total,
-			balance.OnchainBalance.Total+balance.OffchainBalance.Total,
-			"Wallet total must equal onchain total + offchain total",
+			t, int(balance.OnchainBalance.Total+balance.OffchainBalance.Total), int(balance.Total),
 		)
 	})
 
@@ -130,21 +121,23 @@ func TestBalance(t *testing.T) {
 		balance, err := bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
-		require.Equal(t, uint64(21000), balance.OffchainBalance.Total)
-		require.Zero(t, balance.OffchainBalance.Settled)
-		require.Equal(t, uint64(21000), balance.OffchainBalance.Preconfirmed)
-		require.Zero(t, balance.OffchainBalance.Recoverable)
-		require.Equal(t, uint64(21000), balance.OffchainBalance.Available)
+		require.Equal(t, int(21000), int(balance.OffchainBalance.Total))
+		require.Zero(t, int(balance.OffchainBalance.Settled))
+		require.Equal(t, int(21000), int(balance.OffchainBalance.Preconfirmed))
+		require.Zero(t, int(balance.OffchainBalance.Recoverable))
+		require.Equal(t, int(21000), int(balance.OffchainBalance.Available))
 		require.Equal(
 			t,
-			balance.OffchainBalance.Total,
-			balance.OffchainBalance.Settled+
-				balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
+			int(
+				balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed+
+					balance.OffchainBalance.Recoverable,
+			),
+			int(balance.OffchainBalance.Total),
 		)
 		require.Equal(
 			t,
-			balance.OffchainBalance.Available,
-			balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed,
+			int(balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed),
+			int(balance.OffchainBalance.Available),
 		)
 	})
 
@@ -185,17 +178,20 @@ func TestBalance(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, balance)
 			require.Greater(t, int(balance.OffchainBalance.Settled), 0)
-			require.Equal(t, uint64(21000), balance.OffchainBalance.Preconfirmed)
-			require.Zero(t, balance.OffchainBalance.Recoverable)
+			require.Equal(t, int(21000), int(balance.OffchainBalance.Preconfirmed))
+			require.Zero(t, int(balance.OffchainBalance.Recoverable))
 			require.Equal(
 				t,
-				balance.OffchainBalance.Available,
-				balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed,
+				int(balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed),
+				int(balance.OffchainBalance.Available),
 			)
 			require.Equal(
-				t, balance.OffchainBalance.Total,
-				balance.OffchainBalance.Settled+
-					balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
+				t,
+				int(
+					balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed+
+						balance.OffchainBalance.Recoverable,
+				),
+				int(balance.OffchainBalance.Total),
 			)
 		},
 	)
@@ -233,16 +229,18 @@ func TestBalance(t *testing.T) {
 		balance, err := bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
-		require.Equal(t, uint64(100), balance.OffchainBalance.Total)
-		require.Zero(t, balance.OffchainBalance.Settled)
-		require.Zero(t, balance.OffchainBalance.Preconfirmed)
-		require.Equal(t, uint64(100), balance.OffchainBalance.Recoverable)
-		require.Zero(t, balance.OffchainBalance.Available)
+		require.Equal(t, int(100), int(balance.OffchainBalance.Total))
+		require.Zero(t, int(balance.OffchainBalance.Settled))
+		require.Zero(t, int(balance.OffchainBalance.Preconfirmed))
+		require.Equal(t, int(100), int(balance.OffchainBalance.Recoverable))
+		require.Zero(t, int(balance.OffchainBalance.Available))
 		require.Equal(
 			t,
-			balance.OffchainBalance.Total,
-			balance.OffchainBalance.Settled+
-				balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
+			int(
+				balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed+
+					balance.OffchainBalance.Recoverable,
+			),
+			int(balance.OffchainBalance.Total),
 		)
 	})
 
@@ -275,10 +273,10 @@ func TestBalance(t *testing.T) {
 		balance, err := bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
-		require.Zero(t, balance.OnchainBalance.Confirmed)
-		require.Equal(t, uint64(21000), balance.OnchainBalance.Unconfirmed)
-		require.Equal(t, uint64(21000), balance.OnchainBalance.Total)
-		require.Zero(t, balance.OnchainBalance.SpendableAmount)
+		require.Zero(t, int(balance.OnchainBalance.Confirmed))
+		require.Equal(t, int(21000), int(balance.OnchainBalance.Unconfirmed))
+		require.Equal(t, int(21000), int(balance.OnchainBalance.Total))
+		require.Zero(t, int(balance.OnchainBalance.SpendableAmount))
 
 		require.NoError(t, generateBlocks(1))
 
@@ -295,19 +293,19 @@ func TestBalance(t *testing.T) {
 		balance, err = bob.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, balance)
-		require.Equal(t, uint64(21000), balance.OnchainBalance.Confirmed)
-		require.Zero(t, balance.OnchainBalance.Unconfirmed)
-		require.Equal(t, uint64(21000), balance.OnchainBalance.Total)
+		require.Equal(t, int(21000), int(balance.OnchainBalance.Confirmed))
+		require.Zero(t, int(balance.OnchainBalance.Unconfirmed))
+		require.Equal(t, int(21000), int(balance.OnchainBalance.Total))
 	})
 
 	t.Run("recoverable (swept)", func(t *testing.T) {
-		if os.Getenv("RUN_LONG_EXPIRY_TESTS") == "" {
-			t.Skip("set RUN_LONG_EXPIRY_TESTS=1 to run sweep-expiry balance coverage")
-		}
-
 		ctx := t.Context()
+
 		alice := setupClient(t, "")
 		faucetOffchain(t, alice, 0.0005)
+
+		// Make the funds expire and be swept by the server
+		generateBlocks(21)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 
@@ -315,7 +313,7 @@ func TestBalance(t *testing.T) {
 			balance, err := alice.Balance(ctx)
 			require.NoError(t, err)
 			return balance.OffchainBalance.Recoverable > 0
-		}, 10*time.Minute, 5*time.Second)
+		}, 20*time.Second, 200*time.Millisecond)
 
 		sawSweepEvent := false
 		for !sawSweepEvent {
@@ -335,9 +333,11 @@ func TestBalance(t *testing.T) {
 		require.Greater(t, int(balance.OffchainBalance.Recoverable), 0)
 		require.Equal(
 			t,
-			balance.OffchainBalance.Total,
-			balance.OffchainBalance.Settled+
-				balance.OffchainBalance.Preconfirmed+balance.OffchainBalance.Recoverable,
+			int(
+				balance.OffchainBalance.Settled+balance.OffchainBalance.Preconfirmed+
+					balance.OffchainBalance.Recoverable,
+			),
+			int(balance.OffchainBalance.Total),
 		)
 	})
 }

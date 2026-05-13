@@ -1,74 +1,104 @@
 package arksdk
 
 import (
-	"fmt"
+	"crypto/rand"
+	"encoding/hex"
 	"testing"
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetOffchainBalanceClassifiesRecoverableVtxos(t *testing.T) {
 	ctx := t.Context()
 
-	c, err := NewArkClient("")
+	w, err := NewWallet(t.TempDir())
 	require.NoError(t, err)
-	client := c.(*arkClient)
-	t.Cleanup(client.store.Close)
+	t.Cleanup(w.(*wallet).store.Close)
 
 	now := time.Now()
+	defaultExpiry := now.Add(time.Hour)
+	pastExpiry := now.Add(-(5 * time.Minute))
 	vtxos := []clientTypes.Vtxo{
-		//unspent leaf
-		balanceTestVtxo(0, 1_000, now.Add(time.Hour), nil),
-		//unspent precomfirmed
-		balanceTestVtxo(1, 2_000, now.Add(time.Hour), func(v *clientTypes.Vtxo) {
+		// Unspent leaf
+		balanceTestVtxo(t, 1_000, defaultExpiry, nil),
+		//u Unspent precomfirmed
+		balanceTestVtxo(t, 2_000, defaultExpiry, func(v *clientTypes.Vtxo) {
 			v.Preconfirmed = true
 		}),
-		// swept and not spent, recoverable
-		balanceTestVtxo(2, 3_000, now.Add(-time.Hour), func(v *clientTypes.Vtxo) {
+		// Swept and not spent, recoverable
+		balanceTestVtxo(t, 3_000, pastExpiry, func(v *clientTypes.Vtxo) {
 			v.Swept = true
 		}),
-		//expired but not swept for some reason eg. arkd bug, recoverable
-		balanceTestVtxo(3, 4_000, now.Add(-time.Minute), nil),
-		// dust, recoverable
-		balanceTestVtxo(6, 200, now.Add(-time.Hour), func(v *clientTypes.Vtxo) {
+		// Expired but not swept, ie. server did not broadcasted the sweep tx yet
+		balanceTestVtxo(t, 4_000, pastExpiry, nil),
+		// Sub-dust, recoverable
+		balanceTestVtxo(t, 200, defaultExpiry, func(v *clientTypes.Vtxo) {
 			v.Swept = true
 		}),
-		//swept and spent, non-recoverable
-		balanceTestVtxo(4, 5_000, now.Add(-time.Minute), func(v *clientTypes.Vtxo) {
+		// Swept and spent, ignore
+		balanceTestVtxo(t, 5_000, pastExpiry, func(v *clientTypes.Vtxo) {
 			v.Swept = true
 			v.Spent = true
 		}),
-		//unrolled/spent, non-recoverable
-		balanceTestVtxo(5, 6_000, now.Add(time.Hour), func(v *clientTypes.Vtxo) {
+		// Unrolled, ignore
+		balanceTestVtxo(t, 6_000, defaultExpiry, func(v *clientTypes.Vtxo) {
 			v.Unrolled = true
+		}),
+		balanceTestVtxo(t, 7_000, defaultExpiry, func(v *clientTypes.Vtxo) {
+			v.Preconfirmed = true
+			v.Assets = []clienttypes.Asset{
+				{
+					AssetId: "test",
+					Amount:  1_000,
+				},
+				{
+					AssetId: "test-2",
+					Amount:  2_000,
+				},
+			}
 		}),
 	}
 
-	count, err := client.store.VtxoStore().AddVtxos(ctx, vtxos)
+	count, err := w.Store().VtxoStore().AddVtxos(ctx, vtxos)
 	require.NoError(t, err)
 	require.Equal(t, len(vtxos), count)
 
-	balance, err := client.getOffchainBalance(ctx)
+	balance, assetsBalance, err := w.(*wallet).getOffchainBalance(ctx)
 	require.NoError(t, err)
+	require.NotNil(t, balance)
+	require.NotEmpty(t, assetsBalance)
 
-	require.Equal(t, uint64(10_200), balance.total)
-	require.Equal(t, uint64(1_000), balance.settled)
-	require.Equal(t, uint64(2_000), balance.preconfirmed)
-	require.Equal(t, uint64(7_200), balance.recoverable)
+	require.Equal(t, int(17_200), int(balance.Total))
+	require.Equal(t, int(1_000), int(balance.Settled))
+	require.Equal(t, int(9_000), int(balance.Preconfirmed))
+	require.Equal(t, int(7_200), int(balance.Recoverable))
+	require.Equal(t, int(1_000), int(assetsBalance["test"]))
+	require.Equal(t, int(2_000), int(assetsBalance["test-2"]))
 }
 
 func balanceTestVtxo(
-	index uint32, amount uint64, expiresAt time.Time, mutate func(*clientTypes.Vtxo),
+	t *testing.T, amount uint64, expiresAt time.Time, mutate func(*clientTypes.Vtxo),
 ) clientTypes.Vtxo {
+	t.Helper()
+
+	txid := make([]byte, 32)
+	_, err := rand.Read(txid)
+	require.NoError(t, err)
+
+	commitmentTxid := make([]byte, 32)
+	_, err = rand.Read(commitmentTxid)
+	require.NoError(t, err)
+
 	vtxo := clientTypes.Vtxo{
 		Outpoint: clientTypes.Outpoint{
-			Txid: fmt.Sprintf("%064x", index+1),
-			VOut: index,
+			Txid: hex.EncodeToString(txid),
+			VOut: 0,
 		},
 		Amount:          amount,
-		CommitmentTxids: []string{fmt.Sprintf("%064x", index+100)},
+		CommitmentTxids: []string{hex.EncodeToString(commitmentTxid)},
 		CreatedAt:       time.Now(),
 		ExpiresAt:       expiresAt,
 	}

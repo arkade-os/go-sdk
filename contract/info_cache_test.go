@@ -126,7 +126,7 @@ func TestCachingClient(t *testing.T) {
 // GetInfo is called by these tests, so the rest of the interface is left
 // unimplemented via the embedded nil interface and would panic if invoked.
 type countingTransport struct {
-	client.TransportClient
+	client.Client
 	mu    sync.Mutex
 	info  *client.Info
 	err   error

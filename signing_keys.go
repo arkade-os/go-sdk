@@ -3,18 +3,18 @@ package arksdk
 import (
 	"context"
 
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 )
 
-func (a *arkClient) getSigningKeyRefs(
-	ctx context.Context, vtxos []clientTypes.VtxoWithTapTree, utxos []clientTypes.Utxo,
+func (w *wallet) getSigningKeyRefs(
+	ctx context.Context, vtxos []clienttypes.VtxoWithTapTree, utxos []clienttypes.Utxo,
 ) (map[string]string, error) {
-	vtxoKeys, err := a.getKeysForVtxos(ctx, vtxos)
+	vtxoKeys, err := w.getKeysForVtxos(ctx, vtxos)
 	if err != nil {
 		return nil, err
 	}
-	utxoKeys, err := a.getKeysForUtxos(ctx, utxos)
+	utxoKeys, err := w.getKeysForUtxos(ctx, utxos)
 	if err != nil {
 		return nil, err
 	}
@@ -29,8 +29,8 @@ func (a *arkClient) getSigningKeyRefs(
 	return keys, nil
 }
 
-func (a *arkClient) getKeysForVtxos(
-	ctx context.Context, vtxos []clientTypes.VtxoWithTapTree,
+func (w *wallet) getKeysForVtxos(
+	ctx context.Context, vtxos []clienttypes.VtxoWithTapTree,
 ) (map[string]string, error) {
 	if len(vtxos) == 0 {
 		return nil, nil
@@ -40,11 +40,11 @@ func (a *arkClient) getKeysForVtxos(
 	for _, vtxo := range vtxos {
 		scripts = append(scripts, vtxo.Script)
 	}
-	return a.getKeys(ctx, scripts)
+	return w.getKeys(ctx, scripts)
 }
 
-func (a *arkClient) getKeysForUtxos(
-	ctx context.Context, utxos []clientTypes.Utxo,
+func (w *wallet) getKeysForUtxos(
+	ctx context.Context, utxos []clienttypes.Utxo,
 ) (map[string]string, error) {
 	if len(utxos) == 0 {
 		return nil, nil
@@ -54,18 +54,18 @@ func (a *arkClient) getKeysForUtxos(
 	for _, utxo := range utxos {
 		scripts = append(scripts, utxo.Script)
 	}
-	return a.getKeys(ctx, scripts)
+	return w.getKeys(ctx, scripts)
 }
 
-func (a *arkClient) getKeys(ctx context.Context, scripts []string) (map[string]string, error) {
-	contracts, err := a.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
+func (w *wallet) getKeys(ctx context.Context, scripts []string) (map[string]string, error) {
+	contracts, err := w.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
 	if err != nil {
 		return nil, err
 	}
 
 	keys := make(map[string]string)
 	for _, contract := range contracts {
-		handler, err := a.contractManager.GetHandler(ctx, contract)
+		handler, err := w.contractManager.GetHandler(ctx, contract)
 		if err != nil {
 			return nil, err
 		}

@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +28,9 @@ func TestMatchReplacementOutputs(t *testing.T) {
 		oldTxid := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		newTxid := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-		storedUtxos := []clientTypes.Utxo{
+		storedUtxos := []clienttypes.Utxo{
 			{
-				Outpoint: clientTypes.Outpoint{Txid: oldTxid, VOut: 1},
+				Outpoint: clienttypes.Outpoint{Txid: oldTxid, VOut: 1},
 				Script:   boardingScript,
 				Amount:   1_000_000,
 			},
@@ -46,8 +46,8 @@ func TestMatchReplacementOutputs(t *testing.T) {
 
 		replacements := matchReplacementOutputs(storedUtxos, newTxid, replacementTx)
 		require.Len(t, replacements, 1)
-		require.Equal(t, clientTypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].from)
-		require.Equal(t, clientTypes.Outpoint{Txid: newTxid, VOut: 1}, replacements[0].to)
+		require.Equal(t, clienttypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].from)
+		require.Equal(t, clienttypes.Outpoint{Txid: newTxid, VOut: 1}, replacements[0].to)
 	})
 
 	t.Run("reordered outputs maps to correct index", func(t *testing.T) {
@@ -58,9 +58,9 @@ func TestMatchReplacementOutputs(t *testing.T) {
 
 		// Original tx had: [change@0, boarding@1]
 		// So the stored UTXO is at vout=1
-		storedUtxos := []clientTypes.Utxo{
+		storedUtxos := []clienttypes.Utxo{
 			{
-				Outpoint: clientTypes.Outpoint{Txid: oldTxid, VOut: 1},
+				Outpoint: clienttypes.Outpoint{Txid: oldTxid, VOut: 1},
 				Script:   boardingScript,
 				Amount:   1_000_000,
 			},
@@ -79,8 +79,8 @@ func TestMatchReplacementOutputs(t *testing.T) {
 
 		// The boarding output moved from index 1 to index 0.
 		// The replacement must map (oldTxid, 1) → (newTxid, 0), NOT (newTxid, 1).
-		require.Equal(t, clientTypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].from)
-		require.Equal(t, clientTypes.Outpoint{Txid: newTxid, VOut: 0}, replacements[0].to,
+		require.Equal(t, clienttypes.Outpoint{Txid: oldTxid, VOut: 1}, replacements[0].from)
+		require.Equal(t, clienttypes.Outpoint{Txid: newTxid, VOut: 0}, replacements[0].to,
 			"should match by script, not by output index")
 	})
 
@@ -90,9 +90,9 @@ func TestMatchReplacementOutputs(t *testing.T) {
 		oldTxid := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		newTxid := "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 
-		storedUtxos := []clientTypes.Utxo{
+		storedUtxos := []clienttypes.Utxo{
 			{
-				Outpoint: clientTypes.Outpoint{Txid: oldTxid, VOut: 1},
+				Outpoint: clienttypes.Outpoint{Txid: oldTxid, VOut: 1},
 				Script:   boardingScript,
 				Amount:   1_000_000,
 			},
@@ -119,14 +119,14 @@ func TestMatchReplacementOutputs(t *testing.T) {
 		scriptA := "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		scriptB := "5120bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-		storedUtxos := []clientTypes.Utxo{
+		storedUtxos := []clienttypes.Utxo{
 			{
-				Outpoint: clientTypes.Outpoint{Txid: oldTxid, VOut: 0},
+				Outpoint: clienttypes.Outpoint{Txid: oldTxid, VOut: 0},
 				Script:   scriptA,
 				Amount:   500_000,
 			},
 			{
-				Outpoint: clientTypes.Outpoint{Txid: oldTxid, VOut: 1},
+				Outpoint: clienttypes.Outpoint{Txid: oldTxid, VOut: 1},
 				Script:   scriptB,
 				Amount:   500_000,
 			},
@@ -143,20 +143,20 @@ func TestMatchReplacementOutputs(t *testing.T) {
 		replacements := matchReplacementOutputs(storedUtxos, newTxid, replacementTx)
 		require.Len(t, replacements, 2)
 
-		fromTo := make(map[clientTypes.Outpoint]clientTypes.Outpoint)
+		fromTo := make(map[clienttypes.Outpoint]clienttypes.Outpoint)
 		for _, r := range replacements {
 			fromTo[r.from] = r.to
 		}
 
 		// scriptA: old vout=0 → new vout=1
 		require.Equal(t,
-			clientTypes.Outpoint{Txid: newTxid, VOut: 1},
-			fromTo[clientTypes.Outpoint{Txid: oldTxid, VOut: 0}],
+			clienttypes.Outpoint{Txid: newTxid, VOut: 1},
+			fromTo[clienttypes.Outpoint{Txid: oldTxid, VOut: 0}],
 		)
 		// scriptB: old vout=1 → new vout=0
 		require.Equal(t,
-			clientTypes.Outpoint{Txid: newTxid, VOut: 0},
-			fromTo[clientTypes.Outpoint{Txid: oldTxid, VOut: 1}],
+			clienttypes.Outpoint{Txid: newTxid, VOut: 0},
+			fromTo[clienttypes.Outpoint{Txid: oldTxid, VOut: 1}],
 		)
 	})
 }
