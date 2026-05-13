@@ -331,9 +331,7 @@ func (m *contractManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.store.Close()
-
-	log.Debugf("%s closed contract store", logPrefix)
+	log.Debugf("%s closed contract manager", logPrefix)
 }
 
 // findUsedFn returns the subset of `contracts`, keyed by Script, that have

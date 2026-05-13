@@ -263,9 +263,9 @@ func makeBoardingContract(addr string) types.Contract {
 	}
 }
 
-// makeOnchainContract builds a second ContractTypeBoarding contract (used in
-// tests that need two distinct boarding addresses to subscribe).
-func makeOnchainContract(addr string) types.Contract {
+// makeSecondBoardingContract builds a second ContractTypeBoarding contract (used
+// in tests that need two distinct boarding addresses to subscribe).
+func makeSecondBoardingContract(addr string) types.Contract {
 	return types.Contract{
 		Script:  "ddeeff",
 		Type:    types.ContractTypeBoarding,
@@ -377,7 +377,7 @@ func TestWatcher_InitialSubscription(t *testing.T) {
 	mgr := &watcherMockManager{
 		contracts: []types.Contract{
 			makeBoardingContract(boarding),
-			makeOnchainContract(onchain),
+			makeSecondBoardingContract(onchain),
 		},
 	}
 
@@ -478,11 +478,14 @@ func TestWatcher_BackoffRetry(t *testing.T) {
 func TestWatcher_BackoffContextCancel(t *testing.T) {
 	t.Parallel()
 
+	addr := "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"
 	exp := newMockWatcherExplorer()
 	exp.subErr = errors.New("connection refused")
 	// subErrN = 0: always fail (never auto-clears)
 
-	mgr := &watcherMockManager{}
+	mgr := &watcherMockManager{
+		contracts: []types.Contract{makeBoardingContract(addr)},
+	}
 
 	w := contract.NewWatcher(exp, mgr, regtest())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

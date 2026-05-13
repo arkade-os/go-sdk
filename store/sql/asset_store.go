@@ -12,7 +12,6 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
-	log "github.com/sirupsen/logrus"
 )
 
 type assetStore struct {
@@ -91,13 +90,4 @@ func (a *assetStore) Clean(ctx context.Context) error {
 	// nolint:all
 	a.db.ExecContext(ctx, "VACUUM")
 	return nil
-}
-
-func (a *assetStore) Close() {
-	a.lock.Lock()
-	defer a.lock.Unlock()
-
-	if err := a.db.Close(); err != nil {
-		log.Debugf("error on closing asset db: %s", err)
-	}
 }
