@@ -1130,7 +1130,23 @@ func (a *arkClient) listenForOnchainTxs(
 						continue
 					}
 					if len(contracts) <= 0 {
-						log.Warnf("contract not found for utxo %s", u.Outpoint)
+						// Plain onchain address (no Ark contract), e.g. from
+						// NewOnchainAddress. Track the UTXO for fee payment
+						// with no tapscripts or exit delay.
+						txHex, err := explorer.GetTxHex(u.Txid)
+						if err != nil {
+							log.WithError(err).
+								Warnf("failed to fetch tx for onchain utxo %s", u.Outpoint)
+							continue
+						}
+						utxosToAdd = append(utxosToAdd, clientTypes.Utxo{
+							Outpoint:    u.Outpoint,
+							Amount:      u.Amount,
+							Script:      u.Script,
+							Tx:          txHex,
+							CreatedAt:   u.CreatedAt,
+							SpendableAt: u.CreatedAt,
+						})
 						continue
 					}
 

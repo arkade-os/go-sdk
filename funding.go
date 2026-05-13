@@ -105,7 +105,30 @@ func (a *arkClient) NewOnchainAddress(ctx context.Context) (string, error) {
 	}
 
 	onchainAddr, _, _, err := a.Receive(ctx)
-	return onchainAddr, err
+	if err != nil {
+		return "", err
+	}
+
+	bgCtx := a.bgCtx
+	if bgCtx == nil {
+		bgCtx = context.Background()
+	}
+	go func(ctx context.Context) {
+		for {
+			if err := a.Explorer().SubscribeForAddresses([]string{onchainAddr}); err == nil {
+				return
+			} else {
+				log.WithError(err).Warn("failed to subscribe for onchain address, retrying...")
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
+		}
+	}(bgCtx)
+
+	return onchainAddr, nil
 }
 
 func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {

@@ -596,13 +596,6 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			e.subscribedMu.Unlock()
 			return fmt.Errorf("invalid address %s: %w", addr, err)
 		}
-		initialUTXOs, err := e.listUnspent(sh)
-		if err != nil {
-			e.subscribedMu.Lock()
-			delete(e.subscribingSet, addr)
-			e.subscribedMu.Unlock()
-			return fmt.Errorf("failed to get initial utxos for %s: %w", addr, err)
-		}
 		notifCh, err := e.client.subscribe(sh)
 		if err != nil {
 			e.subscribedMu.Lock()
@@ -620,7 +613,10 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 			e.subscribedMu.Unlock()
 			return fmt.Errorf("electrum explorer is stopped")
 		}
-		state := &addressState{scripthash: sh, utxos: initialUTXOs, notifCh: notifCh}
+		// Start with nil so pollAddress treats all current UTXOs as new on first
+		// poll. Capturing initialUTXOs before subscribe risks a race where funds
+		// arrive during a retry delay and get silently absorbed as the baseline.
+		state := &addressState{scripthash: sh, utxos: nil, notifCh: notifCh}
 		e.subscribedMap[addr] = state
 		e.notifWg.Add(1)
 		e.subscribedMu.Unlock()
