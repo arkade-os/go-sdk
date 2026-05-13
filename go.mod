@@ -16,14 +16,11 @@ require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/go-co-op/gocron v1.37.0
 	github.com/golang-migrate/migrate/v4 v4.17.1
-	github.com/meshapi/grpc-api-gateway v0.1.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.11.1
 	github.com/timshannon/badgerhold/v4 v4.0.3
 	github.com/tyler-smith/go-bip39 v1.1.0
 	golang.org/x/crypto v0.48.0
-	google.golang.org/grpc v1.79.3
-	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.33.1
 )
 
@@ -77,6 +74,7 @@ require (
 	github.com/lightningnetwork/lnd/tlv v1.2.6 // indirect
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/meshapi/grpc-api-gateway v0.1.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
@@ -109,6 +107,8 @@ require (
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
+	google.golang.org/grpc v1.79.3 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/gc/v3 v3.0.0-20240801135723-a856999a2e4a // indirect
 	modernc.org/libc v1.59.3 // indirect
