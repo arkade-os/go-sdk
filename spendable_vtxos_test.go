@@ -9,7 +9,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	sdktypes "github.com/arkade-os/go-sdk/types"
@@ -86,11 +86,11 @@ func (s *fixStore) Close()                                      {}
 // All other methods are no-ops since getSpendableVtxos only calls GetTapscripts.
 type fixHandler struct{}
 
-func (h *fixHandler) NewContract(_ context.Context, _ wallet.KeyRef) (*sdktypes.Contract, error) {
+func (h *fixHandler) NewContract(_ context.Context, _ identity.KeyRef) (*sdktypes.Contract, error) {
 	return nil, nil
 }
 func (h *fixHandler) GetKeyRefs(_ sdktypes.Contract) (map[string]string, error) { return nil, nil }
-func (h *fixHandler) GetKeyRef(_ sdktypes.Contract) (*wallet.KeyRef, error)     { return nil, nil }
+func (h *fixHandler) GetKeyRef(_ sdktypes.Contract) (*identity.KeyRef, error)   { return nil, nil }
 func (h *fixHandler) GetSignerKey(_ sdktypes.Contract) (*btcec.PublicKey, error) {
 	return nil, nil
 }
@@ -140,8 +140,8 @@ func (m *fixContractManager) OnContractEvent(_ func(sdktypes.Contract)) func() {
 	return func() {}
 }
 
-func newArkClientForTest(vtxos []clientTypes.Vtxo, contracts []sdktypes.Contract) *arkClient {
-	return &arkClient{
+func newArkClientForTest(vtxos []clientTypes.Vtxo, contracts []sdktypes.Contract) *wallet {
+	return &wallet{
 		store:           &fixStore{vtxo: &fixVtxoStore{spendable: vtxos}},
 		contractManager: &fixContractManager{contracts: contracts},
 		dbMu:            &sync.Mutex{},

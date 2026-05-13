@@ -33,16 +33,24 @@ type service struct {
 }
 
 type Config struct {
-	AppDataStoreType string
-	BaseDir          string
+	StoreType string
+	Args      any
 }
 
 func NewStore(storeConfig Config) (types.Store, error) {
-	if len(storeConfig.AppDataStoreType) > 0 && storeConfig.AppDataStoreType != types.SQLStore {
-		return nil, fmt.Errorf("unknown appdata store type")
+	if storeConfig.StoreType != types.SQLStore {
+		return nil, fmt.Errorf("unknown store type")
 	}
 
-	dbFile := filepath.Join(storeConfig.BaseDir, sqliteDbFile)
+	dir, ok := storeConfig.Args.(string)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid config args for sqlite store: expected string datadir, got %T",
+			storeConfig.Args,
+		)
+	}
+
+	dbFile := filepath.Join(dir, sqliteDbFile)
 	db, err := sqlstore.OpenDb(dbFile)
 	if err != nil {
 		return nil, err

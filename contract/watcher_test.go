@@ -14,7 +14,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
@@ -135,7 +135,7 @@ type mockContractHandler struct{}
 
 func (h *mockContractHandler) NewContract(
 	_ context.Context,
-	_ wallet.KeyRef,
+	_ identity.KeyRef,
 ) (*types.Contract, error) {
 	return nil, nil
 }
@@ -145,7 +145,7 @@ func (h *mockContractHandler) GetKeyRefs(_ types.Contract) (map[string]string, e
 
 func (h *mockContractHandler) GetKeyRef(
 	_ types.Contract,
-) (*wallet.KeyRef, error) {
+) (*identity.KeyRef, error) {
 	return nil, nil
 }
 func (h *mockContractHandler) GetSignerKey(_ types.Contract) (*btcec.PublicKey, error) {
