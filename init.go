@@ -22,7 +22,7 @@ import (
 var (
 	defaultExplorerUrl = map[string]string{
 		arklib.Bitcoin.Name:          "https://mempool.space/api",
-		arklib.BitcoinRegTest.Name:   "tcp://127.0.0.1:50001",
+		arklib.BitcoinRegTest.Name:   "tcp://127.0.0.1:50000",
 		arklib.BitcoinTestNet.Name:   "https://mempool.space/testnet/api",
 		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
 		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
