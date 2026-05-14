@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"encoding/hex"
@@ -12,6 +12,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
 	types "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -27,9 +28,7 @@ func TestOffchainTx(t *testing.T) {
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
 
-		aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceFaucetAddr, 0.001)
+		faucetOffchain(t, alice, 0.001)
 
 		bobAddress, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -130,6 +129,8 @@ func TestOffchainTx(t *testing.T) {
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
 
+		faucetOffchain(t, alice, 0.001)
+
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, aliceOffchainAddr)
@@ -137,8 +138,6 @@ func TestOffchainTx(t *testing.T) {
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOffchainAddr)
-
-		faucetOffchain(t, alice, aliceOffchainAddr, 0.001)
 
 		bobVtxoCh := bob.GetVtxoEventChannel(ctx)
 
@@ -190,9 +189,7 @@ func TestOffchainTx(t *testing.T) {
 		alice := setupClient(t, "")
 		bob := setupClient(t, "")
 
-		aliceFundingAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceFundingAddr, 0.00021)
+		faucetOffchain(t, alice, 0.00021)
 
 		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -264,26 +261,46 @@ func TestOffchainTx(t *testing.T) {
 	t.Run("finalize pending tx (manual)", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceWallet := alice.Wallet()
+		aliceWallet := alice.Identity()
 		arkClient := alice.Client()
+		contractManager := alice.ContractManager()
 
-		aliceFundingAddr, err := alice.NewOffchainAddress(ctx)
+		vtxo := faucetOffchain(t, alice, 0.00021)
+
+		aliceAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
+		require.NotEmpty(t, aliceAddr)
 
-		vtxo := faucetOffchain(t, alice, aliceFundingAddr, 0.00021)
+		decoded, err := arklib.DecodeAddressV0(aliceAddr)
+		require.NoError(t, err)
+		require.NotNil(t, decoded)
+
+		outScript, err := decoded.GetPkScript()
+		require.NoError(t, err)
+		require.NotNil(t, outScript)
+
+		contracts, err := contractManager.GetContracts(
+			ctx, contract.WithScripts([]string{vtxo.Script}),
+		)
+		require.NoError(t, err)
+		require.Len(t, contracts, 1)
+
+		ctr := contracts[0]
+
+		handler, err := contractManager.GetHandler(ctx, ctr)
+		require.NoError(t, err)
+		tapscripts, err := handler.GetTapscripts(ctr)
+		require.NoError(t, err)
+		require.NotEmpty(t, tapscripts)
 
 		finalizedPendingTxs, err := alice.FinalizePendingTxs(ctx, nil)
 		require.NoError(t, err)
 		require.Empty(t, finalizedPendingTxs)
 
-		_, offchainAddresses, _, _ := deriveWalletAddresses(t, ctx, alice, aliceWallet)
-		require.NotEmpty(t, offchainAddresses)
-		offchainAddress := findOffchainAddressByScript(t, offchainAddresses, vtxo.Script)
-
 		serverParams, err := arkClient.GetInfo(ctx)
 		require.NoError(t, err)
 
-		vtxoScript, err := script.ParseVtxoScript(offchainAddress.Tapscripts)
+		vtxoScript, err := script.ParseVtxoScript(tapscripts)
 		require.NoError(t, err)
 		forfeitClosures := vtxoScript.ForfeitClosures()
 		require.Len(t, forfeitClosures, 1)
@@ -314,11 +331,6 @@ func TestOffchainTx(t *testing.T) {
 		vtxoHash, err := chainhash.NewHashFromStr(vtxo.Txid)
 		require.NoError(t, err)
 
-		addr, err := arklib.DecodeAddressV0(offchainAddress.Address)
-		require.NoError(t, err)
-		pkscript, err := addr.GetPkScript()
-		require.NoError(t, err)
-
 		ptx, checkpointsPtx, err := offchain.BuildTxs(
 			[]offchain.VtxoInput{
 				{
@@ -328,13 +340,13 @@ func TestOffchainTx(t *testing.T) {
 					},
 					Tapscript:          tapscript,
 					Amount:             int64(vtxo.Amount),
-					RevealedTapscripts: offchainAddress.Tapscripts,
+					RevealedTapscripts: tapscripts,
 				},
 			},
 			[]*wire.TxOut{
 				{
 					Value:    int64(vtxo.Amount),
-					PkScript: pkscript,
+					PkScript: outScript,
 				},
 			},
 			checkpointTapscript,
@@ -351,11 +363,12 @@ func TestOffchainTx(t *testing.T) {
 		// sign the ark transaction
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
-		signedArkTx, err := aliceWallet.SignTransaction(
-			ctx, encodedArkTx, map[string]string{
-				hex.EncodeToString(ptx.Inputs[0].WitnessUtxo.PkScript): offchainAddress.KeyID,
-			},
-		)
+
+		signingKeys, err := handler.GetKeyRefs(ctr)
+		require.NoError(t, err)
+		require.NotEmpty(t, signingKeys)
+
+		signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, signingKeys)
 		require.NoError(t, err)
 
 		txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
@@ -374,7 +387,7 @@ func TestOffchainTx(t *testing.T) {
 		var incomingErr error
 		wg := &sync.WaitGroup{}
 		wg.Go(func() {
-			incomingFunds, incomingErr = alice.NotifyIncomingFunds(ctx, offchainAddress.Address)
+			incomingFunds, incomingErr = alice.NotifyIncomingFunds(ctx, aliceAddr)
 		})
 
 		finalizedTxIds, err := alice.FinalizePendingTxs(ctx, nil)
@@ -403,34 +416,46 @@ func TestOffchainTx(t *testing.T) {
 	t.Run("finalize pending tx (auto)", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceWallet := alice.Wallet()
+		aliceWallet := alice.Identity()
 		arkClient := alice.Client()
+		contractManager := alice.ContractManager()
 
-		aliceFundingAddr, err := alice.NewOffchainAddress(ctx)
+		vtxo := faucetOffchain(t, alice, 0.00021)
+
+		aliceAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
+		require.NotEmpty(t, aliceAddr)
 
-		bob := setupClient(t, "")
-		bobWallet := bob.Wallet()
-		_, err = bob.NewOffchainAddress(ctx)
+		decoded, err := arklib.DecodeAddressV0(aliceAddr)
 		require.NoError(t, err)
+		require.NotNil(t, decoded)
 
-		vtxo := faucetOffchain(t, alice, aliceFundingAddr, 0.00021)
+		outScript, err := decoded.GetPkScript()
+		require.NoError(t, err)
+		require.NotNil(t, outScript)
 
-		_, aliceOffchainAddrs, _, _ := deriveWalletAddresses(t, ctx, alice, aliceWallet)
-		require.NotEmpty(t, aliceOffchainAddrs)
-		matchedAliceOffchainAddr := findOffchainAddressByScript(t, aliceOffchainAddrs, vtxo.Script)
-		aliceOffchainAddr := &matchedAliceOffchainAddr
-		require.NotEmpty(t, aliceOffchainAddr)
+		contracts, err := contractManager.GetContracts(
+			ctx, contract.WithScripts([]string{vtxo.Script}),
+		)
+		require.NoError(t, err)
+		require.Len(t, contracts, 1)
 
-		_, bobOffchainAddrs, _, _ := deriveWalletAddresses(t, ctx, bob, bobWallet)
-		require.NotEmpty(t, bobOffchainAddrs)
-		bobOffchainAddr := &bobOffchainAddrs[0]
-		require.NotEmpty(t, bobOffchainAddr)
+		ctr := contracts[0]
+
+		handler, err := contractManager.GetHandler(ctx, ctr)
+		require.NoError(t, err)
+		tapscripts, err := handler.GetTapscripts(ctr)
+		require.NoError(t, err)
+		require.NotEmpty(t, tapscripts)
+
+		finalizedPendingTxs, err := alice.FinalizePendingTxs(ctx, nil)
+		require.NoError(t, err)
+		require.Empty(t, finalizedPendingTxs)
 
 		serverParams, err := arkClient.GetInfo(ctx)
 		require.NoError(t, err)
 
-		vtxoScript, err := script.ParseVtxoScript(aliceOffchainAddr.Tapscripts)
+		vtxoScript, err := script.ParseVtxoScript(tapscripts)
 		require.NoError(t, err)
 		forfeitClosures := vtxoScript.ForfeitClosures()
 		require.Len(t, forfeitClosures, 1)
@@ -461,11 +486,6 @@ func TestOffchainTx(t *testing.T) {
 		vtxoHash, err := chainhash.NewHashFromStr(vtxo.Txid)
 		require.NoError(t, err)
 
-		addr, err := arklib.DecodeAddressV0(bobOffchainAddr.Address)
-		require.NoError(t, err)
-		pkscript, err := addr.GetPkScript()
-		require.NoError(t, err)
-
 		ptx, checkpointsPtx, err := offchain.BuildTxs(
 			[]offchain.VtxoInput{
 				{
@@ -475,13 +495,13 @@ func TestOffchainTx(t *testing.T) {
 					},
 					Tapscript:          tapscript,
 					Amount:             int64(vtxo.Amount),
-					RevealedTapscripts: aliceOffchainAddr.Tapscripts,
+					RevealedTapscripts: tapscripts,
 				},
 			},
 			[]*wire.TxOut{
 				{
 					Value:    int64(vtxo.Amount),
-					PkScript: pkscript,
+					PkScript: outScript,
 				},
 			},
 			checkpointTapscript,
@@ -498,22 +518,17 @@ func TestOffchainTx(t *testing.T) {
 		// sign the ark transaction
 		encodedArkTx, err := ptx.B64Encode()
 		require.NoError(t, err)
-		signedArkTx, err := aliceWallet.SignTransaction(
-			ctx, encodedArkTx, map[string]string{
-				hex.EncodeToString(ptx.Inputs[0].WitnessUtxo.PkScript): aliceOffchainAddr.KeyID,
-			},
-		)
+
+		signingKeys, err := handler.GetKeyRefs(ctr)
+		require.NoError(t, err)
+		require.NotEmpty(t, signingKeys)
+
+		signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, signingKeys)
 		require.NoError(t, err)
 
 		txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
 		require.NoError(t, err)
 		require.NotEmpty(t, txid)
-
-		// Dump the wallet seed and load it into a new client with enabled finalization of
-		// pending transactions.
-		seed, err := alice.Dump(ctx)
-		require.NoError(t, err)
-		require.NotEmpty(t, seed)
 
 		time.Sleep(time.Second)
 
@@ -522,6 +537,12 @@ func TestOffchainTx(t *testing.T) {
 		require.False(t, slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 			return tx.TransactionKey.String() == txid
 		}))
+
+		// Dump the wallet seed and load it into a new client with enabled finalization of
+		// pending transactions.
+		seed, err := alice.Dump(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, seed)
 
 		// Create a new client that resumes pending tx finalization on restore.
 		restoredAlice := setupClient(t, seed)

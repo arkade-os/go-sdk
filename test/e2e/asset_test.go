@@ -1,4 +1,4 @@
-package e2e
+package e2e_test
 
 import (
 	"sync"
@@ -11,29 +11,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const dustAmount = 330
+
 // TestAssetTransfer tests the transfer of an asset between alice and bob.
 // then they both settle their funds.
 func TestAssetTransferAndRenew(t *testing.T) {
-	ctx := t.Context()
 	const supply = 5_000
 	const transferAmount = 1_200
 
+	ctx := t.Context()
 	alice := setupClient(t, "")
 	bob := setupClient(t, "")
 	aliceTxStream := alice.GetTransactionEventChannel(ctx)
 	bobTxStream := bob.GetTransactionEventChannel(ctx)
 
-	aliceFaucetAddr, err := alice.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	bobFaucetAddr, err := bob.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-
 	wg := &sync.WaitGroup{}
 	wg.Go(func() {
-		faucetOffchain(t, alice, aliceFaucetAddr, 0.002)
+		faucetOffchain(t, alice, 0.002)
 	})
 	wg.Go(func() {
-		faucetOffchain(t, bob, bobFaucetAddr, 0.001)
+		faucetOffchain(t, bob, 0.001)
 	})
 	wg.Wait()
 
@@ -127,13 +124,10 @@ func TestAssetTransferAndRenew(t *testing.T) {
 
 func TestProveDustAmountAddedByDefault(t *testing.T) {
 	ctx := t.Context()
-
 	alice := setupClient(t, "")
 	bob := setupClient(t, "")
 
-	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, alice, aliceOffchainAddr, 0.002)
+	faucetOffchain(t, alice, 0.002)
 
 	_, assetIds, err := alice.IssueAsset(ctx, 1, nil, nil)
 	require.NoError(t, err)
@@ -161,18 +155,16 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, balance)
 
-	cfg, err := bob.GetConfigData(ctx)
 	require.NoError(t, err)
-	require.Equal(t, int(cfg.Dust), int(balance.OffchainBalance.Total))
+	require.Equal(t, dustAmount, int(balance.OffchainBalance.Total))
 }
 
 func TestAssetIssuance(t *testing.T) {
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
+
+		faucetOffchain(t, alice, 0.01)
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
 
@@ -198,9 +190,8 @@ func TestAssetIssuance(t *testing.T) {
 	t.Run("with new control asset", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
+
+		faucetOffchain(t, alice, 0.01)
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
 
@@ -233,9 +224,8 @@ func TestAssetIssuance(t *testing.T) {
 	t.Run("with existing control asset", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
+
+		faucetOffchain(t, alice, 0.01)
 
 		vtxoStream := alice.GetVtxoEventChannel(ctx)
 
@@ -287,11 +277,9 @@ func TestAssetIssuance(t *testing.T) {
 // TestAssetReissuance makes issue an asset with a control asset and then reissue it.
 func TestAssetReissuance(t *testing.T) {
 	ctx := t.Context()
-
 	alice := setupClient(t, "")
-	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
+
+	faucetOffchain(t, alice, 0.01)
 
 	vtxoStream := alice.GetVtxoEventChannel(ctx)
 
@@ -356,11 +344,9 @@ func TestAssetReissuance(t *testing.T) {
 
 func TestAssetBurn(t *testing.T) {
 	ctx := t.Context()
-
 	alice := setupClient(t, "")
-	aliceOffchainAddr, err := alice.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, alice, aliceOffchainAddr, 0.01)
+
+	faucetOffchain(t, alice, 0.01)
 
 	vtxoStream := alice.GetVtxoEventChannel(ctx)
 
@@ -411,7 +397,7 @@ func TestAssetBurn(t *testing.T) {
 	require.Equal(t, 3500, int(assetVtxos[0].Assets[0].Amount))
 }
 
-func listVtxosWithAsset(t *testing.T, client sdk.ArkClient, assetID string) []clientTypes.Vtxo {
+func listVtxosWithAsset(t *testing.T, client sdk.Wallet, assetID string) []clientTypes.Vtxo {
 	vtxos, _, err := client.ListVtxos(t.Context())
 	require.NoError(t, err)
 

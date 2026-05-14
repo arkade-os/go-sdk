@@ -5,25 +5,30 @@ import (
 	"fmt"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
-func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
-	if err := a.safeCheck(); err != nil {
+var (
+	ErrNoFundsToSettle = fmt.Errorf("no funds to settle")
+)
+
+func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
-	vtxos, err := a.getSpendableVtxos(ctx, true)
+	vtxos, err := w.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return "", err
 	}
-	a.dbMu.Lock()
-	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
-	a.dbMu.Unlock()
+	w.dbMu.Lock()
+	utxos, _, err := w.store.UtxoStore().GetAllUtxos(ctx)
+	w.dbMu.Unlock()
 	if err != nil {
 		return "", err
 	}
 	if len(vtxos)+len(utxos) == 0 {
-		return "", fmt.Errorf("no funds to settle")
+		return "", ErrNoFundsToSettle
 	}
 
 	batchSessionOpts, err := applyBatchSessionOptions(opts...)
@@ -31,45 +36,45 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, utxos)
 	if err != nil {
 		return "", err
 	}
 
-	settleOpts := []client.BatchSessionOption{
+	changeAddr, err := w.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	clientOpts := []client.BatchSessionOption{
 		client.WithFunds(utxos, vtxos),
-		client.WithKeys(signingKeys),
+		client.WithKeys(signingKeyRefs),
+		client.WithReceiver(changeAddr),
 	}
 	if batchSessionOpts.retryNum > 0 {
-		settleOpts = append(settleOpts, client.WithRetries(batchSessionOpts.retryNum))
+		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
 	}
 
-	res, err := a.ArkClient.Settle(ctx, settleOpts...)
+	res, err := w.client.Settle(ctx, clientOpts...)
 	if err != nil {
 		return "", err
 	}
 
-	if err := a.saveBatchTransaction(ctx, *res); err != nil {
+	if err := w.saveBatchTransaction(ctx, *res); err != nil {
 		return "", err
 	}
 
 	return res.CommitmentTxid, nil
 }
 
-func (a *arkClient) CollaborativeExit(
+func (w *wallet) CollaborativeExit(
 	ctx context.Context, addr string, amount uint64, opts ...BatchSessionOption,
 ) (string, error) {
-	if err := a.safeCheck(); err != nil {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
-	vtxos, err := a.getSpendableVtxos(ctx, true)
-	if err != nil {
-		return "", err
-	}
-	a.dbMu.Lock()
-	utxos, _, err := a.store.UtxoStore().GetAllUtxos(ctx)
-	a.dbMu.Unlock()
+	vtxos, err := w.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return "", err
 	}
@@ -79,49 +84,88 @@ func (a *arkClient) CollaborativeExit(
 		return "", fmt.Errorf("invalid options: %v", (err))
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, nil)
 	if err != nil {
 		return "", err
 	}
 
-	exitOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
-		client.WithKeys(signingKeys),
+	changeAddr, err := w.newOffchainAddress(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	clientOpts := []client.BatchSessionOption{
+		client.WithFunds(nil, vtxos),
+		client.WithKeys(signingKeyRefs),
+		client.WithReceiver(changeAddr),
 	}
 	if batchSessionOpts.retryNum > 0 {
-		exitOpts = append(exitOpts, client.WithRetries(batchSessionOpts.retryNum))
+		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
 	}
 
-	res, err := a.ArkClient.CollaborativeExit(ctx, addr, amount, exitOpts...)
+	res, err := w.client.CollaborativeExit(ctx, addr, amount, clientOpts...)
 	if err != nil {
 		return "", err
 	}
 
-	if err := a.saveBatchTransaction(ctx, *res); err != nil {
+	if err := w.saveBatchTransaction(ctx, *res); err != nil {
 		return "", err
 	}
 
 	return res.CommitmentTxid, nil
 }
 
-func (a *arkClient) RedeemNotes(
+func (w *wallet) RegisterIntent(
+	ctx context.Context,
+	vtxos []clienttypes.Vtxo, boardingUtxos []clienttypes.Utxo, notes []string,
+	outputs []clienttypes.Receiver, cosignersPublicKeys []string,
+) (string, error) {
+	if err := w.safeCheck(); err != nil {
+		return "", err
+	}
+
+	vv := make([]clienttypes.VtxoWithTapTree, 0, len(vtxos))
+	for _, vtxo := range vtxos {
+		vv = append(vv, clienttypes.VtxoWithTapTree{Vtxo: vtxo})
+	}
+	keys, err := w.getSigningKeyRefs(ctx, vv, boardingUtxos)
+	if err != nil {
+		return "", err
+	}
+
+	return w.client.RegisterIntent(
+		ctx, vtxos, boardingUtxos, notes, outputs, cosignersPublicKeys, client.WithKeys(keys),
+	)
+}
+
+func (w *wallet) DeleteIntent(
+	ctx context.Context,
+	vtxos []clienttypes.Vtxo, boardingUtxos []clienttypes.Utxo, notes []string,
+) error {
+	if err := w.safeCheck(); err != nil {
+		return err
+	}
+	return w.client.DeleteIntent(ctx, vtxos, boardingUtxos, notes)
+}
+
+func (w *wallet) RedeemNotes(
 	ctx context.Context, notes []string,
 ) (string, error) {
-	if err := a.safeCheck(); err != nil {
+	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
 
-	signingKeys, err := a.signingKeysByScript(ctx)
+	addr, err := w.newOffchainAddress(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	res, err := a.ArkClient.RedeemNotes(ctx, notes, client.WithKeys(signingKeys))
+	res, err := w.client.RedeemNotes(ctx, notes, client.WithReceiver(addr))
 	if err != nil {
 		return "", err
 	}
 
-	if err := a.saveBatchTransaction(ctx, *res); err != nil {
+	if err := w.saveBatchTransaction(ctx, *res); err != nil {
 		return "", err
 	}
 

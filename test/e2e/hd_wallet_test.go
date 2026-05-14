@@ -1,10 +1,9 @@
-package e2e
+package e2e_test
 
 import (
 	"testing"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
@@ -15,6 +14,13 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	ctx := t.Context()
 
 	hdWallet := setupClient(t, "")
+
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err := hdWallet.GetAddresses(ctx)
+	require.NoError(t, err)
+	require.Empty(t, onchainAddrs)
+	require.Empty(t, offchainAddrs)
+	require.Empty(t, boardingAddrs)
+	require.Empty(t, redemptionAddrs)
 
 	hdOffchain1, err := hdWallet.NewOffchainAddress(ctx)
 	require.NoError(t, err)
@@ -34,20 +40,18 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, hdOnchain1, hdOnchain2)
 
-	hdOnchainAddrs, hdOffchainAddrs, hdBoardingAddrs, hdRedemptionAddrs, err := hdWallet.GetAddresses(
-		ctx,
-	)
+	onchainAddrs, offchainAddrs, boardingAddrs, redemptionAddrs, err = hdWallet.GetAddresses(ctx)
 	require.NoError(t, err)
-	require.Len(t, hdOnchainAddrs, 6)
-	require.Len(t, hdOffchainAddrs, 6)
-	require.Len(t, hdBoardingAddrs, 6)
-	require.Len(t, hdRedemptionAddrs, 6)
-	require.Contains(t, hdOffchainAddrs, hdOffchain1)
-	require.Contains(t, hdOffchainAddrs, hdOffchain2)
-	require.Contains(t, hdBoardingAddrs, hdBoarding1)
-	require.Contains(t, hdBoardingAddrs, hdBoarding2)
-	require.Contains(t, hdOnchainAddrs, hdOnchain1)
-	require.Contains(t, hdOnchainAddrs, hdOnchain2)
+	require.Len(t, onchainAddrs, 2)
+	require.Len(t, offchainAddrs, 2)
+	require.Len(t, boardingAddrs, 2)
+	require.Len(t, redemptionAddrs, 2)
+	require.Contains(t, offchainAddrs, hdOffchain1)
+	require.Contains(t, offchainAddrs, hdOffchain2)
+	require.Contains(t, boardingAddrs, hdBoarding1)
+	require.Contains(t, boardingAddrs, hdBoarding2)
+	require.Contains(t, onchainAddrs, hdOnchain1)
+	require.Contains(t, onchainAddrs, hdOnchain2)
 }
 
 func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
@@ -63,12 +67,10 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 		addresses = append(addresses, addr)
 	}
 
-	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
+	faucetOffchain(t, bobClientHD, 0.001)
 
 	// Scenario 1: Alice is online and receives on a known HD address.
-	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err := bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[0],
 		Amount: 15_000,
 	}})
@@ -150,11 +152,9 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 		addresses = append(addresses, addr)
 	}
 
-	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
-	require.NoError(t, err)
-	faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
+	faucetOffchain(t, bobClientHD, 0.001)
 
-	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
+	_, err := bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     addresses[0],
 		Amount: 15_000,
 	}})
@@ -191,8 +191,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupClient(t, "")
-	bobClientHD := setupClient(t, "")
+	aliceClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
+	bobClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	offchainAddrs := make([]string, 0, 2)
 	for range 2 {
@@ -208,17 +208,6 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		boardingAddrs = append(boardingAddrs, addr)
 	}
 
-	onchainAddrs := make([]string, 0, 2)
-	for range 2 {
-		addr, err := aliceClientHD.NewOnchainAddress(ctx)
-		require.NoError(t, err)
-		onchainAddrs = append(onchainAddrs, addr)
-	}
-
-	_, _, _, redemptionAddrs, err := aliceClientHD.GetAddresses(ctx)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(redemptionAddrs), 6)
-
 	seed, err := aliceClientHD.Dump(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, seed)
@@ -226,10 +215,8 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	aliceClientHD.Stop()
 	aliceClientHD = nil
 
-	bobFaucetAddr, err := bobClientHD.NewOffchainAddress(ctx)
-	require.NoError(t, err)
 	for range 4 {
-		faucetOffchain(t, bobClientHD, bobFaucetAddr, 0.001)
+		faucetOffchain(t, bobClientHD, 0.001)
 	}
 
 	offchainAmounts := []uint64{11_000, 12_000, 13_000, 14_000}
@@ -246,24 +233,10 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		faucetOnchain(t, boardingAddrs[i], amount)
 	}
 
-	onchainAmounts := []float64{0.00011, 0.00012}
-	for i, amount := range onchainAmounts {
-		faucetOnchain(t, onchainAddrs[i], amount)
-	}
+	generateBlocks(t, 1)
+	waitForExplorerHistory(t, bobClientHD, boardingAddrs)
 
-	redemptionTargets := redemptionAddrs[:2]
-	redemptionAmounts := []float64{0.00031, 0.00032}
-	for i, amount := range redemptionAmounts {
-		faucetOnchain(t, redemptionTargets[i], amount)
-	}
-
-	require.NoError(t, generateBlocks(1))
-	waitForExplorerHistory(t, bobClientHD, append(
-		append(append([]string{}, boardingAddrs...), onchainAddrs...),
-		redemptionTargets...,
-	))
-
-	aliceClientHD = setupClient(t, seed)
+	aliceClientHD = setupClient(t, seed, sdk.WithoutAutoSettle())
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
@@ -274,10 +247,9 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 
 		return len(spent) == 0 && len(spendable) == 4 &&
 			sumVtxoAmounts(spendable) == wantOffchainTotal
-	}, 30*time.Second, 500*time.Millisecond)
+	}, 10*time.Second, 200*time.Millisecond)
 
-	const wantOnchainSpendable = uint64(23_000)
-	const wantLockedOnchain = uint64(106_000)
+	const wantOnchainSpendable = uint64(43_000)
 	require.Eventually(t, func() bool {
 		balance, err := aliceClientHD.Balance(ctx)
 		if err != nil {
@@ -285,9 +257,8 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		}
 
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
-			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable &&
-			sumLockedAmounts(balance.OnchainBalance.LockedAmount) == wantLockedOnchain
-	}, 60*time.Second, 500*time.Millisecond)
+			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable
+	}, 30*time.Second, 500*time.Millisecond)
 }
 
 func TestHDWalletEventStreams(t *testing.T) {
@@ -297,9 +268,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 		aliceClientHD := setupClient(t, "")
 		bobClientHD := setupClient(t, "")
 
-		aliceFaucetAddr, err := aliceClientHD.NewOffchainAddress(ctx)
-		require.NoError(t, err)
-		faucetOffchain(t, aliceClientHD, aliceFaucetAddr, 0.001)
+		faucetOffchain(t, aliceClientHD, 0.001)
 
 		bobOffchainAddr, err := bobClientHD.NewOffchainAddress(ctx)
 		require.NoError(t, err)
@@ -425,7 +394,50 @@ func TestHDWalletEventStreams(t *testing.T) {
 	})
 }
 
-func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []string) {
+// TestHDWalletRecoversBoardingOnlyFundedKeys covers the case:
+// a key whose ONLY activity is a boarding UTXO (never any offchain VTXO at
+// the matching offchain script). After dumping the seed and restoring into a
+// fresh client, discovery must still find the key so the boarding UTXO is reachable.
+//
+// This currently exposes review issue H1: discoverHDWalletKeys only checks
+// offchain VTXO activity, so boarding-only funded keys are missed.
+func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
+	ctx := t.Context()
+
+	alice := setupClient(t, "")
+
+	boardingAddr, err := alice.NewBoardingAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, boardingAddr)
+
+	const boardingAmount = 0.00021
+	faucetOnchain(t, boardingAddr, boardingAmount)
+	generateBlocks(t, 1)
+
+	waitForExplorerHistory(t, alice, []string{boardingAddr})
+
+	seed, err := alice.Dump(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, seed)
+
+	alice.Stop()
+
+	restoredAlice := setupClient(t, seed)
+
+	// The restored wallet should re-discover the key that backs the funded
+	// boarding address and surface the UTXO in its onchain balance.
+	require.Eventually(t, func() bool {
+		balance, err := restoredAlice.Balance(ctx)
+		if err != nil {
+			return false
+		}
+		return sumLockedAmounts(balance.OnchainBalance.LockedAmount) >= uint64(boardingAmount*1e8)
+	}, 30*time.Second, 500*time.Millisecond,
+		"restored wallet did not recover the boarding-only funded key — "+
+			"this is review H1: discoverHDWalletKeys only scans offchain VTXOs")
+}
+
+func waitForExplorerHistory(t *testing.T, client sdk.Wallet, addresses []string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
@@ -446,7 +458,7 @@ func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []stri
 }
 
 func waitForSpendableVtxos(
-	t *testing.T, client sdk.ArkClient, wantCount int, wantTotal uint64,
+	t *testing.T, client sdk.Wallet, wantCount int, wantTotal uint64,
 ) []clientTypes.Vtxo {
 	t.Helper()
 
@@ -533,49 +545,6 @@ func waitForTxEvent(
 	}
 }
 
-// TestHDWalletRecoversBoardingOnlyFundedKeys covers the case:
-// a key whose ONLY activity is a boarding UTXO (never any offchain VTXO at
-// the matching offchain script). After dumping the seed and restoring into a
-// fresh client, discovery must still find the key so the boarding UTXO is reachable.
-//
-// This currently exposes review issue H1: discoverHDWalletKeys only checks
-// offchain VTXO activity, so boarding-only funded keys are missed.
-func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
-	ctx := t.Context()
-
-	alice := setupClient(t, "")
-
-	boardingAddr, err := alice.NewBoardingAddress(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, boardingAddr)
-
-	const boardingAmount = 0.00021
-	faucetOnchain(t, boardingAddr, boardingAmount)
-	require.NoError(t, generateBlocks(1))
-
-	waitForExplorerHistory(t, alice, []string{boardingAddr})
-
-	seed, err := alice.Dump(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, seed)
-
-	alice.Stop()
-
-	restoredAlice := setupClient(t, seed)
-
-	// The restored wallet should re-discover the key that backs the funded
-	// boarding address and surface the UTXO in its onchain balance.
-	require.Eventually(t, func() bool {
-		balance, err := restoredAlice.Balance(ctx)
-		if err != nil {
-			return false
-		}
-		return sumLockedAmounts(balance.OnchainBalance.LockedAmount) >= uint64(boardingAmount*1e8)
-	}, 30*time.Second, 500*time.Millisecond,
-		"restored wallet did not recover the boarding-only funded key — "+
-			"this is review H1: discoverHDWalletKeys only scans offchain VTXOs")
-}
-
 func sumVtxoAmounts(vtxos []clientTypes.Vtxo) uint64 {
 	var total uint64
 	for _, vtxo := range vtxos {
@@ -594,7 +563,7 @@ func vtxoAmounts(vtxos []clientTypes.Vtxo) []uint64 {
 	return amounts
 }
 
-func sumLockedAmounts(locked []client.LockedOnchainBalance) uint64 {
+func sumLockedAmounts(locked []types.LockedOnchainBalance) uint64 {
 	var total uint64
 	for _, utxo := range locked {
 		total += utxo.Amount

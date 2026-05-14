@@ -1,4 +1,4 @@
-.PHONY: proto test vet lint migrate sqlc
+.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smoketest bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -17,11 +17,6 @@ define require_commit
 		exit 1; \
 	fi
 endef
-
-proto:
-	@echo "Compiling stubs..."
-	@docker build -q -t buf -f buf.Dockerfile . &> /dev/null
-	@docker run --rm --volume "$(shell pwd):/workspace" --workdir /workspace buf generate
 
 ## test: runs unit tests
 test:
@@ -60,6 +55,13 @@ regtestdown:
 integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e
 
+## smoketest: runs long-running e2e smoke tests (skipped in CI). Smoke
+## test files are gated behind the "smoke" build tag and tests follow the
+## TestSmoke* naming convention; CI doesn't pass the tag, so they never
+## get compiled there.
+smoketest:
+	@go test -v -count=1 -timeout 60m -tags=smoke -run 'Smoke' ./test/e2e
+
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:
 	$(call require_commit)
@@ -74,8 +76,8 @@ bump-ark-lib:
 	@go get github.com/arkade-os/arkd/pkg/ark-lib@$(COMMIT)
 	@go mod tidy
 
-## bump-ark-spec: update api-spec to a specific commit/tag and tidy modules
-bump-ark-spec:
+## bump-api-spec: update api-spec to a specific commit/tag and tidy modules
+bump-api-spec:
 	$(call require_commit)
 	@echo "Bumping api-spec to $(COMMIT)..."
 	@go get github.com/arkade-os/arkd/api-spec@$(COMMIT)
