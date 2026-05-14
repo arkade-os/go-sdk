@@ -331,13 +331,19 @@ func (v *vtxoRepository) GetVtxos(
 
 	// with pagination
 	case filter == types.VtxoFilterSpendable:
-		rows, err = v.querier.SelectSpendableVtxosPaginated(ctx, queries.SelectSpendableVtxosPaginatedParams{
-			Limit: limit, Offset: offset,
-		})
+		rows, err = v.querier.SelectSpendableVtxosPaginated(
+			ctx,
+			queries.SelectSpendableVtxosPaginatedParams{
+				Limit: limit, Offset: offset,
+			},
+		)
 	case filter == types.VtxoFilterSpent:
-		rows, err = v.querier.SelectSpentVtxosPaginated(ctx, queries.SelectSpentVtxosPaginatedParams{
-			Limit: limit, Offset: offset,
-		})
+		rows, err = v.querier.SelectSpentVtxosPaginated(
+			ctx,
+			queries.SelectSpentVtxosPaginatedParams{
+				Limit: limit, Offset: offset,
+			},
+		)
 	default:
 		// VtxoFilterAll and VtxoFilterRecoverable use the "all" paginated
 		// query; Go-side filtering is applied below for recoverable.
