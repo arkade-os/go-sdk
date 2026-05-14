@@ -38,8 +38,6 @@ type explorerSvc struct {
 	client     *electrumClient
 	serverURL  string
 	esploraURL string // optional HTTP REST base URL for package broadcasts
-	wsURL      string // optional mempool.space-compatible WS URL for live address tracking
-	ws         *wsTracker
 	netParams  *chaincfg.Params
 
 	noTracking   bool
@@ -144,11 +142,6 @@ func (e *explorerSvc) Start() {
 			return
 		}
 
-		if e.wsURL != "" {
-			e.ws = newWSTracker(e.wsURL, e.netParams, e.listeners)
-			e.ws.start()
-		}
-
 		stopCh := make(chan struct{})
 		e.stopTracking = sync.OnceFunc(func() { close(stopCh) })
 		go e.pollLoop(stopCh)
@@ -174,14 +167,6 @@ func (e *explorerSvc) Stop() {
 	if e.stopTracking != nil {
 		e.stopTracking()
 		e.stopTracking = nil
-	}
-	// Don't nil e.ws here: a concurrent UnsubscribeForAddresses (e.g. from
-	// listenForOnchainTxs's ctx.Done cleanup) reads it, and assigning nil
-	// would race with that read. wsTracker.stop is idempotent and leaves the
-	// struct safe to call subscribe/unsubscribe on (they become no-ops once
-	// the goroutine has exited and conn is nil).
-	if e.ws != nil {
-		e.ws.stop()
 	}
 	e.client.shutdown()
 
@@ -379,12 +364,6 @@ func (e *explorerSvc) GetTxs(addr string) ([]explorer.Tx, error) {
 		return nil, err
 	}
 
-	// Electrs versions that don't index P2TR scripts return an empty history for
-	// taproot addresses. Fall back to the esplora REST API when configured.
-	if len(history) == 0 && e.esploraURL != "" {
-		return e.esploraGetTxs(addr)
-	}
-
 	txs := make([]explorer.Tx, 0, len(history))
 	for _, entry := range history {
 		txHex, err := e.GetTxHex(entry.TxHash)
@@ -480,17 +459,6 @@ func (e *explorerSvc) GetUtxos(addresses []string) ([]explorer.Utxo, error) {
 			return nil, err
 		}
 		electrumUtxos, err := e.listUnspent(sh)
-		// Same fallback shape as pollAddress: cover both empty results and
-		// hard errors (e.g. listunspent timeouts on P2TR scripts).
-		if (err != nil || len(electrumUtxos) == 0) && e.esploraURL != "" {
-			fallback, ferr := e.esploraListUnspent(addr)
-			if ferr == nil {
-				electrumUtxos = fallback
-				err = nil
-			} else {
-				log.WithError(ferr).Debugf("electrum: esplora utxo fallback failed for %s", addr)
-			}
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -657,12 +625,6 @@ func (e *explorerSvc) SubscribeForAddresses(addresses []string) error {
 		e.scripthashToAddr[sh] = addr
 		e.scripthashToAddrMu.Unlock()
 
-		// Mirror the subscription onto the WS tracker so taproot addresses get
-		// live notifications even when the scripthash index is empty.
-		if e.ws != nil {
-			e.ws.subscribe(addr)
-		}
-
 		// When ElectrumX pushes a notification for this scripthash, immediately poll
 		// the address rather than waiting for the next ticker cycle. The initial
 		// pollAddress call establishes the UTXO baseline so that the first push
@@ -694,9 +656,6 @@ func (e *explorerSvc) UnsubscribeForAddresses(addresses []string) error {
 			delete(e.scripthashToAddr, state.scripthash)
 			e.scripthashToAddrMu.Unlock()
 			e.client.unsubscribeLocal(state.scripthash)
-			if e.ws != nil {
-				e.ws.unsubscribe(addr)
-			}
 		}
 	}
 	return nil
@@ -745,19 +704,6 @@ func (e *explorerSvc) pollAddress(addr, scripthash string) {
 	defer state.mu.Unlock()
 
 	newUTXOs, err := e.listUnspent(scripthash)
-	// Fall back to esplora when electrum errors out (e.g. timeout on P2TR) or
-	// returns an empty list (electrs builds that don't index taproot). Without
-	// the error-path fallback, a single P2TR timeout permanently de-syncs the
-	// address's state because pollAddress would return before reconciling.
-	if (err != nil || len(newUTXOs) == 0) && e.esploraURL != "" {
-		fallback, ferr := e.esploraListUnspent(addr)
-		if ferr == nil {
-			newUTXOs = fallback
-			err = nil
-		} else {
-			log.WithError(ferr).Debugf("electrum: esplora poll fallback failed for %s", addr)
-		}
-	}
 	if err != nil {
 		log.WithError(err).Errorf("electrum: poll failed for %s", addr)
 		go e.listeners.broadcast(types.OnchainAddressEvent{
@@ -979,80 +925,4 @@ func addrToScript(addr string, params *chaincfg.Params) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(script), nil
-}
-
-// esploraListUnspent fetches unspent outputs for addr via the esplora REST API.
-// Used as a fallback when the electrum scripthash index returns empty (e.g.
-// older electrs builds that don't index P2TR scripts).
-func (e *explorerSvc) esploraListUnspent(addr string) ([]electrumUTXO, error) {
-	url := strings.TrimRight(e.esploraURL, "/") + "/address/" + addr + "/utxo"
-	resp, err := http.Get(url) // nolint
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close() // nolint
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("esplora utxo lookup failed (%d)", resp.StatusCode)
-	}
-	var items []esploraUtxo
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, err
-	}
-	utxos := make([]electrumUTXO, 0, len(items))
-	for _, u := range items {
-		height := int64(0)
-		if u.Status.Confirmed {
-			height = u.Status.BlockHeight
-		}
-		utxos = append(utxos, electrumUTXO{
-			TxHash: u.Txid,
-			TxPos:  u.Vout,
-			Height: height,
-			Value:  u.Value,
-		})
-	}
-	return utxos, nil
-}
-
-// esploraGetTxs fetches the transaction history for addr via the esplora REST API.
-// Used as a fallback when the electrum scripthash index returns empty.
-func (e *explorerSvc) esploraGetTxs(addr string) ([]explorer.Tx, error) {
-	url := strings.TrimRight(e.esploraURL, "/") + "/address/" + addr + "/txs"
-	resp, err := http.Get(url) // nolint
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close() // nolint
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("esplora tx history lookup failed (%d)", resp.StatusCode)
-	}
-	var items []esploraTxEntry
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, err
-	}
-	txs := make([]explorer.Tx, 0, len(items))
-	for _, t := range items {
-		vins := make([]explorer.Input, 0, len(t.Vin))
-		for _, vin := range t.Vin {
-			vins = append(vins, explorer.Input{Txid: vin.Txid, Vout: vin.Vout})
-		}
-		vouts := make([]explorer.Output, 0, len(t.Vout))
-		for _, vout := range t.Vout {
-			vouts = append(vouts, explorer.Output{
-				Script:  vout.Scriptpubkey,
-				Address: vout.ScriptpubkeyAddress,
-				Amount:  vout.Value,
-			})
-		}
-		txs = append(txs, explorer.Tx{
-			Txid: t.Txid,
-			Vin:  vins,
-			Vout: vouts,
-			Status: explorer.ConfirmedStatus{
-				Confirmed: t.Status.Confirmed,
-				BlockTime: t.Status.BlockTime,
-			},
-		})
-	}
-	return txs, nil
 }
