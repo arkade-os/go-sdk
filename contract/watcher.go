@@ -100,19 +100,44 @@ func (w *Watcher) Start(ctx context.Context) error {
 				if len(newAddrs) == 0 || watchCtx.Err() != nil {
 					return
 				}
-				if err := w.exp.SubscribeForAddresses(newAddrs); err != nil {
-					log.WithError(err).Warn("watcher: failed to subscribe new contract addresses")
+				// Retry with backoff so a transient subscribe failure does
+				// not leave the address dark until the next explorer
+				// reconnect cycle. Exits on watchCtx cancel.
+				backoff := watcherBackoffBase
+				for {
+					err := w.exp.SubscribeForAddresses(newAddrs)
+					if err == nil {
+						return
+					}
+					if watchCtx.Err() != nil {
+						return
+					}
+					log.WithError(err).Warnf(
+						"watcher: failed to subscribe new contract addresses, retrying in %s",
+						backoff,
+					)
+					select {
+					case <-watchCtx.Done():
+						return
+					case <-time.After(backoff):
+					}
+					backoff = min(backoff*2, watcherBackoffCap)
 				}
 			}()
 		})
 		defer unsub()
+
+		// Register the listener channel before subscribing so any events
+		// the explorer fires immediately after subscribe success land on a
+		// channel we are already reading from.
+		ch := w.exp.GetAddressesEvents()
 
 		if err := w.subscribeWithBackoff(watchCtx); err != nil {
 			// Context cancelled before we could subscribe: clean exit.
 			return
 		}
 
-		w.listen(watchCtx)
+		w.listen(watchCtx, ch)
 	}()
 
 	return nil
@@ -230,9 +255,8 @@ func (w *Watcher) subscribeWithBackoff(ctx context.Context) error {
 	}
 }
 
-func (w *Watcher) listen(ctx context.Context) {
+func (w *Watcher) listen(ctx context.Context, ch <-chan clientTypes.OnchainAddressEvent) {
 	// w.events is closed by the Start goroutine's defer on exit.
-	ch := w.exp.GetAddressesEvents()
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,10 +271,13 @@ func (w *Watcher) listen(ctx context.Context) {
 		case ev, ok := <-ch:
 			if !ok {
 				log.Warn("watcher: explorer event channel closed, resubscribing")
+				// Register the new listener channel before resubscribing so
+				// events fired between subscribe success and our next read
+				// do not get broadcast to a non-existent listener.
+				ch = w.exp.GetAddressesEvents()
 				if err := w.subscribeWithBackoff(ctx); err != nil {
 					return
 				}
-				ch = w.exp.GetAddressesEvents()
 				continue
 			}
 			select {

@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
@@ -234,7 +233,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		faucetOnchain(t, boardingAddrs[i], amount)
 	}
 
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 	waitForExplorerHistory(t, bobClientHD, boardingAddrs)
 
 	aliceClientHD = setupClient(t, seed, sdk.WithoutAutoSettle())
@@ -413,7 +412,7 @@ func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
 
 	const boardingAmount = 0.00021
 	faucetOnchain(t, boardingAddr, boardingAmount)
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 
 	waitForExplorerHistory(t, alice, []string{boardingAddr})
 
@@ -564,7 +563,7 @@ func vtxoAmounts(vtxos []clientTypes.Vtxo) []uint64 {
 	return amounts
 }
 
-func sumLockedAmounts(locked []client.LockedOnchainBalance) uint64 {
+func sumLockedAmounts(locked []types.LockedOnchainBalance) uint64 {
 	var total uint64
 	for _, utxo := range locked {
 		total += utxo.Amount
