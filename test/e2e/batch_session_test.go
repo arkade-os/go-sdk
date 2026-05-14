@@ -250,8 +250,7 @@ func TestBatchSession(t *testing.T) {
 		require.False(t, res.Vtxos[0].Swept)
 
 		// Make the offchain funds expire
-		err = generateBlocks(21)
-		require.NoError(t, err)
+		generateBlocks(t, 21)
 
 		vtxoEvent = <-vtxoCh
 		require.Equal(t, types.VtxosSwept, vtxoEvent.Type)
