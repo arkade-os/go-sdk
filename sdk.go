@@ -44,6 +44,7 @@ type Wallet interface {
 	ContractManager() contract.Manager
 
 	Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) error
+	GetConfigData(ctx context.Context) (*clienttypes.Config, error)
 	IsLocked(ctx context.Context) bool
 	Unlock(ctx context.Context, password string) error
 	Lock(ctx context.Context) error

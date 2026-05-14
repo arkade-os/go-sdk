@@ -356,6 +356,13 @@ func (w *wallet) Version() string {
 	return Version
 }
 
+func (w *wallet) GetConfigData(ctx context.Context) (*clienttypes.Config, error) {
+	if w.client == nil {
+		return nil, ErrNotInitialized
+	}
+	return w.client.GetConfigData(ctx)
+}
+
 func (w *wallet) Stop() {
 	if w.client == nil {
 		return
