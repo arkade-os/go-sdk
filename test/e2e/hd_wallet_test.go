@@ -262,7 +262,11 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
-		spendable, err := aliceClientHD.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
+		spendable, err := aliceClientHD.ListVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 50},
+			types.VtxoFilterSpendable,
+		)
 		if err != nil {
 			return false
 		}
@@ -487,7 +491,11 @@ func waitForSpendableVtxos(
 	var spendable []clientTypes.Vtxo
 	require.Eventually(t, func() bool {
 		var err error
-		spendable, err = client.ListVtxos(t.Context(), types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
+		spendable, err = client.ListVtxos(
+			t.Context(),
+			types.Page{PageNum: 1, PageSize: 50},
+			types.VtxoFilterSpendable,
+		)
 		if err != nil {
 			return false
 		}

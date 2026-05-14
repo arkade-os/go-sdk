@@ -807,7 +807,8 @@ func (w *wallet) refreshVtxoDb(
 	ctx context.Context, spendableVtxos, spentVtxos []clienttypes.Vtxo,
 ) error {
 	// Fetch old data.
-	oldSpendableVtxos, err := w.store.VtxoStore().GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
+	oldSpendableVtxos, err := w.store.VtxoStore().
+		GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 
 	if err != nil {
 		return err

@@ -874,7 +874,11 @@ func TestVtxoPagination(t *testing.T) {
 	})
 
 	t.Run("Page{1,5} returns the 5 newest VTXOs", func(t *testing.T) {
-		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		page1, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Len(t, page1, 5)
 
@@ -897,10 +901,18 @@ func TestVtxoPagination(t *testing.T) {
 	})
 
 	t.Run("Page{2,5} returns next 5, all older than page 1", func(t *testing.T) {
-		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		page1, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 
-		page2, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 2, PageSize: 5}, types.VtxoFilterAll)
+		page2, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 2, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Len(t, page2, 5)
 
@@ -939,7 +951,11 @@ func TestVtxoPagination(t *testing.T) {
 		// Page 3 (offset 10): 12000, 11000, 10000, 9000, 8000
 		// Page 4 (offset 15): 7000, 6000, 5000, 4000, 3000
 		// Page 5 (offset 20): 2000, 1000  <-- partial page
-		page4, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 4, PageSize: 5}, types.VtxoFilterAll)
+		page4, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 4, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Len(t, page4, 5)
 
@@ -957,7 +973,11 @@ func TestVtxoPagination(t *testing.T) {
 	})
 
 	t.Run("Page{5,5} returns last partial page with 2 VTXOs", func(t *testing.T) {
-		page5, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 5, PageSize: 5}, types.VtxoFilterAll)
+		page5, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 5, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Len(t, page5, 2)
 
@@ -976,17 +996,29 @@ func TestVtxoPagination(t *testing.T) {
 	})
 
 	t.Run("Page{6,5} beyond last page returns empty", func(t *testing.T) {
-		beyond, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 6, PageSize: 5}, types.VtxoFilterAll)
+		beyond, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 6, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Empty(t, beyond)
 	})
 
 	t.Run("spendable filter pagination with ordering", func(t *testing.T) {
-		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterSpendable)
+		page1, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 5},
+			types.VtxoFilterSpendable,
+		)
 		require.NoError(t, err)
 		require.Len(t, page1, 5)
 
-		page2, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 2, PageSize: 5}, types.VtxoFilterSpendable)
+		page2, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 2, PageSize: 5},
+			types.VtxoFilterSpendable,
+		)
 		require.NoError(t, err)
 		require.Len(t, page2, 5)
 
@@ -1011,7 +1043,11 @@ func TestVtxoPagination(t *testing.T) {
 		}
 
 		// Beyond last page returns empty.
-		beyondPage, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 999, PageSize: 5}, types.VtxoFilterSpendable)
+		beyondPage, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 999, PageSize: 5},
+			types.VtxoFilterSpendable,
+		)
 		require.NoError(t, err)
 		require.Empty(t, beyondPage)
 	})
@@ -1026,9 +1062,17 @@ func TestVtxoPagination(t *testing.T) {
 	})
 
 	t.Run("PageNum 0 treated as page 1", func(t *testing.T) {
-		page0, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 0, PageSize: 5}, types.VtxoFilterAll)
+		page0, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 0, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
-		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		page1, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 
 		require.Len(t, page0, 5)
@@ -1062,7 +1106,11 @@ func TestVtxoPagination(t *testing.T) {
 		require.Len(t, all, totalVtxos+1)
 
 		// Multi-asset VTXO with created_at=100000 is the newest.
-		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		page1, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 5},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Len(t, page1, 5)
 
@@ -1087,17 +1135,29 @@ func TestVtxoPagination(t *testing.T) {
 		require.Equal(t, 1, n)
 
 		// VtxoFilterAll should return everything (23 total).
-		all, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 30}, types.VtxoFilterAll)
+		all, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 30},
+			types.VtxoFilterAll,
+		)
 		require.NoError(t, err)
 		require.Len(t, all, totalVtxos+1) // 22 original + 1 multi-asset
 
 		// VtxoFilterSpent should return only the spent one.
-		spent, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 30}, types.VtxoFilterSpent)
+		spent, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 30},
+			types.VtxoFilterSpent,
+		)
 		require.NoError(t, err)
 		require.Len(t, spent, 1)
 
 		// VtxoFilterSpendable should return the unspent ones.
-		spendable, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 30}, types.VtxoFilterSpendable)
+		spendable, err := vtxoStore.GetVtxos(
+			ctx,
+			types.Page{PageNum: 1, PageSize: 30},
+			types.VtxoFilterSpendable,
+		)
 		require.NoError(t, err)
 		require.Len(t, spendable, totalVtxos) // 21 original unspent + 1 multi-asset
 
