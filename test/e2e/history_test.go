@@ -33,13 +33,13 @@ func TestTransactionHistory(t *testing.T) {
 	faucetOnchain(t, aliceBoardingAddr, 0.00021)
 
 	// should receive the utxo added event
-	utxoEvent := <-utxoCh
+	utxoEvent := recvUtxoEvent(t, utxoCh)
 	require.Equal(t, types.UtxosAdded, utxoEvent.Type)
 	require.Len(t, utxoEvent.Utxos, 1)
 	require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
 
 	// should receive the boarding tx event
-	event := <-aliceTxChan
+	event := recvTxEvent(t, aliceTxChan)
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	boardingTx := event.Txs[0]
@@ -98,7 +98,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, settledBoardingTx, history[0], commitmentTxid)
 
 	// wait for the utxo to be detected as spent and settle again
-	utxoEvent = <-utxoCh
+	utxoEvent = recvUtxoEvent(t, utxoCh)
 	require.Equal(t, types.UtxosSpent, utxoEvent.Type)
 	require.Len(t, utxoEvent.Utxos, 1)
 	require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
@@ -133,10 +133,8 @@ func TestTransactionHistory(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	time.Sleep(10 * time.Second)
-
 	// should receive the ark tx event
-	event = <-aliceTxChan
+	event = recvTxEvent(t, aliceTxChan)
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	offchainTx := event.Txs[0]
@@ -153,7 +151,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, offchainTx, history[0], "")
 	requireTxEqual(t, settledBoardingTx, history[1], "")
 
-	event = <-bobTxChan
+	event = recvTxEvent(t, bobTxChan)
 
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
@@ -172,6 +170,11 @@ func TestTransactionHistory(t *testing.T) {
 	require.Len(t, history, 1)
 	requireTxEqual(t, offchainReceivedTx, history[0], "")
 
+	// bob settles to get a non-recoverable VTXO before sending
+	generateBlocks(t, 1)
+	_, err = bob.Settle(ctx)
+	require.NoError(t, err)
+
 	// bob sends funds to alice
 	arkTxid, err = bob.SendOffChain(ctx, []clientTypes.Receiver{{
 		To:     aliceOffchainAddr,
@@ -180,7 +183,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	// should receive the ark tx event
-	event = <-aliceTxChan
+	event = recvTxEvent(t, aliceTxChan)
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	offchainReceivedTx = event.Txs[0]
@@ -206,7 +209,7 @@ func TestTransactionHistory(t *testing.T) {
 	require.NotEmpty(t, commitmentTxid)
 
 	// should receive the offchain settled tx event
-	event = <-aliceTxChan
+	event = recvTxEvent(t, aliceTxChan)
 	require.Equal(t, types.TxsAdded, event.Type)
 	require.Len(t, event.Txs, 1)
 	collabExitTx := event.Txs[0]
