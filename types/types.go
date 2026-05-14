@@ -124,8 +124,8 @@ type VtxoFilter int
 const (
 	// VtxoFilterAll returns every VTXO regardless of state.
 	VtxoFilterAll VtxoFilter = iota
-	// VtxoFilterSpendable returns VTXOs that are not spent and not unrolled
-	// (i.e. actively usable for new off-chain transactions).
+	// VtxoFilterSpendable returns VTXOs where spent=false AND unrolled=false.
+	// This includes recoverable VTXOs (swept or expired)
 	VtxoFilterSpendable
 	// VtxoFilterSpent returns VTXOs that have been spent or unrolled.
 	VtxoFilterSpent

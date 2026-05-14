@@ -23,7 +23,8 @@ WHERE (txid, vout) IN (
   SELECT txid, vout FROM vtxo
   ORDER BY created_at DESC, txid ASC, vout ASC
   LIMIT ? OFFSET ?
-)`
+)
+ORDER BY created_at DESC, txid ASC, vout ASC`
 
 type SelectAllVtxosPaginatedParams struct {
 	Limit  int64
@@ -81,7 +82,8 @@ WHERE (txid, vout) IN (
   WHERE spent = false AND unrolled = false
   ORDER BY created_at DESC, txid ASC, vout ASC
   LIMIT ? OFFSET ?
-)`
+)
+ORDER BY created_at DESC, txid ASC, vout ASC`
 
 type SelectSpendableVtxosPaginatedParams struct {
 	Limit  int64
@@ -134,7 +136,8 @@ func (q *Queries) SelectSpendableVtxosPaginated(
 const selectSpentVtxos = `SELECT txid, vout, script, amount, commitment_txids, spent_by, spent,
        expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount
 FROM asset_vtxo_vw
-WHERE spent = true OR unrolled = true`
+WHERE spent = true OR unrolled = true
+ORDER BY created_at DESC, txid ASC, vout ASC`
 
 func (q *Queries) SelectSpentVtxos(
 	ctx context.Context,
@@ -186,7 +189,8 @@ WHERE (txid, vout) IN (
   WHERE spent = true OR unrolled = true
   ORDER BY created_at DESC, txid ASC, vout ASC
   LIMIT ? OFFSET ?
-)`
+)
+ORDER BY created_at DESC, txid ASC, vout ASC`
 
 type SelectSpentVtxosPaginatedParams struct {
 	Limit  int64

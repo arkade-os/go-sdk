@@ -311,6 +311,36 @@ func (v *vtxoRepository) GetVtxos(
 ) ([]clientTypes.Vtxo, error) {
 	limit, offset := pageToLimitOffset(page)
 
+	// Recoverable filtering cannot be done in SQL (it depends on wall-clock
+	// time via ExpiresAt), so we always fetch ALL VTXOs, filter in Go, and
+	// then apply pagination to the filtered result. This is acceptable because
+	// recoverable VTXOs are rare.
+	if filter == types.VtxoFilterRecoverable {
+		rows, err := v.querier.SelectAllVtxos(ctx)
+		if err != nil {
+			return nil, err
+		}
+		allVtxos := assetVtxoVwRowsToVtxos(rows)
+		filtered := make([]clientTypes.Vtxo, 0, len(allVtxos))
+		for _, vtxo := range allVtxos {
+			if vtxo.IsRecoverable() {
+				filtered = append(filtered, vtxo)
+			}
+		}
+		// Apply Go-side pagination to the filtered slice.
+		if limit > 0 {
+			if offset >= int64(len(filtered)) {
+				return []clientTypes.Vtxo{}, nil
+			}
+			end := offset + limit
+			if end > int64(len(filtered)) {
+				end = int64(len(filtered))
+			}
+			filtered = filtered[offset:end]
+		}
+		return filtered, nil
+	}
+
 	var (
 		rows []queries.AssetVtxoVw
 		err  error
@@ -345,8 +375,7 @@ func (v *vtxoRepository) GetVtxos(
 			},
 		)
 	default:
-		// VtxoFilterAll and VtxoFilterRecoverable use the "all" paginated
-		// query; Go-side filtering is applied below for recoverable.
+		// VtxoFilterAll uses the "all" paginated query.
 		rows, err = v.querier.SelectAllVtxosPaginated(ctx, queries.SelectAllVtxosPaginatedParams{
 			Limit: limit, Offset: offset,
 		})
@@ -355,21 +384,7 @@ func (v *vtxoRepository) GetVtxos(
 		return nil, err
 	}
 
-	vtxos := assetVtxoVwRowsToVtxos(rows)
-
-	// Apply Go-side filter for states that cannot be expressed in SQL alone
-	// (recoverable depends on the current wall-clock time via ExpiresAt).
-	if filter == types.VtxoFilterRecoverable {
-		filtered := make([]clientTypes.Vtxo, 0, len(vtxos))
-		for _, v := range vtxos {
-			if v.IsRecoverable() {
-				filtered = append(filtered, v)
-			}
-		}
-		return filtered, nil
-	}
-
-	return vtxos, nil
+	return assetVtxoVwRowsToVtxos(rows), nil
 }
 
 // GetVtxosByOutpoint fetches specific VTXOs by their outpoint keys.
