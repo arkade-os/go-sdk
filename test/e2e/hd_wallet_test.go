@@ -101,11 +101,22 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 	// Scenario 3: Alice restores from seed and discovers all used keys on startup.
 	aliceClientHD = setupClient(t, seed, sdk.WithGapLimit(50))
 
-	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
+	restoredSpendable, err := aliceClientHD.ListVtxos(
+		ctx,
+		types.Page{PageNum: 1, PageSize: 50},
+		types.VtxoFilterSpendable,
+	)
 	require.NoError(t, err)
-	require.Len(t, restoredSpent, 0)
 	require.Len(t, restoredSpendable, 2)
 	require.ElementsMatch(t, []uint64{15_000, 16_000}, vtxoAmounts(restoredSpendable))
+
+	restoredSpent, err := aliceClientHD.ListVtxos(
+		ctx,
+		types.Page{PageNum: 1, PageSize: 50},
+		types.VtxoFilterSpent,
+	)
+	require.NoError(t, err)
+	require.Len(t, restoredSpent, 0)
 
 	restoredBalance, err := aliceClientHD.Balance(ctx)
 	require.NoError(t, err)
@@ -178,11 +189,22 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 
 	aliceClientHD = setupClient(t, seed, sdk.WithGapLimit(gapLimit))
 
-	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
+	restoredSpendable, err := aliceClientHD.ListVtxos(
+		ctx,
+		types.Page{PageNum: 1, PageSize: 50},
+		types.VtxoFilterSpendable,
+	)
 	require.NoError(t, err)
-	require.Len(t, restoredSpent, 0)
 	require.Len(t, restoredSpendable, 1)
 	require.ElementsMatch(t, []uint64{15_000}, vtxoAmounts(restoredSpendable))
+
+	restoredSpent, err := aliceClientHD.ListVtxos(
+		ctx,
+		types.Page{PageNum: 1, PageSize: 50},
+		types.VtxoFilterSpent,
+	)
+	require.NoError(t, err)
+	require.Len(t, restoredSpent, 0)
 
 	restoredBalance, err := aliceClientHD.Balance(ctx)
 	require.NoError(t, err)
@@ -241,12 +263,12 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
-		spendable, spent, err := aliceClientHD.ListVtxos(ctx)
+		spendable, err := aliceClientHD.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 		if err != nil {
 			return false
 		}
 
-		return len(spent) == 0 && len(spendable) == 4 &&
+		return len(spendable) == 4 &&
 			sumVtxoAmounts(spendable) == wantOffchainTotal
 	}, 10*time.Second, 200*time.Millisecond)
 
@@ -423,7 +445,7 @@ func waitForSpendableVtxos(
 	var spendable []clientTypes.Vtxo
 	require.Eventually(t, func() bool {
 		var err error
-		spendable, _, err = client.ListVtxos(t.Context())
+		spendable, err = client.ListVtxos(t.Context(), types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 		if err != nil {
 			return false
 		}

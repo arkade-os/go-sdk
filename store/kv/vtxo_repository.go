@@ -73,7 +73,7 @@ func (s *vtxoStore) SpendVtxos(
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := s.GetVtxos(ctx, outpoints)
+	vtxos, err := s.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -110,7 +110,7 @@ func (s *vtxoStore) SweepVtxos(ctx context.Context, vtxosToSweep []clientTypes.V
 	for _, vtxo := range vtxosToSweep {
 		outpoints = append(outpoints, vtxo.Outpoint)
 	}
-	vtxos, err := s.GetVtxos(ctx, outpoints)
+	vtxos, err := s.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -148,7 +148,7 @@ func (s *vtxoStore) UnrollVtxos(
 	for _, vtxo := range vtxosToUnroll {
 		outpoints = append(outpoints, vtxo.Outpoint)
 	}
-	vtxos, err := s.GetVtxos(ctx, outpoints)
+	vtxos, err := s.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -185,7 +185,7 @@ func (s *vtxoStore) SettleVtxos(
 	for outpoint := range spentVtxoMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := s.GetVtxos(ctx, outpoints)
+	vtxos, err := s.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -217,43 +217,40 @@ func (s *vtxoStore) SettleVtxos(
 	return len(spentVtxos), nil
 }
 
-func (s *vtxoStore) GetAllVtxos(
-	_ context.Context,
-) (spendable, spent []clientTypes.Vtxo, err error) {
+// GetVtxos returns VTXOs filtered by VtxoFilter. The Page parameter is
+// accepted for interface compatibility but ignored — KV store always returns
+// all matching VTXOs (pagination is only implemented in the SQL store).
+func (s *vtxoStore) GetVtxos(
+	_ context.Context, _ types.Page, filter types.VtxoFilter,
+) ([]clientTypes.Vtxo, error) {
 	var allVtxos []clientTypes.Vtxo
-	err = s.db.Find(&allVtxos, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for _, vtxo := range allVtxos {
-		if vtxo.Spent || vtxo.Unrolled {
-			spent = append(spent, vtxo)
-		} else {
-			spendable = append(spendable, vtxo)
-		}
-	}
-	return
-}
-
-func (s *vtxoStore) GetSpendableVtxos(
-	ctx context.Context,
-) (spendable []clientTypes.Vtxo, err error) {
-	var allVtxos []clientTypes.Vtxo
-	err = s.db.Find(&allVtxos, nil)
-	if err != nil {
+	if err := s.db.Find(&allVtxos, nil); err != nil {
 		return nil, err
 	}
 
+	result := make([]clientTypes.Vtxo, 0, len(allVtxos))
 	for _, vtxo := range allVtxos {
-		if !vtxo.Spent && !vtxo.Unrolled {
-			spendable = append(spendable, vtxo)
+		switch filter {
+		case types.VtxoFilterSpendable:
+			if !vtxo.Spent && !vtxo.Unrolled {
+				result = append(result, vtxo)
+			}
+		case types.VtxoFilterSpent:
+			if vtxo.Spent || vtxo.Unrolled {
+				result = append(result, vtxo)
+			}
+		case types.VtxoFilterRecoverable:
+			if vtxo.IsRecoverable() {
+				result = append(result, vtxo)
+			}
+		default: // VtxoFilterAll
+			result = append(result, vtxo)
 		}
 	}
-	return spendable, nil
+	return result, nil
 }
 
-func (s *vtxoStore) GetVtxos(
+func (s *vtxoStore) GetVtxosByOutpoint(
 	_ context.Context, keys []clientTypes.Outpoint,
 ) ([]clientTypes.Vtxo, error) {
 	var vtxos []clientTypes.Vtxo

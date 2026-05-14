@@ -50,7 +50,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 1000, int(bobVtxo1.Amount))
 		require.Equal(t, txid, bobVtxo1.Txid)
 
-		bobVtxos, _, err := bob.ListVtxos(ctx)
+		bobVtxos, err := bob.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 1)
 
@@ -69,7 +69,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 10000, int(bobVtxo2.Amount))
 		require.Equal(t, txid, bobVtxo2.Txid)
 
-		bobVtxos, _, err = bob.ListVtxos(ctx)
+		bobVtxos, err = bob.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 2)
 
@@ -88,7 +88,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 10000, int(bobVtxo3.Amount))
 		require.Equal(t, txid, bobVtxo3.Txid)
 
-		bobVtxos, _, err = bob.ListVtxos(ctx)
+		bobVtxos, err = bob.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 3)
 
@@ -107,7 +107,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 10000, int(bobVtxo4.Amount))
 		require.Equal(t, txid, bobVtxo4.Txid)
 
-		bobVtxos, _, err = bob.ListVtxos(ctx)
+		bobVtxos, err = bob.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 4)
 

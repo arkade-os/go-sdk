@@ -193,7 +193,7 @@ func TestUnilateralExit(t *testing.T) {
 			break
 		}
 
-		_, spent, err := alice.ListVtxos(ctx)
+		spent, err := alice.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpent)
 		require.NoError(t, err)
 		require.NotEmpty(t, spent)
 		require.Len(t, spent, 1)
@@ -285,7 +285,7 @@ func TestUnilateralExit(t *testing.T) {
 			break
 		}
 
-		_, spent, err := bob.ListVtxos(ctx)
+		spent, err := bob.ListVtxos(ctx, types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpent)
 		require.NoError(t, err)
 		require.NotEmpty(t, spent)
 		require.Len(t, spent, 1)

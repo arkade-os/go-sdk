@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +48,7 @@ func TestSmokeWalletRestore(t *testing.T) {
 		len(offchainAddresses), totalAddresses,
 	)
 
-	vtxos, _, err := alice.ListVtxos(ctx)
+	vtxos, err := alice.ListVtxos(ctx, types.Page{}, types.VtxoFilterAll)
 	require.NoError(t, err, "❌ funding failed: expected no error on getting vtxos, got %w", err)
 	require.Len(
 		t, vtxos, expectedVtxos,
@@ -91,7 +92,7 @@ func TestSmokeWalletRestore(t *testing.T) {
 		len(offchainAddressesRestored), totalAddresses,
 	)
 
-	vtxosRestored, _, err := aliceRestored.ListVtxos(ctx)
+	vtxosRestored, err := aliceRestored.ListVtxos(ctx, types.Page{}, types.VtxoFilterAll)
 	require.NoError(t, err, "❌ restore failed: expected no error, got %w", err)
 	require.Len(
 		t, vtxosRestored, len(vtxos),

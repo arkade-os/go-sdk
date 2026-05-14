@@ -112,7 +112,7 @@ func (v *vtxoRepository) SpendVtxos(
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -162,7 +162,7 @@ func (v *vtxoRepository) SweepVtxos(
 	for _, vtxo := range vtxosToSweep {
 		outpoints = append(outpoints, vtxo.Outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -209,7 +209,7 @@ func (v *vtxoRepository) UnrollVtxos(
 	for _, vtxo := range vtxosToUnroll {
 		outpoints = append(outpoints, vtxo.Outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -255,7 +255,7 @@ func (v *vtxoRepository) SettleVtxos(
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoint(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
@@ -297,30 +297,77 @@ func (v *vtxoRepository) SettleVtxos(
 	return len(settledVtxos), nil
 }
 
-func (v *vtxoRepository) GetAllVtxos(
-	ctx context.Context,
-) (spendable, spent []clientTypes.Vtxo, err error) {
-	rows, err := v.querier.SelectAllVtxos(ctx)
+// GetVtxos returns VTXOs filtered by the given VtxoFilter.
+//
+// When page.PageSize == 0, all matching VTXOs are returned (no LIMIT).
+// Otherwise the paginated SQL path is used, which dispatches based on filter.
+//
+// The view rows are grouped by outpoint because asset_vtxo_vw is a LEFT JOIN
+// of vtxo and asset_vtxo: a multi-asset VTXO produces N view rows (one per
+// asset). The grouping step collapses them back into a single Vtxo with an
+// Assets slice.
+func (v *vtxoRepository) GetVtxos(
+	ctx context.Context, page types.Page, filter types.VtxoFilter,
+) ([]clientTypes.Vtxo, error) {
+	limit, offset := pageToLimitOffset(page)
+
+	var (
+		rows []queries.AssetVtxoVw
+		err  error
+
+		allSpendable = limit == 0 && filter == types.VtxoFilterSpendable
+		allSpent     = limit == 0 && filter == types.VtxoFilterSpent
+		all          = limit == 0
+	)
+
+	switch {
+	//no pagination
+	case allSpendable:
+		rows, err = v.querier.SelectSpendableVtxos(ctx)
+	case allSpent:
+		rows, err = v.querier.SelectSpentVtxos(ctx)
+	case all:
+		rows, err = v.querier.SelectAllVtxos(ctx)
+
+	// with pagination
+	case filter == types.VtxoFilterSpendable:
+		rows, err = v.querier.SelectSpendableVtxosPaginated(ctx, queries.SelectSpendableVtxosPaginatedParams{
+			Limit: limit, Offset: offset,
+		})
+	case filter == types.VtxoFilterSpent:
+		rows, err = v.querier.SelectSpentVtxosPaginated(ctx, queries.SelectSpentVtxosPaginatedParams{
+			Limit: limit, Offset: offset,
+		})
+	default:
+		// VtxoFilterAll and VtxoFilterRecoverable use the "all" paginated
+		// query; Go-side filtering is applied below for recoverable.
+		rows, err = v.querier.SelectAllVtxosPaginated(ctx, queries.SelectAllVtxosPaginatedParams{
+			Limit: limit, Offset: offset,
+		})
+	}
 	if err != nil {
-		return
+		return nil, err
 	}
-	byOutpoint := make(map[string][]queries.AssetVtxoVw)
-	for _, row := range rows {
-		key := fmt.Sprintf("%s:%d", row.Txid, row.Vout)
-		byOutpoint[key] = append(byOutpoint[key], row)
-	}
-	for _, group := range byOutpoint {
-		vtxo := assetVtxoVwGroupToVtxo(group)
-		if vtxo.Spent || vtxo.Unrolled {
-			spent = append(spent, vtxo)
-		} else {
-			spendable = append(spendable, vtxo)
+
+	vtxos := assetVtxoVwRowsToVtxos(rows)
+
+	// Apply Go-side filter for states that cannot be expressed in SQL alone
+	// (recoverable depends on the current wall-clock time via ExpiresAt).
+	if filter == types.VtxoFilterRecoverable {
+		filtered := make([]clientTypes.Vtxo, 0, len(vtxos))
+		for _, v := range vtxos {
+			if v.IsRecoverable() {
+				filtered = append(filtered, v)
+			}
 		}
+		return filtered, nil
 	}
-	return
+
+	return vtxos, nil
 }
 
-func (v *vtxoRepository) GetVtxos(
+// GetVtxosByOutpoint fetches specific VTXOs by their outpoint keys.
+func (v *vtxoRepository) GetVtxosByOutpoint(
 	ctx context.Context, keys []clientTypes.Outpoint,
 ) ([]clientTypes.Vtxo, error) {
 	vtxos := make([]clientTypes.Vtxo, 0, len(keys))
@@ -341,17 +388,6 @@ func (v *vtxoRepository) GetVtxos(
 	}
 
 	return vtxos, nil
-}
-
-func (v *vtxoRepository) GetSpendableVtxos(
-	ctx context.Context,
-) (spendable []clientTypes.Vtxo, err error) {
-	rows, err := v.querier.SelectSpendableVtxos(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return assetVtxoVwRowsToVtxos(rows), nil
 }
 
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
@@ -397,8 +433,34 @@ func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	log.Warn("failed to send vtxo event")
 }
 
+// pageToLimitOffset converts a Page to SQL LIMIT/OFFSET values.
+//   - PageSize == 0 is a sentinel meaning "return all rows" (limit 0 tells the
+//     caller to skip the paginated query and use the unpaginated variant).
+//   - PageSize values above MaxPageSize are clamped to prevent unbounded result sets.
+//   - PageNum is 1-based for callers; 0 is silently treated as 1 so that
+//     Page{PageSize: 10} returns the first page rather than an empty result.
+func pageToLimitOffset(p types.Page) (limit, offset int64) {
+	if p.PageSize == 0 {
+		return 0, 0
+	}
+	size := p.PageSize
+	if size > types.MaxPageSize {
+		size = types.MaxPageSize
+	}
+	num := p.PageNum
+	if num == 0 {
+		num = 1
+	}
+	return int64(size), int64(num-1) * int64(size)
+}
+
+// assetVtxoVwRowsToVtxos groups flat view rows back into domain VTXOs.
+//
+// The asset_vtxo_vw view LEFT JOINs vtxo with asset_vtxo, so a single VTXO
+// carrying N assets produces N rows in the result set. This function groups
+// those rows by outpoint and merges each group into one Vtxo with a populated
+// Assets slice.
 func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []clientTypes.Vtxo {
-	// group rows by (txid, vout)
 	byOutpoint := make(map[string][]queries.AssetVtxoVw)
 	for _, row := range rows {
 		key := fmt.Sprintf("%s:%d", row.Txid, row.Vout)

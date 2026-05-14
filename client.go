@@ -746,7 +746,7 @@ func (a *arkClient) refreshVtxoDb(
 	ctx context.Context, spendableVtxos, spentVtxos []clientTypes.Vtxo,
 ) error {
 	// Fetch old data.
-	oldSpendableVtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
+	oldSpendableVtxos, err := a.store.VtxoStore().GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 	if err != nil {
 		return err
 	}
@@ -1320,7 +1320,7 @@ func (a *arkClient) handleCommitmentTx(
 			indexedSpentVtxos[vtxo.Outpoint] = vtxo
 		}
 	}
-	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, spentVtxos)
+	myVtxos, err := a.store.VtxoStore().GetVtxosByOutpoint(ctx, spentVtxos)
 	if err != nil {
 		return err
 	}
@@ -1499,7 +1499,7 @@ func (a *arkClient) handleArkTx(
 			VOut: vtxo.VOut,
 		})
 	}
-	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, spentVtxos)
+	myVtxos, err := a.store.VtxoStore().GetVtxosByOutpoint(ctx, spentVtxos)
 	if err != nil {
 		return err
 	}
@@ -1598,7 +1598,7 @@ func (a *arkClient) handleSweepTx(ctx context.Context, sweepTx *transport.TxNoti
 		return nil
 	}
 
-	myVtxos, err := a.store.VtxoStore().GetVtxos(ctx, sweepTx.SweptVtxos)
+	myVtxos, err := a.store.VtxoStore().GetVtxosByOutpoint(ctx, sweepTx.SweptVtxos)
 	if err != nil {
 		return err
 	}

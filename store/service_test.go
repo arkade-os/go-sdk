@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -587,10 +588,9 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 	}()
 
 	t.Run("add vtxos", func(t *testing.T) {
-		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
+		all, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterAll)
 		require.NoError(t, err)
-		require.Empty(t, spendable)
-		require.Empty(t, spent)
+		require.Empty(t, all)
 
 		count, err := storeSvc.AddVtxos(ctx, testVtxos)
 		require.NoError(t, err)
@@ -600,13 +600,12 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Zero(t, count)
 
-		spendable, spent, err = storeSvc.GetAllVtxos(ctx)
+		all, err = storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterAll)
 		require.NoError(t, err)
-		require.Len(t, spendable, len(testVtxos))
-		require.Empty(t, spent)
-		requireVtxosListEqual(t, testVtxos, spendable)
+		require.Len(t, all, len(testVtxos))
+		requireVtxosListEqual(t, testVtxos, all)
 
-		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		spendable, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 		require.NoError(t, err)
 		require.Len(t, spendable, len(testVtxos))
 		for _, v := range spendable {
@@ -615,11 +614,15 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		}
 		requireVtxosListEqual(t, testVtxos, spendable)
 
-		vtxos, err := storeSvc.GetVtxos(ctx, testVtxoKeys)
+		spent, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpent)
+		require.NoError(t, err)
+		require.Empty(t, spent)
+
+		vtxos, err := storeSvc.GetVtxosByOutpoint(ctx, testVtxoKeys)
 		require.NoError(t, err)
 		requireVtxosListEqual(t, testVtxos, vtxos)
 
-		vtxos, err = storeSvc.GetVtxos(ctx, []clientTypes.Outpoint{
+		vtxos, err = storeSvc.GetVtxosByOutpoint(ctx, []clientTypes.Outpoint{
 			{Txid: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", VOut: 0},
 		})
 		require.NoError(t, err)
@@ -635,17 +638,20 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Zero(t, count)
 
-		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
+		all, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Equal(t, 4, len(all))
+
+		spent, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpent)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(spent))
-		require.Equal(t, 3, len(spendable))
 		for _, v := range spent {
 			require.True(t, v.Spent)
 			require.Equal(t, testSpendVtxoKeys[v.Outpoint], v.SpentBy)
 			require.Equal(t, arkTxid, v.ArkTxid)
 		}
 
-		spendable, err = storeSvc.GetSpendableVtxos(ctx)
+		spendable, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 		require.NoError(t, err)
 		require.Len(t, spendable, 3)
 		for _, v := range spendable {
@@ -662,10 +668,9 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 		require.NoError(t, err)
 		require.Zero(t, count)
 
-		spendable, spent, err := storeSvc.GetAllVtxos(ctx)
+		spent, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpent)
 		require.NoError(t, err)
 		require.Len(t, spent, 2)
-		require.Len(t, spendable, 2)
 		for _, v := range spent {
 			require.True(t, v.Spent)
 			testSettleBy, ok := testSettleVtxoKeys[v.Outpoint]
@@ -674,6 +679,10 @@ func testVtxoStore(t *testing.T, storeSvc types.VtxoStore, storeType string) {
 				require.Equal(t, settledBy, v.SettledBy)
 			}
 		}
+
+		spendable, err := storeSvc.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
+		require.NoError(t, err)
+		require.Len(t, spendable, 2)
 	})
 }
 
@@ -807,6 +816,303 @@ func testAssetStore(t *testing.T, storeSvc types.AssetStore) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "asset not found")
 	require.Nil(t, asset)
+}
+
+func TestVtxoPagination(t *testing.T) {
+	svc, err := store.NewStore(store.Config{
+		AppDataStoreType: types.SQLStore,
+		BaseDir:          t.TempDir(),
+	})
+	require.NoError(t, err)
+	defer svc.Close()
+
+	ctx := t.Context()
+	vtxoStore := svc.VtxoStore()
+
+	// Insert 22 spendable VTXOs with distinct created_at values.
+	// created_at goes from 1000 (oldest, index 0) to 22000 (newest, index 21).
+	// SQL orders by created_at DESC, so page 1 should contain the newest VTXOs.
+	const totalVtxos = 22
+	paginationVtxos := make([]clientTypes.Vtxo, totalVtxos)
+	for i := range totalVtxos {
+		paginationVtxos[i] = clientTypes.Vtxo{
+			Outpoint: clientTypes.Outpoint{
+				Txid: fmt.Sprintf("%064x", i+1),
+				VOut: 0,
+			},
+			Script:          "aaaa",
+			Amount:          uint64((i + 1) * 1000),
+			CommitmentTxids: []string{"commitmentaaa"},
+			ExpiresAt:       time.Unix(1800000000, 0),
+			CreatedAt:       time.Unix(int64(1000*(i+1)), 0),
+		}
+	}
+	count, err := vtxoStore.AddVtxos(ctx, paginationVtxos)
+	require.NoError(t, err)
+	require.Equal(t, totalVtxos, count)
+
+	// Helper: collect created_at unix timestamps from a VTXO slice.
+	createdAts := func(vtxos []clientTypes.Vtxo) []int64 {
+		out := make([]int64, len(vtxos))
+		for i, v := range vtxos {
+			out[i] = v.CreatedAt.Unix()
+		}
+		return out
+	}
+
+	// Helper: collect outpoint txids from a VTXO slice.
+	outpointTxids := func(vtxos []clientTypes.Vtxo) map[string]bool {
+		out := make(map[string]bool, len(vtxos))
+		for _, v := range vtxos {
+			out[v.Txid] = true
+		}
+		return out
+	}
+
+	t.Run("Page{} returns ALL vtxos", func(t *testing.T) {
+		all, err := vtxoStore.GetVtxos(ctx, types.Page{}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, all, totalVtxos)
+
+		spendable, err := vtxoStore.GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
+		require.NoError(t, err)
+		require.Len(t, spendable, totalVtxos)
+	})
+
+	t.Run("Page{1,5} returns the 5 newest VTXOs", func(t *testing.T) {
+		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, page1, 5)
+
+		// The 5 newest VTXOs have created_at = 22000, 21000, 20000, 19000, 18000.
+		for _, v := range page1 {
+			require.GreaterOrEqual(t, v.CreatedAt.Unix(), int64(18000),
+				"page 1 VTXO created_at=%d should be >= 18000", v.CreatedAt.Unix())
+		}
+		txids := outpointTxids(page1)
+		for i := 18; i <= 22; i++ {
+			txid := fmt.Sprintf("%064x", i)
+			require.True(
+				t,
+				txids[txid],
+				"page 1 should contain VTXO with index %d (created_at=%d)",
+				i,
+				i*1000,
+			)
+		}
+	})
+
+	t.Run("Page{2,5} returns next 5, all older than page 1", func(t *testing.T) {
+		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+
+		page2, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 2, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, page2, 5)
+
+		// Every VTXO on page 2 must have created_at < every VTXO on page 1.
+		page1Timestamps := createdAts(page1)
+		page2Timestamps := createdAts(page2)
+		var minPage1 = page1Timestamps[0]
+		for _, ts := range page1Timestamps {
+			if ts < minPage1 {
+				minPage1 = ts
+			}
+		}
+		for _, ts := range page2Timestamps {
+			require.Less(t, ts, minPage1,
+				"page 2 VTXO created_at=%d must be < min page 1 created_at=%d", ts, minPage1)
+		}
+
+		// Page 2 should contain VTXOs with created_at = 17000..13000.
+		txids := outpointTxids(page2)
+		for i := 13; i <= 17; i++ {
+			txid := fmt.Sprintf("%064x", i)
+			require.True(t, txids[txid], "page 2 should contain VTXO with index %d", i)
+		}
+
+		// No overlap between page 1 and page 2.
+		page1Txids := outpointTxids(page1)
+		for txid := range txids {
+			require.False(t, page1Txids[txid], "page 1 and page 2 must not overlap (txid=%s)", txid)
+		}
+	})
+
+	t.Run("Page{4,5} returns 5 VTXOs from the 4th page", func(t *testing.T) {
+		// 22 VTXOs, page size 5, ordered by created_at DESC:
+		// Page 1 (offset 0): 22000, 21000, 20000, 19000, 18000
+		// Page 2 (offset 5): 17000, 16000, 15000, 14000, 13000
+		// Page 3 (offset 10): 12000, 11000, 10000, 9000, 8000
+		// Page 4 (offset 15): 7000, 6000, 5000, 4000, 3000
+		// Page 5 (offset 20): 2000, 1000  <-- partial page
+		page4, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 4, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, page4, 5)
+
+		txids := outpointTxids(page4)
+		for i := 3; i <= 7; i++ {
+			txid := fmt.Sprintf("%064x", i)
+			require.True(
+				t,
+				txids[txid],
+				"page 4 should contain VTXO with index %d (created_at=%d)",
+				i,
+				i*1000,
+			)
+		}
+	})
+
+	t.Run("Page{5,5} returns last partial page with 2 VTXOs", func(t *testing.T) {
+		page5, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 5, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, page5, 2)
+
+		// These should be the 2 oldest VTXOs: created_at 2000, 1000.
+		txids := outpointTxids(page5)
+		for i := 1; i <= 2; i++ {
+			txid := fmt.Sprintf("%064x", i)
+			require.True(
+				t,
+				txids[txid],
+				"last page should contain VTXO with index %d (created_at=%d)",
+				i,
+				i*1000,
+			)
+		}
+	})
+
+	t.Run("Page{6,5} beyond last page returns empty", func(t *testing.T) {
+		beyond, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 6, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Empty(t, beyond)
+	})
+
+	t.Run("spendable filter pagination with ordering", func(t *testing.T) {
+		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterSpendable)
+		require.NoError(t, err)
+		require.Len(t, page1, 5)
+
+		page2, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 2, PageSize: 5}, types.VtxoFilterSpendable)
+		require.NoError(t, err)
+		require.Len(t, page2, 5)
+
+		// Every VTXO on page 2 must be older than every VTXO on page 1.
+		page1Timestamps := createdAts(page1)
+		page2Timestamps := createdAts(page2)
+		var minPage1 = page1Timestamps[0]
+		for _, ts := range page1Timestamps {
+			if ts < minPage1 {
+				minPage1 = ts
+			}
+		}
+		for _, ts := range page2Timestamps {
+			require.Less(
+				t,
+				ts,
+				minPage1,
+				"spendable filter: page 2 created_at=%d must be < min page 1 created_at=%d",
+				ts,
+				minPage1,
+			)
+		}
+
+		// Beyond last page returns empty.
+		beyondPage, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 999, PageSize: 5}, types.VtxoFilterSpendable)
+		require.NoError(t, err)
+		require.Empty(t, beyondPage)
+	})
+
+	t.Run("MaxPageSize clamping", func(t *testing.T) {
+		all, err := vtxoStore.GetVtxos(ctx, types.Page{
+			PageNum: 1, PageSize: types.MaxPageSize + 100,
+		}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		// Clamped to MaxPageSize=200, but only 22 exist.
+		require.Len(t, all, totalVtxos)
+	})
+
+	t.Run("PageNum 0 treated as page 1", func(t *testing.T) {
+		page0, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 0, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+
+		require.Len(t, page0, 5)
+		require.Len(t, page1, 5)
+		// Both should contain the exact same set of outpoints.
+		page0Txids := outpointTxids(page0)
+		page1Txids := outpointTxids(page1)
+		require.Equal(t, page0Txids, page1Txids)
+	})
+
+	t.Run("multi-asset VTXO counts as 1", func(t *testing.T) {
+		multiAssetVtxo := clientTypes.Vtxo{
+			Outpoint: clientTypes.Outpoint{
+				Txid: fmt.Sprintf("%064x", 100),
+				VOut: 0,
+			},
+			Script:          "bbbb",
+			Amount:          9000,
+			CommitmentTxids: []string{"commitmentbbb"},
+			ExpiresAt:       time.Unix(1800000000, 0),
+			CreatedAt:       time.Unix(100000, 0),
+			Assets:          []clientTypes.Asset{testVtxoAsset1, testVtxoAsset2},
+		}
+		n, err := vtxoStore.AddVtxos(ctx, []clientTypes.Vtxo{multiAssetVtxo})
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+
+		// Total should be 23 VTXOs now (22 + 1 multi-asset).
+		all, err := vtxoStore.GetVtxos(ctx, types.Page{}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, all, totalVtxos+1)
+
+		// Multi-asset VTXO with created_at=100000 is the newest.
+		page1, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 5}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, page1, 5)
+
+		// The multi-asset VTXO should be on page 1 (it has the highest created_at).
+		var foundMultiAsset bool
+		for _, v := range page1 {
+			if v.Txid == multiAssetVtxo.Txid {
+				require.Len(t, v.Assets, 2)
+				foundMultiAsset = true
+			}
+		}
+		require.True(t, foundMultiAsset, "multi-asset VTXO should appear on page 1")
+	})
+
+	t.Run("spent filter pagination", func(t *testing.T) {
+		// Spend the first vtxo (index 0, created_at=1000 — the oldest).
+		spendMap := map[clientTypes.Outpoint]string{
+			paginationVtxos[0].Outpoint: "spender_tx",
+		}
+		n, err := vtxoStore.SpendVtxos(ctx, spendMap, "arktx1")
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+
+		// VtxoFilterAll should return everything (23 total).
+		all, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 30}, types.VtxoFilterAll)
+		require.NoError(t, err)
+		require.Len(t, all, totalVtxos+1) // 22 original + 1 multi-asset
+
+		// VtxoFilterSpent should return only the spent one.
+		spent, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 30}, types.VtxoFilterSpent)
+		require.NoError(t, err)
+		require.Len(t, spent, 1)
+
+		// VtxoFilterSpendable should return the unspent ones.
+		spendable, err := vtxoStore.GetVtxos(ctx, types.Page{PageNum: 1, PageSize: 30}, types.VtxoFilterSpendable)
+		require.NoError(t, err)
+		require.Len(t, spendable, totalVtxos) // 21 original unspent + 1 multi-asset
+
+		// Verify spent VTXO does NOT appear in spendable filter.
+		for _, v := range spendable {
+			require.NotEqual(t, paginationVtxos[0].Txid, v.Txid,
+				"spent VTXO should not appear in spendable filter")
+		}
+	})
 }
 
 func requireVtxosListEqual(t *testing.T, expected, actual []clientTypes.Vtxo) {

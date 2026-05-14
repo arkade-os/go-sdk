@@ -155,24 +155,14 @@ func (a *arkClient) Balance(ctx context.Context) (*client.Balance, error) {
 	return balance, nil
 }
 
-func (a *arkClient) ListSpendableVtxos(ctx context.Context) ([]clientTypes.Vtxo, error) {
+func (a *arkClient) ListVtxos(
+	ctx context.Context, page types.Page, filter types.VtxoFilter,
+) ([]clientTypes.Vtxo, error) {
 	if err := a.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	// TODO: add safe check
-	return a.store.VtxoStore().GetSpendableVtxos(ctx)
-}
-
-func (a *arkClient) ListVtxos(
-	ctx context.Context,
-) ([]clientTypes.Vtxo, []clientTypes.Vtxo, error) {
-	if err := a.safeCheck(); err != nil {
-		return nil, nil, err
-	}
-
-	// TODO: add safe check
-	return a.store.VtxoStore().GetAllVtxos(ctx)
+	return a.store.VtxoStore().GetVtxos(ctx, page, filter)
 }
 
 func (a *arkClient) newOffchainAddress(ctx context.Context) (string, error) {
@@ -191,15 +181,12 @@ func (a *arkClient) getOffchainBalance(ctx context.Context) (
 	assetBalances = make(map[string]uint64, 0)
 	amountByExpiration = make(map[int64]uint64, 0)
 
-	vtxos, _, err := a.store.VtxoStore().GetAllVtxos(ctx)
+	vtxos, err := a.store.VtxoStore().GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 	if err != nil {
 		return
 	}
 
 	for _, vtxo := range vtxos {
-		if vtxo.Unrolled {
-			continue
-		}
 
 		balance += vtxo.Amount
 

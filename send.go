@@ -79,7 +79,7 @@ func (a *arkClient) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
 ) ([]clientTypes.VtxoWithTapTree, error) {
 	a.dbMu.Lock()
-	spendableVtxos, err := a.store.VtxoStore().GetSpendableVtxos(ctx)
+	spendableVtxos, err := a.store.VtxoStore().GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 	a.dbMu.Unlock()
 	if err != nil {
 		return nil, err

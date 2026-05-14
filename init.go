@@ -204,7 +204,7 @@ func (a *arkClient) scheduleNextSettlement() {
 
 	nextSettlement := a.scheduler.GetTaskScheduledAt()
 
-	vtxos, err := a.store.VtxoStore().GetSpendableVtxos(context.Background())
+	vtxos, err := a.store.VtxoStore().GetVtxos(context.Background(), types.Page{}, types.VtxoFilterSpendable)
 	if err != nil {
 		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next settlement")
 		return

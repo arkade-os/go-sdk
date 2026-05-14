@@ -69,8 +69,7 @@ type ArkClient interface {
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
-	ListVtxos(ctx context.Context) (spendable, spent []clientTypes.Vtxo, err error)
-	ListSpendableVtxos(ctx context.Context) ([]clientTypes.Vtxo, error)
+	ListVtxos(ctx context.Context, page types.Page, filter types.VtxoFilter) ([]clientTypes.Vtxo, error)
 	Dump(ctx context.Context) (seed string, err error)
 	GetTransactionHistory(ctx context.Context) ([]clientTypes.Transaction, error)
 	GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent
