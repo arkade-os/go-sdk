@@ -409,15 +409,6 @@ func (v *vtxoRepository) Clean(ctx context.Context) error {
 	return nil
 }
 
-func (v *vtxoRepository) Close() {
-	v.wg.Wait()
-	v.lock.Lock()
-	defer v.lock.Unlock()
-
-	// nolint:all
-	v.db.Close()
-}
-
 func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	v.lock.Lock()
 	defer v.lock.Unlock()

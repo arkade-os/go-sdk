@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
@@ -256,7 +255,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		faucetOnchain(t, boardingAddrs[i], amount)
 	}
 
-	require.NoError(t, generateBlocks(1))
+	generateBlocks(t, 1)
 	waitForExplorerHistory(t, bobClientHD, boardingAddrs)
 
 	aliceClientHD = setupClient(t, seed, sdk.WithoutAutoSettle())
@@ -417,7 +416,50 @@ func TestHDWalletEventStreams(t *testing.T) {
 	})
 }
 
-func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []string) {
+// TestHDWalletRecoversBoardingOnlyFundedKeys covers the case:
+// a key whose ONLY activity is a boarding UTXO (never any offchain VTXO at
+// the matching offchain script). After dumping the seed and restoring into a
+// fresh client, discovery must still find the key so the boarding UTXO is reachable.
+//
+// This currently exposes review issue H1: discoverHDWalletKeys only checks
+// offchain VTXO activity, so boarding-only funded keys are missed.
+func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
+	ctx := t.Context()
+
+	alice := setupClient(t, "")
+
+	boardingAddr, err := alice.NewBoardingAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, boardingAddr)
+
+	const boardingAmount = 0.00021
+	faucetOnchain(t, boardingAddr, boardingAmount)
+	generateBlocks(t, 1)
+
+	waitForExplorerHistory(t, alice, []string{boardingAddr})
+
+	seed, err := alice.Dump(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, seed)
+
+	alice.Stop()
+
+	restoredAlice := setupClient(t, seed)
+
+	// The restored wallet should re-discover the key that backs the funded
+	// boarding address and surface the UTXO in its onchain balance.
+	require.Eventually(t, func() bool {
+		balance, err := restoredAlice.Balance(ctx)
+		if err != nil {
+			return false
+		}
+		return sumLockedAmounts(balance.OnchainBalance.LockedAmount) >= uint64(boardingAmount*1e8)
+	}, 30*time.Second, 500*time.Millisecond,
+		"restored wallet did not recover the boarding-only funded key — "+
+			"this is review H1: discoverHDWalletKeys only scans offchain VTXOs")
+}
+
+func waitForExplorerHistory(t *testing.T, client sdk.Wallet, addresses []string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
@@ -438,7 +480,7 @@ func waitForExplorerHistory(t *testing.T, client sdk.ArkClient, addresses []stri
 }
 
 func waitForSpendableVtxos(
-	t *testing.T, client sdk.ArkClient, wantCount int, wantTotal uint64,
+	t *testing.T, client sdk.Wallet, wantCount int, wantTotal uint64,
 ) []clientTypes.Vtxo {
 	t.Helper()
 
@@ -525,49 +567,6 @@ func waitForTxEvent(
 	}
 }
 
-// TestHDWalletRecoversBoardingOnlyFundedKeys covers the case:
-// a key whose ONLY activity is a boarding UTXO (never any offchain VTXO at
-// the matching offchain script). After dumping the seed and restoring into a
-// fresh client, discovery must still find the key so the boarding UTXO is reachable.
-//
-// This currently exposes review issue H1: discoverHDWalletKeys only checks
-// offchain VTXO activity, so boarding-only funded keys are missed.
-func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
-	ctx := t.Context()
-
-	alice := setupClient(t, "")
-
-	boardingAddr, err := alice.NewBoardingAddress(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, boardingAddr)
-
-	const boardingAmount = 0.00021
-	faucetOnchain(t, boardingAddr, boardingAmount)
-	require.NoError(t, generateBlocks(1))
-
-	waitForExplorerHistory(t, alice, []string{boardingAddr})
-
-	seed, err := alice.Dump(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, seed)
-
-	alice.Stop()
-
-	restoredAlice := setupClient(t, seed)
-
-	// The restored wallet should re-discover the key that backs the funded
-	// boarding address and surface the UTXO in its onchain balance.
-	require.Eventually(t, func() bool {
-		balance, err := restoredAlice.Balance(ctx)
-		if err != nil {
-			return false
-		}
-		return sumLockedAmounts(balance.OnchainBalance.LockedAmount) >= uint64(boardingAmount*1e8)
-	}, 30*time.Second, 500*time.Millisecond,
-		"restored wallet did not recover the boarding-only funded key — "+
-			"this is review H1: discoverHDWalletKeys only scans offchain VTXOs")
-}
-
 func sumVtxoAmounts(vtxos []clientTypes.Vtxo) uint64 {
 	var total uint64
 	for _, vtxo := range vtxos {
@@ -586,7 +585,7 @@ func vtxoAmounts(vtxos []clientTypes.Vtxo) []uint64 {
 	return amounts
 }
 
-func sumLockedAmounts(locked []client.LockedOnchainBalance) uint64 {
+func sumLockedAmounts(locked []types.LockedOnchainBalance) uint64 {
 	var total uint64
 	for _, utxo := range locked {
 		total += utxo.Amount

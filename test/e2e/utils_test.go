@@ -24,10 +24,10 @@ const (
 	explorerUrl = "http://127.0.0.1:3000"
 )
 
-func setupClient(t *testing.T, seed string, opts ...sdk.ClientOption) sdk.ArkClient {
+func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
 	t.Helper()
 
-	arkClient, err := sdk.NewArkClient(t.TempDir(), opts...)
+	arkClient, err := sdk.NewWallet(t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	err = arkClient.Init(t.Context(), serverUrl, seed, password)
@@ -51,7 +51,7 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 }
 
 func faucetOffchain(
-	t *testing.T, client sdk.ArkClient, amount float64,
+	t *testing.T, client sdk.Wallet, amount float64,
 ) clientTypes.Vtxo {
 	ctx := t.Context()
 
@@ -172,7 +172,7 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 	return cmd
 }
 
-func generateBlocks(n int) error {
+func generateBlocks(t *testing.T, n int) {
 	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
-	return err
+	require.NoError(t, err)
 }

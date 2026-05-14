@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const dustAmount = 330
+
 // TestAssetTransfer tests the transfer of an asset between alice and bob.
 // then they both settle their funds.
 func TestAssetTransferAndRenew(t *testing.T) {
@@ -153,9 +155,8 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, balance)
 
-	cfg, err := bob.GetConfigData(ctx)
 	require.NoError(t, err)
-	require.Equal(t, int(cfg.Dust), int(balance.OffchainBalance.Total))
+	require.Equal(t, dustAmount, int(balance.OffchainBalance.Total))
 }
 
 func TestAssetIssuance(t *testing.T) {
@@ -396,7 +397,7 @@ func TestAssetBurn(t *testing.T) {
 	require.Equal(t, 3500, int(assetVtxos[0].Assets[0].Amount))
 }
 
-func listVtxosWithAsset(t *testing.T, client sdk.ArkClient, assetID string) []clientTypes.Vtxo {
+func listVtxosWithAsset(t *testing.T, client sdk.Wallet, assetID string) []clientTypes.Vtxo {
 	vtxos, err := client.ListVtxos(t.Context(), types.Page{PageNum: 1, PageSize: 50}, types.VtxoFilterSpendable)
 	require.NoError(t, err)
 

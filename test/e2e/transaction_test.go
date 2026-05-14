@@ -261,7 +261,7 @@ func TestOffchainTx(t *testing.T) {
 	t.Run("finalize pending tx (manual)", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceWallet := alice.Wallet()
+		aliceWallet := alice.Identity()
 		arkClient := alice.Client()
 		contractManager := alice.ContractManager()
 
@@ -416,7 +416,7 @@ func TestOffchainTx(t *testing.T) {
 	t.Run("finalize pending tx (auto)", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
-		aliceWallet := alice.Wallet()
+		aliceWallet := alice.Identity()
 		arkClient := alice.Client()
 		contractManager := alice.ContractManager()
 
