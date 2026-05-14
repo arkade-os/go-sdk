@@ -1162,7 +1162,6 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 						Amount:    u.Amount,
 						Type:      clienttypes.TxReceived,
 						CreatedAt: u.CreatedAt,
-						Hex:       txHex,
 					})
 				}
 
