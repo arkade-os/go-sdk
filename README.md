@@ -95,7 +95,7 @@ if err := wallet.Init(
 // ElectrumX over local plaintext TCP (useful for regtest).
 if err := wallet.Init(
     ctx, "localhost:7070", "your_seed", "your_password",
-    arksdk.WithElectrumExplorer("tcp://127.0.0.1:50001"),
+    arksdk.WithElectrumExplorer("tcp://127.0.0.1:50000"),
 ); err != nil {
     return fmt.Errorf("failed to initialize wallet: %s", err)
 }
@@ -148,9 +148,9 @@ it at construction time via `arksdk.WithIdentity(svc)` — see §1.
 | testnet  | `https://mempool.space/testnet/api` (mempool.space) |
 | signet   | `https://mempool.space/signet/api` (mempool.space) |
 | mutinynet | `https://mutinynet.com/api` (mempool.space) |
-| regtest  | `tcp://127.0.0.1:50001` (ElectrumX) |
+| regtest  | `tcp://127.0.0.1:50000` (ElectrumX) |
 
-> **Regtest migration note:** the regtest default changed from `http://127.0.0.1:3000` (esplora) to `tcp://127.0.0.1:50001` (ElectrumX). If your regtest setup uses an esplora server instead, pass `WithExplorerURL("http://127.0.0.1:3000")` (or your actual URL) to `Init` to restore the previous behaviour.
+> **Regtest migration note:** the regtest default changed from `http://127.0.0.1:3000` (esplora) to `tcp://127.0.0.1:50000` (ElectrumX). If your regtest setup uses an esplora server instead, pass `WithExplorerURL("http://127.0.0.1:3000")` (or your actual URL) to `Init` to restore the previous behaviour.
 
 Note: Always keep your seed and password secure. Never share them or store them in plaintext.
 

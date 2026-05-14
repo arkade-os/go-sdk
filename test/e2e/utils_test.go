@@ -28,7 +28,7 @@ var explorerUrl = func() string {
 	if u := os.Getenv("ARK_ELECTRUM_URL"); u != "" {
 		return u
 	}
-	return "tcp://127.0.0.1:50001"
+	return "tcp://127.0.0.1:50000"
 }()
 
 var esploraUrl = os.Getenv("ARK_ESPLORA_URL")

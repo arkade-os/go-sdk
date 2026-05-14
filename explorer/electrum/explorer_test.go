@@ -102,7 +102,7 @@ func TestNewExplorerValidation(t *testing.T) {
 	})
 
 	t.Run("accepts tcp:// URL", func(t *testing.T) {
-		exp, err := electrum_explorer.NewExplorer("tcp://127.0.0.1:50001", arklib.Bitcoin)
+		exp, err := electrum_explorer.NewExplorer("tcp://127.0.0.1:50000", arklib.Bitcoin)
 		require.NoError(t, err)
 		require.NotNil(t, exp)
 	})
@@ -119,7 +119,7 @@ func TestNewExplorerValidation(t *testing.T) {
 
 // TestBaseUrl checks that BaseUrl returns the configured server URL.
 func TestBaseUrl(t *testing.T) {
-	url := "tcp://127.0.0.1:50001"
+	url := "tcp://127.0.0.1:50000"
 	exp, err := electrum_explorer.NewExplorer(url, arklib.Bitcoin)
 	require.NoError(t, err)
 	require.Equal(t, url, exp.BaseUrl())

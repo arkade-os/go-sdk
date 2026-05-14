@@ -22,7 +22,7 @@ func TestInitOptions(t *testing.T) {
 			},
 			{
 				name: "WithElectrumExplorer tcp",
-				opts: []arksdk.InitOption{arksdk.WithElectrumExplorer("tcp://127.0.0.1:50001")},
+				opts: []arksdk.InitOption{arksdk.WithElectrumExplorer("tcp://127.0.0.1:50000")},
 			},
 			{
 				name: "WithElectrumExplorer ssl",
@@ -80,7 +80,7 @@ func TestInitOptions(t *testing.T) {
 				name: "WithElectrumExplorer conflicts with WithExplorerURL",
 				opts: []arksdk.InitOption{
 					arksdk.WithExplorerURL("https://example.com"),
-					arksdk.WithElectrumExplorer("tcp://127.0.0.1:50001"),
+					arksdk.WithElectrumExplorer("tcp://127.0.0.1:50000"),
 				},
 				wantErrContains: "explorer url already set",
 			},
