@@ -118,22 +118,14 @@ func (w *wallet) Balance(ctx context.Context) (*types.Balance, error) {
 	}, nil
 }
 
-func (w *wallet) ListSpendableVtxos(ctx context.Context) ([]clienttypes.Vtxo, error) {
+func (w *wallet) ListVtxos(
+	ctx context.Context, page types.Page, filter types.VtxoFilter,
+) ([]clienttypes.Vtxo, error) {
 	if err := w.safeCheck(); err != nil {
 		return nil, err
 	}
 
-	return w.store.VtxoStore().GetSpendableVtxos(ctx)
-}
-
-func (w *wallet) ListVtxos(
-	ctx context.Context,
-) ([]clienttypes.Vtxo, []clienttypes.Vtxo, error) {
-	if err := w.safeCheck(); err != nil {
-		return nil, nil, err
-	}
-
-	return w.store.VtxoStore().GetAllVtxos(ctx)
+	return w.store.VtxoStore().GetVtxos(ctx, page, filter)
 }
 
 func (w *wallet) NotifyIncomingFunds(
@@ -157,7 +149,7 @@ func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
 func (w *wallet) getOffchainBalance(
 	ctx context.Context,
 ) (*types.OffchainBalance, map[string]uint64, error) {
-	vtxos, _, err := w.store.VtxoStore().GetAllVtxos(ctx)
+	vtxos, err := w.store.VtxoStore().GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -170,10 +162,6 @@ func (w *wallet) getOffchainBalance(
 		amountByExpiration  = make(map[int64]uint64)
 	)
 	for _, vtxo := range vtxos {
-		if vtxo.Spent || vtxo.Unrolled {
-			continue
-		}
-
 		// Classify VTXO by state. Priority: Recoverable > Preconfirmed > default.
 		switch {
 		case vtxo.IsRecoverable():

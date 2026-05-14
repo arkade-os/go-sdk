@@ -398,7 +398,11 @@ func TestAssetBurn(t *testing.T) {
 }
 
 func listVtxosWithAsset(t *testing.T, client sdk.Wallet, assetID string) []clientTypes.Vtxo {
-	vtxos, _, err := client.ListVtxos(t.Context())
+	vtxos, err := client.ListVtxos(
+		t.Context(),
+		types.Page{PageNum: 1, PageSize: 50},
+		types.VtxoFilterSpendable,
+	)
 	require.NoError(t, err)
 
 	assetVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))

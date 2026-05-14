@@ -106,6 +106,34 @@ const (
 	ContractStateInactive ContractState = "inactive"
 )
 
+// MaxPageSize is the maximum number of VTXOs returned per page.
+const MaxPageSize uint32 = 200
+
+// Page specifies offset-based pagination for VTXO listing operations.
+// PageNum is 1-based; 0 is treated as 1.
+// PageSize 0 means "return all rows" (no LIMIT applied).
+// PageSize values above MaxPageSize are clamped to MaxPageSize.
+type Page struct {
+	PageNum  uint32
+	PageSize uint32
+}
+
+// VtxoFilter controls which VTXOs are returned by listing operations.
+type VtxoFilter int
+
+const (
+	// VtxoFilterAll returns every VTXO regardless of state.
+	VtxoFilterAll VtxoFilter = iota
+	// VtxoFilterSpendable returns VTXOs where spent=false AND unrolled=false.
+	// This includes recoverable VTXOs (swept or expired)
+	VtxoFilterSpendable
+	// VtxoFilterSpent returns VTXOs that have been spent or unrolled.
+	VtxoFilterSpent
+	// VtxoFilterRecoverable returns VTXOs that are swept or expired but not
+	// yet spent, meaning the owner can still recover them on-chain.
+	VtxoFilterRecoverable
+)
+
 type ContractType string
 
 const (

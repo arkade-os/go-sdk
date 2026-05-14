@@ -73,7 +73,8 @@ func (w *wallet) getSpendableVtxos(
 	ctx context.Context, withRecoverable bool,
 ) ([]clienttypes.VtxoWithTapTree, error) {
 	w.dbMu.Lock()
-	spendableVtxos, err := w.store.VtxoStore().GetSpendableVtxos(ctx)
+	spendableVtxos, err := w.store.VtxoStore().
+		GetVtxos(ctx, types.Page{}, types.VtxoFilterSpendable)
 	w.dbMu.Unlock()
 	if err != nil {
 		return nil, err

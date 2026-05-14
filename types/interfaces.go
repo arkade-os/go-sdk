@@ -52,9 +52,8 @@ type VtxoStore interface {
 	) (int, error)
 	SweepVtxos(ctx context.Context, vtxosToSweep []types.Vtxo) (int, error)
 	UnrollVtxos(ctx context.Context, vtxosToUnroll []types.Vtxo) (int, error)
-	GetAllVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)
-	GetSpendableVtxos(ctx context.Context) ([]types.Vtxo, error)
-	GetVtxos(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
+	GetVtxos(ctx context.Context, page Page, filter VtxoFilter) ([]types.Vtxo, error)
+	GetVtxosByOutpoint(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan VtxoEvent
 }

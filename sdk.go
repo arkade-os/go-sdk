@@ -84,8 +84,11 @@ type Wallet interface {
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
-	ListVtxos(ctx context.Context) (spendable, spent []clienttypes.Vtxo, err error)
-	ListSpendableVtxos(ctx context.Context) ([]clienttypes.Vtxo, error)
+	ListVtxos(
+		ctx context.Context,
+		page types.Page,
+		filter types.VtxoFilter,
+	) ([]clienttypes.Vtxo, error)
 	Dump(ctx context.Context) (seed string, err error)
 	GetTransactionHistory(ctx context.Context) ([]clienttypes.Transaction, error)
 	GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent
