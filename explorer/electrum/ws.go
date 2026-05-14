@@ -88,35 +88,31 @@ func (t *wsTracker) stop() {
 }
 
 // subscribe adds addr to the tracked set and (if connected) re-sends
-// track-addresses so the upstream filter updates immediately.
+// track-addresses so the upstream filter updates immediately. All WS writes
+// happen under t.mu so concurrent subscribe / unsubscribe / initial-send
+// calls cannot interleave and clobber each other's track-addresses state.
 func (t *wsTracker) subscribe(addr string) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if _, ok := t.addrs[addr]; ok {
-		t.mu.Unlock()
 		return
 	}
 	t.addrs[addr] = struct{}{}
-	conn := t.conn
-	addrs := t.snapshotAddrsLocked()
-	t.mu.Unlock()
-	if conn != nil {
-		_ = sendTrackAddresses(conn, addrs)
+	if t.conn != nil {
+		_ = sendTrackAddresses(t.conn, t.snapshotAddrsLocked())
 	}
 }
 
 // unsubscribe removes addr from the tracked set and re-sends track-addresses.
 func (t *wsTracker) unsubscribe(addr string) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if _, ok := t.addrs[addr]; !ok {
-		t.mu.Unlock()
 		return
 	}
 	delete(t.addrs, addr)
-	conn := t.conn
-	addrs := t.snapshotAddrsLocked()
-	t.mu.Unlock()
-	if conn != nil {
-		_ = sendTrackAddresses(conn, addrs)
+	if t.conn != nil {
+		_ = sendTrackAddresses(t.conn, t.snapshotAddrsLocked())
 	}
 }
 
@@ -158,10 +154,22 @@ func (t *wsTracker) dialAndServe() error {
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
+	log.Debugf("electrum ws: connected to %s", t.url)
 
+	// Take the lock around BOTH the conn assignment and the initial
+	// track-addresses send. A concurrent subscribe() that lands between
+	// these two would otherwise see t.conn set, send its [addrs..N] payload,
+	// and then have its message overwritten by the empty initial send from
+	// this goroutine. With everything inside the same critical section,
+	// subscribe either runs before (sees t.conn nil, just stores) or after
+	// (sees the up-to-date addr set and sends the merged list).
 	t.mu.Lock()
 	t.conn = conn
 	addrs := t.snapshotAddrsLocked()
+	var initialErr error
+	if len(addrs) > 0 {
+		initialErr = sendTrackAddresses(conn, addrs)
+	}
 	t.mu.Unlock()
 	defer func() {
 		t.mu.Lock()
@@ -170,10 +178,8 @@ func (t *wsTracker) dialAndServe() error {
 		_ = conn.Close()
 	}()
 
-	if len(addrs) > 0 {
-		if err := sendTrackAddresses(conn, addrs); err != nil {
-			return fmt.Errorf("track-addresses: %w", err)
-		}
+	if initialErr != nil {
+		return fmt.Errorf("track-addresses: %w", initialErr)
 	}
 
 	// Pong handler resets the read deadline so we notice silent drops.

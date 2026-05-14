@@ -175,9 +175,13 @@ func (e *explorerSvc) Stop() {
 		e.stopTracking()
 		e.stopTracking = nil
 	}
+	// Don't nil e.ws here: a concurrent UnsubscribeForAddresses (e.g. from
+	// listenForOnchainTxs's ctx.Done cleanup) reads it, and assigning nil
+	// would race with that read. wsTracker.stop is idempotent and leaves the
+	// struct safe to call subscribe/unsubscribe on (they become no-ops once
+	// the goroutine has exited and conn is nil).
 	if e.ws != nil {
 		e.ws.stop()
-		e.ws = nil
 	}
 	e.client.shutdown()
 
