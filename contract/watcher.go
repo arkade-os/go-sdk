@@ -73,8 +73,54 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return fmt.Errorf("watcher: already started")
 	}
 
+	watchCtx, cancel := context.WithCancel(ctx)
+	w.mu.Lock()
+	w.cancel = cancel
+	w.mu.Unlock()
+
+	// Register the OnContractEvent callback before the initial snapshot so a
+	// contract created between snapshot read and callback registration is not
+	// missed. addContractAddresses is idempotent under w.mu, so overlap
+	// between the snapshot loop and a concurrent callback is safe.
+	// Dynamic subscription: one goroutine per new contract so the callback
+	// never blocks NewContract -> emit.
+	unsub := w.mgr.OnContractEvent(func(c types.Contract) {
+		go func() {
+			newAddrs := w.addContractAddresses(watchCtx, c)
+			if len(newAddrs) == 0 || watchCtx.Err() != nil {
+				return
+			}
+			// Retry with backoff so a transient subscribe failure does
+			// not leave the address dark until the next explorer
+			// reconnect cycle. Exits on watchCtx cancel.
+			backoff := watcherBackoffBase
+			for {
+				err := w.exp.SubscribeForAddresses(newAddrs)
+				if err == nil {
+					return
+				}
+				if watchCtx.Err() != nil {
+					return
+				}
+				log.WithError(err).Warnf(
+					"watcher: failed to subscribe new contract addresses, retrying in %s",
+					backoff,
+				)
+				select {
+				case <-watchCtx.Done():
+					return
+				case <-time.After(backoff):
+				}
+				backoff = min(backoff*2, watcherBackoffCap)
+			}
+		}()
+	})
+
 	contracts, err := w.mgr.GetContracts(ctx, WithState(types.ContractStateActive))
 	if err != nil {
+		unsub()
+		cancel()
+		w.started.Store(false)
 		return fmt.Errorf("watcher: load contracts: %w", err)
 	}
 
@@ -82,49 +128,8 @@ func (w *Watcher) Start(ctx context.Context) error {
 		w.addContractAddresses(ctx, c)
 	}
 
-	watchCtx, cancel := context.WithCancel(ctx)
-	w.mu.Lock()
-	w.cancel = cancel
-	w.mu.Unlock()
-
 	go func() {
 		defer w.closeOnce.Do(func() { close(w.events) })
-
-		// Register the callback before subscribing so no contract_created events
-		// are missed during the backoff retry window.
-		// Dynamic subscription: one goroutine per new contract so the
-		// OnContractEvent callback never blocks NewContract -> emit.
-		unsub := w.mgr.OnContractEvent(func(c types.Contract) {
-			go func() {
-				newAddrs := w.addContractAddresses(watchCtx, c)
-				if len(newAddrs) == 0 || watchCtx.Err() != nil {
-					return
-				}
-				// Retry with backoff so a transient subscribe failure does
-				// not leave the address dark until the next explorer
-				// reconnect cycle. Exits on watchCtx cancel.
-				backoff := watcherBackoffBase
-				for {
-					err := w.exp.SubscribeForAddresses(newAddrs)
-					if err == nil {
-						return
-					}
-					if watchCtx.Err() != nil {
-						return
-					}
-					log.WithError(err).Warnf(
-						"watcher: failed to subscribe new contract addresses, retrying in %s",
-						backoff,
-					)
-					select {
-					case <-watchCtx.Done():
-						return
-					case <-time.After(backoff):
-					}
-					backoff = min(backoff*2, watcherBackoffCap)
-				}
-			}()
-		})
 		defer unsub()
 
 		// Register the listener channel before subscribing so any events
@@ -198,18 +203,12 @@ func (w *Watcher) addContractAddresses(ctx context.Context, c types.Contract) []
 		return nil
 	}
 
-	var delay arklib.RelativeLocktime
 	exitDelay, err := handler.GetExitDelay(c)
 	if err != nil {
-		if c.Type != types.ContractTypeBoarding {
-			delay = arklib.RelativeLocktime{}
-		} else {
-			log.WithError(err).Warnf("watcher: skipping contract %s: invalid exit delay", c.Script)
-			return nil
-		}
-	} else {
-		delay = *exitDelay
+		log.WithError(err).Warnf("watcher: skipping contract %s: invalid exit delay", c.Script)
+		return nil
 	}
+	delay := *exitDelay
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

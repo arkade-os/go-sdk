@@ -170,10 +170,12 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		w.cmMu.RUnlock()
 
 		w.bgWg.Go(func() { w.listenForArkTxs(ctx) })
-		if err := watcher.Start(ctx); err != nil {
-			log.WithError(err).Error("failed to start contract watcher")
-		} else {
-			w.bgWg.Go(func() { w.listenForOnchainTxs(ctx) })
+		if watcher != nil {
+			if err := watcher.Start(ctx); err != nil {
+				log.WithError(err).Error("failed to start contract watcher")
+			} else {
+				w.bgWg.Go(func() { w.listenForOnchainTxs(ctx) })
+			}
 		}
 		w.bgWg.Go(func() { w.listenDbEvents(ctx) })
 		w.bgWg.Go(func() { w.periodicRefreshDb(ctx) })

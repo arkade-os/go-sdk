@@ -319,7 +319,8 @@ func makeOffchainContract(t *testing.T) (types.Contract, string) {
 }
 
 // makeOffchainContractNoDelay is like makeOffchainContract but omits the
-// exitDelay param, triggering the watcher's zero-delay fallback path.
+// exitDelay param. Used to verify the watcher skips contracts whose handler
+// cannot resolve the exit delay rather than silently substituting zero.
 func makeOffchainContractNoDelay(t *testing.T) (types.Contract, string) {
 	t.Helper()
 
@@ -350,7 +351,7 @@ func makeOffchainContractNoDelay(t *testing.T) (types.Contract, string) {
 		Type:    types.ContractTypeDefault,
 		State:   types.ContractStateActive,
 		Address: encoded,
-		Params:  map[string]string{}, // no exitDelay → zero-delay fallback
+		Params:  map[string]string{}, // no exitDelay so GetExitDelay errors
 	}
 	return c, onchainAddr.EncodeAddress()
 }
@@ -699,11 +700,12 @@ func TestWatcher_LookupAddress(t *testing.T) {
 	require.Equal(t, []string{"leaf0"}, info.Tapscripts)
 }
 
-func TestWatcher_ZeroDelayFallback(t *testing.T) {
+func TestWatcher_InvalidExitDelaySkipped(t *testing.T) {
 	t.Parallel()
 
-	// ContractTypeDefault contracts whose handler cannot resolve the exit delay
-	// fall back to a zero RelativeLocktime rather than being skipped.
+	// A contract whose handler cannot resolve the exit delay must be skipped:
+	// returning zero would mark resulting UTXOs immediately spendable in the
+	// wallet, which is a security-relevant footgun.
 	c, expectedOnchain := makeOffchainContractNoDelay(t)
 
 	exp := newMockWatcherExplorer()
@@ -715,13 +717,12 @@ func TestWatcher_ZeroDelayFallback(t *testing.T) {
 
 	require.NoError(t, w.Start(ctx))
 
-	require.Eventually(t, func() bool {
-		return len(exp.getSubscribed()) > 0
-	}, time.Second, 10*time.Millisecond)
+	// Give the watcher a moment to (not) subscribe.
+	time.Sleep(100 * time.Millisecond)
 
-	info, ok := w.LookupAddress(scriptHexFor(t, expectedOnchain))
-	require.True(t, ok)
-	require.Equal(t, arklib.RelativeLocktime{}, info.Delay)
+	require.Empty(t, exp.getSubscribed())
+	_, ok := w.LookupAddress(scriptHexFor(t, expectedOnchain))
+	require.False(t, ok)
 }
 
 func TestWatcher_MalformedAddressSkipped(t *testing.T) {

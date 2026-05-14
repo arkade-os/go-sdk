@@ -1162,6 +1162,7 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context) {
 						Amount:    u.Amount,
 						Type:      clienttypes.TxReceived,
 						CreatedAt: u.CreatedAt,
+						Hex:       txHex,
 					})
 				}
 
@@ -1634,11 +1635,14 @@ func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotificati
 }
 
 func (w *wallet) safeCheck() error {
-	if w.client == nil || w.contractMgr() == nil {
+	if w.client == nil {
 		return ErrNotInitialized
 	}
 	if w.client.Identity().IsLocked() {
 		return ErrIsLocked
+	}
+	if w.contractMgr() == nil {
+		return ErrNotInitialized
 	}
 
 	w.syncMu.Lock()
