@@ -322,9 +322,23 @@ func (s *service) ListKeys(_ context.Context) ([]identity.KeyRef, error) {
 
 	keys := s.keyProvider.GetAllKeyRefs()
 
+	var sortErr error
 	sort.SliceStable(keys, func(i, j int) bool {
-		return keys[i].Id < keys[j].Id
+		pi, ei := parseDerivationIndex(keys[i].Id)
+		pj, ej := parseDerivationIndex(keys[j].Id)
+		if ei != nil {
+			sortErr = ei
+			return false
+		}
+		if ej != nil {
+			sortErr = ej
+			return false
+		}
+		return pi[1] < pj[1]
 	})
+	if sortErr != nil {
+		return nil, sortErr
+	}
 
 	return keys, nil
 }
