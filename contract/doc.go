@@ -27,9 +27,11 @@
 //
 //   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
 //     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to every registered handler, so all
-//     handlers (and any future vhtlc/delegate kinds) share a single
-//     GetInfo cache rather than fanning one out per handler.
+//     and hands the wrapped client to every built-in handler, so they
+//     share a single GetInfo cache rather than fanning one out per
+//     handler. Handlers supplied by callers via Args.ExtraHandlers or
+//     Manager.RegisterHandler were constructed outside the manager and
+//     own their own client wiring — see the extension section below.
 //
 //   - keyProvider (unexported, defined in types.go) is the subset of the
 //     identity.Identity surface the manager needs to derive contracts:
@@ -81,15 +83,24 @@
 //
 // # Extending with new contract types
 //
-// New handler kinds (vhtlc, delegate, …) plug in by:
+// New handler kinds (vhtlc, delegate, custom user-defined contracts, …)
+// plug in by:
 //  1. Implementing handlers.Handler (see contract/handlers/handler.go).
-//  2. Registering the handler in NewManager's handlers map under a new
+//  2. Registering the handler with the manager. Two equivalent paths:
+//     - At construction, via Args.ExtraHandlers, keyed by a new
 //     types.ContractType.
+//     - At runtime, via [Manager.RegisterHandler].
+//     Both reject empty types, nil handlers, and any type that is already
+//     registered (including the built-in default and boarding types).
 //  3. If the new type's "has this contract been used externally?" probe
 //     differs from the indexer or explorer paths the dispatcher already
 //     knows about, adding a branch in ScanContracts that selects the
-//     correct findUsedFn.
+//     correct findUsedFn. By default ScanContracts uses the indexer
+//     (offchain) path for any non-boarding type.
 //
-// The handler map is presently hardcoded in NewManager — see the TODOs
-// there for the eventual move to a registry callers can extend.
+// User-registered handlers are responsible for their own client caching.
+// The manager wraps args.Client with a shared GetInfo cache and hands the
+// wrapped client to the built-in handlers only — handlers constructed by
+// callers were built before the manager existed and need not depend on
+// client.Client at all.
 package contract

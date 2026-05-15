@@ -13,6 +13,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
@@ -48,28 +49,61 @@ func newTestManagerWithEnv(
 	t *testing.T,
 ) (*mockedEnv, contract.Manager, types.ContractStore) {
 	t.Helper()
+	return newTestManagerWithExtraHandlers(t, nil)
+}
+
+// newTestManagerWithExtraHandlers wires a manager with the given extra
+// handlers registered at construction time, alongside the env it sits on
+// top of. Pass nil for extras to get the same wiring as newTestManagerWithEnv.
+func newTestManagerWithExtraHandlers(
+	t *testing.T, extras map[types.ContractType]handlers.Handler,
+) (*mockedEnv, contract.Manager, types.ContractStore) {
+	t.Helper()
+
+	env, store := newMockedEnvAndStore(t)
+	mgr, err := newManagerFromEnv(t, env, store, extras)
+	require.NoError(t, err)
+	t.Cleanup(mgr.Close)
+
+	return env, mgr, store
+}
+
+// newMockedEnvAndStore builds the mocked env plus a fresh SQLite contract
+// store, registering the store for cleanup. Used by helpers that want to
+// keep wiring before NewManager (e.g. tests that expect NewManager itself
+// to fail and so should not require.NoError on it).
+func newMockedEnvAndStore(t *testing.T) (*mockedEnv, types.ContractStore) {
+	t.Helper()
 
 	env := newMockedEnv(t)
-
 	svc, err := store.NewStore(store.Config{
 		StoreType: types.SQLStore,
 		Args:      t.TempDir(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
+	return env, svc.ContractStore()
+}
 
-	mgr, err := contract.NewManager(contract.Args{
-		Store:       svc.ContractStore(),
-		KeyProvider: env.identity,
-		Client:      env.transport,
-		Indexer:     env.indexer,
-		Explorer:    env.explorer,
-		Network:     testNetwork,
+// newManagerFromEnv constructs a manager against the given env + store,
+// optionally registering extras. Unlike newTestManagerWithExtraHandlers it
+// returns NewManager's error verbatim so failure-path tests can assert on it.
+func newManagerFromEnv(
+	t *testing.T,
+	env *mockedEnv,
+	cstore types.ContractStore,
+	extras map[types.ContractType]handlers.Handler,
+) (contract.Manager, error) {
+	t.Helper()
+	return contract.NewManager(contract.Args{
+		Store:         cstore,
+		KeyProvider:   env.identity,
+		Client:        env.transport,
+		Indexer:       env.indexer,
+		Explorer:      env.explorer,
+		Network:       testNetwork,
+		ExtraHandlers: extras,
 	})
-	require.NoError(t, err)
-	t.Cleanup(mgr.Close)
-
-	return env, mgr, svc.ContractStore()
 }
 
 func newTestPubKey(t *testing.T) *btcec.PublicKey {
