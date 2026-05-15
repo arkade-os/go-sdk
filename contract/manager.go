@@ -323,6 +323,65 @@ func (m *contractManager) newDelegateLocked(
 	return contract, true, nil
 }
 
+func (m *contractManager) NewVHTLC(
+	ctx context.Context,
+	rawParams map[string]string,
+) (*types.Contract, error) {
+	info, err := m.client.GetInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server info: %w", err)
+	}
+
+	signerKeyBytes, err := hex.DecodeString(info.SignerPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
+	}
+	signerKey, err := btcec.ParsePubKey(signerKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
+	}
+
+	cfg := DelegateConfig{
+		SignerKey: signerKey,
+		Network:   m.network,
+	}
+
+	c, err := (&VHTLCHandler{}).DeriveContract(ctx, rawParams, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	stored, err := func() (*types.Contract, error) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		existing, err := m.store.GetContractsByScripts(ctx, []string{c.Script})
+		if err != nil {
+			return nil, err
+		}
+		if len(existing) > 0 {
+			return &existing[0], nil
+		}
+
+		c.CreatedAt = time.Now()
+		if err := m.store.AddContract(ctx, *c, 0); err != nil {
+			return nil, fmt.Errorf("failed to store vhtlc contract: %w", err)
+		}
+
+		log.Debugf("%s added new vhtlc contract %s", logPrefix, c.Script)
+		return nil, nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		return stored, nil
+	}
+
+	m.emit(*c)
+	return c, nil
+}
+
 func (m *contractManager) Clean(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

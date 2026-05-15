@@ -139,6 +139,11 @@ func (m *fixContractManager) NewDelegate(
 ) (*sdktypes.Contract, error) {
 	return nil, nil
 }
+func (m *fixContractManager) NewVHTLC(
+	_ context.Context, _ map[string]string,
+) (*sdktypes.Contract, error) {
+	return nil, nil
+}
 func (m *fixContractManager) Clean(_ context.Context) error { return nil }
 func (m *fixContractManager) Close()                        {}
 func (m *fixContractManager) OnContractEvent(_ func(sdktypes.Contract)) func() {

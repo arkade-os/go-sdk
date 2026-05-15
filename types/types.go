@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -112,6 +113,7 @@ const (
 	ContractTypeDefault  ContractType = "default"
 	ContractTypeBoarding ContractType = "boarding"
 	ContractTypeDelegate ContractType = "delegate"
+	ContractTypeVHTLC    ContractType = "vhtlc"
 )
 
 type Contract struct {
@@ -123,6 +125,19 @@ type Contract struct {
 	State     ContractState
 	CreatedAt time.Time
 	Metadata  map[string]string
+}
+
+// GetTapscripts decodes the JSON-encoded tapscript list stored in Params["tapscripts"].
+func (c *Contract) GetTapscripts() []string {
+	s, ok := c.Params["tapscripts"]
+	if !ok || s == "" || s == "[]" || s == "null" {
+		return nil
+	}
+	var ts []string
+	if err := json.Unmarshal([]byte(s), &ts); err != nil {
+		return nil
+	}
+	return ts
 }
 
 // Balance represents the full wallet balance including both on-chain
