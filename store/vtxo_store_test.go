@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -653,6 +654,63 @@ func TestVtxoStoreGetVtxos(t *testing.T) {
 					}
 				}
 				require.Fail(t, "multi-asset vtxo not found in WithAssetID result")
+			})
+
+			t.Run("tiebreaker on identical created_at", func(t *testing.T) {
+				// Seed N VTXOs with identical created_at and distinct
+				// (txid, vout). Page through in small pages and assert that
+				// every outpoint appears exactly once and the total count
+				// matches.
+				require.NoError(t, s.Clean(ctx))
+
+				const n = 10
+				sharedCreatedAt := time.Unix(base, 0)
+				tieVtxos := make([]clientTypes.Vtxo, n)
+				for i := range tieVtxos {
+					// Distinct txid per row; vout always 0. Lex-distinct txids
+					// give the (txid, vout) tiebreaker something to work with.
+					txid := fmt.Sprintf(
+						"%064x", i+1, // 64 hex chars = 32-byte txid
+					)
+					tieVtxos[i] = clientTypes.Vtxo{
+						Outpoint: clientTypes.Outpoint{Txid: txid, VOut: 0},
+						Script:   testVtxos[0].Script,
+						Amount:   uint64(1000 + i),
+						CommitmentTxids: []string{
+							"0000000000000000000000000000000000000000000000000000000000000000",
+						},
+						CreatedAt: sharedCreatedAt,
+						ExpiresAt: testVtxos[0].ExpiresAt,
+					}
+				}
+				seedVtxos(t, s, tieVtxos...)
+
+				seen := make(map[clientTypes.Outpoint]int, n)
+				var cursor *types.Cursor
+				pages := 0
+				for {
+					pages++
+					require.Less(t, pages, n+2, "pagination did not terminate")
+
+					vtxos, next, err := s.GetVtxos(ctx, types.GetVtxoFilter{
+						Status: types.VtxoStatusAll,
+						Limit:  3, // small page so we exercise multiple cursor hops
+						After:  cursor,
+					})
+					require.NoError(t, err)
+					for _, v := range vtxos {
+						seen[v.Outpoint]++
+					}
+					if next == nil {
+						break
+					}
+					cursor = next
+				}
+
+				require.Len(t, seen, n, "expected exactly %d distinct outpoints", n)
+				for op, count := range seen {
+					require.Equal(t, 1, count, "outpoint %v seen %d times (want 1)", op, count)
+				}
 			})
 		})
 	})

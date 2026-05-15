@@ -472,7 +472,8 @@ func waitForSpendableVtxos(
 
 	var spendable []clientTypes.Vtxo
 	require.Eventually(t, func() bool {
-		spendable, _, err := client.ListVtxos(t.Context(), sdk.WithSpendableOnly())
+		var err error
+		spendable, _, err = client.ListVtxos(t.Context(), sdk.WithSpendableOnly())
 		if err != nil {
 			return false
 		}
