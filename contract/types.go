@@ -11,7 +11,19 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
+
+// DelegateCreator is implemented by Manager implementations that support
+// creating delegate contracts. Kept separate from Manager so that existing
+// Manager implementors are not forced to add NewDelegate.
+type DelegateCreator interface {
+	// NewDelegate creates and stores a new delegate contract for the given
+	// delegate public key. The owner key is derived from the key provider.
+	// Returns an error if delegateKey is nil or matches the owner or signer key.
+	// If a contract for this delegate key already exists it is returned as-is.
+	NewDelegate(ctx context.Context, delegateKey *btcec.PublicKey) (*types.Contract, error)
+}
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
 type Manager interface {
@@ -38,6 +50,9 @@ type Manager interface {
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.
 	Close()
+	// OnContractEvent registers a callback invoked whenever a new contract is created.
+	// Returns an unsubscribe function.
+	OnContractEvent(cb func(types.Contract)) func()
 }
 
 // Args contains all services and params required to create a new contract manager.

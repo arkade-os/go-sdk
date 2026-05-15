@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"slices"
@@ -9,10 +10,12 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,12 +24,17 @@ const logPrefix = "contract manager:"
 type contractManager struct {
 	store       types.ContractStore
 	keyProvider keyProvider
+	client      client.Client
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
 	// TODO: this must become a registry so that users can register their custom handlers at will.
 	handlers map[types.ContractType]handlers.Handler
 	mu       sync.RWMutex
+
+	cbMu   sync.RWMutex
+	cbs    map[int]func(types.Contract)
+	cbNext int
 }
 
 func NewManager(args Args) (Manager, error) {
@@ -47,12 +55,39 @@ func NewManager(args Args) (Manager, error) {
 	return &contractManager{
 		store:       args.Store,
 		keyProvider: args.KeyProvider,
+		client:      cachedClient,
 		indexer:     args.Indexer,
 		explorer:    args.Explorer,
 		handlers:    handlers,
 		network:     args.Network,
 		mu:          sync.RWMutex{},
+		cbs:         make(map[int]func(types.Contract)),
 	}, nil
+}
+
+func (m *contractManager) OnContractEvent(cb func(types.Contract)) func() {
+	m.cbMu.Lock()
+	id := m.cbNext
+	m.cbNext++
+	m.cbs[id] = cb
+	m.cbMu.Unlock()
+	return func() {
+		m.cbMu.Lock()
+		delete(m.cbs, id)
+		m.cbMu.Unlock()
+	}
+}
+
+func (m *contractManager) emit(c types.Contract) {
+	m.cbMu.RLock()
+	cbs := make([]func(types.Contract), 0, len(m.cbs))
+	for _, cb := range m.cbs {
+		cbs = append(cbs, cb)
+	}
+	m.cbMu.RUnlock()
+	for _, cb := range cbs {
+		cb(c)
+	}
 }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
@@ -90,34 +125,41 @@ func (m *contractManager) NewContract(
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	handler, ok := m.handlers[contractType]
 	if !ok {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	contract.Label = o.label
 
 	keyRef, err := handler.GetKeyRef(*contract)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 	}
 
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
 	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
+	m.mu.Unlock()
+
+	m.emit(*contract)
 
 	return contract, nil
 }
@@ -156,6 +198,10 @@ func (m *contractManager) GetContracts(
 func (m *contractManager) GetHandler(
 	_ context.Context, contract types.Contract,
 ) (handlers.Handler, error) {
+	if contract.Type == types.ContractTypeDelegate {
+		return &DelegateHandler{}, nil
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -164,6 +210,117 @@ func (m *contractManager) GetHandler(
 		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
 	}
 	return handler, nil
+}
+
+func (m *contractManager) NewDelegate(
+	ctx context.Context, delegateKey *btcec.PublicKey,
+) (*types.Contract, error) {
+	if delegateKey == nil {
+		return nil, fmt.Errorf("delegate key must not be nil")
+	}
+
+	info, err := m.client.GetInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server info: %w", err)
+	}
+
+	signerKeyBytes, err := hex.DecodeString(info.SignerPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
+	}
+	signerKey, err := btcec.ParsePubKey(signerKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
+	}
+
+	delay := info.UnilateralExitDelay
+	exitDelay := arklib.RelativeLocktime{
+		Type:  arklib.LocktimeTypeSecond,
+		Value: uint32(delay),
+	}
+	if delay < 512 {
+		exitDelay = arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeBlock,
+			Value: uint32(delay),
+		}
+	}
+
+	cfg := DelegateConfig{
+		SignerKey: signerKey,
+		Network:   m.network,
+		ExitDelay: exitDelay,
+	}
+
+	contract, isNew, err := m.newDelegateLocked(ctx, delegateKey, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if isNew {
+		m.emit(*contract)
+	}
+	return contract, nil
+}
+
+func (m *contractManager) newDelegateLocked(
+	ctx context.Context, delegateKey *btcec.PublicKey, cfg DelegateConfig,
+) (*types.Contract, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
+	existing, err := m.findDelegateContractByKey(ctx, delegateKeyHex)
+	if err != nil {
+		return nil, false, err
+	}
+	if existing != nil {
+		return existing, false, nil
+	}
+
+	latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var keyId string
+	if latestContract != nil {
+		dh := &DelegateHandler{}
+		keyRef, err := dh.GetKeyRef(*latestContract)
+		if err != nil {
+			return nil, false, fmt.Errorf(
+				"failed to get key ref for latest delegate contract: %w",
+				err,
+			)
+		}
+		keyId = keyRef.Id
+	}
+
+	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to compute next key index: %w", err)
+	}
+
+	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to derive key for contract: %w", err)
+	}
+
+	dh := &DelegateHandler{}
+	contract, err := dh.DeriveContract(ctx, *keyRef, cfg, delegateKey)
+	if err != nil {
+		return nil, false, err
+	}
+
+	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get key index: %w", err)
+	}
+
+	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+		return nil, false, fmt.Errorf("failed to store delegate contract: %w", err)
+	}
+
+	log.Debugf("%s added new delegate contract %s", logPrefix, contract.Script)
+	return contract, true, nil
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {
@@ -356,6 +513,21 @@ func (m *contractManager) findUsedContracts(
 		used[vtxo.Script] = struct{}{}
 	}
 	return used, nil
+}
+
+func (m *contractManager) findDelegateContractByKey(
+	ctx context.Context, delegateKeyHex string,
+) (*types.Contract, error) {
+	contracts, err := m.store.GetContractsByType(ctx, types.ContractTypeDelegate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query delegate contracts: %w", err)
+	}
+	for i := range contracts {
+		if contracts[i].Params[ParamDelegateKey] == delegateKeyHex {
+			return &contracts[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (m *contractManager) findUsedBoardingContracts(
