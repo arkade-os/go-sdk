@@ -9,7 +9,6 @@ import (
 
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/contract/handlers"
-	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -649,13 +648,13 @@ func TestManagerRegisterHandler(t *testing.T) {
 				name:            "reserved default",
 				typ:             types.ContractTypeDefault,
 				handler:         newFakeHandler(types.ContractTypeDefault),
-				wantErrContains: "already registered",
+				wantErrContains: "reserved by a built-in handler",
 			},
 			{
 				name:            "reserved boarding",
 				typ:             types.ContractTypeBoarding,
 				handler:         newFakeHandler(types.ContractTypeBoarding),
-				wantErrContains: "already registered",
+				wantErrContains: "reserved by a built-in handler",
 			},
 		}
 		for _, f := range fixtures {
@@ -704,35 +703,20 @@ func TestManagerArgsExtraHandlers(t *testing.T) {
 			extras: map[types.ContractType]handlers.Handler{
 				types.ContractTypeDefault: newFakeHandler(types.ContractTypeDefault),
 			},
-			wantErrContains: "already registered",
+			wantErrContains: "reserved by a built-in handler",
 		},
 		{
 			name: "collides with boarding",
 			extras: map[types.ContractType]handlers.Handler{
 				types.ContractTypeBoarding: newFakeHandler(types.ContractTypeBoarding),
 			},
-			wantErrContains: "already registered",
+			wantErrContains: "reserved by a built-in handler",
 		},
 	}
 	for _, f := range fixtures {
 		t.Run(f.name, func(t *testing.T) {
-			env := newMockedEnv(t)
-			svc, err := store.NewStore(store.Config{
-				StoreType: types.SQLStore,
-				Args:      t.TempDir(),
-			})
-			require.NoError(t, err)
-			t.Cleanup(svc.Close)
-
-			_, err = contract.NewManager(contract.Args{
-				Store:         svc.ContractStore(),
-				KeyProvider:   env.identity,
-				Client:        env.transport,
-				Indexer:       env.indexer,
-				Explorer:      env.explorer,
-				Network:       testNetwork,
-				ExtraHandlers: f.extras,
-			})
+			env, cstore := newMockedEnvAndStore(t)
+			_, err := newManagerFromEnv(t, env, cstore, f.extras)
 			require.ErrorContains(t, err, f.wantErrContains)
 		})
 	}

@@ -27,9 +27,11 @@
 //
 //   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
 //     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to every registered handler, so all
-//     handlers (and any future vhtlc/delegate kinds) share a single
-//     GetInfo cache rather than fanning one out per handler.
+//     and hands the wrapped client to every built-in handler, so they
+//     share a single GetInfo cache rather than fanning one out per
+//     handler. Handlers supplied by callers via Args.ExtraHandlers or
+//     Manager.RegisterHandler were constructed outside the manager and
+//     own their own client wiring — see the extension section below.
 //
 //   - keyProvider (unexported, defined in types.go) is the subset of the
 //     identity.Identity surface the manager needs to derive contracts:

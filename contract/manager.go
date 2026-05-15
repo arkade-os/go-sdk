@@ -60,9 +60,23 @@ func NewManager(args Args) (Manager, error) {
 	}, nil
 }
 
+// builtInContractTypes is the set of types NewManager registers itself.
+// Used by validateHandlerRegistration to give a more specific error when a
+// caller tries to override one of them.
+var builtInContractTypes = map[types.ContractType]struct{}{
+	types.ContractTypeDefault:  {},
+	types.ContractTypeBoarding: {},
+}
+
 // validateHandlerRegistration enforces the rules a handler must satisfy to
 // join the registry: non-empty type, non-nil handler, and no collision with
-// a type already registered (which includes the built-ins).
+// a type already registered (built-in or previously registered custom).
+//
+// The nil-handler check catches a literal nil interface only; a non-nil
+// interface holding a nil concrete pointer will pass and nil-deref on the
+// first dispatched call. Construct handlers via their named constructors
+// (e.g. defaultHandler.NewHandler) rather than passing through a typed-nil
+// variable.
 func validateHandlerRegistration(
 	registered map[types.ContractType]handlers.Handler,
 	typ types.ContractType, h handlers.Handler,
@@ -72,6 +86,9 @@ func validateHandlerRegistration(
 	}
 	if h == nil {
 		return fmt.Errorf("nil handler for contract type %s", typ)
+	}
+	if _, isBuiltIn := builtInContractTypes[typ]; isBuiltIn {
+		return fmt.Errorf("contract type %s is reserved by a built-in handler", typ)
 	}
 	if _, ok := registered[typ]; ok {
 		return fmt.Errorf("contract type %s is already registered", typ)

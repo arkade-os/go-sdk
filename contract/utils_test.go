@@ -60,17 +60,43 @@ func newTestManagerWithExtraHandlers(
 ) (*mockedEnv, contract.Manager, types.ContractStore) {
 	t.Helper()
 
-	env := newMockedEnv(t)
+	env, store := newMockedEnvAndStore(t)
+	mgr, err := newManagerFromEnv(t, env, store, extras)
+	require.NoError(t, err)
+	t.Cleanup(mgr.Close)
 
+	return env, mgr, store
+}
+
+// newMockedEnvAndStore builds the mocked env plus a fresh SQLite contract
+// store, registering the store for cleanup. Used by helpers that want to
+// keep wiring before NewManager (e.g. tests that expect NewManager itself
+// to fail and so should not require.NoError on it).
+func newMockedEnvAndStore(t *testing.T) (*mockedEnv, types.ContractStore) {
+	t.Helper()
+
+	env := newMockedEnv(t)
 	svc, err := store.NewStore(store.Config{
 		StoreType: types.SQLStore,
 		Args:      t.TempDir(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(svc.Close)
+	return env, svc.ContractStore()
+}
 
-	mgr, err := contract.NewManager(contract.Args{
-		Store:         svc.ContractStore(),
+// newManagerFromEnv constructs a manager against the given env + store,
+// optionally registering extras. Unlike newTestManagerWithExtraHandlers it
+// returns NewManager's error verbatim so failure-path tests can assert on it.
+func newManagerFromEnv(
+	t *testing.T,
+	env *mockedEnv,
+	cstore types.ContractStore,
+	extras map[types.ContractType]handlers.Handler,
+) (contract.Manager, error) {
+	t.Helper()
+	return contract.NewManager(contract.Args{
+		Store:         cstore,
 		KeyProvider:   env.identity,
 		Client:        env.transport,
 		Indexer:       env.indexer,
@@ -78,10 +104,6 @@ func newTestManagerWithExtraHandlers(
 		Network:       testNetwork,
 		ExtraHandlers: extras,
 	})
-	require.NoError(t, err)
-	t.Cleanup(mgr.Close)
-
-	return env, mgr, svc.ContractStore()
 }
 
 func newTestPubKey(t *testing.T) *btcec.PublicKey {
