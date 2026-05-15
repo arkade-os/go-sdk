@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -508,6 +510,232 @@ func TestManagerClean(t *testing.T) {
 		// Cleaning an already-clean store must be a no-op.
 		require.NoError(t, mgr.Clean(t.Context()))
 	})
+}
+
+func TestManagerRegisterHandler(t *testing.T) {
+	const customType = types.ContractType("custom")
+
+	t.Run("valid", func(t *testing.T) {
+		t.Run("runtime registration is visible end-to-end", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+			require.NoError(
+				t, mgr.RegisterHandler(t.Context(), customType, newFakeHandler(customType)),
+			)
+
+			supported := mgr.GetSupportedContractTypes(t.Context())
+			require.ElementsMatch(t, []types.ContractType{
+				types.ContractTypeDefault, types.ContractTypeBoarding, customType,
+			}, supported)
+
+			c, err := mgr.NewContract(t.Context(), customType)
+			require.NoError(t, err)
+			require.Equal(t, customType, c.Type)
+			require.NotEmpty(t, c.Script)
+
+			h, err := mgr.GetHandler(t.Context(), *c)
+			require.NoError(t, err)
+			require.NotNil(t, h)
+		})
+
+		t.Run("Args.ExtraHandlers wires built-ins and custom together", func(t *testing.T) {
+			_, mgr, _ := newTestManagerWithExtraHandlers(
+				t, map[types.ContractType]handlers.Handler{
+					customType: newFakeHandler(customType),
+				},
+			)
+
+			supported := mgr.GetSupportedContractTypes(t.Context())
+			require.ElementsMatch(t, []types.ContractType{
+				types.ContractTypeDefault, types.ContractTypeBoarding, customType,
+			}, supported)
+
+			// Custom registered at construction.
+			cc, err := mgr.NewContract(t.Context(), customType)
+			require.NoError(t, err)
+			require.Equal(t, customType, cc.Type)
+
+			// Built-in still works alongside.
+			cd, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.Equal(t, types.ContractTypeDefault, cd.Type)
+		})
+
+		t.Run("multiple custom handlers dispatch independently", func(t *testing.T) {
+			// Two distinct custom types registered side by side. Each must
+			// route to its own handler and produce its own script — a bug
+			// where dispatch falls back to a single handler (or where
+			// scripts collide across types) would surface here.
+			const typA = types.ContractType("custom-a")
+			const typB = types.ContractType("custom-b")
+
+			_, mgr, _ := newTestManagerWithExtraHandlers(
+				t, map[types.ContractType]handlers.Handler{
+					typA: newFakeHandler(typA),
+					typB: newFakeHandler(typB),
+				},
+			)
+
+			supported := mgr.GetSupportedContractTypes(t.Context())
+			require.ElementsMatch(t, []types.ContractType{
+				types.ContractTypeDefault, types.ContractTypeBoarding, typA, typB,
+			}, supported)
+
+			ca, err := mgr.NewContract(t.Context(), typA)
+			require.NoError(t, err)
+			require.Equal(t, typA, ca.Type)
+
+			cb, err := mgr.NewContract(t.Context(), typB)
+			require.NoError(t, err)
+			require.Equal(t, typB, cb.Type)
+
+			// fakeScript mixes the type into the digest, so the same key
+			// id under two types must produce different scripts.
+			require.NotEqual(t, ca.Script, cb.Script)
+
+			// GetContracts filtered by each type sees only its own rows.
+			gotA, err := mgr.GetContracts(t.Context(), contract.WithType(typA))
+			require.NoError(t, err)
+			require.Len(t, gotA, 1)
+			require.Equal(t, ca.Script, gotA[0].Script)
+
+			gotB, err := mgr.GetContracts(t.Context(), contract.WithType(typB))
+			require.NoError(t, err)
+			require.Len(t, gotB, 1)
+			require.Equal(t, cb.Script, gotB[0].Script)
+		})
+
+		t.Run("ScanContracts iterates the registered handler", func(t *testing.T) {
+			// Custom-type contracts use the same indexer-backed findUsed path
+			// as offchain default contracts. Staging a script in the indexer
+			// at m/0/2 must persist m/0/0..m/0/2 just like the default case.
+			env, mgr, _ := newTestManagerWithEnv(t)
+			require.NoError(
+				t, mgr.RegisterHandler(t.Context(), customType, newFakeHandler(customType)),
+			)
+			env.indexer.usedScripts = map[string]struct{}{
+				fakeScript(customType, "m/0/2"): {},
+			}
+
+			require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+			got, err := mgr.GetContracts(t.Context(), contract.WithType(customType))
+			require.NoError(t, err)
+			require.ElementsMatch(
+				t, []string{"m/0/0", "m/0/1", "m/0/2"}, ownerKeyIds(got),
+			)
+		})
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		fixtures := []struct {
+			name            string
+			typ             types.ContractType
+			handler         handlers.Handler
+			wantErrContains string
+		}{
+			{
+				name:            "empty type",
+				typ:             "",
+				handler:         newFakeHandler(customType),
+				wantErrContains: "missing contract type",
+			},
+			{
+				name:            "nil handler",
+				typ:             customType,
+				handler:         nil,
+				wantErrContains: "nil handler",
+			},
+			{
+				name:            "reserved default",
+				typ:             types.ContractTypeDefault,
+				handler:         newFakeHandler(types.ContractTypeDefault),
+				wantErrContains: "already registered",
+			},
+			{
+				name:            "reserved boarding",
+				typ:             types.ContractTypeBoarding,
+				handler:         newFakeHandler(types.ContractTypeBoarding),
+				wantErrContains: "already registered",
+			},
+		}
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				mgr, _ := newTestManager(t)
+				err := mgr.RegisterHandler(t.Context(), f.typ, f.handler)
+				require.ErrorContains(t, err, f.wantErrContains)
+			})
+		}
+
+		t.Run("duplicate runtime registration", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+			require.NoError(
+				t, mgr.RegisterHandler(t.Context(), customType, newFakeHandler(customType)),
+			)
+			err := mgr.RegisterHandler(t.Context(), customType, newFakeHandler(customType))
+			require.ErrorContains(t, err, "already registered")
+		})
+	})
+}
+
+func TestManagerArgsExtraHandlers(t *testing.T) {
+	const customType = types.ContractType("custom")
+
+	fixtures := []struct {
+		name            string
+		extras          map[types.ContractType]handlers.Handler
+		wantErrContains string
+	}{
+		{
+			name: "empty type",
+			extras: map[types.ContractType]handlers.Handler{
+				"": newFakeHandler(customType),
+			},
+			wantErrContains: "missing contract type",
+		},
+		{
+			name: "nil handler",
+			extras: map[types.ContractType]handlers.Handler{
+				customType: nil,
+			},
+			wantErrContains: "nil handler",
+		},
+		{
+			name: "collides with default",
+			extras: map[types.ContractType]handlers.Handler{
+				types.ContractTypeDefault: newFakeHandler(types.ContractTypeDefault),
+			},
+			wantErrContains: "already registered",
+		},
+		{
+			name: "collides with boarding",
+			extras: map[types.ContractType]handlers.Handler{
+				types.ContractTypeBoarding: newFakeHandler(types.ContractTypeBoarding),
+			},
+			wantErrContains: "already registered",
+		},
+	}
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			env := newMockedEnv(t)
+			svc, err := store.NewStore(store.Config{
+				StoreType: types.SQLStore,
+				Args:      t.TempDir(),
+			})
+			require.NoError(t, err)
+			t.Cleanup(svc.Close)
+
+			_, err = contract.NewManager(contract.Args{
+				Store:         svc.ContractStore(),
+				KeyProvider:   env.identity,
+				Client:        env.transport,
+				Indexer:       env.indexer,
+				Explorer:      env.explorer,
+				Network:       testNetwork,
+				ExtraHandlers: f.extras,
+			})
+			require.ErrorContains(t, err, f.wantErrContains)
+		})
+	}
 }
 
 func newOffchainContract(t *testing.T, mgr contract.Manager) types.Contract {

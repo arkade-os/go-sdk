@@ -24,9 +24,8 @@ type contractManager struct {
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
-	// TODO: this must become a registry so that users can register their custom handlers at will.
-	handlers map[types.ContractType]handlers.Handler
-	mu       sync.RWMutex
+	handlers    map[types.ContractType]handlers.Handler
+	mu          sync.RWMutex
 }
 
 func NewManager(args Args) (Manager, error) {
@@ -34,25 +33,50 @@ func NewManager(args Args) (Manager, error) {
 		return nil, err
 	}
 	// Wrap the transport client once with a shared GetInfo cache so all
-	// handlers (default, boarding, and any future vhtlc/delegate kinds)
-	// reuse the same cached server info instead of fanning out a
-	// per-handler cache.
+	// built-in handlers (default, boarding) reuse the same cached server
+	// info instead of fanning out a per-handler cache. Caller-supplied
+	// handlers in ExtraHandlers are responsible for their own caching:
+	// they were constructed outside the manager and we cannot assume they
+	// take a client.Client at all.
 	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
-	// TODO: 1. support also delegate and vhtlc handlers
-	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
-	handlers := map[types.ContractType]handlers.Handler{
+	hs := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+	}
+	for typ, h := range args.ExtraHandlers {
+		if err := validateHandlerRegistration(hs, typ, h); err != nil {
+			return nil, fmt.Errorf("invalid extra handler: %w", err)
+		}
+		hs[typ] = h
 	}
 	return &contractManager{
 		store:       args.Store,
 		keyProvider: args.KeyProvider,
 		indexer:     args.Indexer,
 		explorer:    args.Explorer,
-		handlers:    handlers,
+		handlers:    hs,
 		network:     args.Network,
 		mu:          sync.RWMutex{},
 	}, nil
+}
+
+// validateHandlerRegistration enforces the rules a handler must satisfy to
+// join the registry: non-empty type, non-nil handler, and no collision with
+// a type already registered (which includes the built-ins).
+func validateHandlerRegistration(
+	registered map[types.ContractType]handlers.Handler,
+	typ types.ContractType, h handlers.Handler,
+) error {
+	if len(typ) == 0 {
+		return fmt.Errorf("missing contract type")
+	}
+	if h == nil {
+		return fmt.Errorf("nil handler for contract type %s", typ)
+	}
+	if _, ok := registered[typ]; ok {
+		return fmt.Errorf("contract type %s is already registered", typ)
+	}
+	return nil
 }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
@@ -164,6 +188,21 @@ func (m *contractManager) GetHandler(
 		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
 	}
 	return handler, nil
+}
+
+func (m *contractManager) RegisterHandler(
+	_ context.Context, contractType types.ContractType, handler handlers.Handler,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := validateHandlerRegistration(m.handlers, contractType, handler); err != nil {
+		return err
+	}
+	m.handlers[contractType] = handler
+
+	log.Debugf("%s registered handler for contract type %s", logPrefix, contractType)
+	return nil
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {

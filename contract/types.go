@@ -34,6 +34,13 @@ type Manager interface {
 	// GetTapscripts, GetExitDelay, …) directly. Errors when the contract type
 	// is not supported.
 	GetHandler(ctx context.Context, contract types.Contract) (handlers.Handler, error)
+	// RegisterHandler registers a handler for a new contract type at runtime.
+	// The type must be non-empty, the handler non-nil, and the type must not
+	// already be registered (built-in types are always registered).
+	// Handlers can also be passed at construction time via Args.ExtraHandlers.
+	RegisterHandler(
+		ctx context.Context, contractType types.ContractType, handler handlers.Handler,
+	) error
 	// Clean removes all contracts from the store. Must be used only at wallet reset.
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.
@@ -48,6 +55,11 @@ type Args struct {
 	Indexer     offchainDataProvider
 	Explorer    onchainDataProvider
 	Network     arklib.Network
+	// ExtraHandlers optionally registers custom contract-type handlers
+	// alongside the built-ins at construction time. The keys must be
+	// non-empty and must not collide with a built-in type. Handlers can
+	// also be added after construction via Manager.RegisterHandler.
+	ExtraHandlers map[types.ContractType]handlers.Handler
 }
 
 // validate ensures the contract manager arguments are valid.

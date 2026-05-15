@@ -13,6 +13,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
@@ -48,6 +49,16 @@ func newTestManagerWithEnv(
 	t *testing.T,
 ) (*mockedEnv, contract.Manager, types.ContractStore) {
 	t.Helper()
+	return newTestManagerWithExtraHandlers(t, nil)
+}
+
+// newTestManagerWithExtraHandlers wires a manager with the given extra
+// handlers registered at construction time, alongside the env it sits on
+// top of. Pass nil for extras to get the same wiring as newTestManagerWithEnv.
+func newTestManagerWithExtraHandlers(
+	t *testing.T, extras map[types.ContractType]handlers.Handler,
+) (*mockedEnv, contract.Manager, types.ContractStore) {
+	t.Helper()
 
 	env := newMockedEnv(t)
 
@@ -59,12 +70,13 @@ func newTestManagerWithEnv(
 	t.Cleanup(svc.Close)
 
 	mgr, err := contract.NewManager(contract.Args{
-		Store:       svc.ContractStore(),
-		KeyProvider: env.identity,
-		Client:      env.transport,
-		Indexer:     env.indexer,
-		Explorer:    env.explorer,
-		Network:     testNetwork,
+		Store:         svc.ContractStore(),
+		KeyProvider:   env.identity,
+		Client:        env.transport,
+		Indexer:       env.indexer,
+		Explorer:      env.explorer,
+		Network:       testNetwork,
+		ExtraHandlers: extras,
 	})
 	require.NoError(t, err)
 	t.Cleanup(mgr.Close)
