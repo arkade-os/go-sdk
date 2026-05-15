@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/store/sql/sqlc/queries"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -33,8 +33,8 @@ func NewVtxoStore(db *sql.DB) types.VtxoStore {
 	}
 }
 
-func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []clientTypes.Vtxo) (int, error) {
-	addedVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
+func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []clienttypes.Vtxo) (int, error) {
+	addedVtxos := make([]clienttypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for i := range vtxos {
 			vtxo := vtxos[i]
@@ -106,18 +106,18 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []clientTypes.Vtxo)
 }
 
 func (v *vtxoRepository) SpendVtxos(
-	ctx context.Context, spentVtxosMap map[clientTypes.Outpoint]string, arkTxid string,
+	ctx context.Context, spentVtxosMap map[clienttypes.Outpoint]string, arkTxid string,
 ) (int, error) {
-	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxosMap))
+	outpoints := make([]clienttypes.Outpoint, 0, len(spentVtxosMap))
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoints(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
 
-	spentVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
+	spentVtxos := make([]clienttypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if vtxo.Spent {
@@ -156,18 +156,18 @@ func (v *vtxoRepository) SpendVtxos(
 
 func (v *vtxoRepository) SweepVtxos(
 	ctx context.Context,
-	vtxosToSweep []clientTypes.Vtxo,
+	vtxosToSweep []clienttypes.Vtxo,
 ) (int, error) {
-	outpoints := make([]clientTypes.Outpoint, 0, len(vtxosToSweep))
+	outpoints := make([]clienttypes.Outpoint, 0, len(vtxosToSweep))
 	for _, vtxo := range vtxosToSweep {
 		outpoints = append(outpoints, vtxo.Outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoints(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
 
-	sweptVtxos := make([]clientTypes.Vtxo, 0)
+	sweptVtxos := make([]clienttypes.Vtxo, 0)
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, v := range vtxos {
 			if v.Swept {
@@ -203,18 +203,18 @@ func (v *vtxoRepository) SweepVtxos(
 
 func (v *vtxoRepository) UnrollVtxos(
 	ctx context.Context,
-	vtxosToUnroll []clientTypes.Vtxo,
+	vtxosToUnroll []clienttypes.Vtxo,
 ) (int, error) {
-	outpoints := make([]clientTypes.Outpoint, 0, len(vtxosToUnroll))
+	outpoints := make([]clienttypes.Outpoint, 0, len(vtxosToUnroll))
 	for _, vtxo := range vtxosToUnroll {
 		outpoints = append(outpoints, vtxo.Outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoints(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
 
-	unrolledVtxos := make([]clientTypes.Vtxo, 0)
+	unrolledVtxos := make([]clienttypes.Vtxo, 0)
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, v := range vtxos {
 			if v.Unrolled {
@@ -249,18 +249,18 @@ func (v *vtxoRepository) UnrollVtxos(
 }
 
 func (v *vtxoRepository) SettleVtxos(
-	ctx context.Context, spentVtxosMap map[clientTypes.Outpoint]string, settledBy string,
+	ctx context.Context, spentVtxosMap map[clienttypes.Outpoint]string, settledBy string,
 ) (int, error) {
-	outpoints := make([]clientTypes.Outpoint, 0, len(spentVtxosMap))
+	outpoints := make([]clienttypes.Outpoint, 0, len(spentVtxosMap))
 	for outpoint := range spentVtxosMap {
 		outpoints = append(outpoints, outpoint)
 	}
-	vtxos, err := v.GetVtxos(ctx, outpoints)
+	vtxos, err := v.GetVtxosByOutpoints(ctx, outpoints)
 	if err != nil {
 		return -1, err
 	}
 
-	settledVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
+	settledVtxos := make([]clienttypes.Vtxo, 0, len(vtxos))
 	txBody := func(querierWithTx *queries.Queries) error {
 		for _, vtxo := range vtxos {
 			if vtxo.Spent {
@@ -297,33 +297,10 @@ func (v *vtxoRepository) SettleVtxos(
 	return len(settledVtxos), nil
 }
 
-func (v *vtxoRepository) GetAllVtxos(
-	ctx context.Context,
-) (spendable, spent []clientTypes.Vtxo, err error) {
-	rows, err := v.querier.SelectAllVtxos(ctx)
-	if err != nil {
-		return
-	}
-	byOutpoint := make(map[string][]queries.AssetVtxoVw)
-	for _, row := range rows {
-		key := fmt.Sprintf("%s:%d", row.Txid, row.Vout)
-		byOutpoint[key] = append(byOutpoint[key], row)
-	}
-	for _, group := range byOutpoint {
-		vtxo := assetVtxoVwGroupToVtxo(group)
-		if vtxo.Spent || vtxo.Unrolled {
-			spent = append(spent, vtxo)
-		} else {
-			spendable = append(spendable, vtxo)
-		}
-	}
-	return
-}
-
-func (v *vtxoRepository) GetVtxos(
-	ctx context.Context, keys []clientTypes.Outpoint,
-) ([]clientTypes.Vtxo, error) {
-	vtxos := make([]clientTypes.Vtxo, 0, len(keys))
+func (v *vtxoRepository) GetVtxosByOutpoints(
+	ctx context.Context, keys []clienttypes.Outpoint,
+) ([]clienttypes.Vtxo, error) {
+	vtxos := make([]clienttypes.Vtxo, 0, len(keys))
 	for _, key := range keys {
 		rows, err := v.querier.SelectVtxo(ctx, queries.SelectVtxoParams{
 			Txid: key.Txid,
@@ -343,15 +320,75 @@ func (v *vtxoRepository) GetVtxos(
 	return vtxos, nil
 }
 
-func (v *vtxoRepository) GetSpendableVtxos(
+func (v *vtxoRepository) GetSpendableOrRecoverableVtxos(
 	ctx context.Context,
-) (spendable []clientTypes.Vtxo, err error) {
-	rows, err := v.querier.SelectSpendableVtxos(ctx)
+) (spendableOrRecoverable []clienttypes.Vtxo, err error) {
+	rows, err := v.querier.SelectSpendableOrRecoverableVtxos(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return assetVtxoVwRowsToVtxos(rows), nil
+}
+
+func (v *vtxoRepository) GetVtxos(
+	ctx context.Context, q types.GetVtxoFilter,
+) ([]clienttypes.Vtxo, *types.Cursor, error) {
+	// We ask SQL for q.Limit+1 rows. If the database returns more than q.Limit rows,
+	// we know there's at least one more page, and the extra row's outpoint becomes the cursor
+	// for the next page. If it returns ≤ q.Limit, we've hit the end and Next stays nil.
+	params := queries.GetVtxosParams{
+		LimitPlusOne: int64(q.Limit) + 1,
+	}
+
+	// Translate the typed status filter into the string the SQL query expects.
+	// VtxoStatusAll leaves StatusFilter.Valid = false, which the WHERE clause
+	// interprets as "no status filter."
+	switch q.Status {
+	case types.VtxoStatusSpendable:
+		params.StatusFilter = sql.NullString{String: "spendable", Valid: true}
+	case types.VtxoStatusSpent:
+		params.StatusFilter = sql.NullString{String: "spent", Valid: true}
+	case types.VtxoStatusAll:
+		// No status filter at the SQL layer.
+	}
+
+	if q.AssetID != "" {
+		params.AssetID = sql.NullString{String: q.AssetID, Valid: true}
+	}
+
+	// Cursor position: SQL resumes from rows strictly less than
+	// (cursor_created_at, cursor_txid, cursor_vout) in the descending sort
+	// order. Nil After = first page; the cursor params stay invalid and the
+	// query's cursor predicate is a no-op.
+	if q.After != nil {
+		params.CursorCreatedAt = sql.NullInt64{Int64: q.After.CreatedAt, Valid: true}
+		params.CursorTxid = sql.NullString{String: q.After.Txid, Valid: true}
+		params.CursorVout = sql.NullInt64{Int64: int64(q.After.VOut), Valid: true}
+	}
+
+	rows, err := v.querier.GetVtxos(ctx, params)
+	if err != nil {
+		return nil, nil, err
+	}
+	vtxos := assetVtxoVwRowsToVtxos(rows)
+
+	// If we got back more than the caller asked for, the extra row is the
+	// "has more" sentinel: drop it and use its outpoint to build the cursor
+	// for the cursor page. Otherwise we hit the end of the dataset and Next
+	// stays nil, signaling no further pages.
+	var cursor *types.Cursor
+	if len(vtxos) > q.Limit {
+		vtxos = vtxos[:q.Limit]
+		last := vtxos[len(vtxos)-1]
+		cursor = &types.Cursor{
+			CreatedAt: last.CreatedAt.Unix(),
+			Txid:      last.Txid,
+			VOut:      last.VOut,
+		}
+	}
+
+	return vtxos, cursor, nil
 }
 
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {
@@ -388,27 +425,31 @@ func (v *vtxoRepository) sendEvent(event types.VtxoEvent) {
 	log.Warn("failed to send vtxo event")
 }
 
-func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []clientTypes.Vtxo {
-	// group rows by (txid, vout)
+// assetVtxoVwRowsToVtxos folds the N×M (vtxo × asset) row stream produced by
+// asset_vtxo_vw into one Vtxo per outpoint. Preserves first-seen order of
+// outpoints, so SQL ORDER BY clauses are observable in the output.
+func assetVtxoVwRowsToVtxos(rows []queries.AssetVtxoVw) []clienttypes.Vtxo {
 	byOutpoint := make(map[string][]queries.AssetVtxoVw)
+	order := make([]string, 0)
 	for _, row := range rows {
 		key := fmt.Sprintf("%s:%d", row.Txid, row.Vout)
+		if _, ok := byOutpoint[key]; !ok {
+			order = append(order, key)
+		}
 		byOutpoint[key] = append(byOutpoint[key], row)
 	}
 
-	vtxos := make([]clientTypes.Vtxo, 0, len(byOutpoint))
-	for _, group := range byOutpoint {
-		vtxo := assetVtxoVwGroupToVtxo(group)
-		vtxos = append(vtxos, vtxo)
+	vtxos := make([]clienttypes.Vtxo, 0, len(order))
+	for _, key := range order {
+		vtxos = append(vtxos, assetVtxoVwGroupToVtxo(byOutpoint[key]))
 	}
-
 	return vtxos
 }
 
-// assetVtxoVwGroupToVtxo converts a group of AssetVtxoVw rows (same vtxo, one row per asset from the view) into one types.Vtxo.
-func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) clientTypes.Vtxo {
+// assetVtxoVwGroupToVtxo converts a group of AssetVtxoVw rows (same vtxo, one row per asset from the view) into one clienttypes.Vtxo.
+func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) clienttypes.Vtxo {
 	if len(group) == 0 {
-		return clientTypes.Vtxo{}
+		return clienttypes.Vtxo{}
 	}
 	row := group[0]
 	vtxoRow := queries.Vtxo{
@@ -442,7 +483,7 @@ func assetVtxoVwGroupToVtxo(group []queries.AssetVtxoVw) clientTypes.Vtxo {
 	return rowToVtxo(vtxoRow, assets)
 }
 
-func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) clientTypes.Vtxo {
+func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) clienttypes.Vtxo {
 	var expiresAt, createdAt time.Time
 	if row.ExpiresAt != 0 {
 		expiresAt = time.Unix(row.ExpiresAt, 0)
@@ -451,18 +492,18 @@ func rowToVtxo(row queries.Vtxo, assetVtxos []queries.AssetVtxo) clientTypes.Vtx
 		createdAt = time.Unix(row.CreatedAt, 0)
 	}
 
-	var assets []clientTypes.Asset
+	var assets []clienttypes.Asset
 	if len(assetVtxos) > 0 {
-		assets = make([]clientTypes.Asset, 0, len(assetVtxos))
+		assets = make([]clienttypes.Asset, 0, len(assetVtxos))
 		for _, av := range assetVtxos {
-			assets = append(assets, clientTypes.Asset{
+			assets = append(assets, clienttypes.Asset{
 				AssetId: av.AssetID,
 				Amount:  uint64(av.Amount),
 			})
 		}
 	}
-	return clientTypes.Vtxo{
-		Outpoint: clientTypes.Outpoint{
+	return clienttypes.Vtxo{
+		Outpoint: clienttypes.Outpoint{
 			Txid: row.Txid,
 			VOut: uint32(row.Vout),
 		},

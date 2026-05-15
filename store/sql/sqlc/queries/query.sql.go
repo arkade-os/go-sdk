@@ -80,6 +80,109 @@ func (q *Queries) DeleteUtxo(ctx context.Context, arg DeleteUtxoParams) error {
 	return err
 }
 
+const getVtxos = `-- name: GetVtxos :many
+WITH page_keys AS (
+    SELECT txid, vout, created_at FROM vtxo
+    WHERE
+        (CAST(?1 AS TEXT) IS NULL
+            OR (CAST(?1 AS TEXT) = 'spendable' AND spent = false AND unrolled = false)
+            OR (CAST(?1 AS TEXT) = 'spent'     AND (spent = true OR unrolled = true)))
+        AND (CAST(?2 AS TEXT) IS NULL OR EXISTS (
+            SELECT 1 FROM asset_vtxo av
+            WHERE av.vtxo_txid = vtxo.txid AND av.vtxo_vout = vtxo.vout
+                  AND av.asset_id = CAST(?2 AS TEXT)
+        ))
+        AND (CAST(?3 AS INTEGER) IS NULL
+            OR (vtxo.created_at, vtxo.txid, vtxo.vout) < (
+                CAST(?3 AS INTEGER),
+                CAST(?4 AS TEXT),
+                CAST(?5 AS INTEGER)
+            ))
+    ORDER BY created_at DESC, txid DESC, vout DESC
+    LIMIT ?6
+)
+SELECT v.txid, v.vout, v.script, v.amount, v.commitment_txids, v.spent_by, v.spent, v.expires_at, v.created_at, v.preconfirmed, v.swept, v.settled_by, v.unrolled, v.ark_txid, v.asset_id, v.asset_amount
+FROM asset_vtxo_vw v
+INNER JOIN page_keys pk ON v.txid = pk.txid AND v.vout = pk.vout
+ORDER BY pk.created_at DESC, pk.txid DESC, pk.vout DESC
+`
+
+type GetVtxosParams struct {
+	StatusFilter    sql.NullString
+	AssetID         sql.NullString
+	CursorCreatedAt sql.NullInt64
+	CursorTxid      sql.NullString
+	CursorVout      sql.NullInt64
+	LimitPlusOne    int64
+}
+
+// Cursor-based keyset pagination over VTXOs. Two stages.
+// Stage 1, page_keys CTE, scans the base vtxo table (one row per VTXO so
+// LIMIT counts VTXOs not asset rows), applies status and asset filters,
+// applies the cursor predicate, sorts by (created_at DESC, txid DESC, vout
+// DESC) using the matching composite index for an O(log n + limit) scan,
+// and LIMITs at the SQL layer. Stage 2 INNER JOINs the paged keys against
+// asset_vtxo_vw to hydrate assets in one round-trip; applying LIMIT to the
+// view directly would cut multi-asset VTXOs mid-way.
+// The caller passes (user_limit + 1) as limit_plus_one. The extra row is
+// a has-more sentinel; if SQL returns more than user_limit rows the caller
+// trims the last one and uses its outpoint as the next cursor.
+// status_filter accepts NULL (no filter), spendable (spent=false AND
+// unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
+// EXISTS rather than JOIN so the row count stays at VTXO count. The cursor
+// predicate uses SQL row-value comparison which is the canonical
+// composite-key keyset idiom. CAST wrappers around sqlc.narg are required
+// so sqlc emits typed nullable Go args instead of interface{}.
+// WARNING: do not put inline -- comments inside the query body below;
+// sqlc's query splitter breaks downstream queries when the GetVtxos body
+// contains inline comments. Keep all docs here in the header.
+func (q *Queries) GetVtxos(ctx context.Context, arg GetVtxosParams) ([]AssetVtxoVw, error) {
+	rows, err := q.db.QueryContext(ctx, getVtxos,
+		arg.StatusFilter,
+		arg.AssetID,
+		arg.CursorCreatedAt,
+		arg.CursorTxid,
+		arg.CursorVout,
+		arg.LimitPlusOne,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AssetVtxoVw
+	for rows.Next() {
+		var i AssetVtxoVw
+		if err := rows.Scan(
+			&i.Txid,
+			&i.Vout,
+			&i.Script,
+			&i.Amount,
+			&i.CommitmentTxids,
+			&i.SpentBy,
+			&i.Spent,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.Preconfirmed,
+			&i.Swept,
+			&i.SettledBy,
+			&i.Unrolled,
+			&i.ArkTxid,
+			&i.AssetID,
+			&i.AssetAmount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertAssetVtxo = `-- name: InsertAssetVtxo :exec
 INSERT INTO asset_vtxo (vtxo_txid, vtxo_vout, asset_id, amount) VALUES (?, ?, ?, ?)
 `
@@ -401,50 +504,6 @@ func (q *Queries) SelectAllUtxos(ctx context.Context) ([]Utxo, error) {
 	return items, nil
 }
 
-const selectAllVtxos = `-- name: SelectAllVtxos :many
-SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount FROM asset_vtxo_vw
-`
-
-func (q *Queries) SelectAllVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
-	rows, err := q.db.QueryContext(ctx, selectAllVtxos)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AssetVtxoVw
-	for rows.Next() {
-		var i AssetVtxoVw
-		if err := rows.Scan(
-			&i.Txid,
-			&i.Vout,
-			&i.Script,
-			&i.Amount,
-			&i.CommitmentTxids,
-			&i.SpentBy,
-			&i.Spent,
-			&i.ExpiresAt,
-			&i.CreatedAt,
-			&i.Preconfirmed,
-			&i.Swept,
-			&i.SettledBy,
-			&i.Unrolled,
-			&i.ArkTxid,
-			&i.AssetID,
-			&i.AssetAmount,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const selectAsset = `-- name: SelectAsset :one
 SELECT asset_id, control_asset_id, metadata FROM asset WHERE asset_id = ?1
 `
@@ -602,13 +661,13 @@ func (q *Queries) SelectLatestContractByType(ctx context.Context, contractType s
 	return i, err
 }
 
-const selectSpendableVtxos = `-- name: SelectSpendableVtxos :many
+const selectSpendableOrRecoverableVtxos = `-- name: SelectSpendableOrRecoverableVtxos :many
 SELECT txid, vout, script, amount, commitment_txids, spent_by, spent, expires_at, created_at, preconfirmed, swept, settled_by, unrolled, ark_txid, asset_id, asset_amount FROM asset_vtxo_vw
 WHERE spent = false AND unrolled = false
 `
 
-func (q *Queries) SelectSpendableVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
-	rows, err := q.db.QueryContext(ctx, selectSpendableVtxos)
+func (q *Queries) SelectSpendableOrRecoverableVtxos(ctx context.Context) ([]AssetVtxoVw, error) {
+	rows, err := q.db.QueryContext(ctx, selectSpendableOrRecoverableVtxos)
 	if err != nil {
 		return nil, err
 	}

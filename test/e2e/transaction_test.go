@@ -12,6 +12,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/contract"
 	types "github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -50,7 +51,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 1000, int(bobVtxo1.Amount))
 		require.Equal(t, txid, bobVtxo1.Txid)
 
-		bobVtxos, _, err := bob.ListVtxos(ctx)
+		bobVtxos, _, err := bob.ListVtxos(ctx, arksdk.WithSpendableOnly())
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 1)
 
@@ -69,7 +70,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 10000, int(bobVtxo2.Amount))
 		require.Equal(t, txid, bobVtxo2.Txid)
 
-		bobVtxos, _, err = bob.ListVtxos(ctx)
+		bobVtxos, _, err = bob.ListVtxos(ctx, arksdk.WithSpendableOnly())
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 2)
 
@@ -88,7 +89,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 10000, int(bobVtxo3.Amount))
 		require.Equal(t, txid, bobVtxo3.Txid)
 
-		bobVtxos, _, err = bob.ListVtxos(ctx)
+		bobVtxos, _, err = bob.ListVtxos(ctx, arksdk.WithSpendableOnly())
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 3)
 
@@ -107,7 +108,7 @@ func TestOffchainTx(t *testing.T) {
 		require.Equal(t, 10000, int(bobVtxo4.Amount))
 		require.Equal(t, txid, bobVtxo4.Txid)
 
-		bobVtxos, _, err = bob.ListVtxos(ctx)
+		bobVtxos, _, err = bob.ListVtxos(ctx, arksdk.WithSpendableOnly())
 		require.NoError(t, err)
 		require.Len(t, bobVtxos, 4)
 
