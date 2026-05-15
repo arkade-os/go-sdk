@@ -717,10 +717,9 @@ func TestWatcher_InvalidExitDelaySkipped(t *testing.T) {
 
 	require.NoError(t, w.Start(ctx))
 
-	// Give the watcher a moment to (not) subscribe.
-	time.Sleep(100 * time.Millisecond)
-
-	require.Empty(t, exp.getSubscribed())
+	require.Never(t, func() bool {
+		return len(exp.getSubscribed()) > 0
+	}, 300*time.Millisecond, 10*time.Millisecond)
 	_, ok := w.LookupAddress(scriptHexFor(t, expectedOnchain))
 	require.False(t, ok)
 }

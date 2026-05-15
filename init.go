@@ -142,8 +142,15 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
+		mgr := w.contractMgr()
+		if mgr == nil {
+			w.syncCh <- nil
+			close(w.syncCh)
+			return
+		}
+
 		// Look for missing contracts to track: the wallet restores at every unlock.
-		if err := w.contractManager.ScanContracts(ctx, w.hdGapLimit); err != nil {
+		if err := mgr.ScanContracts(ctx, w.hdGapLimit); err != nil {
 			w.syncCh <- err
 			close(w.syncCh)
 			return
