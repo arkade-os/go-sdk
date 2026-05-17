@@ -54,6 +54,36 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 	require.Contains(t, onchainAddrs, hdOnchain2)
 }
 
+func TestHDWalletIdentityListKeysReflectsContractKeys(t *testing.T) {
+	ctx := t.Context()
+
+	hdWallet := setupClient(t, "")
+
+	// Fresh wallet: no contracts, no allocated keys.
+	keys, err := hdWallet.Identity().ListKeys(ctx)
+	require.NoError(t, err)
+	require.Empty(t, keys)
+
+	// Allocate 3 offchain addresses and 2 boarding addresses.
+	for range 3 {
+		_, err := hdWallet.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+	}
+	for range 2 {
+		_, err := hdWallet.NewBoardingAddress(ctx)
+		require.NoError(t, err)
+	}
+
+	keys, err = hdWallet.Identity().ListKeys(ctx) 
+	require.NoError(t, err)
+	require.Len(t, keys, 3, "expected 3 distinct keys backing 5 contracts (indices 0,1,2)")
+
+	// Keys must come back sorted by derivation path id ascending.
+	for i := 0; i < len(keys)-1; i++ {
+		require.Less(t, keys[i].Id, keys[i+1].Id, "keys must be sorted by id")
+	}
+}
+
 func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 	ctx := t.Context()
 
