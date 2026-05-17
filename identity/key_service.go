@@ -77,6 +77,17 @@ func (s *keyService) GetNextKeyIndex() uint32 {
 	return s.nextKeyIndex
 }
 
+// ClaimIndex marks index as allocated, advancing nextKeyIndex past it
+func (s *keyService) ClaimIndex(index uint32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.derivedKeyCache[index] = struct{}{}
+	if index >= s.nextKeyIndex {
+		s.nextKeyIndex = index + 1
+	}
+}
+
 // GetAllKeyRefs returns references for all keys derived with GetNextKey.
 func (s *keyService) GetAllKeyRefs() []identity.KeyRef {
 	s.mu.RLock()

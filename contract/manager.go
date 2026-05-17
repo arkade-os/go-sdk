@@ -117,6 +117,10 @@ func (m *contractManager) NewContract(
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
+	if err := m.keyProvider.ClaimKey(ctx, keyRef.Id); err != nil {
+		return nil, fmt.Errorf("failed to claim key on identity: %w", err)
+	}
+
 	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
 
 	return contract, nil
@@ -294,6 +298,15 @@ scan:
 		contract := contractByIndex[i]
 		if err := m.store.AddContract(ctx, contract, i); err != nil {
 			return fmt.Errorf("failed to store %s contract: %w", contractType, err)
+		}
+
+		keyRef, err := handler.GetKeyRef(contract)
+		if err != nil {
+			return fmt.Errorf("failed to get key ref for %s contract: %w", contractType, err)
+		}
+
+		if err := m.keyProvider.ClaimKey(ctx, keyRef.Id); err != nil {
+			return fmt.Errorf("failed to claim key for %s contract: %w", contractType, err)
 		}
 
 		log.Debugf("%s added new %s contract %s", logPrefix, contractType, contract.Script)

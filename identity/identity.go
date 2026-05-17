@@ -312,6 +312,27 @@ func (s *service) GetKey(_ context.Context, keyId string) (*identity.KeyRef, err
 	return &identity.KeyRef{Id: keyId, PubKey: privKey.PubKey()}, nil
 }
 
+func (s *service) ClaimKey(ctx context.Context, keyId string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.safeCheck(); err != nil {
+		return err
+	}
+	if len(keyId) <= 0 {
+		return fmt.Errorf("key id is required")
+	}
+
+	path, err := parseDerivationIndex(keyId)
+	if err != nil {
+		return fmt.Errorf("failed to parse key id %q: %w", keyId, err)
+	}
+	index := path[len(path)-1]
+
+	s.keyProvider.ClaimIndex(index)
+	return s.persistState(ctx)
+}
+
 func (s *service) ListKeys(_ context.Context) ([]identity.KeyRef, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
