@@ -110,3 +110,5 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
+
+replace github.com/arkade-os/arkd/pkg/client-lib => github.com/Dunsin-cyber/arkd/pkg/client-lib v0.0.0-20260517192855-a980212cdf0f

@@ -81,6 +81,7 @@ type keyProvider interface {
 	GetKeyIndex(ctx context.Context, id string) (uint32, error)
 	NextKeyId(ctx context.Context, id string) (string, error)
 	GetKey(ctx context.Context, id string) (*identity.KeyRef, error)
+	ClaimKey(ctx context.Context, id string) error
 }
 
 type onchainDataProvider interface {
