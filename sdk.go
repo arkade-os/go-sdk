@@ -84,7 +84,12 @@ type Wallet interface {
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
+
+	// ListVtxos returns one page of wallet VTXOs plus an opaque cursor for the
+	// next page. The cursor is empty when there are no more results; callers
+	// should pass a non-empty cursor back with WithCursor without parsing it.
 	ListVtxos(ctx context.Context, opts ...ListVtxosOption) ([]clienttypes.Vtxo, string, error)
+
 	Dump(ctx context.Context) (seed string, err error)
 	GetTransactionHistory(ctx context.Context) ([]clienttypes.Transaction, error)
 	GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent

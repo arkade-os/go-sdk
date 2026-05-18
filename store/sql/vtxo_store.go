@@ -334,9 +334,13 @@ func (v *vtxoRepository) GetSpendableOrRecoverableVtxos(
 func (v *vtxoRepository) GetVtxos(
 	ctx context.Context, q types.GetVtxoFilter,
 ) ([]clienttypes.Vtxo, *types.Cursor, error) {
-	// We ask SQL for q.Limit+1 rows. If the database returns more than q.Limit rows,
-	// we know there's at least one more page, and the extra row's outpoint becomes the cursor
-	// for the next page. If it returns ≤ q.Limit, we've hit the end and Next stays nil.
+	if q.Limit <= 0 {
+		return nil, nil, fmt.Errorf("limit must be > 0, got %d", q.Limit)
+	}
+	// Ask SQL for q.Limit+1 VTXOs to detect whether another page exists.
+	// If more than q.Limit VTXOs are returned, trim the sentinel row and use
+	// the last returned VTXO as the next cursor anchor. The next query resumes
+	// strictly after that anchor in descending sort order.
 	params := queries.GetVtxosParams{
 		LimitPlusOne: int64(q.Limit) + 1,
 	}
@@ -373,22 +377,21 @@ func (v *vtxoRepository) GetVtxos(
 	}
 	vtxos := assetVtxoVwRowsToVtxos(rows)
 
-	// If we got back more than the caller asked for, the extra row is the
-	// "has more" sentinel: drop it and use its outpoint to build the cursor
-	// for the cursor page. Otherwise we hit the end of the dataset and Next
-	// stays nil, signaling no further pages.
-	var cursor *types.Cursor
+	// If we got back more than the caller asked for, the extra row is only a
+	// "has more" sentinel. Drop it and use the last returned VTXO as the next
+	// cursor anchor. Otherwise we hit the end and Next stays nil.
+	var next *types.Cursor
 	if len(vtxos) > q.Limit {
 		vtxos = vtxos[:q.Limit]
 		last := vtxos[len(vtxos)-1]
-		cursor = &types.Cursor{
+		next = &types.Cursor{
 			CreatedAt: last.CreatedAt.Unix(),
 			Txid:      last.Txid,
 			VOut:      last.VOut,
 		}
 	}
 
-	return vtxos, cursor, nil
+	return vtxos, next, nil
 }
 
 func (v *vtxoRepository) GetEventChannel() <-chan types.VtxoEvent {

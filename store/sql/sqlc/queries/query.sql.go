@@ -125,8 +125,9 @@ type GetVtxosParams struct {
 // asset_vtxo_vw to hydrate assets in one round-trip; applying LIMIT to the
 // view directly would cut multi-asset VTXOs mid-way.
 // The caller passes (user_limit + 1) as limit_plus_one. The extra row is
-// a has-more sentinel; if SQL returns more than user_limit rows the caller
-// trims the last one and uses its outpoint as the next cursor.
+// only a has-more sentinel; if SQL returns more than user_limit VTXOs, the
+// caller trims the sentinel and uses the last returned VTXO as the next cursor
+// anchor.
 // status_filter accepts NULL (no filter), spendable (spent=false AND
 // unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
 // EXISTS rather than JOIN so the row count stays at VTXO count. The cursor
