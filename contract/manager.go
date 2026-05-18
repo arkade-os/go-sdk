@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -69,14 +70,9 @@ var builtInContractTypes = map[types.ContractType]struct{}{
 }
 
 // validateHandlerRegistration enforces the rules a handler must satisfy to
-// join the registry: non-empty type, non-nil handler, and no collision with
-// a type already registered (built-in or previously registered custom).
-//
-// The nil-handler check catches a literal nil interface only; a non-nil
-// interface holding a nil concrete pointer will pass and nil-deref on the
-// first dispatched call. Construct handlers via their named constructors
-// (e.g. defaultHandler.NewHandler) rather than passing through a typed-nil
-// variable.
+// join the registry: non-empty type, non-nil handler (including a typed-nil
+// concrete value behind a non-nil interface), and no collision with a type
+// already registered (built-in or previously registered custom).
 func validateHandlerRegistration(
 	registered map[types.ContractType]handlers.Handler,
 	typ types.ContractType, h handlers.Handler,
@@ -86,6 +82,20 @@ func validateHandlerRegistration(
 	}
 	if h == nil {
 		return fmt.Errorf("nil handler for contract type %s", typ)
+	}
+	// A non-nil interface can still hold a nil concrete value (e.g. an
+	// uninitialized *fakeHandler typed as handlers.Handler). Such a handler
+	// would pass the h == nil check above and nil-deref on the first
+	// dispatched call. Reflect on the concrete value and reject the
+	// nilable-kind-with-nil-value case.
+	if v := reflect.ValueOf(h); v.IsValid() {
+		switch v.Kind() {
+		case reflect.Ptr, reflect.Slice, reflect.Map,
+			reflect.Func, reflect.Chan, reflect.Interface:
+			if v.IsNil() {
+				return fmt.Errorf("nil concrete handler for contract type %s", typ)
+			}
+		}
 	}
 	if _, isBuiltIn := builtInContractTypes[typ]; isBuiltIn {
 		return fmt.Errorf("contract type %s is reserved by a built-in handler", typ)

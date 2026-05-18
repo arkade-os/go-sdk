@@ -645,6 +645,12 @@ func TestManagerRegisterHandler(t *testing.T) {
 				wantErrContains: "nil handler",
 			},
 			{
+				name:            "typed-nil handler",
+				typ:             customType,
+				handler:         (*fakeHandler)(nil),
+				wantErrContains: "nil concrete handler",
+			},
+			{
 				name:            "reserved default",
 				typ:             types.ContractTypeDefault,
 				handler:         newFakeHandler(types.ContractTypeDefault),
@@ -697,6 +703,13 @@ func TestManagerArgsExtraHandlers(t *testing.T) {
 				customType: nil,
 			},
 			wantErrContains: "nil handler",
+		},
+		{
+			name: "typed-nil handler",
+			extras: map[types.ContractType]handlers.Handler{
+				customType: (*fakeHandler)(nil),
+			},
+			wantErrContains: "nil concrete handler",
 		},
 		{
 			name: "collides with default",

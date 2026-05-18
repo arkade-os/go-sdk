@@ -78,8 +78,9 @@
 //
 // The manager guards its handler map with an [sync.RWMutex]. Lookups
 // (GetContracts, GetHandler, GetSupportedContractTypes) hold a read lock;
-// mutations (NewContract, ScanContracts, Clean, Close) hold the write
-// lock. The store and the info cache have their own internal locking.
+// mutations (NewContract, ScanContracts, RegisterHandler, Clean, Close)
+// hold the write lock. The store and the info cache have their own
+// internal locking.
 //
 // # Extending with new contract types
 //
