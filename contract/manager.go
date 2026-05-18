@@ -113,6 +113,17 @@ func (m *contractManager) NewContract(
 		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
 	}
 
+	// Single-key identities reuse the same key for every contract of a given
+	// type, so the derived script is identical across calls. Treat that as
+	// an idempotent reuse rather than an error, otherwise every code path
+	// that asks for a "new" change/boarding address after the first one
+	// would fail with the contract store's UNIQUE constraint.
+	existing, err := m.store.GetContractsByScripts(ctx, []string{contract.Script})
+	if err == nil && len(existing) > 0 {
+		log.Debugf("%s reusing existing contract %s", logPrefix, contract.Script)
+		return &existing[0], nil
+	}
+
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
@@ -233,11 +244,24 @@ func (m *contractManager) scanContracts(
 		consecutiveUnused uint32
 		contractByIndex   = make(map[uint32]types.Contract, gapLimit)
 	)
+	// Single-key key providers always return the same NextKeyId, so the
+	// gap-limit scan would loop forever generating identical contracts.
+	// Detect that here and short-circuit to a single-shot scan.
+	singleKey := false
+	if probe, err := m.keyProvider.NextKeyId(ctx, currentKeyId); err == nil {
+		if next, err := m.keyProvider.NextKeyId(ctx, probe); err == nil && next == probe {
+			singleKey = true
+		}
+	}
 scan:
 	for consecutiveUnused < gapLimit {
 		contractBatch := make([]types.Contract, 0, gapLimit)
 		keyIndexByScript := make(map[string]uint32, gapLimit)
-		for range gapLimit {
+		batchSize := gapLimit
+		if singleKey {
+			batchSize = 1
+		}
+		for range batchSize {
 			nextKeyId, err := m.keyProvider.NextKeyId(ctx, currentKeyId)
 			if err != nil {
 				return err
@@ -281,6 +305,12 @@ scan:
 			if consecutiveUnused >= gapLimit {
 				break scan
 			}
+		}
+
+		// Single-key providers exhaust their entire keyspace after one batch,
+		// so we must not loop again — there is no next key to advance to.
+		if singleKey {
+			break scan
 		}
 	}
 
