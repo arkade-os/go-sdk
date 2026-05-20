@@ -94,8 +94,9 @@ type VtxoStore interface {
 	// GetVtxosByOutpoints returns VTXOs matching the given outpoints.
 	GetVtxosByOutpoints(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
 
-	// GetVtxos returns a single page of VTXOs according to q. Used by the
-	// public Wallet.ListVtxos paginated API.
+	// GetVtxos returns one page of VTXOs according to q. When the returned
+	// cursor is nil, the page is the end of the result set. The cursor is an
+	// internal keyset position used by the public Wallet.ListVtxos API.
 	GetVtxos(ctx context.Context, q GetVtxoFilter) ([]types.Vtxo, *Cursor, error)
 
 	Clean(ctx context.Context) error

@@ -64,13 +64,14 @@ func TestVtxoCursorCodec(t *testing.T) {
 		s := encodeCursor(in)
 		out, err := decodeCursor(s)
 		require.NoError(t, err)
-		require.Equal(t, in, out)
+		require.NotNil(t, out)
+		require.Equal(t, in, *out)
 	})
 
-	t.Run("empty cursor decodes to zero value with no error", func(t *testing.T) {
+	t.Run("empty cursor decodes to nil with no error", func(t *testing.T) {
 		out, err := decodeCursor("")
 		require.NoError(t, err)
-		require.Equal(t, vtxoCursor{}, out)
+		require.Nil(t, out)
 	})
 
 	t.Run("malformed base64", func(t *testing.T) {
