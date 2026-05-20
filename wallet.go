@@ -1678,7 +1678,9 @@ func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotificati
 // already running it returns acquired=false with the done channel and the
 // in-flight operation type. If idle it sets up the in-flight state and
 // returns acquired=true.
-func (w *wallet) tryStartSpendOp(opType spendType) (done <-chan struct{}, inFlightType spendType, acquired bool) {
+func (w *wallet) tryStartSpendOp(
+	opType spendType,
+) (done <-chan struct{}, inFlightType spendType, acquired bool) {
 	w.spendOpMu.Lock()
 	defer w.spendOpMu.Unlock()
 	if w.spendOpInFlight {
