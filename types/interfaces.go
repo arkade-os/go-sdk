@@ -7,6 +7,38 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
+// VtxoStatusFilter narrows GetVtxos results by spend/unroll state.
+type VtxoStatusFilter int
+
+const (
+	VtxoStatusAll       VtxoStatusFilter = iota // no status filter
+	VtxoStatusSpendable                         // spent = false AND unrolled = false
+	VtxoStatusSpent                             // spent = true OR unrolled = true
+)
+
+// GetVtxoFilter defines all filters that can be applied to a GetVtxos request.
+type GetVtxoFilter struct {
+	Status  VtxoStatusFilter
+	AssetID string  // "" = no asset filter
+	After   *Cursor // nil = first page
+	Limit   int     // number of VTXOs to return
+}
+
+// Cursor is the cursor position in the (created_at DESC, txid DESC, vout DESC)
+// sort order.
+type Cursor struct {
+	CreatedAt int64
+	Txid      string
+	VOut      uint32
+}
+
+// VtxoPageResult is the typed page response from VtxoStore.GetVtxos.
+// Next is nil when there is no further page.
+type VtxoPageResult struct {
+	Vtxos []types.Vtxo
+	Next  *Cursor
+}
+
 type Store interface {
 	TransactionStore() TransactionStore
 	UtxoStore() UtxoStore
@@ -52,9 +84,21 @@ type VtxoStore interface {
 	) (int, error)
 	SweepVtxos(ctx context.Context, vtxosToSweep []types.Vtxo) (int, error)
 	UnrollVtxos(ctx context.Context, vtxosToUnroll []types.Vtxo) (int, error)
-	GetAllVtxos(ctx context.Context) (spendable, spent []types.Vtxo, err error)
-	GetSpendableVtxos(ctx context.Context) ([]types.Vtxo, error)
-	GetVtxos(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
+
+	// GetSpendableOrRecoverableVtxos returns all VTXOs where spent = false AND
+	// unrolled = false. This is the union of strictly spendable VTXOs and
+	// recoverable VTXOs (swept or expired, but not spent). Callers needing to
+	// distinguish use IsRecoverable on each returned VTXO.
+	GetSpendableOrRecoverableVtxos(ctx context.Context) ([]types.Vtxo, error)
+
+	// GetVtxosByOutpoints returns VTXOs matching the given outpoints.
+	GetVtxosByOutpoints(ctx context.Context, keys []types.Outpoint) ([]types.Vtxo, error)
+
+	// GetVtxos returns one page of VTXOs according to q. When the returned
+	// cursor is nil, the page is the end of the result set. The cursor is an
+	// internal keyset position used by the public Wallet.ListVtxos API.
+	GetVtxos(ctx context.Context, q GetVtxoFilter) ([]types.Vtxo, *Cursor, error)
+
 	Clean(ctx context.Context) error
 	GetEventChannel() <-chan VtxoEvent
 }

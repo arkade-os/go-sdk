@@ -47,7 +47,7 @@ func TestSmokeWalletRestore(t *testing.T) {
 		len(offchainAddresses), totalAddresses,
 	)
 
-	vtxos, _, err := alice.ListVtxos(ctx)
+	vtxos, _, err := alice.ListVtxos(ctx, arksdk.WithSpendableOnly())
 	require.NoError(t, err, "❌ funding failed: expected no error on getting vtxos, got %w", err)
 	require.Len(
 		t, vtxos, expectedVtxos,
@@ -91,7 +91,7 @@ func TestSmokeWalletRestore(t *testing.T) {
 		len(offchainAddressesRestored), totalAddresses,
 	)
 
-	vtxosRestored, _, err := aliceRestored.ListVtxos(ctx)
+	vtxosRestored, _, err := aliceRestored.ListVtxos(ctx, arksdk.WithSpendableOnly())
 	require.NoError(t, err, "❌ restore failed: expected no error, got %w", err)
 	require.Len(
 		t, vtxosRestored, len(vtxos),
