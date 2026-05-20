@@ -42,8 +42,8 @@ func TestE2EVtxoPagination(t *testing.T) {
 		require.Equal(t, 4, pages)
 		require.Equal(t, 10, len(walked))
 		requireNoDuplicateOutpoints(t, walked)
-		require.GreaterOrEqual(t, pages*limit, len(reference), "pages*limit must cover reference count")
-		require.LessOrEqual(t, pages*limit, len(reference)+limit, "only the final page may be partial")
+		require.GreaterOrEqual(t, pages*limit, len(reference))
+		require.LessOrEqual(t, pages*limit, len(reference)+limit)
 	})
 
 	t.Run("end-of-pagination returns nil cursor", func(t *testing.T) {
@@ -97,7 +97,12 @@ func TestE2EVtxoPagination(t *testing.T) {
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(page2), 7, "second page must respect changed limit")
 		requireNoOutpointOverlap(t, page1, page2)
-		require.Equal(t, reference[2:2+len(page2)], page2, "page 2 must continue from page 1 cursor")
+		require.Equal(
+			t,
+			reference[2:2+len(page2)],
+			page2,
+			"page 2 must continue from page 1 cursor",
+		)
 	})
 
 	t.Run("WithSpendableOnly returns only spent=false AND unrolled=false", func(t *testing.T) {
@@ -121,7 +126,12 @@ func TestE2EVtxoPagination(t *testing.T) {
 		require.Empty(t, cursor)
 		require.Len(t, vtxos, 2, "expected 2 spent VTXOs")
 		for _, vtxo := range vtxos {
-			require.True(t, vtxo.Spent || vtxo.Unrolled, "outpoint %s must be spent or unrolled", outpointKey(vtxo))
+			require.True(
+				t,
+				vtxo.Spent || vtxo.Unrolled,
+				"outpoint %s must be spent or unrolled",
+				outpointKey(vtxo),
+			)
 		}
 	})
 
@@ -132,19 +142,33 @@ func TestE2EVtxoPagination(t *testing.T) {
 		require.Len(t, vtxos, 12, "expected all seeded VTXOs")
 	})
 
-	t.Run("WithAssetID filters to VTXOs holding the asset, but hydrates all their assets", func(t *testing.T) {
-		vtxos, cursor, err := f.alice.ListVtxos(
-			t.Context(), arksdk.WithAssetID(f.assetID), arksdk.WithLimit(1000),
-		)
-		require.NoError(t, err)
-		require.Empty(t, cursor)
-		require.Len(t, vtxos, 2, "expected exactly the two VTXOs holding asset %s", f.assetID)
-		for _, vtxo := range vtxos {
-			require.Positive(t, vtxo.Amount, "outpoint %s must carry BTC amount", outpointKey(vtxo))
-			requireAssetAmount(t, vtxo, f.assetID, 1)
-			require.Len(t, vtxo.Assets, 1, "outpoint %s should hydrate all issued assets", outpointKey(vtxo))
-		}
-	})
+	t.Run(
+		"WithAssetID filters to VTXOs holding the asset, but hydrates all their assets",
+		func(t *testing.T) {
+			vtxos, cursor, err := f.alice.ListVtxos(
+				t.Context(), arksdk.WithAssetID(f.assetID), arksdk.WithLimit(1000),
+			)
+			require.NoError(t, err)
+			require.Empty(t, cursor)
+			require.Len(t, vtxos, 2, "expected exactly the two VTXOs holding asset %s", f.assetID)
+			for _, vtxo := range vtxos {
+				require.Positive(
+					t,
+					vtxo.Amount,
+					"outpoint %s must carry BTC amount",
+					outpointKey(vtxo),
+				)
+				requireAssetAmount(t, vtxo, f.assetID, 1)
+				require.Len(
+					t,
+					vtxo.Assets,
+					1,
+					"outpoint %s should hydrate all issued assets",
+					outpointKey(vtxo),
+				)
+			}
+		},
+	)
 
 	t.Run("WithAssetID for non-existent asset returns empty", func(t *testing.T) {
 		vtxos, cursor, err := f.alice.ListVtxos(
@@ -166,13 +190,30 @@ func TestE2EVtxoPagination(t *testing.T) {
 				arksdk.WithCursor(cursor),
 			)
 			require.NoError(t, err)
-			require.LessOrEqual(t, len(page), 2, "page %d must contain VTXOs, not asset rows", pageIndex)
+			require.LessOrEqual(
+				t,
+				len(page),
+				2,
+				"page %d must contain VTXOs, not asset rows",
+				pageIndex,
+			)
 			for _, vtxo := range page {
 				if hasAsset(vtxo, f.assetID) {
 					found++
-					require.Positive(t, vtxo.Amount, "multi-asset outpoint %s must carry BTC amount", outpointKey(vtxo))
+					require.Positive(
+						t,
+						vtxo.Amount,
+						"multi-asset outpoint %s must carry BTC amount",
+						outpointKey(vtxo),
+					)
 					requireAssetAmount(t, vtxo, f.assetID, 1)
-					require.Len(t, vtxo.Assets, 1, "multi-asset outpoint %s assets were truncated", outpointKey(vtxo))
+					require.Len(
+						t,
+						vtxo.Assets,
+						1,
+						"multi-asset outpoint %s assets were truncated",
+						outpointKey(vtxo),
+					)
 				}
 			}
 			if next == "" {
@@ -211,14 +252,25 @@ func TestE2EVtxoPagination(t *testing.T) {
 		requireListVtxosOptionError(t, f.alice, arksdk.ErrInvalidLimit, arksdk.WithLimit(-1))
 	})
 
-	t.Run("WithSpendableOnly + WithSpentOnly returns ErrConflictingStatusOption", func(t *testing.T) {
-		requireListVtxosOptionError(
-			t, f.alice, arksdk.ErrConflictingStatusOption, arksdk.WithSpendableOnly(), arksdk.WithSpentOnly(),
-		)
-		requireListVtxosOptionError(
-			t, f.alice, arksdk.ErrConflictingStatusOption, arksdk.WithSpentOnly(), arksdk.WithSpendableOnly(),
-		)
-	})
+	t.Run(
+		"WithSpendableOnly + WithSpentOnly returns ErrConflictingStatusOption",
+		func(t *testing.T) {
+			requireListVtxosOptionError(
+				t,
+				f.alice,
+				arksdk.ErrConflictingStatusOption,
+				arksdk.WithSpendableOnly(),
+				arksdk.WithSpentOnly(),
+			)
+			requireListVtxosOptionError(
+				t,
+				f.alice,
+				arksdk.ErrConflictingStatusOption,
+				arksdk.WithSpentOnly(),
+				arksdk.WithSpendableOnly(),
+			)
+		},
+	)
 
 	t.Run("WithAssetID(empty) returns error", func(t *testing.T) {
 		vtxos, cursor, err := f.alice.ListVtxos(t.Context(), arksdk.WithAssetID(""))
@@ -229,7 +281,12 @@ func TestE2EVtxoPagination(t *testing.T) {
 	})
 
 	t.Run("WithCursor(malformed) returns ErrInvalidCursor", func(t *testing.T) {
-		requireListVtxosOptionError(t, f.alice, arksdk.ErrInvalidCursor, arksdk.WithCursor("not-base64-!!"))
+		requireListVtxosOptionError(
+			t,
+			f.alice,
+			arksdk.ErrInvalidCursor,
+			arksdk.WithCursor("not-base64-!!"),
+		)
 	})
 
 	t.Run("WithCursor(valid base64, malformed JSON) returns ErrInvalidCursor", func(t *testing.T) {
@@ -237,28 +294,36 @@ func TestE2EVtxoPagination(t *testing.T) {
 		requireListVtxosOptionError(t, f.alice, arksdk.ErrInvalidCursor, arksdk.WithCursor(cursor))
 	})
 
-	t.Run("WithCursor across different filter sets returns ErrCursorFilterMismatch", func(t *testing.T) {
-		_, cursor, err := f.alice.ListVtxos(
-			t.Context(), arksdk.WithSpendableOnly(), arksdk.WithLimit(2),
-		)
-		require.NoError(t, err)
-		require.NotEmpty(t, cursor, "first page should return a reusable cursor")
+	t.Run(
+		"WithCursor across different filter sets returns ErrCursorFilterMismatch",
+		func(t *testing.T) {
+			_, cursor, err := f.alice.ListVtxos(
+				t.Context(), arksdk.WithSpendableOnly(), arksdk.WithLimit(2),
+			)
+			require.NoError(t, err)
+			require.NotEmpty(t, cursor, "first page should return a reusable cursor")
 
-		requireListVtxosOptionError(
-			t,
-			f.alice,
-			arksdk.ErrCursorFilterMismatch,
-			arksdk.WithSpentOnly(),
-			arksdk.WithCursor(cursor),
-		)
-	})
+			requireListVtxosOptionError(
+				t,
+				f.alice,
+				arksdk.ErrCursorFilterMismatch,
+				arksdk.WithSpentOnly(),
+				arksdk.WithCursor(cursor),
+			)
+		},
+	)
 
 	t.Run("cursor stable when new VTXOs arrive between pages", func(t *testing.T) {
 		reference, _, err := f.alice.ListVtxos(
 			t.Context(), arksdk.WithSpendableOnly(), arksdk.WithLimit(1000),
 		)
 		require.NoError(t, err)
-		require.Len(t, reference, 10, "expected seeded spendable VTXO count before concurrent writes")
+		require.Len(
+			t,
+			reference,
+			10,
+			"expected seeded spendable VTXO count before concurrent writes",
+		)
 
 		page1, cursor, err := f.alice.ListVtxos(
 			t.Context(), arksdk.WithSpendableOnly(), arksdk.WithLimit(3),
@@ -281,7 +346,12 @@ func TestE2EVtxoPagination(t *testing.T) {
 		require.Equal(t, reference[3:6], page2, "page 2 must continue from the cursor anchor")
 		requireNoOutpointOverlap(t, page1, page2)
 		for _, newVtxo := range newVtxos {
-			require.NotContains(t, outpointSet(page2), outpointKey(newVtxo), "newer VTXO must not appear after cursor")
+			require.NotContains(
+				t,
+				outpointSet(page2),
+				outpointKey(newVtxo),
+				"newer VTXO must not appear after cursor",
+			)
 		}
 
 		walked := append(slices.Clone(page1), page2...)
@@ -349,7 +419,11 @@ func setupVtxoPaginationFixture(t *testing.T) vtxoPaginationFixture {
 	sendVtxos(t, bob, alice, 7, 1_500)
 
 	require.Eventually(t, func() bool {
-		spendable, _, err := alice.ListVtxos(ctx, arksdk.WithSpendableOnly(), arksdk.WithLimit(1000))
+		spendable, _, err := alice.ListVtxos(
+			ctx,
+			arksdk.WithSpendableOnly(),
+			arksdk.WithLimit(1000),
+		)
 		if err != nil || len(spendable) != 10 {
 			return false
 		}
@@ -386,7 +460,12 @@ func sendVtxos(
 			Amount: amount + uint64(i),
 		}})
 		vtxo := waitForVtxosAdded(t, vtxoCh, txid)
-		require.Positive(t, vtxo.Amount, "received VTXO %s must carry BTC amount", outpointKey(vtxo))
+		require.Positive(
+			t,
+			vtxo.Amount,
+			"received VTXO %s must carry BTC amount",
+			outpointKey(vtxo),
+		)
 		vtxos = append(vtxos, vtxo)
 		time.Sleep(vtxoPaginationSleep)
 	}
@@ -394,7 +473,11 @@ func sendVtxos(
 }
 
 // sendVtxoWithAsset sends one BTC carrier VTXO plus one issued-asset unit.
-func sendVtxoWithAsset(t *testing.T, sender, receiver arksdk.Wallet, assetID string) clientTypes.Vtxo {
+func sendVtxoWithAsset(
+	t *testing.T,
+	sender, receiver arksdk.Wallet,
+	assetID string,
+) clientTypes.Vtxo {
 	t.Helper()
 
 	ctx := t.Context()
@@ -564,7 +647,13 @@ func requireNoOutpointOverlap(t *testing.T, a, b []clientTypes.Vtxo) {
 
 	seen := outpointSet(a)
 	for _, vtxo := range b {
-		require.NotContains(t, seen, outpointKey(vtxo), "overlapping outpoint %s", outpointKey(vtxo))
+		require.NotContains(
+			t,
+			seen,
+			outpointKey(vtxo),
+			"overlapping outpoint %s",
+			outpointKey(vtxo),
+		)
 	}
 }
 
