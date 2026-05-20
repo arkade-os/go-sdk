@@ -17,6 +17,26 @@ func (w *wallet) SendOffChain(
 		return "", err
 	}
 
+	// Synchronize: wait for any in-flight spend to finish, then proceed
+	// with fresh VTXOs.
+	for {
+		done, _, acquired := w.tryStartSpendOp(spendTypeSendOffchain)
+		if acquired {
+			break
+		}
+		if err := waitForSpendOp(ctx, done); err != nil {
+			return "", err
+		}
+	}
+
+	txid, err := w.sendOffChain(ctx, receivers)
+	w.finishSpendOp(txid, err)
+	return txid, err
+}
+
+func (w *wallet) sendOffChain(
+	ctx context.Context, receivers []clienttypes.Receiver,
+) (string, error) {
 	vtxos, err := w.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err

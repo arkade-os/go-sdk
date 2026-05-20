@@ -37,9 +37,18 @@ import (
 )
 
 var (
-	ErrNotInitialized = fmt.Errorf("wallet not initialized")
-	ErrIsLocked       = fmt.Errorf("wallet is locked")
-	ErrIsSyncing      = fmt.Errorf("wallet is still syncing")
+	ErrNotInitialized       = fmt.Errorf("wallet not initialized")
+	ErrIsLocked             = fmt.Errorf("wallet is locked")
+	ErrIsSyncing            = fmt.Errorf("wallet is still syncing")
+	ErrAutoSettleInProgress = fmt.Errorf("auto-settle in progress, retry later")
+)
+
+type spendType int
+
+const (
+	spendTypeSettle spendType = iota
+	spendTypeSendOffchain
+	spendTypeCollabExit
 )
 
 type wallet struct {
@@ -59,6 +68,18 @@ type wallet struct {
 	bgWg          sync.WaitGroup
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
+
+	// Spend synchronization. All paths that coin-select VTXOs (Settle,
+	// CollaborativeExit, SendOffChain, auto-settle) go through syncSpend so
+	// that only one runs at a time. spendOpMu guards the fields below and
+	// is held only briefly to read or publish state — never while a spend
+	// is running.
+	spendOpMu       sync.Mutex
+	spendOpInFlight bool
+	spendOpType     spendType
+	spendOpDone     chan struct{}
+	spendOpTxid     string
+	spendOpErr      error
 
 	verbose           bool
 	refreshDbInterval time.Duration
@@ -1651,6 +1672,60 @@ func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotificati
 	}
 
 	return nil
+}
+
+// tryStartSpendOp attempts to claim the spend lock. If another operation is
+// already running it returns acquired=false with the done channel and the
+// in-flight operation type. If idle it sets up the in-flight state and
+// returns acquired=true.
+func (w *wallet) tryStartSpendOp(opType spendType) (done <-chan struct{}, inFlightType spendType, acquired bool) {
+	w.spendOpMu.Lock()
+	defer w.spendOpMu.Unlock()
+	if w.spendOpInFlight {
+		return w.spendOpDone, w.spendOpType, false
+	}
+	w.spendOpInFlight = true
+	w.spendOpType = opType
+	w.spendOpDone = make(chan struct{})
+	w.spendOpTxid = ""
+	w.spendOpErr = nil
+	return nil, 0, true
+}
+
+// finishSpendOp publishes the result and releases the spend lock so that
+// any goroutine waiting on the done channel can proceed.
+func (w *wallet) finishSpendOp(txid string, err error) {
+	w.spendOpMu.Lock()
+	w.spendOpTxid = txid
+	w.spendOpErr = err
+	w.spendOpInFlight = false
+	done := w.spendOpDone
+	w.spendOpMu.Unlock()
+	close(done)
+}
+
+// spendResult holds the outcome of a completed spend operation.
+type spendResult struct {
+	OpType spendType
+	Txid   string
+	Err    error
+}
+
+// readSpendResult reads the completed spend result under the mutex.
+func (w *wallet) readSpendResult() spendResult {
+	w.spendOpMu.Lock()
+	defer w.spendOpMu.Unlock()
+	return spendResult{w.spendOpType, w.spendOpTxid, w.spendOpErr}
+}
+
+// waitForSpendOp blocks until the in-flight spend completes or ctx expires.
+func waitForSpendOp(ctx context.Context, done <-chan struct{}) error {
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (w *wallet) safeCheck() error {

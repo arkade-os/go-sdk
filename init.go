@@ -235,19 +235,41 @@ func (w *wallet) scheduleNextSettlement() {
 	expiry := time.Until(vtxos[0].ExpiresAt)
 	nextExpiration := time.Now().Add(expiry * 9 / 10)
 	if nextSettlement.IsZero() || nextExpiration.Before(nextSettlement) {
-		task := func() {
-			if _, err := w.Settle(context.Background()); err != nil {
-				if errors.Is(err, ErrNoFundsToSettle) {
-					log.Debugf("no vtxos to auto-settle, skipping")
-					return
-				}
-				log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
-			}
-		}
+		task := w.autoSettleTask
 		if err := w.scheduler.ScheduleTask(task, nextExpiration); err != nil {
 			log.WithError(err).Warn("failed to schedule next settlement")
 			return
 		}
 		log.Debugf("scheduled next settlement at %s", nextExpiration.Format(time.RFC3339))
+	}
+}
+
+// autoSettleTask is the body of the scheduled auto-settle. It uses
+// tryStartSpendOp so that if a user-initiated spend is already running
+// the auto-settle deduplicates instead of racing.
+func (w *wallet) autoSettleTask() {
+	// If another settle is in flight, skip — it already refreshes all VTXOs.
+	// If a send or collabExit is in flight, wait then retry — remaining
+	// VTXOs may still need their expiry refreshed.
+	for {
+		done, inFlightType, acquired := w.tryStartSpendOp(spendTypeSettle)
+		if acquired {
+			break
+		}
+		<-done
+		if inFlightType == spendTypeSettle {
+			return // already settled, nothing to do
+		}
+	}
+
+	txid, err := w.settle(context.Background())
+	w.finishSpendOp(txid, err)
+
+	if err != nil {
+		if errors.Is(err, ErrNoFundsToSettle) {
+			log.Debugf("no vtxos to auto-settle, skipping")
+			return
+		}
+		log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
 	}
 }
