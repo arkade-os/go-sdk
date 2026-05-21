@@ -19,18 +19,20 @@ func (w *wallet) SendOffChain(
 
 	// Synchronize: wait for any in-flight spend to finish, then proceed
 	// with fresh VTXOs.
+	var h *spendOpHandle
 	for {
-		done, _, acquired := w.tryStartSpendOp(spendTypeSendOffchain)
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeSendOffchain)
 		if acquired {
 			break
 		}
-		if err := waitForSpendOp(ctx, done); err != nil {
+		if err := waitForSpendOp(ctx, h.done); err != nil {
 			return "", err
 		}
 	}
 
 	txid, err := w.sendOffChain(ctx, receivers)
-	w.finishSpendOp(txid, err)
+	w.finishSpendOp(h, txid, err)
 	return txid, err
 }
 

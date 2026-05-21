@@ -16,6 +16,28 @@ func (w *wallet) IssueAsset(
 		return "", nil, err
 	}
 
+	// Synchronize with other spend operations to avoid double-spending VTXOs.
+	var h *spendOpHandle
+	for {
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeAsset)
+		if acquired {
+			break
+		}
+		if err := waitForSpendOp(ctx, h.done); err != nil {
+			return "", nil, err
+		}
+	}
+
+	txid, issued, err := w.issueAsset(ctx, amount, controlAsset, metadata)
+	w.finishSpendOp(h, txid, err)
+	return txid, issued, err
+}
+
+func (w *wallet) issueAsset(
+	ctx context.Context,
+	amount uint64, controlAsset clientTypes.ControlAsset, metadata []asset.Metadata,
+) (string, []asset.AssetId, error) {
 	vtxos, err := w.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", nil, err
@@ -56,6 +78,27 @@ func (w *wallet) ReissueAsset(
 		return "", err
 	}
 
+	// Synchronize with other spend operations to avoid double-spending VTXOs.
+	var h *spendOpHandle
+	for {
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeAsset)
+		if acquired {
+			break
+		}
+		if err := waitForSpendOp(ctx, h.done); err != nil {
+			return "", err
+		}
+	}
+
+	txid, err := w.reissueAsset(ctx, assetId, amount)
+	w.finishSpendOp(h, txid, err)
+	return txid, err
+}
+
+func (w *wallet) reissueAsset(
+	ctx context.Context, assetId string, amount uint64,
+) (string, error) {
 	vtxos, err := w.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err
@@ -97,6 +140,27 @@ func (w *wallet) BurnAsset(
 		return "", err
 	}
 
+	// Synchronize with other spend operations to avoid double-spending VTXOs.
+	var h *spendOpHandle
+	for {
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeAsset)
+		if acquired {
+			break
+		}
+		if err := waitForSpendOp(ctx, h.done); err != nil {
+			return "", err
+		}
+	}
+
+	txid, err := w.burnAsset(ctx, assetId, amount)
+	w.finishSpendOp(h, txid, err)
+	return txid, err
+}
+
+func (w *wallet) burnAsset(
+	ctx context.Context, assetId string, amount uint64,
+) (string, error) {
 	vtxos, err := w.getSpendableVtxos(ctx, false)
 	if err != nil {
 		return "", err

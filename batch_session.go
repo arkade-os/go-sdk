@@ -19,22 +19,24 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 
 	// Synchronize: if another spend is in flight, wait for it. If the
 	// in-flight op is a settle, dedup (return its commitment txid).
+	var h *spendOpHandle
 	for {
-		done, inFlightType, acquired := w.tryStartSpendOp(spendTypeSettle)
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeSettle)
 		if acquired {
 			break
 		}
-		if err := waitForSpendOp(ctx, done); err != nil {
+		dedupHandle := h
+		if err := waitForSpendOp(ctx, dedupHandle.done); err != nil {
 			return "", err
 		}
-		if inFlightType == spendTypeSettle {
-			result := w.readSpendResult()
-			return result.Txid, result.Err
+		if dedupHandle.opType == spendTypeSettle {
+			return dedupHandle.txid, dedupHandle.err
 		}
 	}
 
 	txid, err := w.settle(ctx, opts...)
-	w.finishSpendOp(txid, err)
+	w.finishSpendOp(h, txid, err)
 	return txid, err
 }
 
@@ -98,21 +100,23 @@ func (w *wallet) CollaborativeExit(
 
 	// Synchronize: if a settle is in flight, reject immediately. If a send
 	// or another collabExit is in flight, wait then retry with fresh VTXOs.
+	var h *spendOpHandle
 	for {
-		done, inFlightType, acquired := w.tryStartSpendOp(spendTypeCollabExit)
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeCollabExit)
 		if acquired {
 			break
 		}
-		if inFlightType == spendTypeSettle {
-			return "", ErrAutoSettleInProgress
+		if h.opType == spendTypeSettle {
+			return "", ErrSettleInProgress
 		}
-		if err := waitForSpendOp(ctx, done); err != nil {
+		if err := waitForSpendOp(ctx, h.done); err != nil {
 			return "", err
 		}
 	}
 
 	txid, err := w.collaborativeExit(ctx, addr, amount, opts...)
-	w.finishSpendOp(txid, err)
+	w.finishSpendOp(h, txid, err)
 	return txid, err
 }
 

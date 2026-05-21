@@ -130,6 +130,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
+	w.stopCtx = bgCtx
 
 	w.bgWg.Go(func() {
 		w.Explorer().Start()
@@ -184,6 +185,7 @@ func (w *wallet) Lock(ctx context.Context) error {
 	if w.stopFn != nil {
 		w.stopFn()
 	}
+	w.stopCtx = nil
 
 	if w.contractManager != nil {
 		w.contractManager.Close()
@@ -246,24 +248,32 @@ func (w *wallet) scheduleNextSettlement() {
 
 // autoSettleTask is the body of the scheduled auto-settle. It uses
 // tryStartSpendOp so that if a user-initiated spend is already running
-// the auto-settle deduplicates instead of racing.
+// the auto-settle deduplicates instead of racing. It waits on
+// w.stopCtx so that wallet Lock() or Stop() cancels any in-flight
+// wait promptly, and uses w.stopCtx (not context.Background()) for
+// the settle call itself.
 func (w *wallet) autoSettleTask() {
 	// If another settle is in flight, skip — it already refreshes all VTXOs.
 	// If a send or collabExit is in flight, wait then retry — remaining
 	// VTXOs may still need their expiry refreshed.
+	var h *spendOpHandle
 	for {
-		done, inFlightType, acquired := w.tryStartSpendOp(spendTypeSettle)
+		var acquired bool
+		h, acquired = w.tryStartSpendOp(spendTypeSettle)
 		if acquired {
 			break
 		}
-		<-done
-		if inFlightType == spendTypeSettle {
+		if err := waitForSpendOp(w.stopCtx, h.done); err != nil {
+			// stopCtx was cancelled (Lock/Stop) — abort the auto-settle.
+			return
+		}
+		if h.opType == spendTypeSettle {
 			return // already settled, nothing to do
 		}
 	}
 
-	txid, err := w.settle(context.Background())
-	w.finishSpendOp(txid, err)
+	txid, err := w.settle(w.stopCtx)
+	w.finishSpendOp(h, txid, err)
 
 	if err != nil {
 		if errors.Is(err, ErrNoFundsToSettle) {

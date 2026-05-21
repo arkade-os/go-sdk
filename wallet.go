@@ -37,10 +37,10 @@ import (
 )
 
 var (
-	ErrNotInitialized       = fmt.Errorf("wallet not initialized")
-	ErrIsLocked             = fmt.Errorf("wallet is locked")
-	ErrIsSyncing            = fmt.Errorf("wallet is still syncing")
-	ErrAutoSettleInProgress = fmt.Errorf("auto-settle in progress, retry later")
+	ErrNotInitialized   = fmt.Errorf("wallet not initialized")
+	ErrIsLocked         = fmt.Errorf("wallet is locked")
+	ErrIsSyncing        = fmt.Errorf("wallet is still syncing")
+	ErrSettleInProgress = fmt.Errorf("settle in progress, retry later")
 )
 
 type spendType int
@@ -49,7 +49,21 @@ const (
 	spendTypeSettle spendType = iota
 	spendTypeSendOffchain
 	spendTypeCollabExit
+	spendTypeAsset
+	spendTypeUnroll
 )
+
+// spendOpHandle represents an in-flight spend operation. It is allocated by
+// tryStartSpendOp when the spend lock is acquired and returned to callers
+// (both the acquirer and any contenders) so that each can read its own
+// result without racing the global wallet fields. done is closed by
+// finishSpendOp after txid/err have been written.
+type spendOpHandle struct {
+	done   chan struct{}
+	opType spendType
+	txid   string
+	err    error
+}
 
 type wallet struct {
 	client          clientwallet.Wallet
@@ -70,16 +84,20 @@ type wallet struct {
 	logMu         *sync.Mutex
 
 	// Spend synchronization. All paths that coin-select VTXOs (Settle,
-	// CollaborativeExit, SendOffChain, auto-settle) go through syncSpend so
-	// that only one runs at a time. spendOpMu guards the fields below and
-	// is held only briefly to read or publish state — never while a spend
-	// is running.
-	spendOpMu       sync.Mutex
-	spendOpInFlight bool
-	spendOpType     spendType
-	spendOpDone     chan struct{}
-	spendOpTxid     string
-	spendOpErr      error
+	// CollaborativeExit, SendOffChain, IssueAsset, ReissueAsset, BurnAsset,
+	// Unroll, auto-settle) go through tryStartSpendOp so that only one runs
+	// at a time. spendOpMu guards spendOpCurrent and is held only briefly
+	// to read or publish state — never while a spend is running. The
+	// in-flight operation's result is stored on the *spendOpHandle returned
+	// by tryStartSpendOp so callers read their own snapshot of the result
+	// rather than racing wallet-global fields.
+	spendOpMu      sync.Mutex
+	spendOpCurrent *spendOpHandle
+
+	// stopCtx is the background context used by the auto-settle scheduler
+	// and other long-lived goroutines started in Unlock. It is cancelled
+	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
+	stopCtx context.Context
 
 	verbose           bool
 	refreshDbInterval time.Duration
@@ -1674,54 +1692,48 @@ func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotificati
 	return nil
 }
 
-// tryStartSpendOp attempts to claim the spend lock. If another operation is
-// already running it returns acquired=false with the done channel and the
-// in-flight operation type. If idle it sets up the in-flight state and
-// returns acquired=true.
-func (w *wallet) tryStartSpendOp(
-	opType spendType,
-) (done <-chan struct{}, inFlightType spendType, acquired bool) {
+// tryStartSpendOp attempts to claim the spend lock. On success it allocates
+// a new *spendOpHandle, stores it on the wallet as the current in-flight
+// op, and returns it with acquired=true. On contention it returns the
+// existing handle for the in-flight op with acquired=false. The caller can
+// inspect handle.opType to decide whether to dedup, reject, or wait and
+// retry, and after waiting on handle.done can read handle.txid / handle.err
+// directly — each caller gets its own snapshot rather than racing global
+// wallet fields.
+func (w *wallet) tryStartSpendOp(opType spendType) (h *spendOpHandle, acquired bool) {
 	w.spendOpMu.Lock()
 	defer w.spendOpMu.Unlock()
-	if w.spendOpInFlight {
-		return w.spendOpDone, w.spendOpType, false
+	if w.spendOpCurrent != nil {
+		return w.spendOpCurrent, false
 	}
-	w.spendOpInFlight = true
-	w.spendOpType = opType
-	w.spendOpDone = make(chan struct{})
-	w.spendOpTxid = ""
-	w.spendOpErr = nil
-	return nil, 0, true
+	h = &spendOpHandle{
+		done:   make(chan struct{}),
+		opType: opType,
+	}
+	w.spendOpCurrent = h
+	return h, true
 }
 
-// finishSpendOp publishes the result and releases the spend lock so that
-// any goroutine waiting on the done channel can proceed.
-func (w *wallet) finishSpendOp(txid string, err error) {
+// finishSpendOp publishes the result on the provided handle and releases
+// the spend lock so any goroutine waiting on h.done can proceed and read
+// h.txid / h.err. h MUST be the handle returned by tryStartSpendOp with
+// acquired=true.
+func (w *wallet) finishSpendOp(h *spendOpHandle, txid string, err error) {
 	w.spendOpMu.Lock()
-	w.spendOpTxid = txid
-	w.spendOpErr = err
-	w.spendOpInFlight = false
-	done := w.spendOpDone
+	h.txid = txid
+	h.err = err
+	w.spendOpCurrent = nil
 	w.spendOpMu.Unlock()
-	close(done)
-}
-
-// spendResult holds the outcome of a completed spend operation.
-type spendResult struct {
-	OpType spendType
-	Txid   string
-	Err    error
-}
-
-// readSpendResult reads the completed spend result under the mutex.
-func (w *wallet) readSpendResult() spendResult {
-	w.spendOpMu.Lock()
-	defer w.spendOpMu.Unlock()
-	return spendResult{w.spendOpType, w.spendOpTxid, w.spendOpErr}
+	close(h.done)
 }
 
 // waitForSpendOp blocks until the in-flight spend completes or ctx expires.
+// A nil ctx is treated as context.Background() so callers that fire after
+// Lock() has cleared w.stopCtx do not panic.
 func waitForSpendOp(ctx context.Context, done <-chan struct{}) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	select {
 	case <-done:
 		return nil
