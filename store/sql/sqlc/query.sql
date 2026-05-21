@@ -29,17 +29,60 @@ UPDATE vtxo
 SET unrolled = true
 WHERE txid = :txid AND vout = :vout;
 
--- name: SelectAllVtxos :many
-SELECT * FROM asset_vtxo_vw;
-
 -- name: SelectVtxo :many
 SELECT *
 FROM asset_vtxo_vw
 WHERE txid = :txid AND vout = :vout;
 
--- name: SelectSpendableVtxos :many
+-- name: SelectSpendableOrRecoverableVtxos :many
 SELECT * FROM asset_vtxo_vw
 WHERE spent = false AND unrolled = false;
+
+-- name: GetVtxos :many
+-- Cursor-based keyset pagination over VTXOs. Two stages.
+-- Stage 1, page_keys CTE, scans the base vtxo table (one row per VTXO so
+-- LIMIT counts VTXOs not asset rows), applies status and asset filters,
+-- applies the cursor predicate, sorts by (created_at DESC, txid DESC, vout
+-- DESC) using the matching composite index for an O(log n + limit) scan,
+-- and LIMITs at the SQL layer. Stage 2 INNER JOINs the paged keys against
+-- asset_vtxo_vw to hydrate assets in one round-trip; applying LIMIT to the
+-- view directly would cut multi-asset VTXOs mid-way.
+-- The caller passes (user_limit + 1) as limit_plus_one. The extra row is
+-- a has-more sentinel; if SQL returns more than user_limit rows the caller
+-- trims the last one and uses its outpoint as the next cursor.
+-- status_filter accepts NULL (no filter), spendable (spent=false AND
+-- unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
+-- EXISTS rather than JOIN so the row count stays at VTXO count. The cursor
+-- predicate uses SQL row-value comparison which is the canonical
+-- composite-key keyset idiom. CAST wrappers around sqlc.narg are required
+-- so sqlc emits typed nullable Go args instead of interface{}.
+-- WARNING: do not put inline -- comments inside the query body below;
+-- sqlc's query splitter breaks downstream queries when the GetVtxos body
+-- contains inline comments. Keep all docs here in the header.
+WITH page_keys AS (
+    SELECT txid, vout, created_at FROM vtxo
+    WHERE
+        (CAST(sqlc.narg(status_filter) AS TEXT) IS NULL
+            OR (CAST(sqlc.narg(status_filter) AS TEXT) = 'spendable' AND spent = false AND unrolled = false)
+            OR (CAST(sqlc.narg(status_filter) AS TEXT) = 'spent'     AND (spent = true OR unrolled = true)))
+        AND (CAST(sqlc.narg(asset_id) AS TEXT) IS NULL OR EXISTS (
+            SELECT 1 FROM asset_vtxo av
+            WHERE av.vtxo_txid = vtxo.txid AND av.vtxo_vout = vtxo.vout
+                  AND av.asset_id = CAST(sqlc.narg(asset_id) AS TEXT)
+        ))
+        AND (CAST(sqlc.narg(cursor_created_at) AS INTEGER) IS NULL
+            OR (vtxo.created_at, vtxo.txid, vtxo.vout) < (
+                CAST(sqlc.narg(cursor_created_at) AS INTEGER),
+                CAST(sqlc.narg(cursor_txid) AS TEXT),
+                CAST(sqlc.narg(cursor_vout) AS INTEGER)
+            ))
+    ORDER BY created_at DESC, txid DESC, vout DESC
+    LIMIT sqlc.arg(limit_plus_one)
+)
+SELECT v.*
+FROM asset_vtxo_vw v
+INNER JOIN page_keys pk ON v.txid = pk.txid AND v.vout = pk.vout
+ORDER BY pk.created_at DESC, pk.txid DESC, pk.vout DESC;
 
 -- name: CleanVtxos :exec
 DELETE FROM vtxo;
