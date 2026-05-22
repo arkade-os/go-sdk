@@ -42,6 +42,12 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 	h, err := mgr.Registry().GetHandler(types.ContractType("vhtlc"))
 	require.NoError(t, err)
 	require.NotNil(t, h)
+
+	// Drain IsSynced so the bg goroutines spawned by Unlock reach a stable
+	// state before t.Cleanup invokes Stop. We don't assert on the result —
+	// the custom handler produces non-standard scripts that the live arkd
+	// indexer rejects during ScanContracts, so a sync error is expected.
+	<-arkClient.IsSynced(t.Context())
 }
 
 // customTestHandler is a minimal handlers.Handler that produces a
