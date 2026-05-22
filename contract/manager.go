@@ -21,7 +21,7 @@ type contractManager struct {
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
-	registry    *registry
+	registry    Registry
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {

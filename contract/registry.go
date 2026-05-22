@@ -32,7 +32,7 @@ type registry struct {
 // Per-option validations (empty type, nil handler, typed-nil, duplicates inside the same
 // WithHandler list) are caught earlier in WithHandler; this function still defends against them
 // in case it's called from a path that didn't go through WithHandler.
-func NewRegistry(builtIns, customs map[types.ContractType]handlers.Handler) (*registry, error) {
+func NewRegistry(builtIns, customs map[types.ContractType]handlers.Handler) (Registry, error) {
 	merged := make(map[types.ContractType]handlers.Handler, len(builtIns)+len(customs))
 	for t, h := range builtIns {
 		merged[t] = h

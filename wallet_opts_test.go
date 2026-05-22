@@ -52,13 +52,13 @@ func TestWalletOptions(t *testing.T) {
 				opts: []arksdk.WalletOption{arksdk.WithScheduler(&testScheduler{})},
 			},
 			{
-				name: "WitContralHandler (one)",
+				name: "WitContractHandler (one)",
 				opts: []arksdk.WalletOption{
 					arksdk.WithContractHandler("vhtlc", &mockHandler{typ: "vhtlc"}),
 				},
 			},
 			{
-				name: "WitContralHandler (many)",
+				name: "WitContractHandler (many)",
 				opts: []arksdk.WalletOption{
 					arksdk.WithContractHandler("vhtlc", &mockHandler{typ: "vhtlc"}),
 					arksdk.WithContractHandler("delegate", &mockHandler{typ: "delegate"}),
