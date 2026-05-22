@@ -843,7 +843,7 @@ func (w *wallet) refreshVtxoDb(
 	ctx context.Context, spendableVtxos, spentVtxos []clienttypes.Vtxo,
 ) error {
 	// Fetch old data.
-	oldSpendableVtxos, _, err := w.store.VtxoStore().GetAllVtxos(ctx)
+	oldSpendableVtxos, err := w.store.VtxoStore().GetSpendableOrRecoverableVtxos(ctx)
 	if err != nil {
 		return err
 	}
@@ -1327,7 +1327,7 @@ func (w *wallet) handleCommitmentTx(
 			indexedSpentVtxos[vtxo.Outpoint] = vtxo
 		}
 	}
-	myVtxos, err := w.store.VtxoStore().GetVtxos(ctx, spentVtxos)
+	myVtxos, err := w.store.VtxoStore().GetVtxosByOutpoints(ctx, spentVtxos)
 	if err != nil {
 		return err
 	}
@@ -1506,7 +1506,7 @@ func (w *wallet) handleArkTx(
 			VOut: vtxo.VOut,
 		})
 	}
-	myVtxos, err := w.store.VtxoStore().GetVtxos(ctx, spentVtxos)
+	myVtxos, err := w.store.VtxoStore().GetVtxosByOutpoints(ctx, spentVtxos)
 	if err != nil {
 		return err
 	}
@@ -1605,7 +1605,7 @@ func (w *wallet) handleSweepTx(ctx context.Context, sweepTx *client.TxNotificati
 		return nil
 	}
 
-	myVtxos, err := w.store.VtxoStore().GetVtxos(ctx, sweepTx.SweptVtxos)
+	myVtxos, err := w.store.VtxoStore().GetVtxosByOutpoints(ctx, sweepTx.SweptVtxos)
 	if err != nil {
 		return err
 	}

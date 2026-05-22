@@ -23,7 +23,9 @@ type fixVtxoStore struct {
 	spendable []clientTypes.Vtxo
 }
 
-func (v *fixVtxoStore) GetSpendableVtxos(_ context.Context) ([]clientTypes.Vtxo, error) {
+func (v *fixVtxoStore) GetSpendableOrRecoverableVtxos(
+	_ context.Context,
+) ([]clientTypes.Vtxo, error) {
 	return v.spendable, nil
 }
 func (v *fixVtxoStore) AddVtxos(_ context.Context, _ []clientTypes.Vtxo) (int, error) {
@@ -58,11 +60,18 @@ func (v *fixVtxoStore) GetAllVtxos(
 	return nil, nil, nil
 }
 
-func (v *fixVtxoStore) GetVtxos(
+func (v *fixVtxoStore) GetVtxosByOutpoints(
 	_ context.Context,
 	_ []clientTypes.Outpoint,
 ) ([]clientTypes.Vtxo, error) {
 	return nil, nil
+}
+
+func (v *fixVtxoStore) GetVtxos(
+	_ context.Context,
+	_ sdktypes.GetVtxoFilter,
+) ([]clientTypes.Vtxo, *sdktypes.Cursor, error) {
+	return nil, nil, nil
 }
 func (v *fixVtxoStore) Clean(_ context.Context) error { return nil }
 func (v *fixVtxoStore) GetEventChannel() <-chan sdktypes.VtxoEvent {
