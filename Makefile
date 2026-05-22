@@ -62,6 +62,18 @@ integrationtest:
 smoketest:
 	@go test -v -count=1 -timeout 60m -tags=smoke -run 'Smoke' ./test/e2e
 
+## stress-1k: 1K-tier stress test
+stress-1k:
+	@STRESS_TIER=1k go test -v -count=1 -race -timeout 30m -tags=stress -run 'TestStressHDWalletAndContractManager' ./test/stress/...
+
+## stress-10k: 10K-tier stress test
+stress-10k:
+	@STRESS_TIER=10k go test -v -count=1 -timeout 120m -tags=stress -run 'TestStressHDWalletAndContractManager' ./test/stress/...
+
+## stress-50k: 50K-tier stress test
+stress-50k:
+	@STRESS_TIER=50k go test -v -count=1 -timeout 300m -tags=stress -run 'TestStressHDWalletAndContractManager' ./test/stress/...
+
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:
 	$(call require_commit)
