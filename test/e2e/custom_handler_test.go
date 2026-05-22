@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"testing"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
@@ -47,7 +48,14 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 	// state before t.Cleanup invokes Stop. We don't assert on the result —
 	// the custom handler produces non-standard scripts that the live arkd
 	// indexer rejects during ScanContracts, so a sync error is expected.
-	<-arkClient.IsSynced(t.Context())
+	// Bound the wait so a stuck sync fails the test instead of hanging CI.
+	syncCtx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	select {
+	case <-arkClient.IsSynced(syncCtx):
+	case <-syncCtx.Done():
+		require.FailNowf(t, "sync drain timeout", "IsSynced did not return: %v", syncCtx.Err())
+	}
 }
 
 // customTestHandler is a minimal handlers.Handler that produces a
