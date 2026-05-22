@@ -41,6 +41,7 @@ const (
 	// too-long-mempool-chain policy while preserving the 128-payment pace.
 	confirmEveryBatches = 16
 
+	vtxoPageLimit = 1000
 )
 
 // parseTier reads the STRESS_TIER environment variable and returns the
@@ -213,6 +214,14 @@ func fundAndSendBatched(
 ) uint64 {
 	t.Helper()
 
+	t.Log("mining 1 block before stress sends to clear any previous run's mempool chain")
+	generateBlocks(t, 1)
+	defer func() {
+		if _, err := runCommand("nigiri", "rpc", "--generate", "1"); err != nil {
+			t.Logf("failed to mine cleanup block after stress sends: %v", err)
+		}
+	}()
+
 	for offset := 0; offset < len(addrs); offset += sendBatchSize {
 		end := offset + sendBatchSize
 		if end > len(addrs) {
@@ -266,9 +275,29 @@ func requireOffchainBalance(
 	}, timeout, 500*time.Millisecond, msgAndArgs...)
 }
 
-func listSpendableVtxos(ctx context.Context, wallet sdk.Wallet) ([]clienttypes.Vtxo, error) {
-	spendable, _, err := wallet.ListVtxos(ctx)
-	return spendable, err
+func listAllVtxos(
+	ctx context.Context,
+	wallet sdk.Wallet,
+	opts ...sdk.ListVtxosOption,
+) ([]clienttypes.Vtxo, error) {
+	var (
+		all    []clienttypes.Vtxo
+		cursor string
+	)
+	for {
+		pageOpts := append([]sdk.ListVtxosOption{}, opts...)
+		pageOpts = append(pageOpts, sdk.WithLimit(vtxoPageLimit), sdk.WithCursor(cursor))
+
+		vtxos, nextCursor, err := wallet.ListVtxos(ctx, pageOpts...)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, vtxos...)
+		if nextCursor == "" {
+			return all, nil
+		}
+		cursor = nextCursor
+	}
 }
 
 // generateBlocks mines n regtest blocks through nigiri.

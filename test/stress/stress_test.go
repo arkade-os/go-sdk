@@ -166,13 +166,13 @@ func requireWalletState(
 
 	t.Logf("waiting for %s wallet to show %d VTXOs and %d sat...", label, N, expectedTotal)
 	require.Eventually(t, func() bool {
-		spendable, err := listSpendableVtxos(ctx, w)
+		spendable, err := listAllVtxos(ctx, w, sdk.WithSpendableOnly())
 		return err == nil && len(spendable) == N && sumVtxoAmounts(spendable) == expectedTotal
 	}, timeout, 2*time.Second,
 		"%s wallet did not recover all %d VTXOs within %v", label, N, timeout,
 	)
 
-	spendable, err := listSpendableVtxos(ctx, w)
+	spendable, err := listAllVtxos(ctx, w, sdk.WithSpendableOnly())
 	require.NoError(t, err)
 	require.Lenf(t, spendable, N, "%s wallet: expected %d spendable VTXOs", label, N)
 	require.Equalf(
