@@ -198,6 +198,11 @@ func (m *contractManager) GetContracts(
 func (m *contractManager) GetHandler(
 	_ context.Context, contract types.Contract,
 ) (handlers.Handler, error) {
+	// Delegate contracts are deliberately kept out of m.handlers: that map
+	// drives ScanContracts (gap-limit scanning) and the keyless NewContract
+	// path, neither of which is valid for a delegate contract because it
+	// requires an externally supplied delegate key (DelegateHandler.NewContract
+	// errors by design). Route it through its stateless handler here instead.
 	if contract.Type == types.ContractTypeDelegate {
 		return &DelegateHandler{}, nil
 	}
@@ -276,6 +281,9 @@ func (m *contractManager) newDelegateLocked(
 		return existing, false, nil
 	}
 
+	// Anchors next-key derivation to the highest existing delegate key. The
+	// store returns the latest by key_index (DESC), not by wall-clock insertion
+	// time, so the derivation order is reproducible across a restore from backup.
 	latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
 	if err != nil {
 		return nil, false, err
@@ -518,6 +526,9 @@ func (m *contractManager) findUsedContracts(
 func (m *contractManager) findDelegateContractByKey(
 	ctx context.Context, delegateKeyHex string,
 ) (*types.Contract, error) {
+	// TODO: linear scan over every delegate contract. Fine for the handful
+	// expected per wallet; if this grows, add an indexed store lookup keyed
+	// on the delegate-key param instead.
 	contracts, err := m.store.GetContractsByType(ctx, types.ContractTypeDelegate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query delegate contracts: %w", err)
