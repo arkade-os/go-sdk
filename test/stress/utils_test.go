@@ -95,7 +95,13 @@ func setupStressClient(
 		dir, err := os.MkdirTemp("", "stress-wallet-*")
 		require.NoError(t, err)
 		datadir = dir
-		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		t.Cleanup(func() {
+			if t.Failed() {
+				t.Logf("preserving failed stress wallet datadir=%s", dir)
+				return
+			}
+			_ = os.RemoveAll(dir)
+		})
 	}
 
 	wallet, err := sdk.NewWallet(datadir, opts...)
@@ -108,7 +114,7 @@ func setupStressClient(
 	require.NoError(t, err)
 
 	synced := <-wallet.IsSynced(t.Context())
-	require.Nil(t, synced.Err)
+	require.NoError(t, synced.Err)
 	require.True(t, synced.Synced)
 
 	t.Cleanup(wallet.Stop)
@@ -130,7 +136,7 @@ func loadStressClient(
 	require.NoError(t, err)
 
 	synced := <-wallet.IsSynced(t.Context())
-	require.Nil(t, synced.Err)
+	require.NoError(t, synced.Err)
 	require.True(t, synced.Synced)
 
 	t.Cleanup(wallet.Stop)
