@@ -216,7 +216,7 @@ func (w *wallet) scheduleNextSettlement() {
 
 	nextSettlement := w.scheduler.GetTaskScheduledAt()
 
-	vtxos, err := w.store.VtxoStore().GetSpendableVtxos(context.Background())
+	vtxos, err := w.store.VtxoStore().GetSpendableOrRecoverableVtxos(context.Background())
 	if err != nil {
 		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next settlement")
 		return

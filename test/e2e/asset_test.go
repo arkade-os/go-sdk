@@ -398,11 +398,11 @@ func TestAssetBurn(t *testing.T) {
 }
 
 func listVtxosWithAsset(t *testing.T, client sdk.Wallet, assetID string) []clientTypes.Vtxo {
-	vtxos, _, err := client.ListVtxos(t.Context())
+	vtxos, _, err := client.ListVtxos(t.Context(), sdk.WithSpendableOnly())
 	require.NoError(t, err)
+	require.NotEmpty(t, vtxos)
 
 	assetVtxos := make([]clientTypes.Vtxo, 0, len(vtxos))
-
 	for _, vtxo := range vtxos {
 		for _, asset := range vtxo.Assets {
 			if asset.AssetId == assetID {
