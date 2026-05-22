@@ -101,12 +101,13 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	w.logMu.Unlock()
 
 	mgr, err := contract.NewManager(contract.Args{
-		Store:       w.store.ContractStore(),
-		KeyProvider: w.Identity(),
-		Client:      w.Client(),
-		Indexer:     w.Indexer(),
-		Explorer:    w.Explorer(),
-		Network:     w.network,
+		Store:         w.store.ContractStore(),
+		KeyProvider:   w.Identity(),
+		Client:        w.Client(),
+		Indexer:       w.Indexer(),
+		Explorer:      w.Explorer(),
+		Network:       w.network,
+		ExtraHandlers: w.extraContractHandlers,
 	})
 	if err != nil {
 		if lockErr := w.Identity().Lock(ctx); lockErr != nil {

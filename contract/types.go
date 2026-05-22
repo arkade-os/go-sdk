@@ -48,6 +48,13 @@ type Args struct {
 	Indexer     offchainDataProvider
 	Explorer    onchainDataProvider
 	Network     arklib.Network
+	// ExtraHandlers allows callers to register custom contract handlers (e.g.
+	// for delegator or VHTLC scripts) in addition to the built-in default and
+	// boarding handlers. Entries with ContractTypeDefault or
+	// ContractTypeBoarding override the built-in handlers; any other key
+	// introduces a new contract type the manager will recognise in
+	// NewContract, GetHandler, and ScanContracts.
+	ExtraHandlers map[types.ContractType]handlers.Handler
 }
 
 // validate ensures the contract manager arguments are valid.

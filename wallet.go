@@ -25,6 +25,7 @@ import (
 	clientstore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/scheduler"
 	cronscheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
@@ -60,12 +61,13 @@ type wallet struct {
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
 
-	verbose           bool
-	refreshDbInterval time.Duration
-	lastUpdate        time.Time
-	hdGapLimit        uint32
-	network           arklib.Network
-	dustAmount        uint64
+	verbose               bool
+	refreshDbInterval     time.Duration
+	lastUpdate            time.Time
+	hdGapLimit            uint32
+	network               arklib.Network
+	dustAmount            uint64
+	extraContractHandlers map[types.ContractType]handlers.Handler
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -131,18 +133,19 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:            cli,
-		verbose:           o.verbose,
-		store:             db,
-		clientStore:       clientDb,
-		syncMu:            &sync.Mutex{},
-		syncListeners:     newReadyListeners(),
-		syncCh:            make(chan error),
-		dbMu:              &sync.Mutex{},
-		logMu:             &sync.Mutex{},
-		refreshDbInterval: o.refreshDbInterval,
-		hdGapLimit:        o.hdGapLimit,
-		scheduler:         o.scheduler,
+		client:                cli,
+		verbose:               o.verbose,
+		store:                 db,
+		clientStore:           clientDb,
+		syncMu:                &sync.Mutex{},
+		syncListeners:         newReadyListeners(),
+		syncCh:                make(chan error),
+		dbMu:                  &sync.Mutex{},
+		logMu:                 &sync.Mutex{},
+		refreshDbInterval:     o.refreshDbInterval,
+		hdGapLimit:            o.hdGapLimit,
+		scheduler:             o.scheduler,
+		extraContractHandlers: o.extraContractHandlers,
 	}, nil
 }
 
@@ -243,19 +246,20 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:            cli,
-		verbose:           o.verbose,
-		store:             db,
-		clientStore:       clientDb,
-		syncMu:            &sync.Mutex{},
-		syncListeners:     newReadyListeners(),
-		syncCh:            make(chan error),
-		dbMu:              &sync.Mutex{},
-		logMu:             &sync.Mutex{},
-		refreshDbInterval: o.refreshDbInterval,
-		hdGapLimit:        o.hdGapLimit,
-		scheduler:         o.scheduler,
-		network:           cfgData.Network,
+		client:                cli,
+		verbose:               o.verbose,
+		store:                 db,
+		clientStore:           clientDb,
+		syncMu:                &sync.Mutex{},
+		syncListeners:         newReadyListeners(),
+		syncCh:                make(chan error),
+		dbMu:                  &sync.Mutex{},
+		logMu:                 &sync.Mutex{},
+		refreshDbInterval:     o.refreshDbInterval,
+		hdGapLimit:            o.hdGapLimit,
+		scheduler:             o.scheduler,
+		network:               cfgData.Network,
+		extraContractHandlers: o.extraContractHandlers,
 	}, nil
 }
 

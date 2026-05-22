@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/scheduler"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 const (
@@ -96,6 +98,30 @@ func WithScheduler(svc scheduler.SchedulerService) WalletOption {
 	}
 }
 
+// WithContractHandlers registers additional contract handlers with the
+// wallet's contract manager. Entries with ContractTypeDefault or
+// ContractTypeBoarding override the built-in handlers; any other key
+// introduces a new contract type the manager will recognise in NewContract,
+// GetHandler, and ScanContracts. Can only be set once and must not contain a
+// nil handler.
+func WithContractHandlers(extra map[types.ContractType]handlers.Handler) WalletOption {
+	return func(o *walletOptions) error {
+		if o.extraContractHandlers != nil {
+			return fmt.Errorf("contract handlers already set")
+		}
+		if len(extra) == 0 {
+			return fmt.Errorf("contract handlers cannot be empty")
+		}
+		for t, h := range extra {
+			if h == nil {
+				return fmt.Errorf("nil handler for contract type %q", t)
+			}
+		}
+		o.extraContractHandlers = extra
+		return nil
+	}
+}
+
 // WithoutAutoSettle disables the auto-settle feature.
 func WithoutAutoSettle() WalletOption {
 	return func(o *walletOptions) error {
@@ -121,13 +147,14 @@ func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 }
 
 type walletOptions struct {
-	refreshDbInterval time.Duration
-	verbose           bool
-	hdGapLimit        uint32
-	hdGapLimitSet     bool
-	identity          identity.Identity
-	scheduler         scheduler.SchedulerService
-	disableAutoSettle bool
+	refreshDbInterval     time.Duration
+	verbose               bool
+	hdGapLimit            uint32
+	hdGapLimitSet         bool
+	identity              identity.Identity
+	scheduler             scheduler.SchedulerService
+	disableAutoSettle     bool
+	extraContractHandlers map[types.ContractType]handlers.Handler
 }
 
 // newDefaultWalletOptions returns a zero-value walletOptions.

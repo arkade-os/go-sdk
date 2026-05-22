@@ -38,18 +38,25 @@ func NewManager(args Args) (Manager, error) {
 	// reuse the same cached server info instead of fanning out a
 	// per-handler cache.
 	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
-	// TODO: 1. support also delegate and vhtlc handlers
-	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
-	handlers := map[types.ContractType]handlers.Handler{
+	hs := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+	}
+	// Merge user-supplied handlers last so callers can both add new contract
+	// types (e.g. delegator, vhtlc) and override the built-in default/boarding
+	// handlers if they need to.
+	for contractType, h := range args.ExtraHandlers {
+		if h == nil {
+			return nil, fmt.Errorf("nil handler for contract type %q", contractType)
+		}
+		hs[contractType] = h
 	}
 	return &contractManager{
 		store:       args.Store,
 		keyProvider: args.KeyProvider,
 		indexer:     args.Indexer,
 		explorer:    args.Explorer,
-		handlers:    handlers,
+		handlers:    hs,
 		network:     args.Network,
 		mu:          sync.RWMutex{},
 	}, nil

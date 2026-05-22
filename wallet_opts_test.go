@@ -1,12 +1,39 @@
 package arksdk_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
+
+type fakeWalletOptHandler struct{}
+
+func (fakeWalletOptHandler) NewContract(
+	context.Context, identity.KeyRef,
+) (*types.Contract, error) {
+	return nil, nil
+}
+func (fakeWalletOptHandler) GetKeyRefs(types.Contract) (map[string]string, error) {
+	return nil, nil
+}
+func (fakeWalletOptHandler) GetKeyRef(types.Contract) (*identity.KeyRef, error) {
+	return nil, nil
+}
+func (fakeWalletOptHandler) GetSignerKey(types.Contract) (*btcec.PublicKey, error) {
+	return nil, nil
+}
+func (fakeWalletOptHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, error) {
+	return nil, nil
+}
+func (fakeWalletOptHandler) GetTapscripts(types.Contract) ([]string, error) { return nil, nil }
 
 func TestWalletOptions(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
@@ -40,6 +67,14 @@ func TestWalletOptions(t *testing.T) {
 			{
 				name: "WithScheduler",
 				opts: []arksdk.WalletOption{arksdk.WithScheduler(&testScheduler{})},
+			},
+			{
+				name: "WithContractHandlers",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandlers(map[types.ContractType]handlers.Handler{
+						types.ContractType("custom"): fakeWalletOptHandler{},
+					}),
+				},
 			},
 		}
 
@@ -131,6 +166,34 @@ func TestWalletOptions(t *testing.T) {
 					arksdk.WithScheduler(&testScheduler{}),
 				},
 				wantErrContains: "cannot set scheduler when auto-settle is disabled",
+			},
+			{
+				name: "WithContractHandlers empty",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandlers(nil),
+				},
+				wantErrContains: "contract handlers cannot be empty",
+			},
+			{
+				name: "WithContractHandlers nil entry",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandlers(map[types.ContractType]handlers.Handler{
+						types.ContractType("custom"): nil,
+					}),
+				},
+				wantErrContains: "nil handler for contract type",
+			},
+			{
+				name: "WithContractHandlers twice",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandlers(map[types.ContractType]handlers.Handler{
+						types.ContractType("custom"): fakeWalletOptHandler{},
+					}),
+					arksdk.WithContractHandlers(map[types.ContractType]handlers.Handler{
+						types.ContractType("custom"): fakeWalletOptHandler{},
+					}),
+				},
+				wantErrContains: "contract handlers already set",
 			},
 		}
 
