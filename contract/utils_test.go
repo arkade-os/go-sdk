@@ -2,7 +2,9 @@ package contract_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -309,4 +311,106 @@ func (e *mockedEnv) markBoardingUsed(t *testing.T, keyIds ...string) {
 	for _, k := range keyIds {
 		e.explorer.usedAddresses[e.deriveBoarding(k).Address] = struct{}{}
 	}
+}
+
+// newValidTestArgs returns a freshly wired Args with a mocked env. Use
+// when a test wants to call contract.NewManager directly (for example to
+// pass ManagerOptions and assert on the construction result).
+func newValidTestArgs(t *testing.T) contract.Args {
+	t.Helper()
+	env := newMockedEnv(t)
+	svc, err := store.NewStore(store.Config{
+		StoreType: types.SQLStore,
+		Args:      t.TempDir(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(svc.Close)
+	return contract.Args{
+		Store:       svc.ContractStore(),
+		KeyProvider: env.identity,
+		Client:      env.transport,
+		Indexer:     env.indexer,
+		Explorer:    env.explorer,
+		Network:     testNetwork,
+	}
+}
+
+// newTestManagerWithHandlers is like newTestManager but lets the caller
+// pass extra ManagerOptions (typically contract.WithHandler calls). The
+// store handle is not returned because none of the call sites need it.
+func newTestManagerWithHandlers(
+	t *testing.T, opts ...contract.ManagerOption,
+) contract.Manager {
+	t.Helper()
+	mgr, err := contract.NewManager(newValidTestArgs(t), opts...)
+	require.NoError(t, err)
+	t.Cleanup(mgr.Close)
+	return mgr
+}
+
+// mockHandler is a minimal handlers.Handler used by the registry tests so
+// they don't depend on the default/boarding handlers' wiring (transport
+// client, network, etc.). It produces a deterministic contract from a
+// keyRef so scan-loop tests can predict scripts.
+type mockHandler struct {
+	typ       types.ContractType
+	exitDelay arklib.RelativeLocktime
+}
+
+func newMockHandler(t *testing.T, typ types.ContractType) *mockHandler {
+	t.Helper()
+	return &mockHandler{
+		typ: typ,
+		exitDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 144,
+		},
+	}
+}
+
+func (h *mockHandler) NewContract(
+	_ context.Context, keyRef identity.KeyRef,
+) (*types.Contract, error) {
+	script := fakeScript(h.typ, keyRef.Id)
+	return &types.Contract{
+		Type:    h.typ,
+		State:   types.ContractStateActive,
+		Script:  script,
+		Address: "fake:" + script,
+		Params: map[string]string{
+			ownerKeyIdParam: keyRef.Id,
+		},
+	}, nil
+}
+
+func (h *mockHandler) GetKeyRefs(c types.Contract) (map[string]string, error) {
+	return map[string]string{ownerKeyIdParam: c.Params[ownerKeyIdParam]}, nil
+}
+
+func (h *mockHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
+	id, ok := c.Params[ownerKeyIdParam]
+	if !ok {
+		return nil, fmt.Errorf("missing %s in params", ownerKeyIdParam)
+	}
+	return &identity.KeyRef{Id: id}, nil
+}
+
+func (h *mockHandler) GetSignerKey(_ types.Contract) (*btcec.PublicKey, error) {
+	return nil, nil
+}
+
+func (h *mockHandler) GetExitDelay(_ types.Contract) (*arklib.RelativeLocktime, error) {
+	d := h.exitDelay
+	return &d, nil
+}
+
+func (h *mockHandler) GetTapscripts(_ types.Contract) ([]string, error) {
+	return nil, nil
+}
+
+// fakeScript mirrors fakeHandler.NewContract so tests can predict the
+// script a given (type, keyId) pair will produce.
+func fakeScript(typ types.ContractType, keyId string) string {
+	h := sha256.Sum256([]byte(string(typ) + ":" + keyId))
+	return hex.EncodeToString(h[:])
 }

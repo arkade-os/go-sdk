@@ -2,10 +2,13 @@ package arksdk
 
 import (
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/scheduler"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 const (
@@ -128,10 +131,46 @@ type walletOptions struct {
 	identity          identity.Identity
 	scheduler         scheduler.SchedulerService
 	disableAutoSettle bool
+	customHandlers    map[types.ContractType]handlers.Handler
 }
 
 // newDefaultWalletOptions returns a zero-value walletOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultWalletOptions() *walletOptions {
 	return &walletOptions{hdGapLimit: defaultGapLimit}
+}
+
+// WithContractHandler registers a custom contract handler that the
+// wallet's contract manager will dispatch to for the given contract
+// type. The type must be non-empty, the handler non-nil, and must not
+// collide with another previously registered custom handler. Collisions
+// with a built-in type (default, boarding) are detected at Unlock time
+// via the underlying contract.WithHandler / contract.NewManager checks.
+// Multiple calls are allowed for different types.
+func WithContractHandler(t types.ContractType, h handlers.Handler) WalletOption {
+	return func(o *walletOptions) error {
+		if t == "" {
+			return fmt.Errorf("missing contract type")
+		}
+		if h == nil {
+			return fmt.Errorf("nil handler for contract type %q", t)
+		}
+		if v := reflect.ValueOf(h); v.IsValid() {
+			switch v.Kind() {
+			case reflect.Ptr, reflect.Slice, reflect.Map,
+				reflect.Func, reflect.Chan, reflect.Interface:
+				if v.IsNil() {
+					return fmt.Errorf("nil concrete handler for contract type %q", t)
+				}
+			}
+		}
+		if _, dup := o.customHandlers[t]; dup {
+			return fmt.Errorf("duplicate handler for contract type %q", t)
+		}
+		if o.customHandlers == nil {
+			o.customHandlers = make(map[types.ContractType]handlers.Handler)
+		}
+		o.customHandlers[t] = h
+		return nil
+	}
 }

@@ -3,21 +3,57 @@ package contract
 import (
 	"fmt"
 
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
 )
+
+// ManagerOption configures NewManager. The only currently defined option
+// is WithHandler.
+type ManagerOption func(*managerOptions) error
+
+// WithHandler registers a custom handler for a non-built-in contract type.
+// Errors if the type is empty, the handler is nil/typed-nil, or the same
+// type was passed to a previous WithHandler in the same NewManager call.
+// Collision with built-in types is detected later, inside newRegistry.
+func WithHandler(t types.ContractType, h handlers.Handler) ManagerOption {
+	return func(o *managerOptions) error {
+		if t == "" {
+			return fmt.Errorf("missing contract type")
+		}
+		if err := validateHandler(h, t); err != nil {
+			return err
+		}
+		if _, dup := o.customHandlers[t]; dup {
+			return fmt.Errorf("duplicate handler for contract type %q", t)
+		}
+		if o.customHandlers == nil {
+			o.customHandlers = make(map[types.ContractType]handlers.Handler)
+		}
+		o.customHandlers[t] = h
+		return nil
+	}
+}
+
+type managerOptions struct {
+	customHandlers map[types.ContractType]handlers.Handler
+}
+
+func newDefaultManagerOption() *managerOptions {
+	return &managerOptions{}
+}
 
 // FilterOption configures a filter for Manager query methods.
 // Pass no options to return all contracts.
 type FilterOption interface {
-	applyFilter(*filter) error
+	applyFilter(*filterOptions) error
 }
 
-type filterOptFn func(*filter) error
+type filterOptFn func(*filterOptions) error
 
-func (f filterOptFn) applyFilter(o *filter) error { return f(o) }
+func (f filterOptFn) applyFilter(o *filterOptions) error { return f(o) }
 
 func WithType(contractType types.ContractType) FilterOption {
-	return filterOptFn(func(f *filter) error {
+	return filterOptFn(func(f *filterOptions) error {
 		if f.contractType != "" {
 			return fmt.Errorf("contract type filter already set to %s", f.contractType)
 		}
@@ -30,7 +66,7 @@ func WithType(contractType types.ContractType) FilterOption {
 }
 
 func WithState(state types.ContractState) FilterOption {
-	return filterOptFn(func(f *filter) error {
+	return filterOptFn(func(f *filterOptions) error {
 		if f.state != "" {
 			return fmt.Errorf("contract state filter already set to %s", f.state)
 		}
@@ -43,7 +79,7 @@ func WithState(state types.ContractState) FilterOption {
 }
 
 func WithScripts(scripts []string) FilterOption {
-	return filterOptFn(func(f *filter) error {
+	return filterOptFn(func(f *filterOptions) error {
 		if len(scripts) <= 0 {
 			return fmt.Errorf("missing scripts")
 		}
@@ -59,27 +95,27 @@ func WithScripts(scripts []string) FilterOption {
 	})
 }
 
-type filter struct {
+type filterOptions struct {
 	contractType types.ContractType
 	state        types.ContractState
 	scripts      []string
 }
 
-func newDefaultFilter() *filter {
-	return &filter{}
+func newDefaultFilter() *filterOptions {
+	return &filterOptions{}
 }
 
 // ContractOption configures the creation of a new contract.
 type ContractOption interface {
-	applyContract(*contractOption) error
+	applyContract(*contractOptions) error
 }
 
-type contractOptFn func(*contractOption) error
+type contractOptFn func(*contractOptions) error
 
-func (f contractOptFn) applyContract(o *contractOption) error { return f(o) }
+func (f contractOptFn) applyContract(o *contractOptions) error { return f(o) }
 
 func WithLabel(label string) ContractOption {
-	return contractOptFn(func(o *contractOption) error {
+	return contractOptFn(func(o *contractOptions) error {
 		if o.label != "" {
 			return fmt.Errorf("label option is already set to %s", o.label)
 		}
@@ -88,10 +124,10 @@ func WithLabel(label string) ContractOption {
 	})
 }
 
-type contractOption struct {
+type contractOptions struct {
 	label string
 }
 
-func newDefaultContractOption() *contractOption {
-	return &contractOption{}
+func newDefaultContractOption() *contractOptions {
+	return &contractOptions{}
 }

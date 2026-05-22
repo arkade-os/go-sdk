@@ -25,6 +25,7 @@ import (
 	clientstore "github.com/arkade-os/arkd/pkg/client-lib/store"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/scheduler"
 	cronscheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
@@ -70,6 +71,8 @@ type wallet struct {
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
+
+	customHandlers map[types.ContractType]handlers.Handler
 }
 
 func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
@@ -143,6 +146,7 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		refreshDbInterval: o.refreshDbInterval,
 		hdGapLimit:        o.hdGapLimit,
 		scheduler:         o.scheduler,
+		customHandlers:    o.customHandlers,
 	}, nil
 }
 
@@ -256,6 +260,7 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		hdGapLimit:        o.hdGapLimit,
 		scheduler:         o.scheduler,
 		network:           cfgData.Network,
+		customHandlers:    o.customHandlers,
 	}, nil
 }
 

@@ -100,7 +100,7 @@ func TestManagerNewContract(t *testing.T) {
 			{
 				name:            "unsupported contract type",
 				contractType:    types.ContractType("vhtlc"),
-				wantErrContains: "unsupported contract type",
+				wantErrContains: "no handler registered for contract type",
 			},
 			{
 				name:         "conflicting label option",
@@ -119,16 +119,6 @@ func TestManagerNewContract(t *testing.T) {
 			})
 		}
 	})
-}
-
-func TestManagerGetSupportedContractTypes(t *testing.T) {
-	mgr, _ := newTestManager(t)
-	supported := mgr.GetSupportedContractTypes(t.Context())
-	require.ElementsMatch(
-		t,
-		[]types.ContractType{types.ContractTypeDefault, types.ContractTypeBoarding},
-		supported,
-	)
 }
 
 func TestManagerGetContracts(t *testing.T) {
@@ -259,7 +249,7 @@ func TestManagerGetHandler(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
 		handler, err := mgr.GetHandler(t.Context(), types.Contract{Type: "vhtlc"})
-		require.ErrorContains(t, err, "unsupported contract type")
+		require.ErrorContains(t, err, "no handler registered for contract type")
 		require.Nil(t, handler)
 	})
 }
@@ -507,6 +497,58 @@ func TestManagerClean(t *testing.T) {
 
 		// Cleaning an already-clean store must be a no-op.
 		require.NoError(t, mgr.Clean(t.Context()))
+	})
+}
+
+func TestManagerWithCustomHandlers(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		t.Run("built-ins only", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+			expectedTypes := []types.ContractType{
+				types.ContractTypeBoarding, types.ContractTypeDefault,
+			}
+			got := mgr.Registry().SupportedTypes()
+			require.Equal(t, expectedTypes, got)
+		})
+
+		t.Run("with custom handler merged", func(t *testing.T) {
+			mgr := newTestManagerWithHandlers(
+				t,
+				contract.WithHandler("vhtlc", newMockHandler(t, "vhtlc")),
+			)
+			expectedTypes := []types.ContractType{
+				types.ContractTypeBoarding, types.ContractTypeDefault, types.ContractType("vhtlc"),
+			}
+			got := mgr.Registry().SupportedTypes()
+			require.Equal(t, expectedTypes, got)
+		})
+
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		t.Run("reserved contract type", func(t *testing.T) {
+			mgr, err := contract.NewManager(
+				newValidTestArgs(t), contract.WithHandler(
+					types.ContractTypeDefault, newMockHandler(t, types.ContractTypeDefault),
+				),
+			)
+			require.ErrorContains(t, err, "reserved by a built-in handler")
+			require.Nil(t, mgr)
+		})
+	})
+
+	t.Run("registry is the same instance returned by GetHandler delegation", func(t *testing.T) {
+		mgr := newTestManagerWithHandlers(
+			t, contract.WithHandler("vhtlc", newMockHandler(t, "vhtlc")),
+		)
+		direct, err := mgr.Registry().GetHandler(types.ContractType("vhtlc"))
+		require.NoError(t, err)
+		viaManager, err := mgr.GetHandler(
+			t.Context(),
+			types.Contract{Type: types.ContractType("vhtlc")},
+		)
+		require.NoError(t, err)
+		require.Same(t, direct, viaManager)
 	})
 }
 
