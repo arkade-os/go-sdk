@@ -383,6 +383,35 @@ if err != nil {
 log.Infof("Redeemed with tx: %s", txid)
 ```
 
+#### Custom Contract Handlers
+
+The contract manager ships with built-in handlers for the default (offchain) and boarding contract types. You can teach it additional contract types (for example a VHTLC or a delegation script) by registering your own `handlers.Handler` at wallet construction:
+
+```go
+import "github.com/arkade-os/go-sdk/contract/handlers"
+
+// myHandler implements contract/handlers.Handler. The key method is
+// NewContract, which derives the script, address, and params for a given key.
+// See contract/handlers/default for a reference implementation.
+var myHandler handlers.Handler = NewCustomHandler(...)
+
+wallet, err := arksdk.NewWallet(
+    datadir, arksdk.WithContractHandler("custom", myHandler),
+)
+```
+
+Once registered, create and look up contracts of the custom type through the usual manager API:
+
+```go
+mgr := wallet.ContractManager()
+
+// Discover the registered types (built-ins plus your custom ones).
+supported := mgr.Registry().SupportedTypes() // [boarding default vhtlc]
+
+// Create a contract using your handler.
+c, err := mgr.NewContract(ctx, "vhtlc")
+```
+
 ### 5. Additional Wallet Methods
 
 The `Wallet` interface exposes a number of utility methods beyond the basic
