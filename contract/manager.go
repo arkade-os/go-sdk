@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -22,6 +23,7 @@ type contractManager struct {
 	explorer    onchainDataProvider
 	network     arklib.Network
 	registry    Registry
+	mu          sync.RWMutex
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
@@ -58,12 +60,16 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		explorer:    args.Explorer,
 		network:     args.Network,
 		registry:    reg,
+		mu:          sync.RWMutex{},
 	}, nil
 }
 
 func (m *contractManager) Registry() Registry { return m.registry }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for _, contractType := range m.registry.SupportedTypes() {
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
@@ -98,6 +104,9 @@ func (m *contractManager) NewContract(
 	if err != nil {
 		return nil, err
 	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
@@ -134,6 +143,9 @@ func (m *contractManager) GetContracts(
 		}
 	}
 
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	switch {
 	case len(f.scripts) > 0:
 		return m.store.GetContractsByScripts(ctx, f.scripts)
@@ -153,6 +165,9 @@ func (m *contractManager) GetHandler(
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if err := m.store.Clean(ctx); err != nil {
 		return err
 	}
@@ -162,6 +177,9 @@ func (m *contractManager) Clean(ctx context.Context) error {
 }
 
 func (m *contractManager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	log.Debugf("%s closed contract manager", logPrefix)
 }
 
