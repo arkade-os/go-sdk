@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,40 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "m/0/0", c0.Params[ownerKeyIdParam])
 			require.Equal(t, "m/0/1", c1.Params[ownerKeyIdParam])
 			require.Equal(t, "m/0/2", c2.Params[ownerKeyIdParam])
+		})
+
+		t.Run("concurrent calls produce unique contracts", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			const n = 10
+			type result struct {
+				c   *types.Contract
+				err error
+			}
+			results := make(chan result, n)
+
+			var wg sync.WaitGroup
+			wg.Add(n)
+			for range n {
+				go func() {
+					defer wg.Done()
+					c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+					results <- result{c: c, err: err}
+				}()
+			}
+			wg.Wait()
+			close(results)
+
+			scripts := make(map[string]struct{}, n)
+			keyIds := make(map[string]struct{}, n)
+			for r := range results {
+				require.NoError(t, r.err)
+				require.NotNil(t, r.c)
+				scripts[r.c.Script] = struct{}{}
+				keyIds[r.c.Params[ownerKeyIdParam]] = struct{}{}
+			}
+			require.Len(t, scripts, n, "every concurrent call must produce a unique script")
+			require.Len(t, keyIds, n, "every concurrent call must produce a unique key id")
 		})
 	})
 
@@ -521,6 +556,30 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 			}
 			got := mgr.Registry().SupportedTypes()
 			require.Equal(t, expectedTypes, got)
+		})
+
+		t.Run("NewContract dispatches to custom handler and persists", func(t *testing.T) {
+			const customType = types.ContractType("vhtlc")
+			mgr := newTestManagerWithHandlers(
+				t, contract.WithHandler(customType, newMockHandler(t, customType)),
+			)
+
+			c, err := mgr.NewContract(t.Context(), customType)
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			require.Equal(t, customType, c.Type)
+			require.Equal(t, types.ContractStateActive, c.State)
+			// Fresh wallet: first key is m/0/0; mockHandler produces a
+			// deterministic script via fakeScript(type, keyId).
+			require.Equal(t, "m/0/0", c.Params[ownerKeyIdParam])
+			require.Equal(t, fakeScript(customType, "m/0/0"), c.Script)
+			require.Equal(t, "fake:"+c.Script, c.Address)
+
+			// Persisted exactly once and queryable by the custom type.
+			persisted, err := mgr.GetContracts(t.Context(), contract.WithType(customType))
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+			require.Equal(t, c.Script, persisted[0].Script)
 		})
 
 	})

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 )
 
@@ -14,13 +15,13 @@ type ManagerOption func(*managerOptions) error
 // WithHandler registers a custom handler for a non-built-in contract type.
 // Errors if the type is empty, the handler is nil/typed-nil, or the same
 // type was passed to a previous WithHandler in the same NewManager call.
-// Collision with built-in types is detected later, inside newRegistry.
+// Collision with built-in types is detected later, in contract manager.
 func WithHandler(t types.ContractType, h handlers.Handler) ManagerOption {
 	return func(o *managerOptions) error {
 		if t == "" {
 			return fmt.Errorf("missing contract type")
 		}
-		if err := validateHandler(h, t); err != nil {
+		if err := utils.ValidateHandler(h, t); err != nil {
 			return err
 		}
 		if _, dup := o.customHandlers[t]; dup {

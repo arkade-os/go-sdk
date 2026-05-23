@@ -49,7 +49,7 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
 	}
-	reg, err := NewRegistry(builtins, o.customHandlers)
+	reg, err := newRegistry(builtins, o.customHandlers)
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +105,8 @@ func (m *contractManager) NewContract(
 		return nil, err
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
