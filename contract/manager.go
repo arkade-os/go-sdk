@@ -9,6 +9,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
@@ -102,6 +103,22 @@ func (m *contractManager) NewContract(
 		return nil, err
 	}
 	contract.Label = o.label
+
+	// A single-key identity reuses the same key for every contract of a given
+	// type, so the derived script is identical across calls. Treat a repeat as
+	// idempotent reuse and return the stored contract. For an HD identity the
+	// same script instead means the derivation index failed to advance, which
+	// is a real problem, so we surface it as an error.
+	existing, err := m.store.GetContractsByScripts(ctx, []string{contract.Script})
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up existing contract %s: %w", contract.Script, err)
+	}
+	if len(existing) > 0 {
+		if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+			return &existing[0], nil
+		}
+		return nil, fmt.Errorf("contract %s already exists", contract.Script)
+	}
 
 	keyRef, err := handler.GetKeyRef(*contract)
 	if err != nil {
