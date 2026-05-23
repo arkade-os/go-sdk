@@ -131,6 +131,19 @@ func (m *contractManager) NewContract(
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+		// The preflight lookup above is only atomic within this manager
+		// instance: the mutex is per-process, so a second instance sharing the
+		// store can insert the same script between our lookup and this insert,
+		// failing the UNIQUE(script) constraint here. For a single-key identity
+		// that collision is the same idempotent-reuse case handled above, so
+		// re-read and return the stored contract. A row is only present when the
+		// failure was the duplicate, so any other error still propagates.
+		if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+			existing, lookupErr := m.store.GetContractsByScripts(ctx, []string{contract.Script})
+			if lookupErr == nil && len(existing) > 0 {
+				return &existing[0], nil
+			}
+		}
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 

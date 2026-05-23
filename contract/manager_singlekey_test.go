@@ -3,6 +3,7 @@ package contract_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
@@ -198,4 +199,95 @@ func TestManagerNewContractLookupError(t *testing.T) {
 	_, err = mgr.NewContract(t.Context(), types.ContractTypeDefault)
 	require.ErrorContains(t, err, "failed to look up existing contract")
 	require.ErrorContains(t, err, "lookup err")
+}
+
+// raceStore simulates a second manager instance sharing the same store: the
+// preflight lookup sees nothing, but by the time AddContract runs the script
+// has been inserted elsewhere, so the insert fails with the store's
+// duplicate-key error and the follow-up lookup finds the row. Everything else
+// delegates to the embedded store (notably GetLatestContract).
+type raceStore struct {
+	types.ContractStore
+	inserted *types.Contract
+}
+
+func (s *raceStore) GetContractsByScripts(
+	context.Context, []string,
+) ([]types.Contract, error) {
+	if s.inserted != nil {
+		return []types.Contract{*s.inserted}, nil
+	}
+	return nil, nil
+}
+
+func (s *raceStore) AddContract(_ context.Context, c types.Contract, _ uint32) error {
+	s.inserted = &c
+	return fmt.Errorf("contract %s already exists", c.Script)
+}
+
+// When the preflight lookup misses and AddContract then loses an insert race to
+// another instance sharing the store, a single-key identity must still get
+// idempotent reuse (the stored contract), while any other identity surfaces the
+// insert error.
+func TestManagerNewContractInsertRace(t *testing.T) {
+	t.Run("single-key reuses the stored contract", func(t *testing.T) {
+		env := newMockedEnv(t)
+
+		skStore, err := singlekeystore.NewStore()
+		require.NoError(t, err)
+		id, err := singlekeyidentity.NewIdentity(skStore)
+		require.NoError(t, err)
+		_, err = id.Create(t.Context(), chaincfg.RegressionNetParams, testPassword, "")
+		require.NoError(t, err)
+		_, err = id.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		svc, err := store.NewStore(store.Config{
+			StoreType: types.SQLStore,
+			Args:      t.TempDir(),
+		})
+		require.NoError(t, err)
+		t.Cleanup(svc.Close)
+
+		mgr, err := contract.NewManager(contract.Args{
+			Store:       &raceStore{ContractStore: svc.ContractStore()},
+			KeyProvider: id,
+			Client:      env.transport,
+			Indexer:     env.indexer,
+			Explorer:    env.explorer,
+			Network:     testNetwork,
+		})
+		require.NoError(t, err)
+		t.Cleanup(mgr.Close)
+
+		c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+		require.NoError(t, err)
+		require.NotEmpty(t, c.Script)
+	})
+
+	t.Run("hd surfaces the insert error", func(t *testing.T) {
+		env := newMockedEnv(t)
+
+		svc, err := store.NewStore(store.Config{
+			StoreType: types.SQLStore,
+			Args:      t.TempDir(),
+		})
+		require.NoError(t, err)
+		t.Cleanup(svc.Close)
+
+		mgr, err := contract.NewManager(contract.Args{
+			Store:       &raceStore{ContractStore: svc.ContractStore()},
+			KeyProvider: env.identity,
+			Client:      env.transport,
+			Indexer:     env.indexer,
+			Explorer:    env.explorer,
+			Network:     testNetwork,
+		})
+		require.NoError(t, err)
+		t.Cleanup(mgr.Close)
+
+		_, err = mgr.NewContract(t.Context(), types.ContractTypeDefault)
+		require.ErrorContains(t, err, "failed to store contract")
+		require.ErrorContains(t, err, "already exists")
+	})
 }
