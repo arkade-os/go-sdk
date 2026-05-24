@@ -34,8 +34,9 @@ func setupArkd() error {
 	}
 
 	fmt.Println("waiting for arkd to be ready...")
-	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
-	status, err := getStatusWithRetry(adminHttpClient, url, 30, 2*time.Second)
+	status, err := waitForStatus(adminHttpClient, 30, 2*time.Second, func(*statusResp) bool {
+		return true
+	})
 	if err != nil {
 		return err
 	}
@@ -59,7 +60,7 @@ func setupArkd() error {
 	}
 
 	fmt.Println("getting wallet seed...")
-	url = fmt.Sprintf("%s/v1/admin/wallet/seed", adminUrl)
+	url := fmt.Sprintf("%s/v1/admin/wallet/seed", adminUrl)
 	seed, err := get[seedResp](adminHttpClient, url, "seed")
 	if err != nil {
 		return err
@@ -120,35 +121,34 @@ func get[T any](httpClient *http.Client, url, name string) (*T, error) {
 	return &data, nil
 }
 
-func getStatusWithRetry(
-	httpClient *http.Client, url string, attempts int, interval time.Duration,
+func waitForStatus(
+	httpClient *http.Client, attempts int, interval time.Duration, ready func(*statusResp) bool,
 ) (*statusResp, error) {
+	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
 	var lastErr error
 	for i := 1; i <= attempts; i++ {
 		status, err := get[statusResp](httpClient, url, "status")
-		if err == nil {
+		if err != nil {
+			lastErr = err
+			fmt.Printf("arkd not ready yet (attempt %d/%d): %s\n", i, attempts, err)
+		} else if ready(status) {
 			return status, nil
 		}
-		lastErr = err
-		fmt.Printf("arkd not ready yet (attempt %d/%d): %s\n", i, attempts, err)
-		time.Sleep(interval)
+		if i < attempts {
+			time.Sleep(interval)
+		}
 	}
-	return nil, fmt.Errorf("arkd did not become reachable after %d attempts: %s", attempts, lastErr)
+	if lastErr != nil {
+		return nil, fmt.Errorf("arkd did not become ready after %d attempts: %s", attempts, lastErr)
+	}
+	return nil, fmt.Errorf("arkd did not become ready after %d attempts", attempts)
 }
 
 func waitUntilReady(httpClient *http.Client) error {
-	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
-	attempts := 30
-	for i := 1; i <= attempts; i++ {
-		status, err := get[statusResp](httpClient, url, "status")
-		if err != nil {
-			fmt.Printf("arkd not reachable yet (attempt %d/%d): %s\n", i, attempts, err)
-		} else if status.Initialized && status.Unlocked && status.Synced {
-			return nil
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return fmt.Errorf("arkd wallet did not become ready after %d attempts", attempts)
+	_, err := waitForStatus(httpClient, 30, 2*time.Second, func(s *statusResp) bool {
+		return s.Initialized && s.Unlocked && s.Synced
+	})
+	return err
 }
 
 func refill(httpClient *http.Client) error {
