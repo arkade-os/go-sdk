@@ -133,6 +133,11 @@ func waitForStatus(
 			fmt.Printf("arkd not ready yet (attempt %d/%d): %s\n", i, attempts, err)
 		} else if ready(status) {
 			return status, nil
+		} else {
+			fmt.Printf(
+				"arkd reachable but not ready yet (attempt %d/%d): initialized=%v unlocked=%v synced=%v\n",
+				i, attempts, status.Initialized, status.Unlocked, status.Synced,
+			)
 		}
 		if i < attempts {
 			time.Sleep(interval)
