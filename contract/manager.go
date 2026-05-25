@@ -93,6 +93,18 @@ func (m *contractManager) NewContract(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+		// A single-key identity reuses the same key for every contract of a given type, so the
+		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
+		// the stored contract.
+		// nolint
+		contracts, _ := m.store.GetContractsByType(ctx, contractType)
+		if len(contracts) > 0 {
+			contract := contracts[0]
+			return &contract, nil
+		}
+	}
+
 	handler, ok := m.handlers[contractType]
 	if !ok {
 		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
@@ -103,22 +115,6 @@ func (m *contractManager) NewContract(
 		return nil, err
 	}
 	contract.Label = o.label
-
-	// A single-key identity reuses the same key for every contract of a given
-	// type, so the derived script is identical across calls. Treat a repeat as
-	// idempotent reuse and return the stored contract. For an HD identity the
-	// same script instead means the derivation index failed to advance, which
-	// is a real problem, so we surface it as an error.
-	existing, err := m.store.GetContractsByScripts(ctx, []string{contract.Script})
-	if err != nil {
-		return nil, fmt.Errorf("failed to look up existing contract %s: %w", contract.Script, err)
-	}
-	if len(existing) > 0 {
-		if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-			return &existing[0], nil
-		}
-		return nil, fmt.Errorf("contract %s already exists", contract.Script)
-	}
 
 	keyRef, err := handler.GetKeyRef(*contract)
 	if err != nil {
@@ -131,19 +127,6 @@ func (m *contractManager) NewContract(
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
-		// The preflight lookup above is only atomic within this manager
-		// instance: the mutex is per-process, so a second instance sharing the
-		// store can insert the same script between our lookup and this insert,
-		// failing the UNIQUE(script) constraint here. For a single-key identity
-		// that collision is the same idempotent-reuse case handled above, so
-		// re-read and return the stored contract. A row is only present when the
-		// failure was the duplicate, so any other error still propagates.
-		if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-			existing, lookupErr := m.store.GetContractsByScripts(ctx, []string{contract.Script})
-			if lookupErr == nil && len(existing) > 0 {
-				return &existing[0], nil
-			}
-		}
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
