@@ -78,6 +78,7 @@ func (a Args) validate() error {
 // resolve, derive, and fetch keys for contracts. Kept unexported so the
 // manager owns its dependency surface and we can grow it as needed.
 type keyProvider interface {
+	GetType() string
 	GetKeyIndex(ctx context.Context, id string) (uint32, error)
 	NextKeyId(ctx context.Context, id string) (string, error)
 	GetKey(ctx context.Context, id string) (*identity.KeyRef, error)
