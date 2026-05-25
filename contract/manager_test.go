@@ -87,6 +87,21 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "m/0/2", c2.Params[ownerKeyIdParam])
 		})
 
+		t.Run("sequential boarding calls advance the key index", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			c0, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+			require.NoError(t, err)
+			c1, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+			require.NoError(t, err)
+			c2, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+			require.NoError(t, err)
+
+			require.Equal(t, "m/0/0", c0.Params[ownerKeyIdParam])
+			require.Equal(t, "m/0/1", c1.Params[ownerKeyIdParam])
+			require.Equal(t, "m/0/2", c2.Params[ownerKeyIdParam])
+		})
+
 		t.Run("concurrent calls produce unique contracts", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 

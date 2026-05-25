@@ -7,6 +7,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
@@ -70,11 +71,22 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+		// A single-key identity has only one derivable contract per type, so the
+		// gap-limit loop would just churn on the same script. Derive each type's
+		// one contract and batch the offchain probe into a single indexer call;
+		// boarding still goes per-address through the explorer.
+		return m.scanSingleKeyContracts(ctx)
+	}
+
 	for _, contractType := range m.registry.SupportedTypes() {
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
 		}
+		// Pick the "is this contract used externally?" probe for the type:
+		// boarding contracts are looked up via the explorer per-address (and
+		// throttled), offchain ones via the indexer's batch GetVtxos.
 		findUsed := m.findUsedContracts
 		if contractType == types.ContractTypeBoarding {
 			findUsed = m.findUsedBoardingContracts
@@ -107,6 +119,20 @@ func (m *contractManager) NewContract(
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+		// A single-key identity reuses the same key for every contract of a given type, so the
+		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
+		// the stored contract.
+		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		if err != nil {
+			return nil, err
+		}
+		if len(contracts) > 0 {
+			contract := contracts[0]
+			return &contract, nil
+		}
+	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
@@ -376,4 +402,102 @@ func (m *contractManager) findUsedBoardingContracts(
 		}
 	}
 	return used, nil
+}
+
+// scanSingleKeyContracts derives the one contract each registered type can
+// produce under a single-key identity and probes external state to decide
+// which to persist. Offchain types are batched into a single indexer call;
+// boarding types go through the per-address explorer probe (one call per
+// type — at most one boarding handler is registered today).
+func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
+	type pending struct {
+		typ      types.ContractType
+		contract types.Contract
+		keyIdx   uint32
+	}
+	var offchain, boarding []pending
+
+	for _, contractType := range m.registry.SupportedTypes() {
+		handler, err := m.registry.GetHandler(contractType)
+		if err != nil {
+			return err
+		}
+		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		if err != nil {
+			return err
+		}
+		if len(contracts) > 0 {
+			continue
+		}
+		keyId, err := m.keyProvider.NextKeyId(ctx, "")
+		if err != nil {
+			return err
+		}
+		idx, err := m.keyProvider.GetKeyIndex(ctx, keyId)
+		if err != nil {
+			return err
+		}
+		keyRef, err := m.keyProvider.GetKey(ctx, keyId)
+		if err != nil {
+			return err
+		}
+		c, err := handler.NewContract(ctx, *keyRef)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to derive %s contract for key %s: %w", contractType, keyId, err,
+			)
+		}
+		p := pending{typ: contractType, contract: *c, keyIdx: idx}
+		if contractType == types.ContractTypeBoarding {
+			boarding = append(boarding, p)
+		} else {
+			offchain = append(offchain, p)
+		}
+	}
+
+	// One indexer round-trip for every offchain type at once.
+	var offchainUsed map[string]struct{}
+	if len(offchain) > 0 {
+		batch := make([]types.Contract, len(offchain))
+		for i, p := range offchain {
+			batch[i] = p.contract
+		}
+		used, err := m.findUsedContracts(ctx, batch)
+		if err != nil {
+			return err
+		}
+		offchainUsed = used
+	}
+
+	persist := func(p pending) error {
+		if err := m.store.AddContract(ctx, p.contract, p.keyIdx); err != nil {
+			return fmt.Errorf("failed to store %s contract: %w", p.typ, err)
+		}
+		log.Debugf("%s added new %s contract %s", logPrefix, p.typ, p.contract.Script)
+		return nil
+	}
+
+	for _, p := range offchain {
+		if _, isUsed := offchainUsed[p.contract.Script]; !isUsed {
+			continue
+		}
+		if err := persist(p); err != nil {
+			return err
+		}
+	}
+
+	for _, p := range boarding {
+		used, err := m.findUsedBoardingContracts(ctx, []types.Contract{p.contract})
+		if err != nil {
+			return err
+		}
+		if _, isUsed := used[p.contract.Script]; !isUsed {
+			continue
+		}
+		if err := persist(p); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
