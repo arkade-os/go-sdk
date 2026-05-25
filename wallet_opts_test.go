@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"testing"
 	"time"
 
@@ -214,7 +213,7 @@ func (h *mockHandler) GetKeyRefs(types.Contract) (map[string]string, error) {
 	return nil, nil
 }
 func (h *mockHandler) GetKeyRef(types.Contract) (*identity.KeyRef, error) {
-	return nil, errors.New("not implemented")
+	return nil, nil
 }
 func (h *mockHandler) GetSignerKey(types.Contract) (*btcec.PublicKey, error) {
 	return nil, nil

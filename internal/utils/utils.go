@@ -95,6 +95,9 @@ func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
 	if err != nil {
 		return fmt.Errorf("custom handler NewContract fails: %w", err)
 	}
+	if c == nil {
+		return fmt.Errorf("custom handler NewContract returns nil contract")
+	}
 	if c.Type != t {
 		return fmt.Errorf(
 			"contract handler creates contracts with wrong type: expected %s, got %s", t, c.Type,
