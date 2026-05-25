@@ -28,6 +28,10 @@ type contractManager struct {
 	// TODO: this must become a registry so that users can register their custom handlers at will.
 	handlers map[types.ContractType]handlers.Handler
 	mu       sync.RWMutex
+
+	cbMu   sync.RWMutex
+	cbs    map[int]func(types.Contract)
+	cbNext int
 }
 
 func NewManager(args Args) (Manager, error) {
@@ -53,7 +57,33 @@ func NewManager(args Args) (Manager, error) {
 		handlers:    handlers,
 		network:     args.Network,
 		mu:          sync.RWMutex{},
+		cbs:         make(map[int]func(types.Contract)),
 	}, nil
+}
+
+func (m *contractManager) OnContractEvent(cb func(types.Contract)) func() {
+	m.cbMu.Lock()
+	id := m.cbNext
+	m.cbNext++
+	m.cbs[id] = cb
+	m.cbMu.Unlock()
+	return func() {
+		m.cbMu.Lock()
+		delete(m.cbs, id)
+		m.cbMu.Unlock()
+	}
+}
+
+func (m *contractManager) emit(c types.Contract) {
+	m.cbMu.RLock()
+	cbs := make([]func(types.Contract), 0, len(m.cbs))
+	for _, cb := range m.cbs {
+		cbs = append(cbs, cb)
+	}
+	m.cbMu.RUnlock()
+	for _, cb := range cbs {
+		cb(c)
+	}
 }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
@@ -99,7 +129,6 @@ func (m *contractManager) NewContract(
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
 		// A single-key identity reuses the same key for every contract of a given type, so the
@@ -117,30 +146,38 @@ func (m *contractManager) NewContract(
 
 	handler, ok := m.handlers[contractType]
 	if !ok {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	contract.Label = o.label
 
 	keyRef, err := handler.GetKeyRef(*contract)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 	}
 
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
 	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
+	m.mu.Unlock()
+
+	m.emit(*contract)
 
 	return contract, nil
 }
