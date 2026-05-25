@@ -100,6 +100,10 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	}
 	w.logMu.Unlock()
 
+	mgrOpts := make([]contract.ManagerOption, 0, len(w.customHandlers))
+	for t, h := range w.customHandlers {
+		mgrOpts = append(mgrOpts, contract.WithHandler(t, h))
+	}
 	mgr, err := contract.NewManager(contract.Args{
 		Store:       w.store.ContractStore(),
 		KeyProvider: w.Identity(),
@@ -107,7 +111,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		Indexer:     w.Indexer(),
 		Explorer:    w.Explorer(),
 		Network:     w.network,
-	})
+	}, mgrOpts...)
 	if err != nil {
 		if lockErr := w.Identity().Lock(ctx); lockErr != nil {
 			return fmt.Errorf(

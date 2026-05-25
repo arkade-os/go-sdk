@@ -20,6 +20,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -309,4 +310,109 @@ func (e *mockedEnv) markBoardingUsed(t *testing.T, keyIds ...string) {
 	for _, k := range keyIds {
 		e.explorer.usedAddresses[e.deriveBoarding(k).Address] = struct{}{}
 	}
+}
+
+// newValidTestArgs returns a freshly wired Args with a mocked env. Use
+// when a test wants to call contract.NewManager directly (for example to
+// pass ManagerOptions and assert on the construction result).
+func newValidTestArgs(t *testing.T) contract.Args {
+	t.Helper()
+	env := newMockedEnv(t)
+	svc, err := store.NewStore(store.Config{
+		StoreType: types.SQLStore,
+		Args:      t.TempDir(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(svc.Close)
+	return contract.Args{
+		Store:       svc.ContractStore(),
+		KeyProvider: env.identity,
+		Client:      env.transport,
+		Indexer:     env.indexer,
+		Explorer:    env.explorer,
+		Network:     testNetwork,
+	}
+}
+
+// newTestManagerWithHandlers is like newTestManager but lets the caller
+// pass extra ManagerOptions (typically contract.WithHandler calls). The
+// store handle is not returned because none of the call sites need it.
+func newTestManagerWithHandlers(
+	t *testing.T, opts ...contract.ManagerOption,
+) contract.Manager {
+	t.Helper()
+	mgr, err := contract.NewManager(newValidTestArgs(t), opts...)
+	require.NoError(t, err)
+	t.Cleanup(mgr.Close)
+	return mgr
+}
+
+// mockedHandler is a testify-mock-based handlers.Handler. Behavior is configured per test via
+// .On(...) / .Return(...) chains; the test helper mockHandler wires every method to a successful
+// default response.
+type mockedHandler struct {
+	mock.Mock
+}
+
+func (h *mockedHandler) NewContract(
+	ctx context.Context, k identity.KeyRef,
+) (*types.Contract, error) {
+	a := h.Called(ctx, k)
+	c, _ := a.Get(0).(*types.Contract)
+	return c, a.Error(1)
+}
+
+func (h *mockedHandler) GetKeyRefs(c types.Contract) (map[string]string, error) {
+	a := h.Called(c)
+	m, _ := a.Get(0).(map[string]string)
+	return m, a.Error(1)
+}
+
+func (h *mockedHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
+	a := h.Called(c)
+	r, _ := a.Get(0).(*identity.KeyRef)
+	return r, a.Error(1)
+}
+
+func (h *mockedHandler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
+	a := h.Called(c)
+	p, _ := a.Get(0).(*btcec.PublicKey)
+	return p, a.Error(1)
+}
+
+func (h *mockedHandler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
+	a := h.Called(c)
+	d, _ := a.Get(0).(*arklib.RelativeLocktime)
+	return d, a.Error(1)
+}
+
+func (h *mockedHandler) GetTapscripts(c types.Contract) ([]string, error) {
+	a := h.Called(c)
+	s, _ := a.Get(0).([]string)
+	return s, a.Error(1)
+}
+
+// mockHandler wires every method on h to a successful default response, with NewContract returning
+// a contract of type ct.
+// Fixtures that want to force a specific behavior register their .On(...) calls first
+// (first match wins) and then call mockHandler for the rest.
+func mockHandler(h *mockedHandler, ct types.ContractType) {
+	h.On("NewContract", mock.Anything, mock.Anything).Return(
+		&types.Contract{
+			Type:    ct,
+			State:   types.ContractStateActive,
+			Script:  string(ct) + "-script",
+			Address: string(ct) + "-address",
+			Params:  map[string]string{ownerKeyIdParam: "m/0/0"},
+		}, nil,
+	)
+	h.On("GetKeyRefs", mock.Anything).Return(
+		map[string]string{ownerKeyIdParam: "m/0/0"}, nil,
+	)
+	h.On("GetKeyRef", mock.Anything).Return(
+		&identity.KeyRef{Id: "m/0/0"}, nil,
+	)
+	h.On("GetSignerKey", mock.Anything).Return(nil, nil)
+	h.On("GetExitDelay", mock.Anything).Return(nil, nil)
+	h.On("GetTapscripts", mock.Anything).Return(nil, nil)
 }

@@ -3,8 +3,6 @@ package contract
 import (
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"sync"
 	"time"
 
@@ -25,36 +23,49 @@ type contractManager struct {
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
-	// TODO: this must become a registry so that users can register their custom handlers at will.
-	handlers map[types.ContractType]handlers.Handler
-	mu       sync.RWMutex
+	registry    Registry
+	mu          sync.RWMutex
 }
 
-func NewManager(args Args) (Manager, error) {
+func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	if err := args.validate(); err != nil {
 		return nil, err
 	}
+	o := newDefaultManagerOption()
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, fmt.Errorf("manager option cannot be nil")
+		}
+		if err := opt(o); err != nil {
+			return nil, fmt.Errorf("invalid option: %w", err)
+		}
+	}
+
 	// Wrap the transport client once with a shared GetInfo cache so all
-	// handlers (default, boarding, and any future vhtlc/delegate kinds)
-	// reuse the same cached server info instead of fanning out a
-	// per-handler cache.
+	// built-in handlers reuse the same cached server info. Custom handlers
+	// supplied via WithHandler are constructed outside the manager and own
+	// their own client wiring.
 	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
-	// TODO: 1. support also delegate and vhtlc handlers
-	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
-	handlers := map[types.ContractType]handlers.Handler{
+	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+	}
+	reg, err := newRegistry(builtins, o.customHandlers)
+	if err != nil {
+		return nil, err
 	}
 	return &contractManager{
 		store:       args.Store,
 		keyProvider: args.KeyProvider,
 		indexer:     args.Indexer,
 		explorer:    args.Explorer,
-		handlers:    handlers,
 		network:     args.Network,
+		registry:    reg,
 		mu:          sync.RWMutex{},
 	}, nil
 }
+
+func (m *contractManager) Registry() Registry { return m.registry }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
 	m.mu.Lock()
@@ -68,7 +79,11 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 		return m.scanSingleKeyContracts(ctx)
 	}
 
-	for contractType, handler := range m.handlers {
+	for _, contractType := range m.registry.SupportedTypes() {
+		handler, err := m.registry.GetHandler(contractType)
+		if err != nil {
+			return err
+		}
 		// Pick the "is this contract used externally?" probe for the type:
 		// boarding contracts are looked up via the explorer per-address (and
 		// throttled), offchain ones via the indexer's batch GetVtxos.
@@ -80,7 +95,6 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -98,6 +112,11 @@ func (m *contractManager) NewContract(
 		}
 	}
 
+	handler, err := m.registry.GetHandler(contractType)
+	if err != nil {
+		return nil, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -113,11 +132,6 @@ func (m *contractManager) NewContract(
 			contract := contracts[0]
 			return &contract, nil
 		}
-	}
-
-	handler, ok := m.handlers[contractType]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
@@ -145,13 +159,6 @@ func (m *contractManager) NewContract(
 	return contract, nil
 }
 
-func (m *contractManager) GetSupportedContractTypes(_ context.Context) []types.ContractType {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return slices.Collect(maps.Keys(m.handlers))
-}
-
 func (m *contractManager) GetContracts(
 	ctx context.Context, opts ...FilterOption,
 ) ([]types.Contract, error) {
@@ -161,6 +168,7 @@ func (m *contractManager) GetContracts(
 			return nil, err
 		}
 	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -177,16 +185,9 @@ func (m *contractManager) GetContracts(
 }
 
 func (m *contractManager) GetHandler(
-	_ context.Context, contract types.Contract,
+	_ context.Context, c types.Contract,
 ) (handlers.Handler, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	handler, ok := m.handlers[contract.Type]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
-	}
-	return handler, nil
+	return m.registry.GetHandler(c.Type)
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {
@@ -416,7 +417,11 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 	}
 	var offchain, boarding []pending
 
-	for contractType, handler := range m.handlers {
+	for _, contractType := range m.registry.SupportedTypes() {
+		handler, err := m.registry.GetHandler(contractType)
+		if err != nil {
+			return err
+		}
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return err

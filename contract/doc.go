@@ -27,9 +27,10 @@
 //
 //   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
 //     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to every registered handler, so all
-//     handlers (and any future vhtlc/delegate kinds) share a single
-//     GetInfo cache rather than fanning one out per handler.
+//     and hands the wrapped client to the built-in handlers (default,
+//     boarding) so they share a single GetInfo cache. Handlers added by
+//     callers via [WithHandler] are constructed outside the manager and
+//     own their own client wiring — see the Extending section below.
 //
 //   - keyProvider (unexported, defined in types.go) is the subset of the
 //     identity.Identity surface the manager needs to derive contracts:
@@ -74,22 +75,36 @@
 //
 // # Concurrency
 //
-// The manager guards its handler map with an [sync.RWMutex]. Lookups
-// (GetContracts, GetHandler, GetSupportedContractTypes) hold a read lock;
-// mutations (NewContract, ScanContracts, Clean, Close) hold the write
-// lock. The store and the info cache have their own internal locking.
+// The handler map (the [Registry]) is sealed at NewManager time and
+// needs no lock — reads are concurrent-safe by virtue of immutability.
+// The manager guards store and key-provider access with an
+// [sync.RWMutex]: mutations (NewContract, ScanContracts, Clean, Close)
+// hold the write lock; reads (GetContracts) hold the read lock. The
+// store and the info cache have their own internal locking on top.
 //
 // # Extending with new contract types
 //
-// New handler kinds (vhtlc, delegate, …) plug in by:
+// New handler kinds (vhtlc, delegate, custom user-defined contracts, …)
+// plug in by:
 //  1. Implementing handlers.Handler (see contract/handlers/handler.go).
-//  2. Registering the handler in NewManager's handlers map under a new
-//     types.ContractType.
+//  2. Passing the handler to NewManager via [WithHandler], keyed by a
+//     new types.ContractType. WithHandler rejects empty types, nil
+//     handlers, typed-nil concrete values, and duplicates in the same
+//     options list. NewManager additionally rejects any type that
+//     collides with a built-in (default, boarding).
 //  3. If the new type's "has this contract been used externally?" probe
 //     differs from the indexer or explorer paths the dispatcher already
 //     knows about, adding a branch in ScanContracts that selects the
-//     correct findUsedFn.
+//     correct findUsedFn. By default ScanContracts uses the indexer
+//     (offchain) path for any non-boarding type.
 //
-// The handler map is presently hardcoded in NewManager — see the TODOs
-// there for the eventual move to a registry callers can extend.
+// User-registered handlers are responsible for their own client caching.
+// The manager wraps args.Client with a shared GetInfo cache and hands
+// the wrapped client to the built-in handlers only — handlers
+// constructed by callers were built before the manager existed and need
+// not depend on client.Client at all.
+//
+// At the wallet layer, callers use [arksdk.WithContractHandler] to
+// register handlers at NewWallet time; the wallet translates them to
+// contract.WithHandler options inside Unlock.
 package contract
