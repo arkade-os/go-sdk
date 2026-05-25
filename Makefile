@@ -1,4 +1,4 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smoketest bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -55,24 +55,10 @@ regtestdown:
 integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e
 
-## smoketest: runs long-running e2e smoke tests (skipped in CI). Smoke
-## test files are gated behind the "smoke" build tag and tests follow the
-## TestSmoke* naming convention; CI doesn't pass the tag, so they never
-## get compiled there.
-smoketest:
-	@go test -v -count=1 -timeout 60m -tags=smoke -run 'Smoke' ./test/e2e
-
-## stress-1k: 1K-tier stress test
-stress-1k:
-	@STRESS_TIER=1k go test -v -count=1 -race -timeout 30m -tags=stress -run 'TestStressHDWalletAndContractManager' ./test/stress/...
-
-## stress-10k: 10K-tier stress test
-stress-10k:
-	@STRESS_TIER=10k go test -v -count=1 -timeout 120m -tags=stress -run 'TestStressHDWalletAndContractManager' ./test/stress/...
-
-## stress-50k: 50K-tier stress test
-stress-50k:
-	@STRESS_TIER=50k go test -v -count=1 -timeout 300m -tags=stress -run 'TestStressHDWalletAndContractManager' ./test/stress/...
+## smokehd: runs the HD wallet restore smoke test. Optional:
+## SMOKE_TIER=1k|10k|50k, defaults to 1k.
+smokehd:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
 
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:
