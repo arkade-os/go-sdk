@@ -1,13 +1,18 @@
 package utils
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strconv"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 )
 
@@ -64,5 +69,52 @@ func ValidateHandler(h handlers.Handler, t types.ContractType) error {
 			return fmt.Errorf("nil concrete handler for contract type %q", t)
 		}
 	}
+	if err := handlerSanityCheck(h, t); err != nil {
+		return err
+	}
+	return nil
+}
+
+func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+
+	randomId := hex.EncodeToString(buf)
+	randomKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return err
+	}
+
+	fakeId := identity.KeyRef{
+		Id:     randomId,
+		PubKey: randomKey.PubKey(),
+	}
+	c, err := h.NewContract(context.Background(), fakeId)
+	if err != nil {
+		return fmt.Errorf("custom handler NewContract fails: %w", err)
+	}
+	if c.Type != t {
+		return fmt.Errorf(
+			"contract handler creates contracts with wrong type: expected %s, got %s", t, c.Type,
+		)
+	}
+	if _, err := h.GetKeyRefs(*c); err != nil {
+		return fmt.Errorf("custom handler GetKeyRefs fails: %w", err)
+	}
+	if _, err := h.GetKeyRef(*c); err != nil {
+		return fmt.Errorf("custom handler GetKeyRef fails: %w", err)
+	}
+	if _, err := h.GetSignerKey(*c); err != nil {
+		return fmt.Errorf("custom handler GetSignerKey fails: %w", err)
+	}
+	if _, err := h.GetExitDelay(*c); err != nil {
+		return fmt.Errorf("custom handler GetExitDelay fails: %w", err)
+	}
+	if _, err := h.GetTapscripts(*c); err != nil {
+		return fmt.Errorf("custom handler GetTapscripts fails: %w", err)
+	}
+
 	return nil
 }
