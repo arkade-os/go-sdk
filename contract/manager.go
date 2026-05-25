@@ -105,7 +105,6 @@ func (m *contractManager) NewContract(
 		// A single-key identity reuses the same key for every contract of a given type, so the
 		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
 		// the stored contract.
-		// nolint
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
@@ -418,9 +417,11 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 	var offchain, boarding []pending
 
 	for contractType, handler := range m.handlers {
-		// nolint
-		existing, _ := m.store.GetContractsByType(ctx, contractType)
-		if len(existing) > 0 {
+		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		if err != nil {
+			return err
+		}
+		if len(contracts) > 0 {
 			continue
 		}
 		keyId, err := m.keyProvider.NextKeyId(ctx, "")
