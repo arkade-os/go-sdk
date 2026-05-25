@@ -75,11 +75,12 @@
 //
 // # Concurrency
 //
-// The handler map is sealed at NewManager time: it cannot be mutated
-// once the manager is constructed. There is therefore no mutex on the
-// manager — registry reads are concurrent-safe by virtue of
-// immutability. The store and the info cache have their own internal
-// locking.
+// The handler map (the [Registry]) is sealed at NewManager time and
+// needs no lock — reads are concurrent-safe by virtue of immutability.
+// The manager guards store and key-provider access with an
+// [sync.RWMutex]: mutations (NewContract, ScanContracts, Clean, Close)
+// hold the write lock; reads (GetContracts) hold the read lock. The
+// store and the info cache have their own internal locking on top.
 //
 // # Extending with new contract types
 //
