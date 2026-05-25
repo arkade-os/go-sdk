@@ -106,7 +106,10 @@ func (m *contractManager) NewContract(
 		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
 		// the stored contract.
 		// nolint
-		contracts, _ := m.store.GetContractsByType(ctx, contractType)
+		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		if err != nil {
+			return nil, err
+		}
 		if len(contracts) > 0 {
 			contract := contracts[0]
 			return &contract, nil
