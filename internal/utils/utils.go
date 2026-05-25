@@ -100,8 +100,11 @@ func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
 	}
 	if c.Type != t {
 		return fmt.Errorf(
-			"contract handler creates contracts with wrong type: expected %s, got %s", t, c.Type,
+			"custom handler creates contracts with wrong type: expected %s, got %s", t, c.Type,
 		)
+	}
+	if len(c.Script) <= 0 {
+		return fmt.Errorf("custom handler creates contracts with empty script")
 	}
 	if _, err := h.GetKeyRefs(*c); err != nil {
 		return fmt.Errorf("custom handler GetKeyRefs fails: %w", err)

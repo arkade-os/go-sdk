@@ -2,9 +2,7 @@ package contract_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -22,6 +20,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -348,69 +347,72 @@ func newTestManagerWithHandlers(
 	return mgr
 }
 
-// mockHandler is a minimal handlers.Handler used by the registry tests so
-// they don't depend on the default/boarding handlers' wiring (transport
-// client, network, etc.). It produces a deterministic contract from a
-// keyRef so scan-loop tests can predict scripts.
-type mockHandler struct {
-	typ       types.ContractType
-	exitDelay arklib.RelativeLocktime
+// mockedHandler is a testify-mock-based handlers.Handler. Behavior is configured per test via
+// .On(...) / .Return(...) chains; the test helper mockHandler wires every method to a successful
+// default response.
+type mockedHandler struct {
+	mock.Mock
 }
 
-func newMockHandler(t *testing.T, typ types.ContractType) *mockHandler {
-	t.Helper()
-	return &mockHandler{
-		typ: typ,
-		exitDelay: arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeSecond,
-			Value: 144,
-		},
-	}
-}
-
-func (h *mockHandler) NewContract(
-	_ context.Context, keyRef identity.KeyRef,
+func (h *mockedHandler) NewContract(
+	ctx context.Context, k identity.KeyRef,
 ) (*types.Contract, error) {
-	script := fakeScript(h.typ, keyRef.Id)
-	return &types.Contract{
-		Type:    h.typ,
-		State:   types.ContractStateActive,
-		Script:  script,
-		Address: "fake:" + script,
-		Params: map[string]string{
-			ownerKeyIdParam: keyRef.Id,
-		},
-	}, nil
+	a := h.Called(ctx, k)
+	c, _ := a.Get(0).(*types.Contract)
+	return c, a.Error(1)
 }
 
-func (h *mockHandler) GetKeyRefs(c types.Contract) (map[string]string, error) {
-	return map[string]string{ownerKeyIdParam: c.Params[ownerKeyIdParam]}, nil
+func (h *mockedHandler) GetKeyRefs(c types.Contract) (map[string]string, error) {
+	a := h.Called(c)
+	m, _ := a.Get(0).(map[string]string)
+	return m, a.Error(1)
 }
 
-func (h *mockHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
-	id, ok := c.Params[ownerKeyIdParam]
-	if !ok {
-		return nil, fmt.Errorf("missing %s in params", ownerKeyIdParam)
-	}
-	return &identity.KeyRef{Id: id}, nil
+func (h *mockedHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
+	a := h.Called(c)
+	r, _ := a.Get(0).(*identity.KeyRef)
+	return r, a.Error(1)
 }
 
-func (h *mockHandler) GetSignerKey(_ types.Contract) (*btcec.PublicKey, error) {
-	return nil, nil
+func (h *mockedHandler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
+	a := h.Called(c)
+	p, _ := a.Get(0).(*btcec.PublicKey)
+	return p, a.Error(1)
 }
 
-func (h *mockHandler) GetExitDelay(_ types.Contract) (*arklib.RelativeLocktime, error) {
-	d := h.exitDelay
-	return &d, nil
+func (h *mockedHandler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
+	a := h.Called(c)
+	d, _ := a.Get(0).(*arklib.RelativeLocktime)
+	return d, a.Error(1)
 }
 
-func (h *mockHandler) GetTapscripts(_ types.Contract) ([]string, error) {
-	return nil, nil
+func (h *mockedHandler) GetTapscripts(c types.Contract) ([]string, error) {
+	a := h.Called(c)
+	s, _ := a.Get(0).([]string)
+	return s, a.Error(1)
 }
 
-// fakeScript mirrors fakeHandler.NewContract so tests can predict the
-// script a given (type, keyId) pair will produce.
-func fakeScript(typ types.ContractType, keyId string) string {
-	h := sha256.Sum256([]byte(string(typ) + ":" + keyId))
-	return hex.EncodeToString(h[:])
+// mockHandler wires every method on h to a successful default response, with NewContract returning
+// a contract of type ct.
+// Fixtures that want to force a specific behavior register their .On(...) calls first
+// (first match wins) and then call mockHandler for the rest.
+func mockHandler(h *mockedHandler, ct types.ContractType) {
+	h.On("NewContract", mock.Anything, mock.Anything).Return(
+		&types.Contract{
+			Type:    ct,
+			State:   types.ContractStateActive,
+			Script:  string(ct) + "-script",
+			Address: string(ct) + "-address",
+			Params:  map[string]string{ownerKeyIdParam: "m/0/0"},
+		}, nil,
+	)
+	h.On("GetKeyRefs", mock.Anything).Return(
+		map[string]string{ownerKeyIdParam: "m/0/0"}, nil,
+	)
+	h.On("GetKeyRef", mock.Anything).Return(
+		&identity.KeyRef{Id: "m/0/0"}, nil,
+	)
+	h.On("GetSignerKey", mock.Anything).Return(nil, nil)
+	h.On("GetExitDelay", mock.Anything).Return(nil, nil)
+	h.On("GetTapscripts", mock.Anything).Return(nil, nil)
 }

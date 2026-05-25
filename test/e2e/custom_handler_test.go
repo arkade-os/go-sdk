@@ -24,7 +24,7 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 	// that's fine because the registry assertion runs before sync drains
 	// any error onto syncCh.
 	arkClient, err := sdk.NewWallet(t.TempDir(), sdk.WithContractHandler(
-		types.ContractType("vhtlc"), &customTestHandler{typ: "vhtlc"},
+		types.ContractType("custom"), &customTestHandler{typ: "custom"},
 	))
 	require.NoError(t, err)
 	t.Cleanup(arkClient.Stop)
@@ -36,11 +36,11 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 	require.NotNil(t, mgr)
 
 	got := mgr.Registry().SupportedTypes()
-	require.Contains(t, got, types.ContractType("vhtlc"))
+	require.Contains(t, got, types.ContractType("custom"))
 	require.Contains(t, got, types.ContractTypeDefault)
 	require.Contains(t, got, types.ContractTypeBoarding)
 
-	h, err := mgr.Registry().GetHandler(types.ContractType("vhtlc"))
+	h, err := mgr.Registry().GetHandler(types.ContractType("custom"))
 	require.NoError(t, err)
 	require.NotNil(t, h)
 

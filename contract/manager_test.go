@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -134,7 +136,7 @@ func TestManagerNewContract(t *testing.T) {
 			},
 			{
 				name:            "unsupported contract type",
-				contractType:    types.ContractType("vhtlc"),
+				contractType:    types.ContractType("custom"),
 				wantErrContains: "no handler registered for contract type",
 			},
 			{
@@ -283,7 +285,7 @@ func TestManagerGetHandler(t *testing.T) {
 
 	t.Run("invalid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
-		handler, err := mgr.GetHandler(t.Context(), types.Contract{Type: "vhtlc"})
+		handler, err := mgr.GetHandler(t.Context(), types.Contract{Type: "custom"})
 		require.ErrorContains(t, err, "no handler registered for contract type")
 		require.Nil(t, handler)
 	})
@@ -547,49 +549,66 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 		})
 
 		t.Run("with custom handler merged", func(t *testing.T) {
-			mgr := newTestManagerWithHandlers(
-				t,
-				contract.WithHandler("vhtlc", newMockHandler(t, "vhtlc")),
-			)
+			h := &mockedHandler{}
+			mockHandler(h, "custom")
+			mgr := newTestManagerWithHandlers(t, contract.WithHandler("custom", h))
 			expectedTypes := []types.ContractType{
-				types.ContractTypeBoarding, types.ContractTypeDefault, types.ContractType("vhtlc"),
+				types.ContractTypeBoarding, types.ContractType("custom"), types.ContractTypeDefault,
 			}
 			got := mgr.Registry().SupportedTypes()
 			require.Equal(t, expectedTypes, got)
 		})
 
 		t.Run("NewContract dispatches to custom handler and persists", func(t *testing.T) {
-			const customType = types.ContractType("vhtlc")
-			mgr := newTestManagerWithHandlers(
-				t, contract.WithHandler(customType, newMockHandler(t, customType)),
-			)
+			const customType = types.ContractType("custom")
+			// Fresh wallet: first key is m/0/0. Wire the handler to return a
+			// contract whose params reference that keyId so GetKeyRef can
+			// resolve back to a valid HD key for the keyProvider.
+			const expectedKeyId = "m/0/0"
+			expected := &types.Contract{
+				Type:    customType,
+				State:   types.ContractStateActive,
+				Script:  "custom-test-script",
+				Address: "custom-test-addr",
+				Params:  map[string]string{ownerKeyIdParam: expectedKeyId},
+			}
+			h := &mockedHandler{}
+			// First match wins — specific .On registrations must precede mockHandler.
+			h.On("NewContract", mock.Anything, mock.MatchedBy(func(k identity.KeyRef) bool {
+				return k.Id == expectedKeyId
+			})).Return(expected, nil)
+			h.On("GetKeyRef", mock.Anything).Return(&identity.KeyRef{Id: expectedKeyId}, nil)
+			mockHandler(h, customType)
+			mgr := newTestManagerWithHandlers(t, contract.WithHandler(customType, h))
 
 			c, err := mgr.NewContract(t.Context(), customType)
 			require.NoError(t, err)
 			require.NotNil(t, c)
 			require.Equal(t, customType, c.Type)
 			require.Equal(t, types.ContractStateActive, c.State)
-			// Fresh wallet: first key is m/0/0; mockHandler produces a
-			// deterministic script via fakeScript(type, keyId).
-			require.Equal(t, "m/0/0", c.Params[ownerKeyIdParam])
-			require.Equal(t, fakeScript(customType, "m/0/0"), c.Script)
-			require.Equal(t, "fake:"+c.Script, c.Address)
+			require.Equal(t, expectedKeyId, c.Params[ownerKeyIdParam])
+			require.Equal(t, expected.Script, c.Script)
+			require.Equal(t, expected.Address, c.Address)
 
 			// Persisted exactly once and queryable by the custom type.
 			persisted, err := mgr.GetContracts(t.Context(), contract.WithType(customType))
 			require.NoError(t, err)
 			require.Len(t, persisted, 1)
 			require.Equal(t, c.Script, persisted[0].Script)
+
+			// And the manager actually dispatched to our handler.
+			h.AssertCalled(t, "NewContract", mock.Anything, mock.Anything)
 		})
 
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		t.Run("reserved contract type", func(t *testing.T) {
+			h := &mockedHandler{}
+			mockHandler(h, types.ContractTypeDefault)
 			mgr, err := contract.NewManager(
-				newValidTestArgs(t), contract.WithHandler(
-					types.ContractTypeDefault, newMockHandler(t, types.ContractTypeDefault),
-				),
+				newValidTestArgs(t),
+				contract.WithHandler(types.ContractTypeDefault, h),
 			)
 			require.ErrorContains(t, err, "reserved by a built-in handler")
 			require.Nil(t, mgr)
@@ -597,14 +616,14 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 	})
 
 	t.Run("registry is the same instance returned by GetHandler delegation", func(t *testing.T) {
-		mgr := newTestManagerWithHandlers(
-			t, contract.WithHandler("vhtlc", newMockHandler(t, "vhtlc")),
-		)
-		direct, err := mgr.Registry().GetHandler(types.ContractType("vhtlc"))
+		h := &mockedHandler{}
+		mockHandler(h, "custom")
+		mgr := newTestManagerWithHandlers(t, contract.WithHandler("custom", h))
+		direct, err := mgr.Registry().GetHandler(types.ContractType("custom"))
 		require.NoError(t, err)
 		viaManager, err := mgr.GetHandler(
 			t.Context(),
-			types.Contract{Type: types.ContractType("vhtlc")},
+			types.Contract{Type: types.ContractType("custom")},
 		)
 		require.NoError(t, err)
 		require.Same(t, direct, viaManager)

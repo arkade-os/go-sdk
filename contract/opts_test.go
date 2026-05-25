@@ -15,17 +15,17 @@ import (
 func TestWithHandler(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		opts, err := applyManagerOptions(
-			WithHandler("vhtlc", newMockHandler("vhtlc")),
+			WithHandler("custom", newMockHandler("custom")),
 		)
 		require.NoError(t, err)
 		require.Len(t, opts.customHandlers, 1)
-		require.NotNil(t, opts.customHandlers["vhtlc"])
+		require.NotNil(t, opts.customHandlers["custom"])
 	})
 
 	t.Run("multiple distinct types", func(t *testing.T) {
 		opts, err := applyManagerOptions(
-			WithHandler("vhtlc", newMockHandler("vhtlc")),
-			WithHandler("delegate", newMockHandler("delegate")),
+			WithHandler("custom-1", newMockHandler("custom-1")),
+			WithHandler("custom-2", newMockHandler("custom-2")),
 		)
 		require.NoError(t, err)
 		require.Len(t, opts.customHandlers, 2)
@@ -40,24 +40,24 @@ func TestWithHandler(t *testing.T) {
 	})
 
 	t.Run("nil handler errors", func(t *testing.T) {
-		mgr, err := applyManagerOptions(WithHandler("vhtlc", nil))
-		require.ErrorContains(t, err, `nil handler for contract type "vhtlc"`)
+		mgr, err := applyManagerOptions(WithHandler("custom", nil))
+		require.ErrorContains(t, err, `nil handler for contract type "custom"`)
 		require.Nil(t, mgr)
 	})
 
 	t.Run("typed-nil handler errors", func(t *testing.T) {
 		var h *mockHandler
-		mgr, err := applyManagerOptions(WithHandler("vhtlc", h))
-		require.ErrorContains(t, err, `nil concrete handler for contract type "vhtlc"`)
+		mgr, err := applyManagerOptions(WithHandler("custom", h))
+		require.ErrorContains(t, err, `nil concrete handler for contract type "custom"`)
 		require.Nil(t, mgr)
 	})
 
 	t.Run("duplicate in same options errors", func(t *testing.T) {
 		mgr, err := applyManagerOptions(
-			WithHandler("vhtlc", newMockHandler("vhtlc")),
-			WithHandler("vhtlc", newMockHandler("vhtlc")),
+			WithHandler("custom", newMockHandler("custom")),
+			WithHandler("custom", newMockHandler("custom")),
 		)
-		require.ErrorContains(t, err, `duplicate handler for contract type "vhtlc"`)
+		require.ErrorContains(t, err, `duplicate handler for contract type "custom"`)
 		require.Nil(t, mgr)
 	})
 }
@@ -258,6 +258,11 @@ func applyContractOptions(opts ...ContractOption) (*contractOptions, error) {
 	return o, nil
 }
 
+// mockHandler is a minimal handlers.Handler used by the option tests.
+// NewContract returns a fully populated contract whose params reference the
+// derived key id so getKeyRef can resolve it back; the other getters return
+// stable mocked data so handlerSanityCheck (run by WithHandler) sees a
+// consistent handler.
 type mockHandler struct {
 	ctType string
 }
@@ -266,21 +271,29 @@ func newMockHandler(ctType string) handlers.Handler {
 	return &mockHandler{ctType}
 }
 
-func (m *mockHandler) NewContract(_ context.Context, _ identity.KeyRef) (*types.Contract, error) {
-	return &types.Contract{Type: types.ContractType(m.ctType)}, nil
+const mockOwnerKeyIdParam = "ownerKeyId"
+
+func (m *mockHandler) NewContract(_ context.Context, k identity.KeyRef) (*types.Contract, error) {
+	return &types.Contract{
+		Type:    types.ContractType(m.ctType),
+		State:   types.ContractStateActive,
+		Script:  m.ctType + "-test-script",
+		Address: m.ctType + "-test-address",
+		Params:  map[string]string{mockOwnerKeyIdParam: k.Id},
+	}, nil
 }
-func (m *mockHandler) GetKeyRefs(contract types.Contract) (map[string]string, error) {
+func (m *mockHandler) GetKeyRefs(c types.Contract) (map[string]string, error) {
+	return map[string]string{mockOwnerKeyIdParam: c.Params[mockOwnerKeyIdParam]}, nil
+}
+func (m *mockHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
+	return &identity.KeyRef{Id: c.Params[mockOwnerKeyIdParam]}, nil
+}
+func (m *mockHandler) GetSignerKey(types.Contract) (*btcec.PublicKey, error) {
 	return nil, nil
 }
-func (m *mockHandler) GetKeyRef(contract types.Contract) (*identity.KeyRef, error) {
-	return nil, nil
+func (m *mockHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, error) {
+	return &arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 144}, nil
 }
-func (m *mockHandler) GetSignerKey(contract types.Contract) (*btcec.PublicKey, error) {
-	return nil, nil
-}
-func (m *mockHandler) GetExitDelay(contract types.Contract) (*arklib.RelativeLocktime, error) {
-	return nil, nil
-}
-func (m *mockHandler) GetTapscripts(contract types.Contract) ([]string, error) {
-	return nil, nil
+func (m *mockHandler) GetTapscripts(types.Contract) ([]string, error) {
+	return []string{m.ctType + "-tapscript"}, nil
 }

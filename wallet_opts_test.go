@@ -53,14 +53,14 @@ func TestWalletOptions(t *testing.T) {
 			{
 				name: "WitContractHandler (one)",
 				opts: []arksdk.WalletOption{
-					arksdk.WithContractHandler("vhtlc", &mockHandler{typ: "vhtlc"}),
+					arksdk.WithContractHandler("custom", &mockHandler{typ: "custom"}),
 				},
 			},
 			{
 				name: "WitContractHandler (many)",
 				opts: []arksdk.WalletOption{
-					arksdk.WithContractHandler("vhtlc", &mockHandler{typ: "vhtlc"}),
-					arksdk.WithContractHandler("delegate", &mockHandler{typ: "delegate"}),
+					arksdk.WithContractHandler("custom-1", &mockHandler{typ: "custom-1"}),
+					arksdk.WithContractHandler("custom-2", &mockHandler{typ: "custom-2"}),
 				},
 			},
 		}
@@ -171,15 +171,15 @@ func TestWalletOptions(t *testing.T) {
 			{
 				name: "WithContractHandler typed-nil handler",
 				opts: []arksdk.WalletOption{
-					arksdk.WithContractHandler("vhtlc", nilHandler),
+					arksdk.WithContractHandler("custom", nilHandler),
 				},
 				wantErrContains: "nil concrete handler",
 			},
 			{
 				name: "WithContractHandler duplicate handler",
 				opts: []arksdk.WalletOption{
-					arksdk.WithContractHandler("vhtlc", &mockHandler{typ: "vhtlc"}),
-					arksdk.WithContractHandler("vhtlc", &mockHandler{typ: "vhtlc"}),
+					arksdk.WithContractHandler("custom", &mockHandler{typ: "custom"}),
+					arksdk.WithContractHandler("custom", &mockHandler{typ: "custom"}),
 				},
 				wantErrContains: "duplicate handler",
 			},
