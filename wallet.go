@@ -19,7 +19,6 @@ import (
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
-	mempoolexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientstore "github.com/arkade-os/arkd/pkg/client-lib/store"
@@ -191,10 +190,9 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		clientOpts = append(clientOpts, clientwallet.WithVerbose())
 	}
 
-	// client.LoadArkClient defaults to noTracking=true, which leaves the explorer's
-	// listeners field nil. When listenForOnchainTxs calls GetAddressesEvents() it
-	// dereferences that nil field and panics. Pre-create a tracking-enabled explorer
-	// from the stored config and inject it so the underlying call skips creating its own.
+	// Pre-create a tracking-enabled explorer from the stored config and inject it
+	// so GetAddressesEvents() works correctly after Unlock. Pre-registering before
+	// the sync sequence avoids the event-drop race on boarding address creation.
 	cfgData, err := clientDb.ConfigStore().GetData(context.Background())
 	if err != nil {
 		return nil, err
@@ -204,13 +202,11 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		if len(explorerUrl) == 0 {
 			explorerUrl = defaultExplorerUrl[cfgData.Network.Name]
 		}
-		explorerOpts := []mempoolexplorer.Option{mempoolexplorer.WithTracker(true)}
+		var pollInterval time.Duration
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
-			explorerOpts = append(explorerOpts, mempoolexplorer.WithPollInterval(2*time.Second))
+			pollInterval = 2 * time.Second
 		}
-		explorerSvc, err = mempoolexplorer.NewExplorer(
-			explorerUrl, cfgData.Network, explorerOpts...,
-		)
+		explorerSvc, err = newExplorer(explorerUrl, cfgData.Network, true, pollInterval, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to init explorer: %v", err)
 		}
@@ -363,6 +359,13 @@ func (w *wallet) Stop() {
 
 	w.stopOnce.Do(func() {
 		w.client.Stop()
+		// Cancel the background context before stopping the explorer so that
+		// background goroutines (listenForOnchainTxs, etc.) start exiting and
+		// stop calling explorer methods. Explorer().Stop() then shuts down the
+		// electrum client which makes any in-flight RPC fail fast.
+		if w.stopFn != nil {
+			w.stopFn()
+		}
 
 		if explorer := w.Explorer(); explorer != nil {
 			explorer.Stop()
@@ -380,9 +383,6 @@ func (w *wallet) Stop() {
 		w.syncErr = nil
 		w.syncMu.Unlock()
 
-		if w.stopFn != nil {
-			w.stopFn()
-		}
 		if w.syncListeners != nil {
 			w.syncListeners.broadcast(fmt.Errorf("service stopped while restoring"))
 			w.syncListeners.clear()
@@ -963,7 +963,10 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 	}
 }
 
-func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network) {
+func (w *wallet) listenForOnchainTxs(
+	ctx context.Context, network arklib.Network,
+	ch <-chan clienttypes.OnchainAddressEvent,
+) {
 	explorer := w.client.Explorer()
 	if explorer == nil {
 		// Should be unreachable
@@ -997,12 +1000,18 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 		addresses = append(addresses, toOnchainAddress(contract.Address, network))
 	}
 
-	if err := explorer.SubscribeForAddresses(addresses); err != nil {
-		log.WithError(err).Error("failed to subscribe for onchain addresses")
-		return
+	for {
+		if err := explorer.SubscribeForAddresses(addresses); err == nil {
+			break
+		} else {
+			log.WithError(err).Warn("failed to subscribe for onchain addresses, retrying...")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
 	}
-
-	ch := explorer.GetAddressesEvents()
 
 	log.Debugf("subscribed for %d addresses", len(addresses))
 	for {
@@ -1147,7 +1156,23 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 						continue
 					}
 					if len(contracts) <= 0 {
-						log.Warnf("contract not found for utxo %s", u.Outpoint)
+						// Plain onchain address (no Ark contract), e.g. from
+						// NewOnchainAddress. Track the UTXO for fee payment
+						// with no tapscripts or exit delay.
+						txHex, err := explorer.GetTxHex(u.Txid)
+						if err != nil {
+							log.WithError(err).
+								Warnf("failed to fetch tx for onchain utxo %s", u.Outpoint)
+							continue
+						}
+						utxosToAdd = append(utxosToAdd, clienttypes.Utxo{
+							Outpoint:    u.Outpoint,
+							Amount:      u.Amount,
+							Script:      u.Script,
+							Tx:          txHex,
+							CreatedAt:   u.CreatedAt,
+							SpendableAt: u.CreatedAt,
+						})
 						continue
 					}
 

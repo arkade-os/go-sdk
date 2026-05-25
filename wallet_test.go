@@ -208,7 +208,7 @@ func seedIdentity(t *testing.T, datadir string) {
 		SignerPubKey:  randomKey.PubKey(),
 		ForfeitPubKey: randomKey.PubKey(),
 		Network:       arklib.BitcoinRegTest,
-		ExplorerURL:   "http://127.0.0.1:3000",
+		ExplorerURL:   "tcp://127.0.0.1:50000",
 	})
 	require.NoError(t, err)
 }
