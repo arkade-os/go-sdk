@@ -3,12 +3,11 @@ package contract
 import (
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
@@ -24,42 +23,67 @@ type contractManager struct {
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
-	// TODO: this must become a registry so that users can register their custom handlers at will.
-	handlers map[types.ContractType]handlers.Handler
-	mu       sync.RWMutex
+	registry    Registry
+	mu          sync.RWMutex
 }
 
-func NewManager(args Args) (Manager, error) {
+func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	if err := args.validate(); err != nil {
 		return nil, err
 	}
+	o := newDefaultManagerOption()
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, fmt.Errorf("manager option cannot be nil")
+		}
+		if err := opt(o); err != nil {
+			return nil, fmt.Errorf("invalid option: %w", err)
+		}
+	}
+
 	// Wrap the transport client once with a shared GetInfo cache so all
-	// handlers (default, boarding, and any future vhtlc/delegate kinds)
-	// reuse the same cached server info instead of fanning out a
-	// per-handler cache.
+	// built-in handlers reuse the same cached server info. Custom handlers
+	// supplied via WithHandler are constructed outside the manager and own
+	// their own client wiring.
 	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
-	// TODO: 1. support also delegate and vhtlc handlers
-	// TODO: 2. make use of a register to allow extending the contract manager with custom handlers
-	handlers := map[types.ContractType]handlers.Handler{
+	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+	}
+	reg, err := newRegistry(builtins, o.customHandlers)
+	if err != nil {
+		return nil, err
 	}
 	return &contractManager{
 		store:       args.Store,
 		keyProvider: args.KeyProvider,
 		indexer:     args.Indexer,
 		explorer:    args.Explorer,
-		handlers:    handlers,
 		network:     args.Network,
+		registry:    reg,
 		mu:          sync.RWMutex{},
 	}, nil
 }
+
+func (m *contractManager) Registry() Registry { return m.registry }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for contractType, handler := range m.handlers {
+	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+		// A single-key identity has only one derivable contract per type, so the
+		// gap-limit loop would just churn on the same script. Derive each type's
+		// one contract and batch the offchain probe into a single indexer call;
+		// boarding still goes per-address through the explorer.
+		return m.scanSingleKeyContracts(ctx)
+	}
+
+	for _, contractType := range m.registry.SupportedTypes() {
+		handler, err := m.registry.GetHandler(contractType)
+		if err != nil {
+			return err
+		}
 		// Pick the "is this contract used externally?" probe for the type:
 		// boarding contracts are looked up via the explorer per-address (and
 		// throttled), offchain ones via the indexer's batch GetVtxos.
@@ -71,7 +95,6 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -89,12 +112,26 @@ func (m *contractManager) NewContract(
 		}
 	}
 
+	handler, err := m.registry.GetHandler(contractType)
+	if err != nil {
+		return nil, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	handler, ok := m.handlers[contractType]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contractType)
+	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+		// A single-key identity reuses the same key for every contract of a given type, so the
+		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
+		// the stored contract.
+		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		if err != nil {
+			return nil, err
+		}
+		if len(contracts) > 0 {
+			contract := contracts[0]
+			return &contract, nil
+		}
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
@@ -122,13 +159,6 @@ func (m *contractManager) NewContract(
 	return contract, nil
 }
 
-func (m *contractManager) GetSupportedContractTypes(_ context.Context) []types.ContractType {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return slices.Collect(maps.Keys(m.handlers))
-}
-
 func (m *contractManager) GetContracts(
 	ctx context.Context, opts ...FilterOption,
 ) ([]types.Contract, error) {
@@ -138,6 +168,7 @@ func (m *contractManager) GetContracts(
 			return nil, err
 		}
 	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -154,16 +185,9 @@ func (m *contractManager) GetContracts(
 }
 
 func (m *contractManager) GetHandler(
-	_ context.Context, contract types.Contract,
+	_ context.Context, c types.Contract,
 ) (handlers.Handler, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	handler, ok := m.handlers[contract.Type]
-	if !ok {
-		return nil, fmt.Errorf("unsupported contract type: %s", contract.Type)
-	}
-	return handler, nil
+	return m.registry.GetHandler(c.Type)
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {
@@ -378,4 +402,102 @@ func (m *contractManager) findUsedBoardingContracts(
 		}
 	}
 	return used, nil
+}
+
+// scanSingleKeyContracts derives the one contract each registered type can
+// produce under a single-key identity and probes external state to decide
+// which to persist. Offchain types are batched into a single indexer call;
+// boarding types go through the per-address explorer probe (one call per
+// type — at most one boarding handler is registered today).
+func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
+	type pending struct {
+		typ      types.ContractType
+		contract types.Contract
+		keyIdx   uint32
+	}
+	var offchain, boarding []pending
+
+	for _, contractType := range m.registry.SupportedTypes() {
+		handler, err := m.registry.GetHandler(contractType)
+		if err != nil {
+			return err
+		}
+		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		if err != nil {
+			return err
+		}
+		if len(contracts) > 0 {
+			continue
+		}
+		keyId, err := m.keyProvider.NextKeyId(ctx, "")
+		if err != nil {
+			return err
+		}
+		idx, err := m.keyProvider.GetKeyIndex(ctx, keyId)
+		if err != nil {
+			return err
+		}
+		keyRef, err := m.keyProvider.GetKey(ctx, keyId)
+		if err != nil {
+			return err
+		}
+		c, err := handler.NewContract(ctx, *keyRef)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to derive %s contract for key %s: %w", contractType, keyId, err,
+			)
+		}
+		p := pending{typ: contractType, contract: *c, keyIdx: idx}
+		if contractType == types.ContractTypeBoarding {
+			boarding = append(boarding, p)
+		} else {
+			offchain = append(offchain, p)
+		}
+	}
+
+	// One indexer round-trip for every offchain type at once.
+	var offchainUsed map[string]struct{}
+	if len(offchain) > 0 {
+		batch := make([]types.Contract, len(offchain))
+		for i, p := range offchain {
+			batch[i] = p.contract
+		}
+		used, err := m.findUsedContracts(ctx, batch)
+		if err != nil {
+			return err
+		}
+		offchainUsed = used
+	}
+
+	persist := func(p pending) error {
+		if err := m.store.AddContract(ctx, p.contract, p.keyIdx); err != nil {
+			return fmt.Errorf("failed to store %s contract: %w", p.typ, err)
+		}
+		log.Debugf("%s added new %s contract %s", logPrefix, p.typ, p.contract.Script)
+		return nil
+	}
+
+	for _, p := range offchain {
+		if _, isUsed := offchainUsed[p.contract.Script]; !isUsed {
+			continue
+		}
+		if err := persist(p); err != nil {
+			return err
+		}
+	}
+
+	for _, p := range boarding {
+		used, err := m.findUsedBoardingContracts(ctx, []types.Contract{p.contract})
+		if err != nil {
+			return err
+		}
+		if _, isUsed := used[p.contract.Script]; !isUsed {
+			continue
+		}
+		if err := persist(p); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

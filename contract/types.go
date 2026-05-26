@@ -14,11 +14,14 @@ import (
 )
 
 // Manager manages the lifecycle of contracts derived from wallet keys.
+// Constructed by NewManager; the registered handler set is sealed at that point — see Registry()
+// and contract.WithHandler.
 type Manager interface {
-	// GetSupportedContractTypes returns the list of contract types supported by the manager.
-	GetSupportedContractTypes(ctx context.Context) []types.ContractType
-	// ScanContracts looks for untracked contracts to store of any type, and for each of them
-	// stops when gapLimit consecutive unused contracts have been found.
+	// Registry returns the sealed handler registry. Use it to discover which contract types this
+	// manager supports.
+	Registry() Registry
+	// ScanContracts looks for untracked contracts to store of any type, and for each of them stops
+	// when gapLimit consecutive unused contracts have been found.
 	ScanContracts(ctx context.Context, gapLimit uint32) error
 	// NewContract creates and stores a new contract. The key is derived from the key provider,
 	// all required parameters are fetched by the proper handler based on the contract type.
@@ -30,11 +33,11 @@ type Manager interface {
 	// Pass no options to return all contracts.
 	GetContracts(ctx context.Context, opts ...FilterOption) ([]types.Contract, error)
 	// GetHandler returns the handler responsible for the given contract's type.
-	// Callers can then invoke handler methods (GetKeyRefs, GetSignerKey,
-	// GetTapscripts, GetExitDelay, …) directly. Errors when the contract type
-	// is not supported.
+	// Errors when the contract type is not registered.
+	// Delegates to Registry().GetHandler(contract.Type).
 	GetHandler(ctx context.Context, contract types.Contract) (handlers.Handler, error)
-	// Clean removes all contracts from the store. Must be used only at wallet reset.
+	// Clean removes all contracts from the store. Must be used only at
+	// wallet reset.
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.
 	Close()
@@ -78,6 +81,7 @@ func (a Args) validate() error {
 // resolve, derive, and fetch keys for contracts. Kept unexported so the
 // manager owns its dependency surface and we can grow it as needed.
 type keyProvider interface {
+	GetType() string
 	GetKeyIndex(ctx context.Context, id string) (uint32, error)
 	NextKeyId(ctx context.Context, id string) (string, error)
 	GetKey(ctx context.Context, id string) (*identity.KeyRef, error)

@@ -5,7 +5,10 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/scheduler"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 const (
@@ -15,17 +18,16 @@ const (
 
 type WalletOption func(*walletOptions) error
 
-// ApplyWalletOptions applies opts to a new default clientOptions and returns
-// the first error encountered, if any.
-// Exposed for use in external (arksdk_test) test packages.
+// ApplyWalletOptions applies opts to a new default clientOptions and returns the first error
+// encountered, if any. Exposed for use in external (arksdk_test) test packages.
 func ApplyWalletOptions(opts ...WalletOption) error {
 	_, err := applyWalletOptions(opts...)
 	return err
 }
 
-// WithRefreshDbInterval sets the interval at which the local database is
-// periodically refreshed from the server. Must be at least 30s. Can only be set once.
-// If no WalletOption is passed, refreshDbInterval defaults to zero, which
+// WithRefreshDbInterval sets the interval at which the local database is periodically refreshed
+// from the server. Must be at least 30s.
+// Can only be set once. If no WalletOption is passed, refreshDbInterval defaults to zero, which
 // disables periodic refresh entirely.
 func WithRefreshDbInterval(d time.Duration) WalletOption {
 	return func(o *walletOptions) error {
@@ -48,8 +50,8 @@ func WithVerbose() WalletOption {
 	}
 }
 
-// WithGapLimit sets the HD wallet discovery gap limit used during startup
-// recovery. Must be greater than zero.
+// WithGapLimit sets the HD wallet discovery gap limit used during startup recovery.
+// Must be greater than zero.
 func WithGapLimit(limit uint32) WalletOption {
 	return func(o *walletOptions) error {
 		if o.hdGapLimitSet {
@@ -107,6 +109,32 @@ func WithoutAutoSettle() WalletOption {
 	}
 }
 
+// WithContractHandler registers a custom contract handler that the wallet's contract manager will
+// dispatch to for the given contract type.
+// The type must be non-empty, the handler non-nil, and must not collide with another previously
+// registered custom handler.
+// Collisions with a built-in type (default, boarding) are detected at Unlock time via the
+// underlying contract.WithHandler / contract.NewManager checks.
+// Multiple calls are allowed for different types.
+func WithContractHandler(t types.ContractType, h handlers.Handler) WalletOption {
+	return func(o *walletOptions) error {
+		if t == "" {
+			return fmt.Errorf("missing contract type")
+		}
+		if err := utils.ValidateHandler(h, t); err != nil {
+			return err
+		}
+		if _, dup := o.customHandlers[t]; dup {
+			return fmt.Errorf("duplicate handler for contract type %q", t)
+		}
+		if o.customHandlers == nil {
+			o.customHandlers = make(map[types.ContractType]handlers.Handler)
+		}
+		o.customHandlers[t] = h
+		return nil
+	}
+}
+
 func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 	o := newDefaultWalletOptions()
 	for _, opt := range opts {
@@ -128,6 +156,7 @@ type walletOptions struct {
 	identity          identity.Identity
 	scheduler         scheduler.SchedulerService
 	disableAutoSettle bool
+	customHandlers    map[types.ContractType]handlers.Handler
 }
 
 // newDefaultWalletOptions returns a zero-value walletOptions.
