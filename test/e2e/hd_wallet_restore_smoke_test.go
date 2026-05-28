@@ -106,7 +106,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 
 	requireSmokeWalletState(t, ctx, alice, N, expectedTotal, "pre-stop")
 
-	t.Logf("[stop] alice stopping", aliceDatadir)
+	t.Log("[stop] alice stopping")
 	alice.Stop()
 
 	t.Logf("[restore warm] LoadWallet from %s...", aliceDatadir)
