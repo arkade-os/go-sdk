@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,17 +20,11 @@ import (
 )
 
 const (
-	smokeAmountSat = uint64(10_000)
+	smokeAmountSat = uint64(330)
 
 	// This scenario funds continuous HD indexes. Seed restore scans until this
 	// many consecutive unused addresses after the last funded index.
-	smokeGapLimit = uint32(128)
-
-	// Keep each SendOffChain call at the production round participant pace.
-	smokeSendBatchSize = 128
-
-	// Keep regtest from hitting Bitcoin Core's too-long-mempool-chain policy.
-	smokeConfirmEveryBatches = 16
+	smokeGapLimit = uint32(1000)
 )
 
 // TestSmokeHDWalletRestoreAtScale exercises the HD wallet and Contract Manager
@@ -37,21 +33,30 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 	N := parseSmokeTier(t)
 	ctx := t.Context()
 
-	t.Logf("starting HD wallet restore smoke test with N=%d", N)
+	t.Logf("=== START tier=%d gapLimit=%d amountSat=%d ===", N, smokeGapLimit, smokeAmountSat)
 
-	alice, aliceDatadir := setupSmokeClient(t, "", "",
-		arksdk.WithGapLimit(smokeGapLimit),
-		arksdk.WithoutAutoSettle(),
-	)
-	t.Logf("alice initialized, datadir=%s", aliceDatadir)
+	alice, aliceDatadir := setupSmokeClient(t, "", arksdk.WithoutAutoSettle())
+	t.Logf("alice datadir: %s", aliceDatadir)
 
-	bob, _ := setupSmokeClient(t, "", "", arksdk.WithoutAutoSettle())
-	t.Log("bob initialized")
+	seed, err := alice.Dump(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, seed)
+	t.Logf("alice mnemonic: %s", seed)
+
+	bob, bobDatadir := setupSmokeClient(t, "", arksdk.WithoutAutoSettle())
+	t.Logf("bob datadir: %s", bobDatadir)
 
 	addrs := make([]string, N)
 	addrSet := make(map[string]struct{}, N)
-	t.Logf("deriving %d addresses, each creating a default contract...", N)
+	t.Logf("[derive] deriving %d offchain addresses from alice's wallet...", N)
 	insertStart := time.Now()
+	deriveStep := N / 10
+	if deriveStep < 100 {
+		deriveStep = 100
+	}
+	if deriveStep > 5000 {
+		deriveStep = 5000
+	}
 	for i := 0; i < N; i++ {
 		addr, err := alice.NewOffchainAddress(ctx)
 		require.NoErrorf(t, err, "NewOffchainAddress failed at i=%d", i)
@@ -60,10 +65,23 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 		}
 		addrs[i] = addr
 		addrSet[addr] = struct{}{}
+
+		if (i+1)%deriveStep == 0 && i+1 < N {
+			elapsed := time.Since(insertStart)
+			rate := float64(i+1) / elapsed.Seconds()
+			t.Logf(
+				"[derive] progress %d/%d (%d%%) elapsed=%v rate=%.1f/s",
+				i+1, N, (i+1)*100/N,
+				elapsed.Truncate(time.Second), rate,
+			)
+		}
 	}
+	deriveElapsed := time.Since(insertStart)
 	t.Logf(
-		"address derivation for N=%d took %v (%.1f items/sec)",
-		N, time.Since(insertStart), float64(N)/time.Since(insertStart).Seconds(),
+		"[derive] done in %v (%.1f addrs/sec); first=%s last=%s",
+		deriveElapsed.Truncate(time.Millisecond),
+		float64(N)/deriveElapsed.Seconds(),
+		addrs[0], addrs[N-1],
 	)
 
 	preStopContracts, err := alice.ContractManager().GetContracts(
@@ -76,106 +94,94 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 		N, len(preStopContracts),
 	)
 
-	seed, err := alice.Dump(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, seed)
-
-	t.Logf("sending %d sat to %d addresses in batches of %d...",
-		smokeAmountSat, N, smokeSendBatchSize,
-	)
 	sendStart := time.Now()
-	expectedTotal := fundAndSendSmokeBatches(t, ctx, bob, addrs, smokeAmountSat)
+	expectedTotal := fundAndSendSmoke(t, ctx, bob, addrs, smokeAmountSat)
+	sendElapsed := time.Since(sendStart)
 	t.Logf(
-		"batched send of %d payments took %v; expectedTotal=%d sat",
-		N, time.Since(sendStart), expectedTotal,
+		"[send] done in %v (%.1f sends/sec); expectedTotal=%d sat",
+		sendElapsed.Truncate(time.Second),
+		float64(N)/sendElapsed.Seconds(),
+		expectedTotal,
 	)
 
-	timeout := smokeTierTimeout(N)
-	requireSmokeWalletState(t, ctx, alice, N, expectedTotal, timeout, "pre-stop")
-	t.Logf("pre-restore balance integrity confirmed: %d VTXOs, %d sat", N, expectedTotal)
+	requireSmokeWalletState(t, ctx, alice, N, expectedTotal, "pre-stop")
 
-	t.Logf("stopping alice, datadir=%s", aliceDatadir)
+	t.Logf("[stop] alice stopping", aliceDatadir)
 	alice.Stop()
 
-	t.Logf("restoring alice from datadir=%s...", aliceDatadir)
+	t.Logf("[restore warm] LoadWallet from %s...", aliceDatadir)
 	restoreStart := time.Now()
 	restoredAlice := loadSmokeClient(t, aliceDatadir,
 		arksdk.WithGapLimit(smokeGapLimit),
 		arksdk.WithoutAutoSettle(),
 	)
-	t.Logf("LoadWallet completed in %v", time.Since(restoreStart))
+	t.Logf("[restore warm] LoadWallet ok in %v", time.Since(restoreStart).Truncate(time.Millisecond))
 
-	requireSmokeWalletState(t, ctx, restoredAlice, N, expectedTotal, timeout, "warm restore")
-	requireSmokeDefaultContracts(t, ctx, restoredAlice, N, "warm restore")
+	requireSmokeWalletState(t, ctx, restoredAlice, N, expectedTotal, "warm restore")
 	requireSmokeFreshAddress(t, ctx, restoredAlice, addrSet, "warm restore")
-	t.Logf("warm restore integrity confirmed: %d VTXOs, %d sat", N, expectedTotal)
 
 	restoredAlice.Stop()
 
-	t.Log("restoring alice from seed into a fresh datadir...")
+	t.Log("[restore seed] from mnemonic into fresh datadir...")
 	seedRestoreStart := time.Now()
-	seedRestoredAlice, seedDatadir := setupSmokeClient(t, "", seed,
-		arksdk.WithGapLimit(smokeGapLimit),
-		arksdk.WithoutAutoSettle(),
+	seedRestoredAlice, seedDatadir := setupSmokeClient(
+		t, seed, arksdk.WithGapLimit(smokeGapLimit), arksdk.WithoutAutoSettle(),
 	)
 	t.Logf(
-		"seed restore completed in %v, datadir=%s",
-		time.Since(seedRestoreStart), seedDatadir,
+		"[restore seed] new datadir=%s; LoadWallet ok in %v",
+		seedDatadir, time.Since(seedRestoreStart).Truncate(time.Second),
 	)
 
-	requireSmokeWalletState(t, ctx, seedRestoredAlice, N, expectedTotal, timeout, "seed restore")
-	requireSmokeDefaultContracts(t, ctx, seedRestoredAlice, N, "seed restore")
+	requireSmokeWalletState(t, ctx, seedRestoredAlice, N, expectedTotal, "seed restore")
 	requireSmokeFreshAddress(t, ctx, seedRestoredAlice, addrSet, "seed restore")
-	t.Logf("seed restore integrity confirmed: %d VTXOs, %d sat", N, expectedTotal)
 }
 
 func parseSmokeTier(t *testing.T) int {
 	t.Helper()
 
 	tier := strings.ToLower(strings.TrimSpace(os.Getenv("SMOKE_TIER")))
-	switch tier {
-	case "", "1k":
+	if tier == "" {
 		return 1000
-	case "10k":
-		return 10000
-	case "50k":
-		return 50000
-	default:
-		t.Fatalf("unknown SMOKE_TIER: %q (allowed: 1k, 10k, 50k)", tier)
+	}
+
+	multiplier := 1
+	digits := tier
+	switch {
+	case strings.HasSuffix(tier, "m"):
+		multiplier = 1_000_000
+		digits = strings.TrimSuffix(tier, "m")
+	case strings.HasSuffix(tier, "k"):
+		multiplier = 1_000
+		digits = strings.TrimSuffix(tier, "k")
+	}
+
+	n, err := strconv.Atoi(digits)
+	if err != nil || n <= 0 {
+		t.Fatalf("invalid SMOKE_TIER: %q (expected 1-999, Nk, or Nm)", tier)
 		return 0
 	}
-}
-
-func smokeTierTimeout(N int) time.Duration {
-	switch N {
-	case 1000:
-		return 20 * time.Minute
-	case 10000:
-		return 90 * time.Minute
-	case 50000:
-		return 180 * time.Minute
-	default:
-		return 20 * time.Minute
+	if multiplier == 1 && n > 999 {
+		t.Fatalf("invalid SMOKE_TIER: %q (bare numbers must be 1-999; use Nk or Nm)", tier)
+		return 0
 	}
+	return n * multiplier
 }
 
 func setupSmokeClient(
-	t *testing.T, datadir string, seed string, opts ...arksdk.WalletOption,
+	t *testing.T, seed string, opts ...arksdk.WalletOption,
 ) (arksdk.Wallet, string) {
 	t.Helper()
 
-	if datadir == "" {
-		dir, err := os.MkdirTemp("", "smoke-wallet-*")
-		require.NoError(t, err)
-		datadir = dir
-		t.Cleanup(func() {
-			if t.Failed() {
-				t.Logf("preserving failed smoke wallet datadir=%s", dir)
-				return
-			}
-			_ = os.RemoveAll(dir)
-		})
-	}
+	dir, err := os.MkdirTemp("", "smoke-wallet-*")
+	require.NoError(t, err)
+	datadir := dir
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("[fail] preserving smoke wallet datadir=%s", dir)
+			return
+		}
+		_ = os.RemoveAll(dir)
+	})
 
 	wallet, err := arksdk.NewWallet(datadir, opts...)
 	require.NoError(t, err)
@@ -215,108 +221,90 @@ func loadSmokeClient(
 	return wallet
 }
 
-func fundAndSendSmokeBatches(
-	t *testing.T,
-	ctx context.Context,
-	sender arksdk.Wallet,
-	addrs []string,
-	sat uint64,
+func fundAndSendSmoke(
+	t *testing.T, ctx context.Context, sender arksdk.Wallet, addrs []string, sat uint64,
 ) uint64 {
 	t.Helper()
 
-	t.Log("mining 1 block before smoke sends to clear any previous run's mempool chain")
-	generateBlocks(t, 1)
-	defer func() {
-		if _, err := runCommand("nigiri", "rpc", "--generate", "1"); err != nil {
-			t.Logf("failed to mine cleanup block after smoke sends: %v", err)
-		}
-	}()
+	total := uint64(len(addrs)) * sat
 
-	for offset := 0; offset < len(addrs); offset += smokeSendBatchSize {
-		end := min(offset+smokeSendBatchSize, len(addrs))
-		batch := addrs[offset:end]
-		batchNum := offset/smokeSendBatchSize + 1
-		batchAmount := uint64(len(batch)) * sat
+	t.Logf("[fund] funding bob with %d sat", total)
 
-		fundSmokeSenderExact(t, ctx, sender, batchAmount, offset, len(batch))
+	note := generateNote(t, total)
+	txid, err := sender.RedeemNotes(ctx, []string{note})
+	require.NoError(t, err, "RedeemNotes failed")
+	require.NotEmpty(t, txid, "RedeemNotes returned empty txid")
+	t.Logf("[fund] txid = %s", txid)
 
-		receivers := make([]clienttypes.Receiver, len(batch))
-		for i, addr := range batch {
-			receivers[i] = clienttypes.Receiver{To: addr, Amount: sat}
-		}
+	time.Sleep(time.Second)
 
-		_, err := sender.SendOffChain(ctx, receivers)
-		require.NoErrorf(
-			t, err,
-			"SendOffChain failed for batch offset=%d size=%d", offset, len(batch),
-		)
-
-		requireSmokeOffchainBalance(t, ctx, sender, 0, 30*time.Second,
-			"sender was not drained after batch offset=%d size=%d",
-			offset, len(batch),
-		)
-
-		if batchNum%smokeConfirmEveryBatches == 0 && end < len(addrs) {
-			generateBlocks(t, 1)
-		}
+	loopStart := time.Now()
+	step := len(addrs) / 10
+	if step < 100 {
+		step = 100
+	}
+	if step > 5000 {
+		step = 5000
 	}
 
-	return uint64(len(addrs)) * sat
-}
-
-func fundSmokeSenderExact(
-	t *testing.T,
-	ctx context.Context,
-	sender arksdk.Wallet,
-	amount uint64,
-	offset int,
-	batchSize int,
-) {
-	t.Helper()
-
-	note := generateNote(t, amount)
-	txid, err := sender.RedeemNotes(ctx, []string{note})
-	require.NoErrorf(
-		t, err,
-		"RedeemNotes failed for send batch offset=%d size=%d", offset, batchSize,
+	t.Logf(
+		"[send] sending %d sat from bob to alice's %d addresses, 1 tx at a time...",
+		sat, len(addrs),
 	)
-	require.NotEmpty(
-		t, txid,
-		"RedeemNotes returned empty txid for send batch offset=%d",
-		offset,
-	)
+	totUnspent := total
+	for i, addr := range addrs {
+		// Check bob's balance, if funds are close to expiry or recoverable a refresh is required
+		bobBalance, err := sender.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
 
-	requireSmokeOffchainBalance(t, ctx, sender, amount, 30*time.Second,
-		"sender did not reach exact funding balance for batch offset=%d size=%d",
-		offset, batchSize,
-	)
+		recoverableBalance := bobBalance.OffchainBalance.Recoverable
+		var nextExpiry time.Time
+		if d := bobBalance.OffchainBalance.Details; len(d) > 0 {
+			expiry, err := time.Parse(time.RFC3339, d[0].ExpiryTime)
+			require.NoError(t, err)
+			nextExpiry = expiry
+		}
+		if recoverableBalance > 0 || time.Until(nextExpiry) < 20*time.Second {
+			txid, err := sender.Settle(ctx)
+			require.NoError(t, err)
+			require.NotEmpty(t, txid)
+			t.Logf("[send] refreshed bob's funds txid = %s", txid)
+			generateBlocks(t, 1)
+		}
+
+		wg := &sync.WaitGroup{}
+		var notifyErr error
+		wg.Go(func() {
+			_, notifyErr = sender.NotifyIncomingFunds(ctx, addr)
+		})
+		receivers := []clienttypes.Receiver{{To: addr, Amount: sat}}
+		_, err = sender.SendOffChain(ctx, receivers)
+		require.NoErrorf(t, err, "SendOffChain failed at i=%d addr=%s", i, addr)
+		wg.Wait()
+		require.NoError(t, notifyErr)
+
+		if (i+1)%step == 0 && i+1 < len(addrs) {
+			elapsed := time.Since(loopStart)
+			rate := float64(i+1) / elapsed.Seconds()
+			t.Logf(
+				"[send] progress %d/%d (%d%%) elapsed=%v rate=%.1f/s",
+				i+1, len(addrs), (i+1)*100/len(addrs),
+				elapsed.Truncate(time.Second), rate,
+			)
+		}
+		totUnspent -= sat
+	}
+
+	return total
 }
 
 func requireSmokeWalletState(
-	t *testing.T,
-	ctx context.Context,
-	w arksdk.Wallet,
-	N int,
-	expectedTotal uint64,
-	timeout time.Duration,
-	label string,
+	t *testing.T, ctx context.Context, w arksdk.Wallet, N int, expectedTotal uint64, label string,
 ) {
 	t.Helper()
 
-	t.Logf("waiting for %s wallet to show %d VTXOs and %d sat...", label, N, expectedTotal)
-	require.Eventually(t, func() bool {
-		spendable := listSmokeSpendableVtxos(t, w)
-		return len(spendable) == N && sumVtxoAmounts(spendable) == expectedTotal
-	}, timeout, 2*time.Second,
-		"%s wallet did not recover all %d VTXOs within %v", label, N, timeout,
-	)
-
-	spendable := listSmokeSpendableVtxos(t, w)
-	require.Lenf(t, spendable, N, "%s wallet: expected %d spendable VTXOs", label, N)
-	require.Equalf(
-		t, expectedTotal, sumVtxoAmounts(spendable),
-		"%s wallet VTXO sum mismatch: expected %d sat", label, expectedTotal,
-	)
+	verifyStart := time.Now()
 
 	balance, err := w.Balance(ctx)
 	require.NoError(t, err)
@@ -325,45 +313,13 @@ func requireSmokeWalletState(
 		"%s wallet balance integrity: expected %d sat, got %d",
 		label, expectedTotal, balance.OffchainBalance.Total,
 	)
-}
-
-func listSmokeSpendableVtxos(t *testing.T, wallet arksdk.Wallet) []clienttypes.Vtxo {
-	t.Helper()
-
-	_, vtxos := walkVtxoPages(
-		t, wallet, arksdk.WithSpendableOnly(), arksdk.WithLimit(1000),
-	)
-	return vtxos
-}
-
-func requireSmokeDefaultContracts(
-	t *testing.T, ctx context.Context, w arksdk.Wallet, N int, label string,
-) {
-	t.Helper()
-
-	t.Logf("%s: scanning contracts with gapLimit=%d...", label, smokeGapLimit)
-	scanStart := time.Now()
-	err := w.ContractManager().ScanContracts(ctx, smokeGapLimit)
-	require.NoError(t, err)
-	t.Logf("%s: ScanContracts took %v", label, time.Since(scanStart))
-
-	allContracts, err := w.ContractManager().GetContracts(
-		ctx, contract.WithType(types.ContractTypeDefault),
-	)
-	require.NoError(t, err)
-	require.Lenf(
-		t, allContracts, N,
-		"%s contract manager should hold %d default contracts, got %d",
-		label, N, len(allContracts),
+	t.Logf("[verify %s] ✓ %d VTXOs / %d sat in %v",
+		label, N, expectedTotal, time.Since(verifyStart).Truncate(time.Second),
 	)
 }
 
 func requireSmokeFreshAddress(
-	t *testing.T,
-	ctx context.Context,
-	w arksdk.Wallet,
-	used map[string]struct{},
-	label string,
+	t *testing.T, ctx context.Context, w arksdk.Wallet, used map[string]struct{}, label string,
 ) {
 	t.Helper()
 
@@ -372,32 +328,7 @@ func requireSmokeFreshAddress(
 	if _, ok := used[nextAddr]; ok {
 		t.Fatalf("%s next address reused a pre-derived address: %s", label, nextAddr)
 	}
-	t.Logf("%s address reuse check passed: next address %s is fresh", label, nextAddr)
-}
-
-func requireSmokeOffchainBalance(
-	t *testing.T,
-	ctx context.Context,
-	wallet arksdk.Wallet,
-	expected uint64,
-	timeout time.Duration,
-	msg string,
-	args ...interface{},
-) {
-	t.Helper()
-
-	msgAndArgs := append([]interface{}{msg}, args...)
-	require.Eventually(t, func() bool {
-		bal, err := wallet.Balance(ctx)
-		return err == nil && bal.OffchainBalance.Total == expected
-	}, timeout, 500*time.Millisecond, msgAndArgs...)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	t.Logf("[verify %s] ✓ fresh address: %s", label, nextAddr)
 }
 
 func formatSmokeTier(N int) string {

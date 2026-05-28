@@ -56,7 +56,7 @@ integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e
 
 ## smokehd: runs the HD wallet restore smoke test. Optional:
-## SMOKE_TIER=1k|10k|50k, defaults to 1k.
+## SMOKE_TIER=N (1-999) | Nk (thousands) | Nm (millions), defaults to 1k.
 smokehd:
 	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
 
