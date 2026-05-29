@@ -199,8 +199,9 @@ func TestWalletOptions(t *testing.T) {
 // zero-value stubs since these tests never invoke the methods.
 type mockHandler struct{ typ types.ContractType }
 
+func (h *mockHandler) Derivable() bool { return true }
 func (h *mockHandler) NewContract(
-	_ context.Context, k identity.KeyRef,
+	_ context.Context, k identity.KeyRef, _ any,
 ) (*types.Contract, error) {
 	s := sha256.Sum256([]byte(string(h.typ) + ":" + k.Id))
 	return &types.Contract{

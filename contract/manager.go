@@ -84,6 +84,9 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 		if err != nil {
 			return err
 		}
+		if !handler.Derivable() {
+			continue
+		}
 		// Pick the "is this contract used externally?" probe for the type:
 		// boarding contracts are looked up via the explorer per-address (and
 		// throttled), offchain ones via the indexer's batch GetVtxos.
@@ -120,21 +123,20 @@ func (m *contractManager) NewContract(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		// A single-key identity reuses the same key for every contract of a given type, so the
-		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
-		// the stored contract.
+	// Derivable single-key contracts are idempotent: the same key always
+	// produces the same script, so return the existing one.
+	if handler.Derivable() && m.keyProvider.GetType() == identity.SingleKeyIdentity {
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
 		}
 		if len(contracts) > 0 {
-			contract := contracts[0]
-			return &contract, nil
+			c := contracts[0]
+			return &c, nil
 		}
 	}
 
-	contract, err := m.newContract(ctx, contractType, handler)
+	contract, err := m.deriveContract(ctx, contractType, handler, o.params)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +146,6 @@ func (m *contractManager) NewContract(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 	}
-
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
@@ -154,7 +155,7 @@ func (m *contractManager) NewContract(
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
-	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
+	log.Debugf("%s added new %s contract %s", logPrefix, contractType, contract.Script)
 
 	return contract, nil
 }
@@ -274,7 +275,7 @@ scan:
 			if err != nil {
 				return err
 			}
-			contract, err := handler.NewContract(ctx, *keyRef)
+			contract, err := handler.NewContract(ctx, *keyRef, nil)
 			if err != nil {
 				return fmt.Errorf(
 					"failed to derive %s contract for key %s: %w",
@@ -325,9 +326,9 @@ scan:
 	return nil
 }
 
-func (m *contractManager) newContract(
+func (m *contractManager) deriveContract(
 	ctx context.Context,
-	contractType types.ContractType, handler handlers.Handler,
+	contractType types.ContractType, handler handlers.Handler, params any,
 ) (*types.Contract, error) {
 	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
@@ -355,7 +356,7 @@ func (m *contractManager) newContract(
 		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
 	}
 
-	return handler.NewContract(ctx, *keyRef)
+	return handler.NewContract(ctx, *keyRef, params)
 }
 
 func (m *contractManager) findUsedContracts(
@@ -422,6 +423,9 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if !handler.Derivable() {
+			continue
+		}
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return err
@@ -441,7 +445,7 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		c, err := handler.NewContract(ctx, *keyRef)
+		c, err := handler.NewContract(ctx, *keyRef, nil)
 		if err != nil {
 			return fmt.Errorf(
 				"failed to derive %s contract for key %s: %w", contractType, keyId, err,

@@ -273,7 +273,8 @@ func newMockHandler(ctType string) handlers.Handler {
 
 const mockOwnerKeyIdParam = "ownerKeyId"
 
-func (m *mockHandler) NewContract(_ context.Context, k identity.KeyRef) (*types.Contract, error) {
+func (m *mockHandler) Derivable() bool { return true }
+func (m *mockHandler) NewContract(_ context.Context, k identity.KeyRef, _ any) (*types.Contract, error) {
 	return &types.Contract{
 		Type:    types.ContractType(m.ctType),
 		State:   types.ContractStateActive,

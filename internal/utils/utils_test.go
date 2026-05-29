@@ -292,8 +292,10 @@ type mockedHandler struct {
 	mock.Mock
 }
 
+func (h *mockedHandler) Derivable() bool { return true }
+
 func (h *mockedHandler) NewContract(
-	ctx context.Context, k identity.KeyRef,
+	ctx context.Context, k identity.KeyRef, params any,
 ) (*types.Contract, error) {
 	a := h.Called(ctx, k)
 	c, _ := a.Get(0).(*types.Contract)

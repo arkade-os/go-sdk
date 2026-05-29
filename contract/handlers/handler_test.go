@@ -62,7 +62,7 @@ func TestHandlerNewContract(t *testing.T) {
 				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef)
+				built, err := h.NewContract(t.Context(), keyRef, nil)
 				require.NoError(t, err)
 				c := *built
 
@@ -134,7 +134,7 @@ func TestHandlerNewContract(t *testing.T) {
 							&mockClient{info: c.info, infoErr: c.infoErr},
 							testNetwork, mode.isOnchain,
 						)
-						got, err := h.NewContract(t.Context(), keyRef)
+						got, err := h.NewContract(t.Context(), keyRef, nil)
 						require.Error(t, err)
 						require.ErrorContains(t, err, c.expectedError)
 						require.Nil(t, got)
@@ -152,7 +152,7 @@ func TestHandlerGetKeyRef(t *testing.T) {
 				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef)
+				built, err := h.NewContract(t.Context(), keyRef, nil)
 				require.NoError(t, err)
 				c := *built
 
@@ -241,7 +241,7 @@ func TestHandlerGetKeyRefs(t *testing.T) {
 			h := newTestHandler(t, false)
 			keyRef := newTestKeyRef(t)
 
-			built, err := h.NewContract(t.Context(), keyRef)
+			built, err := h.NewContract(t.Context(), keyRef, nil)
 			require.NoError(t, err)
 			c := *built
 
@@ -270,7 +270,7 @@ func TestHandlerGetKeyRefs(t *testing.T) {
 			h := newTestHandler(t, true)
 			keyRef := newTestKeyRef(t)
 
-			built, err := h.NewContract(t.Context(), keyRef)
+			built, err := h.NewContract(t.Context(), keyRef, nil)
 			require.NoError(t, err)
 			c := *built
 
@@ -287,7 +287,7 @@ func TestHandlerGetKeyRefs(t *testing.T) {
 			h := newTestHandler(t, true)
 			keyRef := newTestKeyRef(t)
 
-			built, err := h.NewContract(t.Context(), keyRef)
+			built, err := h.NewContract(t.Context(), keyRef, nil)
 			require.NoError(t, err)
 			c := *built
 			delete(c.Params, checkpointExitPathParam)
@@ -345,7 +345,7 @@ func TestHandlerGetKeyRefs(t *testing.T) {
 		for _, tc := range offchainCases {
 			t.Run("offchain: "+tc.name, func(t *testing.T) {
 				h := newTestHandler(t, false)
-				built, err := h.NewContract(t.Context(), newTestKeyRef(t))
+				built, err := h.NewContract(t.Context(), newTestKeyRef(t), nil)
 				require.NoError(t, err)
 				c := *built
 				tc.mutateContract(&c)
@@ -366,7 +366,7 @@ func TestHandlerGetSignerKey(t *testing.T) {
 				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef)
+				built, err := h.NewContract(t.Context(), keyRef, nil)
 				require.NoError(t, err)
 				c := *built
 
@@ -440,7 +440,7 @@ func TestHandlerGetExitDelay(t *testing.T) {
 				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef)
+				built, err := h.NewContract(t.Context(), keyRef, nil)
 				require.NoError(t, err)
 				c := *built
 
@@ -510,7 +510,7 @@ func TestHandlerGetTapscripts(t *testing.T) {
 				h := newTestHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef)
+				built, err := h.NewContract(t.Context(), keyRef, nil)
 				require.NoError(t, err)
 				c := *built
 

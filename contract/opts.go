@@ -125,8 +125,25 @@ func WithLabel(label string) ContractOption {
 	})
 }
 
+// WithParams passes handler-specific parameters for contract creation.
+// Each handler type documents its expected concrete type
+// (e.g. *vhtlcHandler.ContractParams for VHTLC contracts).
+func WithParams(params any) ContractOption {
+	return contractOptFn(func(o *contractOptions) error {
+		if o.params != nil {
+			return fmt.Errorf("params option is already set")
+		}
+		if params == nil {
+			return fmt.Errorf("params must not be nil")
+		}
+		o.params = params
+		return nil
+	})
+}
+
 type contractOptions struct {
-	label string
+	label  string
+	params any
 }
 
 func newDefaultContractOption() *contractOptions {
