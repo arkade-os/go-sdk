@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
@@ -43,6 +44,7 @@ type Wallet interface {
 	Client() client.Client
 	ContractManager() contract.Manager
 
+	GetConfigData(ctx context.Context) (*clienttypes.Config, error)
 	Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) error
 	IsLocked(ctx context.Context) bool
 	Unlock(ctx context.Context, password string) error
@@ -66,7 +68,7 @@ type Wallet interface {
 	BurnAsset(
 		ctx context.Context, assetID string, amount uint64,
 	) (string, error)
-	SendOffChain(ctx context.Context, receivers []clienttypes.Receiver) (string, error)
+	SendOffChain(ctx context.Context, receivers []clienttypes.Receiver, opts ...clientwallet.SendOption) (string, error)
 	RegisterIntent(
 		ctx context.Context,
 		vtxos []clienttypes.Vtxo, boardingUtxos []clienttypes.Utxo, notes []string,

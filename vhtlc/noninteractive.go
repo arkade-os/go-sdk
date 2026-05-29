@@ -47,7 +47,7 @@ const (
 	opInspectOutputScriptPubKey  = 0xd1
 	opInspectOutputValue         = 0xcf
 	opInspectInputValue          = 0xc9
-	opGreaterThanOrEqual         = 0xf4
+	opGreaterThanOrEqual         = 0xa2
 )
 
 // EnforcePayTo builds the arkade enforcement script pinning output[i] to

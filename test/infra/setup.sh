@@ -1,0 +1,454 @@
+#!/bin/bash
+set -o pipefail
+
+# vars
+composeFile="test/infra/docker-compose.yml"
+password="password"
+fulmineBoltzUrl="http://127.0.0.1:7003/api/v1"
+fulmineUrl="http://127.0.0.1:7001/api/v1"
+fulmineMockUrl="http://127.0.0.1:7101/api/v1"
+arkdUrl="http://arkd:7070"
+channelAmount=1000000
+invoiceAmount=300000
+invoiceAmountMsat=300000000
+now=$(date +"%Y-%m-%d %H:%M:%S")
+status=""
+out=""
+err=""
+
+# commands
+compose="docker compose -f $composeFile"
+arkd="docker exec arkd arkd"
+lndBoltz="docker exec boltz-lnd lncli --network=regtest"
+clnBoltz="docker exec boltz-cln lightning-cli --network=regtest"
+lndClient="docker exec lnd lncli --network=regtest"
+clnClient="docker exec cln lightning-cli --network=regtest"
+
+run_quiet() {
+    local output
+
+    # capture both stdout and stderr and return status without relying on errexit
+    output=$("$@" 2>&1)
+    status=$?
+    if [ $status -eq 0 ]; then
+        out="$output"
+        return 0
+    else
+        err="$output"
+        return $status
+    fi
+}
+exit() {
+    echo "$@"
+    builtin exit 1
+}
+
+retry() {
+    local rc
+    for i in {1..6}; do
+        err=$("$@" 2>&1)
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+            status=0
+            return 0
+        fi
+        status="$rc"
+        sleep 6
+    done
+    return "$status"
+}
+
+# wait_for_onboard polls the /onboard endpoint until it returns a non-null
+# address, working around the "service is syncing" window right after unlock.
+# Echoes the address on success.
+wait_for_onboard() {
+    local url="$1"
+    local response addr
+    for _ in {1..30}; do
+        response=$(curl -s -X POST "$url/onboard" -H 'Content-Type: application/json')
+        addr=$(echo "$response" | jq -r '.address // empty')
+        if [ -n "$addr" ] && [ "$addr" != "null" ]; then
+            echo "$addr"
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+echo "starting bitcoin stack..."
+if ! run_quiet $compose down -v; then
+    exit "  ❌ failed to tear down existing stack (status=$status) (err=$err)"
+else
+    echo "  ✅ stopped existing stack"
+fi
+
+if ! run_quiet nigiri stop --delete; then
+    exit "  ❌ failed to tear down existing bitcoin stack (status=$status) (err=$err)"
+else
+    echo "  ✅ stopped existing bitcoin stack"
+fi
+
+if ! run_quiet nigiri start --ln; then
+    exit "  ❌ failed (status=$status) (err=$err)"
+else
+    echo "  ✅ started"
+fi
+
+echo "setting up Arkade server stack..."
+if ! run_quiet $compose up -d arkd; then
+    exit "  ❌ failed to start stack (status=$status) (err=$err)"
+else
+    echo "  ✅ stack started"
+fi
+
+# Wait for arkd's admin REST listener to come up (longer than a fixed sleep
+# would reliably wait — arkd-wallet sync can take ~10-15s on a fresh stack).
+for _ in {1..30}; do
+    if docker exec arkd wget -q -O- http://127.0.0.1:7071/v1/admin/wallet/seed >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+
+echo "provisioning Arkade server..."
+err=$($arkd wallet create --password $password)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to initialize (status=$status) (err=$err)"
+else
+    echo "  ✅ initialized"
+fi
+sleep 1
+
+err=$($arkd wallet unlock --password $password)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to unlock (status=$status) (err=$err)"
+else
+    echo "  ✅ unlocked"
+fi
+sleep 1
+
+addr=$($arkd wallet address)
+if [ $? -ne 0 ] || [ -z "$addr" ]; then
+    exit "  ❌ failed to get wallet address"
+fi
+
+funded_count=0
+for i in {1..21}; do
+    err=$(nigiri faucet $addr)
+    if [ $? -ne 0 ]; then
+        exit "  ❌ failed to fund (status=$status) (err=$err)"
+    fi
+    funded_count=$((funded_count + 1))
+    sleep 1
+done
+echo "  ✅ funded onchain with $funded_count BTC"
+
+echo "setting up Solver stack..."
+if ! run_quiet $compose up -d emulator solver; then
+    exit "  ❌ failed to start stack (status=$status) (err=$err)"
+else
+    echo "  ✅ stack started"
+fi
+
+# Wait for solver's HTTP listener and the preimage plugin to be running.
+solver_ready=0
+for _ in {1..30}; do
+    response=$(curl -s http://127.0.0.1:7271/v1/plugins)
+    if [ -n "$response" ] && [ "$(echo "$response" | jq -r '.preimage.running // false')" = "true" ]; then
+        solver_ready=1
+        break
+    fi
+    sleep 2
+done
+if [ $solver_ready -ne 1 ]; then
+    exit "  ❌ solver preimage plugin did not become ready (last response: $response)"
+else
+    echo "  ✅ solver ready (preimage plugin running)"
+fi
+
+echo "setting up Boltz stack..."
+if ! run_quiet $compose up -d boltz mock-boltz boltz-fulmine; then
+    exit "  ❌ failed to start stack (status=$status) (err=$err)"
+else
+    echo "  ✅ stack started"
+fi
+sleep 5
+
+echo "provisioning Fulmine used by Boltz..."
+# Wait for boltz-fulmine REST API to be reachable
+for _ in {1..30}; do
+    if curl -s "$fulmineBoltzUrl/wallet/status" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+seed=$(curl -s $fulmineBoltzUrl/wallet/genseed | jq -r .hex)
+if [ $? -ne 0 ] || [ -z "$seed" ] || [ "$seed" = "null" ]; then
+    exit "  ❌ failed to generate seed (seed=$seed)"
+fi
+
+err=$(curl -s -X POST $fulmineBoltzUrl/wallet/create -H 'Content-Type: application/json' \
+    -d "{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}")
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to initialize (status=$status) (err=$err)"
+else
+    echo "  ✅ initialized"
+fi
+sleep 1
+
+err=$(curl -s -X POST $fulmineBoltzUrl/wallet/unlock -H 'Content-Type: application/json' \
+    -d "{\"password\": \"$password\"}")
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to unlock (status=$status) (err=$err)"
+else
+    echo "  ✅ unlocked"
+fi
+sleep 1
+
+addr=$(wait_for_onboard $fulmineBoltzUrl)
+if [ $? -ne 0 ] || [ -z "$addr" ]; then
+    exit "  ❌ failed to get boarding address (status=$status) (err=$err)"
+fi
+err=$(nigiri faucet $addr 0.001)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to fund boarding address (addr=$addr) (status=$status) (err=$err)"
+fi
+sleep 5
+
+err=$(curl -s $fulmineBoltzUrl/settle)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to settle (status=$status) (err=$err)"
+else
+    echo "  ✅ funded offchain with 0.001 BTC"
+fi
+
+echo "provisioning LN..."
+lndPubkey=$($lndClient getinfo | jq -r .identity_pubkey)
+lndBoltzPubkey=$($lndBoltz getinfo | jq -r .identity_pubkey)
+
+err=$($lndBoltz connect $lndPubkey@lnd:9735)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to connect lnd peers (status=$status) (err=$err)"
+else
+    echo "  ✅ lnd peers connected"
+fi
+sleep 10
+
+clnPubkey=$($clnClient getinfo | jq -r .id)
+clnBoltzPubkey=$($clnBoltz getinfo | jq -r .id)
+
+err=$($clnBoltz connect $clnPubkey cln 9935)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to connect cln peers (status=$status) (err=$err)"
+else
+    echo "  ✅ cln peers connected"
+fi
+
+err=$(nigiri faucet lnd)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to fund lnd (status=$status) (err=$err)"
+fi
+sleep 1
+
+addr=$($lndBoltz newaddress p2wkh | jq -r .address)
+err=$(nigiri faucet $addr)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to fund boltz-lnd (addr=$addr) (status=$status) (err=$err)"
+else
+    echo "  ✅ funded lnd nodes onchain with 1 BTC"
+fi
+sleep 1
+
+err=$(nigiri faucet cln)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to fund cln (status=$status) (err=$err)"
+fi
+sleep 1
+
+addr=$($clnBoltz --network=regtest newaddr bech32 | jq -r .bech32)
+err=$(nigiri faucet $addr)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to fund boltz-cln (addr=$addr) (status=$status) (err=$err)"
+else
+    echo "  ✅ funded cln nodes onchain with 1 BTC"
+fi
+sleep 5
+
+# Mine blocks to confirm any pending channels before opening new ones
+nigiri rpc --generate 6 >/dev/null 2>&1
+sleep 3
+
+retry $lndBoltz openchannel --node_key=$lndPubkey --local_amt=$channelAmount
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to open channel boltz-lnd -> lnd (status=$status) (err=$err)"
+fi
+
+nigiri rpc --generate 6 >/dev/null 2>&1
+sleep 3
+
+retry $lndClient openchannel --node_key=$lndBoltzPubkey --local_amt=$channelAmount
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to open channel boltz-lnd <- lnd (status=$status) (err=$err)"
+else 
+    echo "  ✅ opened channels boltz-lnd <-> lnd"
+fi
+
+
+nigiri rpc --generate 6 >/dev/null 2>&1
+sleep 3
+
+retry $clnBoltz fundchannel id=$clnPubkey amount=$channelAmount
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to open channel boltz-cln -> cln (status=$status) (err=$err)"
+fi
+
+nigiri rpc --generate 6 >/dev/null 2>&1
+sleep 3
+
+retry $clnClient fundchannel id=$clnBoltzPubkey amount=$channelAmount
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to open channel boltz-cln <- cln (status=$status) (err=$err)"
+else 
+    echo "  ✅ opened channels boltz-cln <-> cln"
+fi
+
+err=$(nigiri rpc --generate 10)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to mine blocks (status=$status) (err=$err)"
+fi
+sleep 10
+
+invoice=$($lndClient addinvoice --amt $invoiceAmount | jq -r .payment_request)
+retry $lndBoltz payinvoice $invoice --force
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to pay lnd invoice (invoice=$invoice) (status=$status) (err=$err)"
+fi
+sleep 1
+
+invoice=$($lndBoltz addinvoice --amt $invoiceAmount | jq -r .payment_request)
+retry $lndClient payinvoice $invoice --force
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to pay boltz-lnd invoice (invoice=$invoice) (status=$status) (err=$err)"
+else
+    echo "  ✅ paid invoices boltz-lnd <-> lnd"
+fi
+
+invoice=$($clnClient invoice $invoiceAmountMsat "$now" "" | jq -r .bolt11)
+retry $clnBoltz pay $invoice
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to pay cln invoice (invoice=$invoice) (status=$status) (err=$err)"
+fi
+sleep 1
+
+invoice=$($clnBoltz invoice $invoiceAmountMsat "$now" "" | jq -r .bolt11)
+retry $clnClient pay $invoice
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to pay boltz-cln invoice (invoice=$invoice) (status=$status) (err=$err)"
+else
+    echo "  ✅ paid invoices boltz-cln <-> cln"
+fi
+
+echo "setting up Client stack..."
+if ! run_quiet $compose up -d fulmine fulmine-mock; then
+    exit "  ❌ failed to start stack (status=$status) (err=$err)"
+else
+    echo "  ✅ stack started"
+fi
+sleep 2
+
+echo "provisioning Fulmine used by Client..."
+for _ in {1..30}; do
+    if curl -s "$fulmineUrl/wallet/status" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+seed=$(curl -s $fulmineUrl/wallet/genseed | jq -r .hex)
+if [ $? -ne 0 ] || [ -z "$seed" ] || [ "$seed" = "null" ]; then
+    exit "  ❌ failed to generate seed (seed=$seed)"
+fi
+
+err=$(curl -s -X POST $fulmineUrl/wallet/create -H 'Content-Type: application/json' \
+    -d "{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}")
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to initialize (status=$status) (err=$err)"
+else
+    echo "  ✅ initialized"
+fi
+sleep 1
+
+err=$(curl -s -X POST $fulmineUrl/wallet/unlock -H 'Content-Type: application/json' \
+    -d "{\"password\": \"$password\"}")
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to unlock (status=$status) (err=$err)"
+else
+    echo "  ✅ unlocked"
+fi
+sleep 1
+
+addr=$(wait_for_onboard $fulmineUrl)
+if [ $? -ne 0 ] || [ -z "$addr" ]; then
+    exit "  ❌ failed to get boarding address (status=$status) (err=$err)"
+fi
+sleep 5
+
+err=$(curl -s $fulmineUrl/settle)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to settle (status=$status) (err=$err)"
+else
+    echo "  ✅ funded offchain with 0.001 BTC"
+fi
+
+
+echo "provisioning Fulmine used by mocked Boltz..."
+for _ in {1..30}; do
+    if curl -s "$fulmineMockUrl/wallet/status" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+seed=$(curl -s $fulmineMockUrl/wallet/genseed | jq -r .hex)
+if [ $? -ne 0 ] || [ -z "$seed" ] || [ "$seed" = "null" ]; then
+    exit "  ❌ failed to generate seed (status=$status) (err=$err)"
+fi
+
+err=$(curl -s -X POST $fulmineMockUrl/wallet/create -H 'Content-Type: application/json' \
+    -d "{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}")
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to initialize mocked Fulmine (status=$status) (err=$err)"
+else
+    echo "  ✅ mocked Fulmine initialized"
+fi
+sleep 1
+
+err=$(curl -s -X POST $fulmineMockUrl/wallet/unlock -H 'Content-Type: application/json' \
+    -d "{\"password\": \"$password\"}")
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to unlock mocked Fulmine (status=$status) (err=$err)"
+else
+    echo "  ✅ mocked Fulmine unlocked"
+fi
+sleep 1
+
+addr=$(wait_for_onboard $fulmineMockUrl)
+if [ $? -ne 0 ] || [ -z "$addr" ]; then
+    exit "  ❌ failed to get mocked Fulmine boarding address (status=$status) (err=$err)"
+fi
+sleep 5
+
+err=$(nigiri faucet $addr 0.001)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to fund mocked Fulmine boarding address (addr=$addr) (status=$status) (err=$err)"
+fi
+
+err=$(curl -s $fulmineMockUrl/settle)
+if [ $? -ne 0 ]; then
+    exit "  ❌ failed to settle mocked Fulmine (status=$status) (err=$err)"
+else
+    echo "  ✅ mocked Fulmine funded offchain with 0.001 BTC"
+fi
+
+run_quiet docker restart boltz
+
+echo "✅ setup complete"

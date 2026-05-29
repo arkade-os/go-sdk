@@ -268,6 +268,13 @@ func (w *wallet) Store() types.Store {
 	return w.store
 }
 
+func (w *wallet) GetConfigData(ctx context.Context) (*clienttypes.Config, error) {
+	if w.client == nil {
+		return nil, ErrNotInitialized
+	}
+	return w.client.GetConfigData(ctx)
+}
+
 func (w *wallet) Explorer() explorer.Explorer {
 	if w.client == nil {
 		return nil

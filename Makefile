@@ -43,14 +43,12 @@ sqlc:
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
 
 regtest:
-	@echo "Starting regtest..."
-	@docker compose -f test/docker/docker-compose.yml down
-	@docker compose -f test/docker/docker-compose.yml up -d --build
-	@go run test/docker/setup.go
+	@echo "Starting full regtest (with solver, emulator, boltz)..."
+	@bash test/infra/setup.sh
 
 regtestdown:
 	@echo "Stopping regtest..."
-	@docker compose -f test/docker/docker-compose.yml down
+	@docker compose -f test/infra/docker-compose.yml down -v
 
 integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e
