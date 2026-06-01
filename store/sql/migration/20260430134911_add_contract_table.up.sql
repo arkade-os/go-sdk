@@ -9,3 +9,6 @@ CREATE TABLE IF NOT EXISTS contract (
   key_index INTEGER NOT NULL,
   metadata TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_contract_type_key_index
+  ON contract (type, key_index DESC);
