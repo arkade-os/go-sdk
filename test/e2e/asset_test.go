@@ -16,6 +16,7 @@ const dustAmount = 330
 // TestAssetTransfer tests the transfer of an asset between alice and bob.
 // then they both settle their funds.
 func TestAssetTransferAndRenew(t *testing.T) {
+	t.Parallel()
 	const supply = 5_000
 	const transferAmount = 1_200
 
@@ -123,6 +124,7 @@ func TestAssetTransferAndRenew(t *testing.T) {
 }
 
 func TestProveDustAmountAddedByDefault(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	alice := setupClient(t, "")
 	bob := setupClient(t, "")
@@ -160,6 +162,7 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 }
 
 func TestAssetIssuance(t *testing.T) {
+	t.Parallel()
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
 		alice := setupClient(t, "")
@@ -276,6 +279,7 @@ func TestAssetIssuance(t *testing.T) {
 
 // TestAssetReissuance makes issue an asset with a control asset and then reissue it.
 func TestAssetReissuance(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	alice := setupClient(t, "")
 
@@ -343,6 +347,7 @@ func TestAssetReissuance(t *testing.T) {
 }
 
 func TestAssetBurn(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	alice := setupClient(t, "")
 

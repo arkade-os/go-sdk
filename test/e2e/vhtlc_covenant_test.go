@@ -39,6 +39,7 @@ const (
 // TestNonInteractiveClaim creates a VHTLC with the non-interactive claim option
 // and lets bancod solver claim the VHTLC instead of the recipient.
 func TestNonInteractiveClaim(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	sender, _ := setupSwapClient(t)

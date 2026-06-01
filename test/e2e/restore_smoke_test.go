@@ -10,6 +10,7 @@ import (
 )
 
 func TestSmokeWalletRestore(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	alice := setupClient(t, "")
 

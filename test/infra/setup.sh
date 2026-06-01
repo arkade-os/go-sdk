@@ -210,7 +210,7 @@ addr=$(wait_for_onboard $fulmineBoltzUrl)
 if [ $? -ne 0 ] || [ -z "$addr" ]; then
     exit "  ❌ failed to get boarding address (status=$status) (err=$err)"
 fi
-err=$(nigiri faucet $addr 0.001)
+err=$(nigiri faucet $addr 1)
 if [ $? -ne 0 ]; then
     exit "  ❌ failed to fund boarding address (addr=$addr) (status=$status) (err=$err)"
 fi
@@ -220,7 +220,7 @@ err=$(curl -s $fulmineBoltzUrl/settle)
 if [ $? -ne 0 ]; then
     exit "  ❌ failed to settle (status=$status) (err=$err)"
 else
-    echo "  ✅ funded offchain with 0.001 BTC"
+    echo "  ✅ funded offchain with 1 BTC"
 fi
 
 echo "provisioning LN..."

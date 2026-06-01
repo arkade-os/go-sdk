@@ -119,6 +119,7 @@ func fundVHTLC(
 //  3. Claim with preimage via SwapHandler.ClaimVHTLC
 //  4. Verify claim returns a valid txid
 func TestVHTLCClaimDirect(t *testing.T) {
+	t.Parallel()
 	alice, privKey := setupSwapClient(t)
 	ctx := t.Context()
 
@@ -172,6 +173,7 @@ func TestVHTLCClaimDirect(t *testing.T) {
 //  4. Claim via SettleVHTLCWithClaimPath (batch session)
 //  5. Verify balance is preserved (minus dust/fees)
 func TestVHTLCClaimSettlement(t *testing.T) {
+	t.Parallel()
 	alice, privKey := setupSwapClient(t)
 	ctx := t.Context()
 
@@ -234,6 +236,7 @@ func TestVHTLCClaimSettlement(t *testing.T) {
 //  3. Refund via SettleVhtlcWithRefundPath
 //  4. Verify balance is preserved
 func TestVHTLCRefundSettlement(t *testing.T) {
+	t.Parallel()
 	alice, privKey := setupSwapClient(t)
 	ctx := t.Context()
 
@@ -312,6 +315,7 @@ func TestVHTLCRefundSettlement(t *testing.T) {
 //     via SettleVHTLCWithCollaborativeRefundPath
 //  4. Verify sender's balance is restored
 func TestVHTLCDelegateRefund(t *testing.T) {
+	t.Parallel()
 	// Setup sender (the VTXO owner who will delegate the refund)
 	sender, senderPrivKey := setupSwapClient(t)
 	// Setup receiver (acts as the delegate who completes the refund)
@@ -608,6 +612,7 @@ func buildDelegatePartialForfeit(
 // TestVHTLCClaimWithOutpoint verifies that ClaimVHTLC targets the specified VTXO
 // by outpoint when multiple VTXOs exist at the same VHTLC address.
 func TestVHTLCClaimWithOutpoint(t *testing.T) {
+	t.Parallel()
 	alice, privKey := setupSwapClient(t)
 	ctx := t.Context()
 
@@ -679,6 +684,7 @@ func TestVHTLCClaimWithOutpoint(t *testing.T) {
 // TestVHTLCClaimOldestVtxo verifies that ClaimVHTLC with nil outpoint selects
 // the oldest VTXO (by CreatedAt ascending) when multiple exist.
 func TestVHTLCClaimOldestVtxo(t *testing.T) {
+	t.Parallel()
 	alice, privKey := setupSwapClient(t)
 	ctx := t.Context()
 

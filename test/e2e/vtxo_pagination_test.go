@@ -23,6 +23,7 @@ type vtxoPaginationFixture struct {
 }
 
 func TestE2EVtxoPagination(t *testing.T) {
+	t.Parallel()
 	f := setupVtxoPaginationFixture(t)
 
 	t.Run("paginated walk equals single-call result", func(t *testing.T) {

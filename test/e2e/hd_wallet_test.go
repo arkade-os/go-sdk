@@ -11,6 +11,7 @@ import (
 )
 
 func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	hdWallet := setupClient(t, "")
@@ -55,6 +56,7 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 }
 
 func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	aliceClientHD := setupClient(t, "")
@@ -140,6 +142,7 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 }
 
 func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	const gapLimit = uint32(5)
@@ -193,6 +196,7 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 }
 
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	aliceClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
@@ -270,6 +274,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 }
 
 func TestHDWalletEventStreams(t *testing.T) {
+	t.Parallel()
 	t.Run("offchain transfer and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
@@ -410,6 +415,7 @@ func TestHDWalletEventStreams(t *testing.T) {
 // This currently exposes review issue H1: discoverHDWalletKeys only checks
 // offchain VTXO activity, so boarding-only funded keys are missed.
 func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	alice := setupClient(t, "")

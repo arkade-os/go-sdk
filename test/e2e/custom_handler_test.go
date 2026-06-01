@@ -17,6 +17,7 @@ import (
 )
 
 func TestCustomContractHandlerRegistered(t *testing.T) {
+	t.Parallel()
 	// Build the wallet manually rather than via setupClient so we can
 	// inspect the registry immediately after Unlock, without waiting for
 	// the background ScanContracts to complete. The custom handler here
