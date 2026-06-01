@@ -32,15 +32,15 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 
 	// Create a dedicated Bitcoin Core wallet for RBF testing with low fee rate.
 	walletName := fmt.Sprintf("rbftest_%d", time.Now().UnixNano())
-	_, err = runCommand("nigiri", "rpc", "createwallet", walletName)
+	_, err = bitcoinCli(t, "createwallet", walletName)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = runCommand("nigiri", "rpc", "unloadwallet", walletName)
+		_, _ = bitcoinCli(t, "unloadwallet", walletName)
 	})
 
 	rpc := func(args ...string) (string, error) {
-		fullArgs := append([]string{"rpc", fmt.Sprintf("-rpcwallet=%s", walletName)}, args...)
-		return runCommand("nigiri", fullArgs...)
+		fullArgs := append([]string{fmt.Sprintf("-rpcwallet=%s", walletName)}, args...)
+		return bitcoinCli(t, fullArgs...)
 	}
 
 	// Fund the test wallet.
@@ -74,7 +74,7 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 		var bumpResp struct {
 			Txid string `json:"txid"`
 		}
-		// Strip ANSI escape codes that nigiri injects via terminal coloring.
+		// Defensively strip any ANSI escape codes before parsing JSON.
 		cleanBump := ansiRe.ReplaceAllString(strings.TrimSpace(bumpOut), "")
 		require.NoError(t, json.Unmarshal([]byte(cleanBump), &bumpResp))
 

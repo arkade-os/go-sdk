@@ -14,19 +14,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: '1.26.3'
-      
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - run: go mod tidy
-      
-      - name: Run Nigiri
-        uses: vulpemventures/nigiri-github-action@v1
-      
+
+      - name: Start arkade-regtest base stack
+        run: node regtest/regtest.mjs start --env regtest/.env.regtest
+
       - name: Run regtest environment
         run: make regtest
 
       - name: Run tests
         run: make integrationtest
+
+      - name: Tear down arkade-regtest base stack
+        if: always()
+        run: node regtest/regtest.mjs clean --env regtest/.env.regtest

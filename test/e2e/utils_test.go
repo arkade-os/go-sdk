@@ -21,7 +21,7 @@ import (
 const (
 	password    = "secret"
 	serverUrl   = "127.0.0.1:7070"
-	explorerUrl = "http://127.0.0.1:3000"
+	explorerUrl = "http://127.0.0.1:3000/api"
 )
 
 func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
@@ -46,8 +46,12 @@ func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
-	_, err := runCommand("nigiri", "faucet", address, fmt.Sprintf("%.8f", amount))
+	// Send from the node wallet and mine one block to confirm — mirrors the
+	// `regtest.mjs faucet --confirm` behavior (the arkade-regtest stack does not
+	// auto-mine on every faucet call).
+	_, err := bitcoinCli(t, "sendtoaddress", address, fmt.Sprintf("%.8f", amount))
 	require.NoError(t, err)
+	generateBlocks(t, 1)
 }
 
 func faucetOffchain(
@@ -173,6 +177,18 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 }
 
 func generateBlocks(t *testing.T, n int) {
-	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
+	_, err := bitcoinCli(t, "-generate", fmt.Sprintf("%d", n))
 	require.NoError(t, err)
+}
+
+// bitcoinCli runs bitcoin-cli inside the regtest "bitcoin" container provided by
+// the arkade-regtest stack (RPC user admin1 / password 123). This replaces the
+// old `nigiri rpc` passthrough now that nigiri is no longer used.
+func bitcoinCli(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	full := append([]string{
+		"exec", "bitcoin",
+		"bitcoin-cli", "-regtest", "-rpcuser=admin1", "-rpcpassword=123",
+	}, args...)
+	return runCommand("docker", full...)
 }
