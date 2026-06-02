@@ -5,6 +5,7 @@ go 1.26.3
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
 require (
+	github.com/ArkLabsHQ/introspector/pkg/arkade v0.0.0-20260501150319-697f94f40245
 	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260429091057-9246f043c4c8
 	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260522091257-f2fa2963ea96
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
@@ -15,6 +16,7 @@ require (
 	github.com/btcsuite/btcwallet v0.16.10-0.20240718224643-db3a4a2543bd
 	github.com/go-co-op/gocron v1.37.0
 	github.com/golang-migrate/migrate/v4 v4.17.1
+	github.com/lightningnetwork/lnd v0.18.2-beta
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.11.1
 	github.com/tyler-smith/go-bip39 v1.1.0
@@ -24,7 +26,6 @@ require (
 
 require (
 	cel.dev/expr v0.25.1 // indirect
-	github.com/ArkLabsHQ/introspector/pkg/arkade v0.0.0-20260501150319-697f94f40245 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
@@ -60,7 +61,6 @@ require (
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
-	github.com/lightningnetwork/lnd v0.18.2-beta // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/fn v1.2.1 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
