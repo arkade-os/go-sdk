@@ -71,7 +71,9 @@ func (h *Handler) NewContract(
 ) (*types.Contract, error) {
 	p, ok := params.(*vhtlc.Opts)
 	if !ok || p == nil {
-		return nil, fmt.Errorf("vhtlc handler requires *vhtlcHandler.ContractParams, got %T", params)
+		return nil, fmt.Errorf(
+			"vhtlc handler requires *vhtlc.Opts, got %T", params,
+		)
 	}
 	return createContract(*p, keyRef, h.network)
 }
