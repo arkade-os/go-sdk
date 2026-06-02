@@ -1,6 +1,8 @@
 package handlers_test
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"strconv"
@@ -11,15 +13,19 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
+	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 )
 
 const (
 	offchainMode = "offchain"
 	onchainMode  = "onchain"
+	vhtlcMode    = "vhtlc"
 
 	// < 512 → block-based RelativeLocktime.
 	testUnilateralExitDelay int64 = 144
@@ -41,28 +47,165 @@ const (
 var testNetwork = arklib.BitcoinRegTest
 
 // modeFixture is one row of the parametrization driving every TestHandler*:
-// each handler kind (offchain default vs onchain boarding) is built once via
-// the factory's isOnchain flag and is expected to produce contracts of the
-// matching type.
+// each handler kind (offchain default, onchain boarding, vhtlc) is built via
+// its handler factory and params factory. The params factory returns the value
+// passed to NewContract (nil for default/boarding, *vhtlc.Opts for vhtlc).
+type invalidCase struct {
+	name          string
+	params        map[string]string
+	expectedError string
+}
+
 type modeFixture struct {
 	name       string
 	isOnchain  bool
 	expectType types.ContractType
+
+	// factories
+	handler func(t *testing.T) handlers.Handler
+	params  func(t *testing.T) any
+
+	// valid-path assertions
+	assertContract  func(t *testing.T, c types.Contract, keyRef identity.KeyRef)
+	assertSignerKey func(t *testing.T, c types.Contract, signer *btcec.PublicKey)
+	assertExitDelay func(t *testing.T, delay *arklib.RelativeLocktime)
+
+	// invalid-path cases per method
+	invalidGetKeyRef    []invalidCase
+	invalidGetSignerKey []invalidCase
+	invalidGetExitDelay []invalidCase
+}
+
+// defaultInvalidGetKeyRef is shared by offchain and onchain default handlers.
+var defaultInvalidGetKeyRef = []invalidCase{
+	{name: "no params", params: nil, expectedError: "has no parameters"},
+	{name: "missing key id", params: map[string]string{ownerKeyParam: "abcd"}, expectedError: "missing owner key ID"},
+	{name: "empty key id", params: map[string]string{ownerKeyIdParam: "", ownerKeyParam: "abcd"}, expectedError: "empty owner key ID"},
+	{name: "missing owner key", params: map[string]string{ownerKeyIdParam: "m/0/0"}, expectedError: "missing owner key"},
+	{name: "invalid owner key format", params: map[string]string{ownerKeyIdParam: "m/0/0", ownerKeyParam: "nothex"}, expectedError: "invalid owner key format"},
+	{name: "invalid owner key", params: map[string]string{ownerKeyIdParam: "m/0/0", ownerKeyParam: hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid owner key"},
+}
+
+var defaultInvalidGetSignerKey = []invalidCase{
+	{name: "no params", params: nil, expectedError: "has no parameters"},
+	{name: "missing signer key", params: map[string]string{ownerKeyIdParam: "m/0/0"}, expectedError: "missing signer key"},
+	{name: "invalid signer key format", params: map[string]string{signerKeyParam: "nothex"}, expectedError: "invalid signer key format"},
+	{name: "invalid signer key", params: map[string]string{signerKeyParam: hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid signer key"},
+}
+
+var defaultInvalidGetExitDelay = []invalidCase{
+	{name: "no params", params: nil, expectedError: "has no parameters"},
+	{name: "missing exit delay", params: map[string]string{ownerKeyIdParam: "m/0/0"}, expectedError: "missing exit delay"},
+	{name: "invalid exit delay format", params: map[string]string{exitDelayParam: "notanumber"}, expectedError: "invalid exit delay format"},
+}
+
+func defaultAssertSignerKey(t *testing.T, c types.Contract, signer *btcec.PublicKey) {
+	t.Helper()
+	require.Equal(t, c.Params[signerKeyParam], hex.EncodeToString(schnorr.SerializePubKey(signer)))
 }
 
 var modeFixtures = []modeFixture{
-	{name: offchainMode, isOnchain: false, expectType: types.ContractTypeDefault},
-	{name: onchainMode, isOnchain: true, expectType: types.ContractTypeBoarding},
+	{
+		name: offchainMode, isOnchain: false, expectType: types.ContractTypeDefault,
+		assertContract: func(t *testing.T, c types.Contract, keyRef identity.KeyRef) {
+			t.Helper()
+			require.Equal(t, keyRef.Id, c.Params[ownerKeyIdParam])
+			require.Equal(t, hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)), c.Params[ownerKeyParam])
+			require.NotEmpty(t, c.Params[signerKeyParam])
+			require.Equal(t, strconv.FormatInt(testUnilateralExitDelay, 10), c.Params[exitDelayParam])
+			require.Contains(t, c.Address, testNetwork.Addr)
+		},
+		assertSignerKey: defaultAssertSignerKey,
+		assertExitDelay: func(t *testing.T, delay *arklib.RelativeLocktime) {
+			t.Helper()
+			require.Equal(t, arklib.LocktimeTypeBlock, delay.Type)
+			require.Equal(t, uint32(testUnilateralExitDelay), delay.Value)
+		},
+		invalidGetKeyRef:    defaultInvalidGetKeyRef,
+		invalidGetSignerKey: defaultInvalidGetSignerKey,
+		invalidGetExitDelay: defaultInvalidGetExitDelay,
+	},
+	{
+		name: onchainMode, isOnchain: true, expectType: types.ContractTypeBoarding,
+		assertContract: func(t *testing.T, c types.Contract, keyRef identity.KeyRef) {
+			t.Helper()
+			require.Equal(t, keyRef.Id, c.Params[ownerKeyIdParam])
+			require.Equal(t, hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)), c.Params[ownerKeyParam])
+			require.NotEmpty(t, c.Params[signerKeyParam])
+			require.Equal(t, strconv.FormatInt(testBoardingExitDelay, 10), c.Params[exitDelayParam])
+			require.Contains(t, c.Address, "bcrt1p")
+		},
+		assertSignerKey: defaultAssertSignerKey,
+		assertExitDelay: func(t *testing.T, delay *arklib.RelativeLocktime) {
+			t.Helper()
+			require.Equal(t, arklib.LocktimeTypeSecond, delay.Type)
+			require.Equal(t, uint32(testBoardingExitDelay), delay.Value)
+		},
+		invalidGetKeyRef:    defaultInvalidGetKeyRef,
+		invalidGetSignerKey: defaultInvalidGetSignerKey,
+		invalidGetExitDelay: defaultInvalidGetExitDelay,
+	},
+	{
+		name:       vhtlcMode,
+		expectType: vhtlcHandler.ContractTypeVHTLC,
+		handler: func(t *testing.T) handlers.Handler {
+			t.Helper()
+			return vhtlcHandler.NewHandler(testNetwork)
+		},
+		params: func(t *testing.T) any {
+			t.Helper()
+			return newTestVHTLCOpts(t)
+		},
+		assertContract: func(t *testing.T, c types.Contract, keyRef identity.KeyRef) {
+			t.Helper()
+			require.Equal(t, keyRef.Id, c.Params[ownerKeyIdParam])
+			require.Contains(t, c.Address, testNetwork.Addr)
+		},
+		assertSignerKey: func(t *testing.T, c types.Contract, signer *btcec.PublicKey) {
+			t.Helper()
+			require.Equal(t, c.Params["server"], hex.EncodeToString(signer.SerializeCompressed()))
+		},
+		assertExitDelay: func(t *testing.T, delay *arklib.RelativeLocktime) {
+			t.Helper()
+			require.Equal(t, arklib.LocktimeTypeSecond, delay.Type)
+			require.Equal(t, uint32(1024), delay.Value)
+		},
+		invalidGetKeyRef: []invalidCase{
+			{name: "no params", params: nil, expectedError: "no params"},
+			{name: "missing ownerKeyId", params: map[string]string{"ownerKey": "abcd"}, expectedError: "missing param"},
+			{name: "invalid owner key hex", params: map[string]string{"ownerKeyId": "m/0/0", "ownerKey": "nothex"}, expectedError: "invalid owner key hex"},
+			{name: "invalid owner key", params: map[string]string{"ownerKeyId": "m/0/0", "ownerKey": hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid owner key"},
+		},
+		invalidGetSignerKey: []invalidCase{
+			{name: "no params", params: nil, expectedError: "no params"},
+			{name: "missing server key", params: map[string]string{"ownerKeyId": "m/0/0"}, expectedError: "missing param"},
+			{name: "invalid server key hex", params: map[string]string{"server": "nothex"}, expectedError: "invalid server hex"},
+			{name: "invalid server key", params: map[string]string{"server": hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid server"},
+		},
+		invalidGetExitDelay: []invalidCase{
+			{name: "no params", params: nil, expectedError: "no params"},
+			{name: "missing delay type", params: map[string]string{"ownerKeyId": "m/0/0"}, expectedError: "missing param"},
+			{name: "invalid delay value", params: map[string]string{
+				"refundWithoutReceiverDelayType":  "second",
+				"refundWithoutReceiverDelayValue": "notanumber",
+			}, expectedError: "invalid"},
+			{name: "unknown delay type", params: map[string]string{
+				"refundWithoutReceiverDelayType":  "unknown",
+				"refundWithoutReceiverDelayValue": "1024",
+			}, expectedError: "unknown locktime type"},
+		},
+	},
 }
 
 func TestHandlerNewContract(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
+				h := fixtureHandler(t, mode)
 				keyRef := newTestKeyRef(t)
+				params := fixtureParams(t, mode)
 
-				built, err := h.NewContract(t.Context(), keyRef, nil)
+				built, err := h.NewContract(t.Context(), keyRef, params)
 				require.NoError(t, err)
 				c := *built
 
@@ -71,35 +214,19 @@ func TestHandlerNewContract(t *testing.T) {
 				require.NotEmpty(t, c.Script)
 				require.NotEmpty(t, c.Address)
 				require.False(t, c.CreatedAt.IsZero())
-				require.Equal(t, keyRef.Id, c.Params[ownerKeyIdParam])
-				require.Equal(
-					t,
-					hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
-					c.Params[ownerKeyParam],
-				)
-				require.NotEmpty(t, c.Params[signerKeyParam])
 
-				if mode.isOnchain {
-					require.Equal(
-						t,
-						strconv.FormatInt(testBoardingExitDelay, 10),
-						c.Params[exitDelayParam],
-					)
-					require.Contains(t, c.Address, "bcrt1p")
-				} else {
-					require.Equal(
-						t,
-						strconv.FormatInt(testUnilateralExitDelay, 10),
-						c.Params[exitDelayParam],
-					)
-					require.Contains(t, c.Address, testNetwork.Addr)
-				}
+				mode.assertContract(t, c, keyRef)
 			})
 		}
 	})
 
 	t.Run("invalid", func(t *testing.T) {
+		// NewContract invalid tests are specific to the default handler (tests GetInfo errors).
+		// VHTLC NewContract errors (wrong params type) are tested inline below.
 		for _, mode := range modeFixtures {
+			if mode.name == vhtlcMode {
+				continue
+			}
 			t.Run(mode.name, func(t *testing.T) {
 				keyRef := newTestKeyRef(t)
 
@@ -142,6 +269,20 @@ func TestHandlerNewContract(t *testing.T) {
 				}
 			})
 		}
+
+		t.Run("vhtlc: nil params", func(t *testing.T) {
+			h := vhtlcHandler.NewHandler(testNetwork)
+			got, err := h.NewContract(t.Context(), newTestKeyRef(t), nil)
+			require.Error(t, err)
+			require.Nil(t, got)
+		})
+
+		t.Run("vhtlc: wrong params type", func(t *testing.T) {
+			h := vhtlcHandler.NewHandler(testNetwork)
+			got, err := h.NewContract(t.Context(), newTestKeyRef(t), "not-opts")
+			require.Error(t, err)
+			require.Nil(t, got)
+		})
 	})
 }
 
@@ -149,10 +290,10 @@ func TestHandlerGetKeyRef(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
+				h := fixtureHandler(t, mode)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef, nil)
+				built, err := h.NewContract(t.Context(), keyRef, fixtureParams(t, mode))
 				require.NoError(t, err)
 				c := *built
 
@@ -174,55 +315,8 @@ func TestHandlerGetKeyRef(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
-
-				cases := []struct {
-					name          string
-					params        map[string]string
-					expectedError string
-				}{
-					{
-						name:          "no params",
-						params:        nil,
-						expectedError: "has no parameters",
-					},
-					{
-						name:          "missing key id",
-						params:        map[string]string{ownerKeyParam: "abcd"},
-						expectedError: "missing owner key ID",
-					},
-					{
-						name: "empty key id",
-						params: map[string]string{
-							ownerKeyIdParam: "",
-							ownerKeyParam:   "abcd",
-						},
-						expectedError: "empty owner key ID",
-					},
-					{
-						name:          "missing owner key",
-						params:        map[string]string{ownerKeyIdParam: "m/0/0"},
-						expectedError: "missing owner key",
-					},
-					{
-						name: "invalid owner key format",
-						params: map[string]string{
-							ownerKeyIdParam: "m/0/0",
-							ownerKeyParam:   "nothex",
-						},
-						expectedError: "invalid owner key format",
-					},
-					{
-						name: "invalid owner key",
-						params: map[string]string{
-							ownerKeyIdParam: "m/0/0",
-							ownerKeyParam:   hex.EncodeToString([]byte{0x00, 0x01}),
-						},
-						expectedError: "invalid owner key",
-					},
-				}
-
-				for _, c := range cases {
+				h := fixtureHandler(t, mode)
+				for _, c := range mode.invalidGetKeyRef {
 					t.Run(c.name, func(t *testing.T) {
 						ref, err := h.GetKeyRef(types.Contract{Script: "broken", Params: c.params})
 						require.Error(t, err)
@@ -363,21 +457,18 @@ func TestHandlerGetSignerKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
+				h := fixtureHandler(t, mode)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef, nil)
+				built, err := h.NewContract(t.Context(), keyRef, fixtureParams(t, mode))
 				require.NoError(t, err)
 				c := *built
 
 				signer, err := h.GetSignerKey(c)
 				require.NoError(t, err)
 				require.NotNil(t, signer)
-				require.Equal(
-					t,
-					c.Params[signerKeyParam],
-					hex.EncodeToString(schnorr.SerializePubKey(signer)),
-				)
+
+				mode.assertSignerKey(t, c, signer)
 			})
 		}
 	})
@@ -385,44 +476,10 @@ func TestHandlerGetSignerKey(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
-
-				cases := []struct {
-					name          string
-					params        map[string]string
-					expectedError string
-				}{
-					{
-						name:          "no params",
-						params:        nil,
-						expectedError: "has no parameters",
-					},
-					{
-						name:          "missing signer key",
-						params:        map[string]string{ownerKeyIdParam: "m/0/0"},
-						expectedError: "missing signer key",
-					},
-					{
-						name: "invalid signer key format",
-						params: map[string]string{
-							signerKeyParam: "nothex",
-						},
-						expectedError: "invalid signer key format",
-					},
-					{
-						name: "invalid signer key",
-						params: map[string]string{
-							signerKeyParam: hex.EncodeToString([]byte{0x00, 0x01}),
-						},
-						expectedError: "invalid signer key",
-					},
-				}
-
-				for _, c := range cases {
+				h := fixtureHandler(t, mode)
+				for _, c := range mode.invalidGetSignerKey {
 					t.Run(c.name, func(t *testing.T) {
-						signer, err := h.GetSignerKey(
-							types.Contract{Script: "broken", Params: c.params},
-						)
+						signer, err := h.GetSignerKey(types.Contract{Script: "broken", Params: c.params})
 						require.Error(t, err)
 						require.ErrorContains(t, err, c.expectedError)
 						require.Nil(t, signer)
@@ -437,10 +494,10 @@ func TestHandlerGetExitDelay(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
+				h := fixtureHandler(t, mode)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef, nil)
+				built, err := h.NewContract(t.Context(), keyRef, fixtureParams(t, mode))
 				require.NoError(t, err)
 				c := *built
 
@@ -448,13 +505,7 @@ func TestHandlerGetExitDelay(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, delay)
 
-				if mode.isOnchain {
-					require.Equal(t, arklib.LocktimeTypeSecond, delay.Type)
-					require.Equal(t, uint32(testBoardingExitDelay), delay.Value)
-				} else {
-					require.Equal(t, arklib.LocktimeTypeBlock, delay.Type)
-					require.Equal(t, uint32(testUnilateralExitDelay), delay.Value)
-				}
+				mode.assertExitDelay(t, delay)
 			})
 		}
 	})
@@ -462,37 +513,10 @@ func TestHandlerGetExitDelay(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
-
-				cases := []struct {
-					name          string
-					params        map[string]string
-					expectedError string
-				}{
-					{
-						name:          "no params",
-						params:        nil,
-						expectedError: "has no parameters",
-					},
-					{
-						name:          "missing exit delay",
-						params:        map[string]string{ownerKeyIdParam: "m/0/0"},
-						expectedError: "missing exit delay",
-					},
-					{
-						name: "invalid exit delay format",
-						params: map[string]string{
-							exitDelayParam: "notanumber",
-						},
-						expectedError: "invalid exit delay format",
-					},
-				}
-
-				for _, c := range cases {
+				h := fixtureHandler(t, mode)
+				for _, c := range mode.invalidGetExitDelay {
 					t.Run(c.name, func(t *testing.T) {
-						delay, err := h.GetExitDelay(
-							types.Contract{Script: "broken", Params: c.params},
-						)
+						delay, err := h.GetExitDelay(types.Contract{Script: "broken", Params: c.params})
 						require.Error(t, err)
 						require.ErrorContains(t, err, c.expectedError)
 						require.Nil(t, delay)
@@ -507,10 +531,10 @@ func TestHandlerGetTapscripts(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		for _, mode := range modeFixtures {
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
+				h := fixtureHandler(t, mode)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef, nil)
+				built, err := h.NewContract(t.Context(), keyRef, fixtureParams(t, mode))
 				require.NoError(t, err)
 				c := *built
 
@@ -525,9 +549,15 @@ func TestHandlerGetTapscripts(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
+		// GetTapscripts invalid uses a mutate-params pattern specific to the
+		// default handler. VHTLC error paths are already covered by the
+		// per-method invalid tests above.
 		for _, mode := range modeFixtures {
+			if mode.name == vhtlcMode {
+				continue
+			}
 			t.Run(mode.name, func(t *testing.T) {
-				h := newTestHandler(t, mode.isOnchain)
+				h := fixtureHandler(t, mode)
 
 				// Each case strips a different required param so the corresponding
 				// inner getter (KeyRef / SignerKey / ExitDelay) is the one that fails.
@@ -610,5 +640,51 @@ func newTestInfo(t *testing.T, signerKey *btcec.PublicKey) *client.Info {
 		UnilateralExitDelay: testUnilateralExitDelay,
 		BoardingExitDelay:   testBoardingExitDelay,
 		CheckpointTapscript: testCheckpointTapscript,
+	}
+}
+
+// fixtureHandler returns the handler for a modeFixture, falling back to
+// the default handler factory when the fixture doesn't provide one.
+func fixtureHandler(t *testing.T, mode modeFixture) handlers.Handler {
+	t.Helper()
+	if mode.handler != nil {
+		return mode.handler(t)
+	}
+	return newTestHandler(t, mode.isOnchain)
+}
+
+// fixtureParams returns the params for NewContract, or nil when the
+// fixture doesn't require any.
+func fixtureParams(t *testing.T, mode modeFixture) any {
+	t.Helper()
+	if mode.params != nil {
+		return mode.params(t)
+	}
+	return nil
+}
+
+// newTestVHTLCOpts builds a valid *vhtlc.Opts with random keys for unit tests.
+func newTestVHTLCOpts(t *testing.T) *vhtlc.Opts {
+	t.Helper()
+	preimage := make([]byte, 32)
+	_, err := rand.Read(preimage)
+	require.NoError(t, err)
+	sha256Hash := sha256.Sum256(preimage)
+
+	return &vhtlc.Opts{
+		Sender:         newTestPubKey(t),
+		Receiver:       newTestPubKey(t),
+		Server:         newTestPubKey(t),
+		PreimageHash:   input.Ripemd160H(sha256Hash[:]),
+		RefundLocktime: arklib.AbsoluteLocktime(1577836800), // Jan 1, 2020
+		UnilateralClaimDelay: arklib.RelativeLocktime{
+			Type: arklib.LocktimeTypeSecond, Value: 512,
+		},
+		UnilateralRefundDelay: arklib.RelativeLocktime{
+			Type: arklib.LocktimeTypeSecond, Value: 512,
+		},
+		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{
+			Type: arklib.LocktimeTypeSecond, Value: 1024,
+		},
 	}
 }

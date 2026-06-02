@@ -47,34 +47,33 @@ const (
 // Handler is a stateless contract handler for VHTLC scripts.
 // All VHTLC parameters are stored in Contract.Params, so the handler
 // can rebuild the full tapscript tree from any persisted contract.
-type Handler struct{}
+type Handler struct {
+	network arklib.Network
+}
 
 // NewHandler returns a VHTLC contract handler ready to be registered via
 // WithContractHandler(ContractTypeVHTLC, vhtlcHandler.NewHandler()).
-func NewHandler() *Handler { return &Handler{} }
+func NewHandler(network arklib.Network) *Handler {
+	return &Handler{
+		network: network,
+	}
+}
 
 // Derivable returns false — VHTLC contracts require counterparty data
 // (pubkeys, preimage hash, locktimes) and cannot be derived from an HD key alone.
 // Callers must provide WithParams(*ContractParams) when calling Manager.NewContract.
 func (h *Handler) Derivable() bool { return false }
 
-// ContractParams contains the handler-specific parameters for creating a VHTLC
-// contract. Pass via contract.WithParams(&vhtlcHandler.ContractParams{...}).
-type ContractParams struct {
-	Opts    vhtlc.Opts
-	Network arklib.Network
-}
-
 // NewContract builds a VHTLC contract from the caller-provided key and params.
 // params must be *ContractParams; returns an error otherwise.
 func (h *Handler) NewContract(
 	_ context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
-	p, ok := params.(*ContractParams)
+	p, ok := params.(*vhtlc.Opts)
 	if !ok || p == nil {
 		return nil, fmt.Errorf("vhtlc handler requires *vhtlcHandler.ContractParams, got %T", params)
 	}
-	return createContract(p.Opts, keyRef, p.Network)
+	return createContract(*p, keyRef, h.network)
 }
 
 func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
@@ -339,4 +338,3 @@ func locktimeTypeName(t arklib.RelativeLocktimeType) string {
 		return ""
 	}
 }
-
