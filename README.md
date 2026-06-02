@@ -465,6 +465,8 @@ These return the underlying services so callers can drive lower-level flows dire
 - `WithdrawFromAllExpiredBoardings(ctx, to string) (string, error)` - withdraw expired boarding amounts onchain.
 - `WhenNextSettlement() time.Time` - inspect the next auto-settle firing time. Returns the zero value when auto-settle is disabled or nothing is scheduled.
 
+> **Concurrency:** spend (`SendOffChain`, `IssueAsset`, `ReissueAsset`, `BurnAsset`) and batch (`Settle`, `CollaborativeExit`) operations on the same wallet are internally serialized, so they can be called concurrently without double-spending VTXOs. A pending `Settle`/`CollaborativeExit` takes precedence over queued spends, and concurrent `Settle` calls de-duplicate into a single settlement. Each call returns only once the server has tracked its result, so a following operation can safely spend the change. `CollaborativeExit` returns `ErrSettleInProgress` if a batch is already in flight.
+
 #### State, signing, and notifications
 
 - `ListVtxos(ctx) (spendable, spent []clientTypes.Vtxo, err error)` - list virtual UTXOs. Each `Vtxo` includes an `Assets []types.Asset` field listing any assets it carries.
