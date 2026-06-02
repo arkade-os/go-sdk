@@ -21,26 +21,6 @@ func (w *wallet) Unroll(ctx context.Context) error {
 		return err
 	}
 
-	// Synchronize with other spend operations to avoid double-spending VTXOs
-	// that have already been claimed by an in-flight Settle/Send/etc.
-	var h *spendOpHandle
-	for {
-		var acquired bool
-		h, acquired = w.tryStartSpendOp(spendTypeUnroll)
-		if acquired {
-			break
-		}
-		if err := waitForSpendOp(ctx, h.done); err != nil {
-			return err
-		}
-	}
-
-	err := w.unroll(ctx)
-	w.finishSpendOp(h, "", err)
-	return err
-}
-
-func (w *wallet) unroll(ctx context.Context) error {
 	vtxos, err := w.getSpendableVtxos(ctx, true)
 	if err != nil {
 		return err

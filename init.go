@@ -131,6 +131,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
 	w.stopCtx = bgCtx
+	w.txHandler = newTxHandler()
 
 	w.bgWg.Go(func() {
 		w.Explorer().Start()
@@ -237,49 +238,19 @@ func (w *wallet) scheduleNextSettlement() {
 	expiry := time.Until(vtxos[0].ExpiresAt)
 	nextExpiration := time.Now().Add(expiry * 9 / 10)
 	if nextSettlement.IsZero() || nextExpiration.Before(nextSettlement) {
-		task := w.autoSettleTask
+		task := func() {
+			if _, err := w.Settle(context.Background()); err != nil {
+				if errors.Is(err, ErrNoFundsToSettle) {
+					log.Debugf("no vtxos to auto-settle, skipping")
+					return
+				}
+				log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
+			}
+		}
 		if err := w.scheduler.ScheduleTask(task, nextExpiration); err != nil {
 			log.WithError(err).Warn("failed to schedule next settlement")
 			return
 		}
 		log.Debugf("scheduled next settlement at %s", nextExpiration.Format(time.RFC3339))
-	}
-}
-
-// autoSettleTask is the body of the scheduled auto-settle. It uses
-// tryStartSpendOp so that if a user-initiated spend is already running
-// the auto-settle deduplicates instead of racing. It waits on
-// w.stopCtx so that wallet Lock() or Stop() cancels any in-flight
-// wait promptly, and uses w.stopCtx (not context.Background()) for
-// the settle call itself.
-func (w *wallet) autoSettleTask() {
-	// If another settle is in flight, skip — it already refreshes all VTXOs.
-	// If a send or collabExit is in flight, wait then retry — remaining
-	// VTXOs may still need their expiry refreshed.
-	var h *spendOpHandle
-	for {
-		var acquired bool
-		h, acquired = w.tryStartSpendOp(spendTypeSettle)
-		if acquired {
-			break
-		}
-		if err := waitForSpendOp(w.stopCtx, h.done); err != nil {
-			// stopCtx was cancelled (Lock/Stop) — abort the auto-settle.
-			return
-		}
-		if h.opType == spendTypeSettle {
-			return // already settled, nothing to do
-		}
-	}
-
-	txid, err := w.settle(w.stopCtx)
-	w.finishSpendOp(h, txid, err)
-
-	if err != nil {
-		if errors.Is(err, ErrNoFundsToSettle) {
-			log.Debugf("no vtxos to auto-settle, skipping")
-			return
-		}
-		log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
 	}
 }
