@@ -405,7 +405,7 @@ func TestTxHandler(t *testing.T) {
 			t, int32(1), settleRuns.Load(),
 			"only one settlement must run; the second settle must dedup",
 		)
-		require.NotNil(t, got[0])
+		require.NotEmpty(t, got[0])
 		require.Equal(t, got[0], got[1], "both settles must return the same result")
 	})
 

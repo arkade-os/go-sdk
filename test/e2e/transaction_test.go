@@ -650,6 +650,15 @@ func TestConcurrentTxs(t *testing.T) {
 	}
 
 	pos := func(name string) int { return slices.Index(completed, name) }
+	startPos := func(name string) int { return slices.Index(started, name) }
+
+	// Sanity-check the precondition: the two sends were submitted before the
+	// settle, so the completion-order checks below actually exercise "a late
+	// settle jumps ahead of already-queued sends" rather than passing trivially
+	// because the settle happened to arrive first. (Deterministic precedence is
+	// covered by the txHandler unit tests; this is a best-effort live check.)
+	require.Less(t, startPos("send2"), startPos("settle"), "send2 must be submitted before settle")
+	require.Less(t, startPos("send3"), startPos("settle"), "send3 must be submitted before settle")
 
 	// send #1 was already processing, so it completes first.
 	require.Less(t, pos("send1"), pos("settle"), "send1 was in flight, must complete before settle")
@@ -657,10 +666,11 @@ func TestConcurrentTxs(t *testing.T) {
 	require.Less(t, pos("settle"), pos("send2"), "settle must complete before the queued send2")
 	require.Less(t, pos("settle"), pos("send3"), "settle must complete before the queued send3")
 
-	// All three sends reached bob.
-	time.Sleep(2 * time.Second) // let bob index the incoming vtxos
-	bobBalance, err := bob.Balance(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, bobBalance)
-	require.Equal(t, 3*sendAmount, int(bobBalance.OffchainBalance.Total))
+	// All three sends reached bob (poll until the indexer has propagated them).
+	require.Eventually(t, func() bool {
+		bobBalance, err := bob.Balance(ctx)
+		return err == nil &&
+			bobBalance != nil &&
+			int(bobBalance.OffchainBalance.Total) == 3*sendAmount
+	}, 30*time.Second, 500*time.Millisecond)
 }
