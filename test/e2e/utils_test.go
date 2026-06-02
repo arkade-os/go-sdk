@@ -226,6 +226,26 @@ func lndAddInvoice(sats int) (string, error) {
 	return resp.PaymentRequest, nil
 }
 
+func lndAddInvoiceWithHash(sats int) (string, string, error) {
+	out, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"addinvoice", "--amt", fmt.Sprintf("%d", sats),
+	)
+	if err != nil {
+		return "", "", fmt.Errorf("lnd addinvoice: %w", err)
+	}
+
+	var resp struct {
+		PaymentRequest string `json:"payment_request"`
+		RHash          string `json:"r_hash"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return "", "", fmt.Errorf("parse lnd addinvoice response: %w (raw: %s)", err, out)
+	}
+	return resp.PaymentRequest, resp.RHash, nil
+}
+
 func lndPayInvoice(invoice string) error {
 	_, err := runCommand(
 		"docker", "exec", "lnd",

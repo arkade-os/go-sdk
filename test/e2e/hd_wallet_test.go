@@ -274,7 +274,6 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 }
 
 func TestHDWalletEventStreams(t *testing.T) {
-	t.Parallel()
 	t.Run("offchain transfer and settlement", func(t *testing.T) {
 		ctx := t.Context()
 
@@ -415,7 +414,6 @@ func TestHDWalletEventStreams(t *testing.T) {
 // This currently exposes review issue H1: discoverHDWalletKeys only checks
 // offchain VTXO activity, so boarding-only funded keys are missed.
 func TestHDWalletRecoversBoardingOnlyFundedKeys(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 
 	alice := setupClient(t, "")

@@ -11,7 +11,6 @@ import (
 )
 
 func TestTransactionHistory(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 

@@ -138,33 +138,6 @@ services:
       - type: tmpfs
         target: /app/data
 
-  fulmine:
-    container_name: fulmine
-    depends_on:
-      - arkd
-      - solver
-    build:
-      context: .
-      dockerfile: fulmine.Dockerfile
-    restart: unless-stopped
-    environment:
-      - FULMINE_ARK_SERVER=arkd:7070
-      - FULMINE_ESPLORA_URL=http://chopsticks:3000
-      - FULMINE_BOLTZ_URL=http://boltz:9001
-      - FULMINE_BOLTZ_WS_URL=ws://boltz:9004
-      - FULMINE_NO_MACAROONS=true
-      - FULMINE_LOG_LEVEL=5
-      - FULMINE_DISABLE_TELEMETRY=true
-      - FULMINE_SWAP_TIMEOUT=120
-      - FULMINE_SCHEDULER_POLL_INTERVAL=10
-      - FULMINE_DELEGATE_ENABLED=true
-    ports:
-      - "7000:7000"
-      - "7001:7001"
-      - "7004:7002"
-    volumes:
-      - fulmine_data:/app/data
-
   mock-boltz:
     build:
       context: .
@@ -188,31 +161,6 @@ services:
       - MOCK_BOLTZ_UNILATERAL_REFUND_NO_RECV_DELAY=1024
       - MOCK_BOLTZ_SERVICE_FEE_PPM=20000
       - MOCK_BOLTZ_MINER_FEE_SAT=200
-
-  fulmine-mock:
-    container_name: fulmine-mock
-    depends_on:
-      - arkd
-      - mock-boltz
-    build:
-      context: .
-      dockerfile: fulmine.Dockerfile
-    restart: unless-stopped
-    environment:
-      - FULMINE_ARK_SERVER=arkd:7070
-      - FULMINE_ESPLORA_URL=http://chopsticks:3000
-      - FULMINE_BOLTZ_URL=http://mock-boltz:9001
-      - FULMINE_BOLTZ_WS_URL=ws://mock-boltz:9001
-      - FULMINE_NO_MACAROONS=true
-      - FULMINE_LOG_LEVEL=5
-      - FULMINE_DISABLE_TELEMETRY=true
-      - FULMINE_SWAP_TIMEOUT=120
-      - FULMINE_SCHEDULER_POLL_INTERVAL=10
-    ports:
-      - "7100:7000"
-      - "7101:7001"
-    volumes:
-      - fulmine_mock_data:/app/data
 
   boltz-cln:
     build:
@@ -466,10 +414,6 @@ volumes:
     name: boltz_datadir
   bitcoin_fulmine_data:
     name: bitcoin_fulmine_data
-  fulmine_data:
-    name: fulmine_data
-  fulmine_mock_data:
-    name: fulmine_mock_data
   lnd_datadir:
     name: lnd_datadir
   cln_datadir:

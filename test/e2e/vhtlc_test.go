@@ -28,89 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// makeVhtlcOpts constructs vhtlc.Opts for a test scenario.
-// Sender and receiver are the same key for simplicity in basic tests.
-// serverPubKey is obtained from the server configuration.
-func makeVhtlcOpts(
-	t *testing.T,
-	sender, receiver, server *btcec.PublicKey,
-	preimageHash []byte,
-	refundLocktime uint32,
-) vhtlc.Opts {
-	t.Helper()
-	return vhtlc.Opts{
-		Sender:         sender,
-		Receiver:       receiver,
-		Server:         server,
-		PreimageHash:   preimageHash,
-		RefundLocktime: arklib.AbsoluteLocktime(refundLocktime),
-		UnilateralClaimDelay: arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeSecond,
-			Value: 512,
-		},
-		UnilateralRefundDelay: arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeSecond,
-			Value: 512,
-		},
-		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeSecond,
-			Value: 1024,
-		},
-	}
-}
-
-// registerVHTLCContract registers a VHTLC in the wallet's contract manager
-// so that SignTransaction can find the tapscripts during batch settlement.
-func registerVHTLCContract(
-	t *testing.T, w arksdk.Wallet, opts vhtlc.Opts,
-) {
-	t.Helper()
-	cfg, err := w.GetConfigData(t.Context())
-	require.NoError(t, err)
-
-	_, err = w.ContractManager().NewContract(
-		t.Context(), vhtlcHandler.ContractTypeVHTLC,
-		contract.WithParams(&vhtlcHandler.ContractParams{
-			Opts:    opts,
-			Network: cfg.Network,
-		}),
-	)
-	require.NoError(t, err)
-}
-
-// generatePreimage creates a random 32-byte preimage and returns
-// the preimage bytes and the RIPEMD160(SHA256(preimage)) hash.
-func generatePreimage(t *testing.T) ([]byte, []byte) {
-	t.Helper()
-	preimage := make([]byte, 32)
-	_, err := rand.Read(preimage)
-	require.NoError(t, err)
-	sha256Hash := sha256.Sum256(preimage)
-	return preimage, input.Ripemd160H(sha256Hash[:])
-}
-
-// fundVHTLC sends offchain funds to the VHTLC address and waits for the
-// VTXO to appear in the indexer.
-func fundVHTLC(
-	t *testing.T,
-	client arksdk.Wallet,
-	vhtlcAddress string,
-	amount uint64,
-) {
-	t.Helper()
-	ctx := t.Context()
-
-	txid, err := client.SendOffChain(ctx, []clientTypes.Receiver{
-		{To: vhtlcAddress, Amount: amount},
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, txid)
-	t.Logf("Funded VHTLC %s with %d sats, txid=%s", vhtlcAddress, amount, txid)
-
-	// Wait for the indexer to pick up the new VTXO
-	time.Sleep(3 * time.Second)
-}
-
 // TestVHTLCClaimDirect tests the basic VHTLC claim path via SwapHandler.ClaimVHTLC.
 // Adapted from fulmine TestVHTLC.
 // Flow:
@@ -737,4 +654,87 @@ func TestVHTLCClaimOldestVtxo(t *testing.T) {
 	require.True(t, spentAmounts[1000], "1000-sat (oldest) VTXO should be spent")
 	require.False(t, spentAmounts[2000], "2000-sat VTXO should not be spent")
 	require.False(t, spentAmounts[3000], "3000-sat VTXO should not be spent")
+}
+
+// makeVhtlcOpts constructs vhtlc.Opts for a test scenario.
+// Sender and receiver are the same key for simplicity in basic tests.
+// serverPubKey is obtained from the server configuration.
+func makeVhtlcOpts(
+	t *testing.T,
+	sender, receiver, server *btcec.PublicKey,
+	preimageHash []byte,
+	refundLocktime uint32,
+) vhtlc.Opts {
+	t.Helper()
+	return vhtlc.Opts{
+		Sender:         sender,
+		Receiver:       receiver,
+		Server:         server,
+		PreimageHash:   preimageHash,
+		RefundLocktime: arklib.AbsoluteLocktime(refundLocktime),
+		UnilateralClaimDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 512,
+		},
+		UnilateralRefundDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 512,
+		},
+		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 1024,
+		},
+	}
+}
+
+// registerVHTLCContract registers a VHTLC in the wallet's contract manager
+// so that SignTransaction can find the tapscripts during batch settlement.
+func registerVHTLCContract(
+	t *testing.T, w arksdk.Wallet, opts vhtlc.Opts,
+) {
+	t.Helper()
+	cfg, err := w.GetConfigData(t.Context())
+	require.NoError(t, err)
+
+	_, err = w.ContractManager().NewContract(
+		t.Context(), vhtlcHandler.ContractTypeVHTLC,
+		contract.WithParams(&vhtlcHandler.ContractParams{
+			Opts:    opts,
+			Network: cfg.Network,
+		}),
+	)
+	require.NoError(t, err)
+}
+
+// generatePreimage creates a random 32-byte preimage and returns
+// the preimage bytes and the RIPEMD160(SHA256(preimage)) hash.
+func generatePreimage(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	preimage := make([]byte, 32)
+	_, err := rand.Read(preimage)
+	require.NoError(t, err)
+	sha256Hash := sha256.Sum256(preimage)
+	return preimage, input.Ripemd160H(sha256Hash[:])
+}
+
+// fundVHTLC sends offchain funds to the VHTLC address and waits for the
+// VTXO to appear in the indexer.
+func fundVHTLC(
+	t *testing.T,
+	client arksdk.Wallet,
+	vhtlcAddress string,
+	amount uint64,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	txid, err := client.SendOffChain(ctx, []clientTypes.Receiver{
+		{To: vhtlcAddress, Amount: amount},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, txid)
+	t.Logf("Funded VHTLC %s with %d sats, txid=%s", vhtlcAddress, amount, txid)
+
+	// Wait for the indexer to pick up the new VTXO
+	time.Sleep(3 * time.Second)
 }

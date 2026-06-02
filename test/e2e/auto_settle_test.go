@@ -24,7 +24,6 @@ const (
 )
 
 func TestAutoSettle(t *testing.T) {
-	t.Parallel()
 	// This test pins the common case of the auto-settle wiring end-to-end: a wallet built with
 	// the default scheduler must refresh its vtxos before they expire, without any user action.
 	t.Run("enabled", func(t *testing.T) {

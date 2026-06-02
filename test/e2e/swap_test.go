@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,10 +11,14 @@ import (
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/swap"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1361,4 +1366,107 @@ func TestConcurrentSwaps(t *testing.T) {
 		}
 		t.Logf("Both concurrent reverse swaps succeeded")
 	})
+}
+
+// TestRefundSwap tests the cooperative refund path for an underfunded submarine swap.
+// Adapted from fulmine's TestSubmarineSwapUnderfundedCooperativeRefund.
+//
+// Flow:
+//  1. Create an LND invoice
+//  2. Create a submarine swap via Boltz API directly (not through SwapHandler)
+//  3. Derive VHTLC opts from Boltz's response and verify address match
+//  4. Underfund the swap (send less than expectedAmount)
+//  5. Wait for Boltz to mark the swap as failed (lockupFailed)
+//  6. Call handler.RefundSwap cooperatively (Boltz co-signs the refund)
+//  7. Verify the refund succeeds
+func TestRefundSwap(t *testing.T) {
+	t.Parallel()
+	settleBoltzFulmine(t)
+
+	alice, privKey := setupSwapClient(t)
+	faucetOffchain(t, alice, 0.001) // 100,000 sats
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+	defer cancel()
+
+	cfg, err := alice.GetConfigData(ctx)
+	require.NoError(t, err)
+
+	boltzSvc := &boltz.Api{URL: realBoltzUrl, WSURL: realBoltzWsUrl}
+
+	// Create an LND invoice (we need the rHash for VHTLC derivation)
+	invoice, rHash, err := lndAddInvoiceWithHash(5000)
+	require.NoError(t, err)
+	require.NotEmpty(t, invoice)
+
+	rHashBytes, err := hex.DecodeString(rHash)
+	require.NoError(t, err)
+	preimageHash := input.Ripemd160H(rHashBytes)
+
+	// Create submarine swap directly via Boltz API
+	pubKey := privKey.PubKey()
+	createResp, err := boltzSvc.CreateSwap(boltz.CreateSwapRequest{
+		From:            boltz.CurrencyArk,
+		To:              boltz.CurrencyBtc,
+		Invoice:         invoice,
+		RefundPublicKey: hex.EncodeToString(pubKey.SerializeCompressed()),
+		PaymentTimeout:  120,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, createResp.Address)
+	require.Greater(t, createResp.ExpectedAmount, uint64(100))
+	t.Logf("Created submarine swap %s, expectedAmount=%d, address=%s",
+		createResp.Id, createResp.ExpectedAmount, createResp.Address)
+
+	// Parse Boltz's claim public key (the receiver in the VHTLC)
+	receiverPubBytes, err := hex.DecodeString(createResp.ClaimPublicKey)
+	require.NoError(t, err)
+	receiverPub, err := btcec.ParsePubKey(receiverPubBytes)
+	require.NoError(t, err)
+
+	// Build VHTLC opts from Boltz's response
+	opts := vhtlc.Opts{
+		Sender:                               pubKey,
+		Receiver:                             receiverPub,
+		Server:                               cfg.SignerPubKey,
+		PreimageHash:                         preimageHash,
+		RefundLocktime:                       arklib.AbsoluteLocktime(createResp.TimeoutBlockHeights.RefundLocktime),
+		UnilateralClaimDelay:                 boltzRelativeLocktime(createResp.TimeoutBlockHeights.UnilateralClaim),
+		UnilateralRefundDelay:                boltzRelativeLocktime(createResp.TimeoutBlockHeights.UnilateralRefund),
+		UnilateralRefundWithoutReceiverDelay: boltzRelativeLocktime(createResp.TimeoutBlockHeights.UnilateralRefundWithoutReceiver),
+	}
+
+	// Verify locally derived VHTLC address matches Boltz's
+	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
+	require.NoError(t, err)
+	addr, err := vhtlcScript.Address(cfg.Network.Addr)
+	require.NoError(t, err)
+	require.Equal(t, createResp.Address, addr, "locally derived VHTLC address must match Boltz's")
+
+	// Underfund the swap — send less than expectedAmount
+	underfundAmount := createResp.ExpectedAmount - 100
+	_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{
+		{To: createResp.Address, Amount: underfundAmount},
+	})
+	require.NoError(t, err)
+	t.Logf("Underfunded swap with %d sats (expected %d)", underfundAmount, createResp.ExpectedAmount)
+
+	// Wait for Boltz to observe the underfunded lockup and mark swap as failed
+	time.Sleep(5 * time.Second)
+
+	// Create swap handler and refund cooperatively
+	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, privKey, 120)
+	require.NoError(t, err)
+
+	refundTxid, err := handler.RefundSwap(ctx, swap.SwapTypeSubmarine, createResp.Id, true, opts, nil)
+	require.NoError(t, err, "cooperative refund of an underfunded submarine swap should succeed")
+	require.NotEmpty(t, refundTxid)
+	t.Logf("Refund succeeded: txid=%s", refundTxid)
+}
+
+func boltzRelativeLocktime(value uint32) arklib.RelativeLocktime {
+	if value >= 512 {
+		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: value}
+	}
+	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: value}
 }
