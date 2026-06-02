@@ -134,6 +134,8 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
+	w.stopCtx = bgCtx
+	w.txHandler = newTxHandler()
 
 	w.bgWg.Go(func() {
 		w.Explorer().Start()
@@ -185,9 +187,16 @@ func (w *wallet) Lock(ctx context.Context) error {
 		w.scheduler.Stop()
 	}
 
+	// Abort any queued tx operations before tearing down shared state, so a
+	// waiter can't resume and run against a nil contractManager / stopCtx.
+	if w.txHandler != nil {
+		w.txHandler.stop()
+	}
+
 	if w.stopFn != nil {
 		w.stopFn()
 	}
+	w.stopCtx = nil
 
 	if w.contractManager != nil {
 		w.contractManager.Close()

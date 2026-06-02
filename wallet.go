@@ -38,9 +38,10 @@ import (
 )
 
 var (
-	ErrNotInitialized = fmt.Errorf("wallet not initialized")
-	ErrIsLocked       = fmt.Errorf("wallet is locked")
-	ErrIsSyncing      = fmt.Errorf("wallet is still syncing")
+	ErrNotInitialized   = fmt.Errorf("wallet not initialized")
+	ErrIsLocked         = fmt.Errorf("wallet is locked")
+	ErrIsSyncing        = fmt.Errorf("wallet is still syncing")
+	ErrSettleInProgress = fmt.Errorf("settle in progress, retry later")
 )
 
 type wallet struct {
@@ -49,6 +50,7 @@ type wallet struct {
 	store           types.Store
 	contractManager contract.Manager
 	scheduler       scheduler.SchedulerService
+	txHandler       *txHandler
 
 	syncMu        *sync.Mutex
 	syncCh        chan error
@@ -60,6 +62,11 @@ type wallet struct {
 	bgWg          sync.WaitGroup
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
+
+	// stopCtx is the background context used by the auto-settle scheduler
+	// and other long-lived goroutines started in Unlock. It is cancelled
+	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
+	stopCtx context.Context
 
 	verbose           bool
 	refreshDbInterval time.Duration
@@ -367,6 +374,12 @@ func (w *wallet) Stop() {
 	}
 
 	w.stopOnce.Do(func() {
+		// Abort any queued tx operations before tearing down shared state, so a
+		// waiter can't resume and run against a closing store / torn-down state.
+		if w.txHandler != nil {
+			w.txHandler.stop()
+		}
+
 		w.client.Stop()
 
 		if explorer := w.Explorer(); explorer != nil {
