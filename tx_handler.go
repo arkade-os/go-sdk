@@ -36,10 +36,25 @@ type txHandler struct {
 	busy   bool            // an operation's fn() is currently running
 	lead   *batchEntry     // the active-or-pending batch tx, nil if none
 	spends []chan struct{} // FIFO queue of waiting spend txs, each its own turn signal
+	closed bool            // set by stop(); rejects and aborts operations
+	done   chan struct{}   // closed by stop() to wake queued waiters
 }
 
 func newTxHandler() *txHandler {
-	return &txHandler{}
+	return &txHandler{done: make(chan struct{})}
+}
+
+// stop aborts every queued and future operation. Lock() and Stop() must call it
+// before tearing down wallet state (contractManager, stopCtx, the store) so a
+// queued waiter doesn't resume and run against a torn-down wallet. Operations
+// woken by stop return ErrIsLocked rather than executing their closure.
+func (h *txHandler) stop() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.closed {
+		h.closed = true
+		close(h.done)
+	}
 }
 
 // dispatch hands the free slot to the next operation: a pending batch tx takes
@@ -70,15 +85,24 @@ func (h *txHandler) handleBatchTx(
 	txType int, fn func() (string, error),
 ) (string, error) {
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return "", ErrIsLocked
+	}
 	if h.lead != nil {
 		lead := h.lead
 		h.mu.Unlock()
 		if txType == collabExitType {
 			return "", ErrSettleInProgress
 		}
-		// settle: dedup against the active-or-pending batch tx.
-		<-lead.done
-		return lead.res, lead.err
+		// settle: dedup against the active-or-pending batch tx, but abort if
+		// the wallet is locking down before it completes.
+		select {
+		case <-lead.done:
+			return lead.res, lead.err
+		case <-h.done:
+			return "", ErrIsLocked
+		}
 	}
 
 	entry := &batchEntry{turn: make(chan struct{}), done: make(chan struct{})}
@@ -86,7 +110,24 @@ func (h *txHandler) handleBatchTx(
 	h.dispatch()
 	h.mu.Unlock()
 
-	<-entry.turn
+	select {
+	case <-entry.turn:
+	case <-h.done:
+		return "", ErrIsLocked
+	}
+
+	// If the wallet locked down while we were queued, release the slot and
+	// abort instead of running against torn-down wallet state.
+	h.mu.Lock()
+	if h.closed {
+		h.lead = nil
+		h.busy = false
+		h.dispatch()
+		h.mu.Unlock()
+		return "", ErrIsLocked
+	}
+	h.mu.Unlock()
+
 	res, err := fn()
 
 	h.mu.Lock()
@@ -106,12 +147,32 @@ func (h *txHandler) handleBatchTx(
 // spend txs, then runs without overlapping anything else.
 func (h *txHandler) handleTx(fn func() (any, error)) (any, error) {
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return nil, ErrIsLocked
+	}
 	turn := make(chan struct{})
 	h.spends = append(h.spends, turn)
 	h.dispatch()
 	h.mu.Unlock()
 
-	<-turn
+	select {
+	case <-turn:
+	case <-h.done:
+		return nil, ErrIsLocked
+	}
+
+	// If the wallet locked down while we were queued, release the slot and
+	// abort instead of running against torn-down wallet state.
+	h.mu.Lock()
+	if h.closed {
+		h.busy = false
+		h.dispatch()
+		h.mu.Unlock()
+		return nil, ErrIsLocked
+	}
+	h.mu.Unlock()
+
 	res, err := fn()
 
 	h.mu.Lock()

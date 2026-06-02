@@ -369,6 +369,12 @@ func (w *wallet) Stop() {
 	}
 
 	w.stopOnce.Do(func() {
+		// Abort any queued tx operations before tearing down shared state, so a
+		// waiter can't resume and run against a closing store / torn-down state.
+		if w.txHandler != nil {
+			w.txHandler.stop()
+		}
+
 		w.client.Stop()
 
 		if explorer := w.Explorer(); explorer != nil {

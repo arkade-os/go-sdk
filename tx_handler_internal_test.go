@@ -520,6 +520,100 @@ func TestTxHandler(t *testing.T) {
 			"collab exit must jump ahead of the earlier-queued spend",
 		)
 	})
+
+	t.Run("stop aborts a queued operation instead of running it", func(t *testing.T) {
+		h := newTestTxHandler(t)
+
+		// Occupy the slot with a blocking op.
+		started := make(chan struct{})
+		release := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = h.handleTx(func() (any, error) {
+				close(started)
+				<-release
+				return nil, nil
+			})
+		}()
+		<-started
+
+		// Queue a second op behind it; it must not run once we stop.
+		var queuedRan atomic.Bool
+		var queuedErr error
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, queuedErr = h.handleTx(func() (any, error) {
+				queuedRan.Store(true)
+				return nil, nil
+			})
+		}()
+		time.Sleep(listenerSettleTime) // let it queue
+
+		h.stop()
+		close(release)
+		wg.Wait()
+
+		require.ErrorIs(t, queuedErr, ErrIsLocked)
+		require.False(t, queuedRan.Load(), "queued op must abort, not run, after stop")
+	})
+
+	t.Run("stop aborts a deduping settle", func(t *testing.T) {
+		h := newTestTxHandler(t)
+
+		// A blocking settle holds the slot as the lead batch.
+		started := make(chan struct{})
+		release := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = h.handleBatchTx(settleType, func() (string, error) {
+				close(started)
+				<-release
+				return "lead", nil
+			})
+		}()
+		<-started
+
+		// A second settle dedups and waits on the lead; stop must abort it.
+		var dedupErr error
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, dedupErr = h.handleBatchTx(settleType, func() (string, error) {
+				t.Error("deduping settle must not run its own fn")
+				return "", nil
+			})
+		}()
+		time.Sleep(listenerSettleTime)
+
+		h.stop()
+		close(release)
+		wg.Wait()
+
+		require.ErrorIs(t, dedupErr, ErrIsLocked)
+	})
+
+	t.Run("stop rejects new operations", func(t *testing.T) {
+		h := newTestTxHandler(t)
+		h.stop()
+
+		_, err := h.handleTx(func() (any, error) {
+			t.Error("handleTx fn must not run after stop")
+			return nil, nil
+		})
+		require.ErrorIs(t, err, ErrIsLocked)
+
+		res, batchErr := h.handleBatchTx(settleType, func() (string, error) {
+			t.Error("handleBatchTx fn must not run after stop")
+			return "", nil
+		})
+		require.ErrorIs(t, batchErr, ErrIsLocked)
+		require.Empty(t, res)
+	})
 }
 
 func newTestTxHandler(t *testing.T) *txHandler {

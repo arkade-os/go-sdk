@@ -183,6 +183,12 @@ func (w *wallet) Lock(ctx context.Context) error {
 		w.scheduler.Stop()
 	}
 
+	// Abort any queued tx operations before tearing down shared state, so a
+	// waiter can't resume and run against a nil contractManager / stopCtx.
+	if w.txHandler != nil {
+		w.txHandler.stop()
+	}
+
 	if w.stopFn != nil {
 		w.stopFn()
 	}
