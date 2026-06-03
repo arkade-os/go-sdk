@@ -96,5 +96,7 @@ services:
 
 networks:
     default:
-        name: arkade-regtest
+        # The arkade-regtest base stack (compose project `arkade-regtest`) creates
+        # its default network as `arkade-regtest_default`.
+        name: arkade-regtest_default
         external: true
