@@ -163,23 +163,40 @@ func createContract(
 	}
 
 	params := map[string]string{
-		paramOwnerKeyID:                      ownerKeyRef.Id,
-		paramOwnerKey:                        hex.EncodeToString(schnorr.SerializePubKey(ownerKeyRef.PubKey)),
-		paramSender:                          hex.EncodeToString(opts.Sender.SerializeCompressed()),
-		paramReceiver:                        hex.EncodeToString(opts.Receiver.SerializeCompressed()),
-		paramServer:                          hex.EncodeToString(opts.Server.SerializeCompressed()),
-		paramPreimageHash:                    hex.EncodeToString(opts.PreimageHash),
-		paramRefundLocktime:                  strconv.FormatUint(uint64(opts.RefundLocktime), 10),
-		paramClaimDelayType:                  locktimeTypeName(opts.UnilateralClaimDelay.Type),
-		paramClaimDelayValue:                 strconv.FormatUint(uint64(opts.UnilateralClaimDelay.Value), 10),
-		paramRefundDelayType:                 locktimeTypeName(opts.UnilateralRefundDelay.Type),
-		paramRefundDelayValue:                strconv.FormatUint(uint64(opts.UnilateralRefundDelay.Value), 10),
-		paramRefundWithoutReceiverDelayType:  locktimeTypeName(opts.UnilateralRefundWithoutReceiverDelay.Type),
-		paramRefundWithoutReceiverDelayValue: strconv.FormatUint(uint64(opts.UnilateralRefundWithoutReceiverDelay.Value), 10),
+		paramOwnerKeyID: ownerKeyRef.Id,
+		paramOwnerKey: hex.EncodeToString(
+			schnorr.SerializePubKey(ownerKeyRef.PubKey),
+		),
+		paramSender: hex.EncodeToString(opts.Sender.SerializeCompressed()),
+		paramReceiver: hex.EncodeToString(
+			opts.Receiver.SerializeCompressed(),
+		),
+		paramServer:         hex.EncodeToString(opts.Server.SerializeCompressed()),
+		paramPreimageHash:   hex.EncodeToString(opts.PreimageHash),
+		paramRefundLocktime: strconv.FormatUint(uint64(opts.RefundLocktime), 10),
+		paramClaimDelayType: locktimeTypeName(opts.UnilateralClaimDelay.Type),
+		paramClaimDelayValue: strconv.FormatUint(
+			uint64(opts.UnilateralClaimDelay.Value),
+			10,
+		),
+		paramRefundDelayType: locktimeTypeName(opts.UnilateralRefundDelay.Type),
+		paramRefundDelayValue: strconv.FormatUint(
+			uint64(opts.UnilateralRefundDelay.Value),
+			10,
+		),
+		paramRefundWithoutReceiverDelayType: locktimeTypeName(
+			opts.UnilateralRefundWithoutReceiverDelay.Type,
+		),
+		paramRefundWithoutReceiverDelayValue: strconv.FormatUint(
+			uint64(opts.UnilateralRefundWithoutReceiverDelay.Value),
+			10,
+		),
 	}
 
 	if opts.NonInteractiveClaim != nil {
-		params[paramNICReceiverPkScript] = hex.EncodeToString(opts.NonInteractiveClaim.ReceiverPkScript)
+		params[paramNICReceiverPkScript] = hex.EncodeToString(
+			opts.NonInteractiveClaim.ReceiverPkScript,
+		)
 		params[paramNICIntrospectorPubKey] = hex.EncodeToString(
 			opts.NonInteractiveClaim.IntrospectorPubKey.SerializeCompressed(),
 		)
@@ -215,7 +232,11 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 	}
 	preimageHash, err := hex.DecodeString(preimageHashHex)
 	if err != nil {
-		return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: invalid preimage hash: %w", c.Script, err)
+		return vhtlc.Opts{}, fmt.Errorf(
+			"vhtlc contract %s: invalid preimage hash: %w",
+			c.Script,
+			err,
+		)
 	}
 	refundLockStr, err := requireParam(c, paramRefundLocktime)
 	if err != nil {
@@ -223,7 +244,11 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 	}
 	refundLock, err := strconv.ParseUint(refundLockStr, 10, 32)
 	if err != nil {
-		return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: invalid refund locktime: %w", c.Script, err)
+		return vhtlc.Opts{}, fmt.Errorf(
+			"vhtlc contract %s: invalid refund locktime: %w",
+			c.Script,
+			err,
+		)
 	}
 	claimDelay, err := parseRelativeLocktime(c, paramClaimDelayType, paramClaimDelayValue)
 	if err != nil {
@@ -255,7 +280,11 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 	if recvHex, ok := c.Params[paramNICReceiverPkScript]; ok && recvHex != "" {
 		recv, err := hex.DecodeString(recvHex)
 		if err != nil {
-			return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: invalid NIC receiver pkScript: %w", c.Script, err)
+			return vhtlc.Opts{}, fmt.Errorf(
+				"vhtlc contract %s: invalid NIC receiver pkScript: %w",
+				c.Script,
+				err,
+			)
 		}
 		introspector, err := parseCompressedParam(c, paramNICIntrospectorPubKey)
 		if err != nil {

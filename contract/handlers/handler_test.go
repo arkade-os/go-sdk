@@ -79,24 +79,67 @@ type modeFixture struct {
 // defaultInvalidGetKeyRef is shared by offchain and onchain default handlers.
 var defaultInvalidGetKeyRef = []invalidCase{
 	{name: "no params", params: nil, expectedError: "has no parameters"},
-	{name: "missing key id", params: map[string]string{ownerKeyParam: "abcd"}, expectedError: "missing owner key ID"},
-	{name: "empty key id", params: map[string]string{ownerKeyIdParam: "", ownerKeyParam: "abcd"}, expectedError: "empty owner key ID"},
-	{name: "missing owner key", params: map[string]string{ownerKeyIdParam: "m/0/0"}, expectedError: "missing owner key"},
-	{name: "invalid owner key format", params: map[string]string{ownerKeyIdParam: "m/0/0", ownerKeyParam: "nothex"}, expectedError: "invalid owner key format"},
-	{name: "invalid owner key", params: map[string]string{ownerKeyIdParam: "m/0/0", ownerKeyParam: hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid owner key"},
+	{
+		name:          "missing key id",
+		params:        map[string]string{ownerKeyParam: "abcd"},
+		expectedError: "missing owner key ID",
+	},
+	{
+		name:          "empty key id",
+		params:        map[string]string{ownerKeyIdParam: "", ownerKeyParam: "abcd"},
+		expectedError: "empty owner key ID",
+	},
+	{
+		name:          "missing owner key",
+		params:        map[string]string{ownerKeyIdParam: "m/0/0"},
+		expectedError: "missing owner key",
+	},
+	{
+		name:          "invalid owner key format",
+		params:        map[string]string{ownerKeyIdParam: "m/0/0", ownerKeyParam: "nothex"},
+		expectedError: "invalid owner key format",
+	},
+	{
+		name: "invalid owner key",
+		params: map[string]string{
+			ownerKeyIdParam: "m/0/0",
+			ownerKeyParam:   hex.EncodeToString([]byte{0x00, 0x01}),
+		},
+		expectedError: "invalid owner key",
+	},
 }
 
 var defaultInvalidGetSignerKey = []invalidCase{
 	{name: "no params", params: nil, expectedError: "has no parameters"},
-	{name: "missing signer key", params: map[string]string{ownerKeyIdParam: "m/0/0"}, expectedError: "missing signer key"},
-	{name: "invalid signer key format", params: map[string]string{signerKeyParam: "nothex"}, expectedError: "invalid signer key format"},
-	{name: "invalid signer key", params: map[string]string{signerKeyParam: hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid signer key"},
+	{
+		name:          "missing signer key",
+		params:        map[string]string{ownerKeyIdParam: "m/0/0"},
+		expectedError: "missing signer key",
+	},
+	{
+		name:          "invalid signer key format",
+		params:        map[string]string{signerKeyParam: "nothex"},
+		expectedError: "invalid signer key format",
+	},
+	{
+		name:          "invalid signer key",
+		params:        map[string]string{signerKeyParam: hex.EncodeToString([]byte{0x00, 0x01})},
+		expectedError: "invalid signer key",
+	},
 }
 
 var defaultInvalidGetExitDelay = []invalidCase{
 	{name: "no params", params: nil, expectedError: "has no parameters"},
-	{name: "missing exit delay", params: map[string]string{ownerKeyIdParam: "m/0/0"}, expectedError: "missing exit delay"},
-	{name: "invalid exit delay format", params: map[string]string{exitDelayParam: "notanumber"}, expectedError: "invalid exit delay format"},
+	{
+		name:          "missing exit delay",
+		params:        map[string]string{ownerKeyIdParam: "m/0/0"},
+		expectedError: "missing exit delay",
+	},
+	{
+		name:          "invalid exit delay format",
+		params:        map[string]string{exitDelayParam: "notanumber"},
+		expectedError: "invalid exit delay format",
+	},
 }
 
 func defaultAssertSignerKey(t *testing.T, c types.Contract, signer *btcec.PublicKey) {
@@ -110,9 +153,17 @@ var modeFixtures = []modeFixture{
 		assertContract: func(t *testing.T, c types.Contract, keyRef identity.KeyRef) {
 			t.Helper()
 			require.Equal(t, keyRef.Id, c.Params[ownerKeyIdParam])
-			require.Equal(t, hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)), c.Params[ownerKeyParam])
+			require.Equal(
+				t,
+				hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
+				c.Params[ownerKeyParam],
+			)
 			require.NotEmpty(t, c.Params[signerKeyParam])
-			require.Equal(t, strconv.FormatInt(testUnilateralExitDelay, 10), c.Params[exitDelayParam])
+			require.Equal(
+				t,
+				strconv.FormatInt(testUnilateralExitDelay, 10),
+				c.Params[exitDelayParam],
+			)
 			require.Contains(t, c.Address, testNetwork.Addr)
 		},
 		assertSignerKey: defaultAssertSignerKey,
@@ -130,7 +181,11 @@ var modeFixtures = []modeFixture{
 		assertContract: func(t *testing.T, c types.Contract, keyRef identity.KeyRef) {
 			t.Helper()
 			require.Equal(t, keyRef.Id, c.Params[ownerKeyIdParam])
-			require.Equal(t, hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)), c.Params[ownerKeyParam])
+			require.Equal(
+				t,
+				hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
+				c.Params[ownerKeyParam],
+			)
 			require.NotEmpty(t, c.Params[signerKeyParam])
 			require.Equal(t, strconv.FormatInt(testBoardingExitDelay, 10), c.Params[exitDelayParam])
 			require.Contains(t, c.Address, "bcrt1p")
@@ -172,19 +227,50 @@ var modeFixtures = []modeFixture{
 		},
 		invalidGetKeyRef: []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
-			{name: "missing ownerKeyId", params: map[string]string{"ownerKey": "abcd"}, expectedError: "missing param"},
-			{name: "invalid owner key hex", params: map[string]string{"ownerKeyId": "m/0/0", "ownerKey": "nothex"}, expectedError: "invalid owner key hex"},
-			{name: "invalid owner key", params: map[string]string{"ownerKeyId": "m/0/0", "ownerKey": hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid owner key"},
+			{
+				name:          "missing ownerKeyId",
+				params:        map[string]string{"ownerKey": "abcd"},
+				expectedError: "missing param",
+			},
+			{
+				name:          "invalid owner key hex",
+				params:        map[string]string{"ownerKeyId": "m/0/0", "ownerKey": "nothex"},
+				expectedError: "invalid owner key hex",
+			},
+			{
+				name: "invalid owner key",
+				params: map[string]string{
+					"ownerKeyId": "m/0/0",
+					"ownerKey":   hex.EncodeToString([]byte{0x00, 0x01}),
+				},
+				expectedError: "invalid owner key",
+			},
 		},
 		invalidGetSignerKey: []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
-			{name: "missing server key", params: map[string]string{"ownerKeyId": "m/0/0"}, expectedError: "missing param"},
-			{name: "invalid server key hex", params: map[string]string{"server": "nothex"}, expectedError: "invalid server hex"},
-			{name: "invalid server key", params: map[string]string{"server": hex.EncodeToString([]byte{0x00, 0x01})}, expectedError: "invalid server"},
+			{
+				name:          "missing server key",
+				params:        map[string]string{"ownerKeyId": "m/0/0"},
+				expectedError: "missing param",
+			},
+			{
+				name:          "invalid server key hex",
+				params:        map[string]string{"server": "nothex"},
+				expectedError: "invalid server hex",
+			},
+			{
+				name:          "invalid server key",
+				params:        map[string]string{"server": hex.EncodeToString([]byte{0x00, 0x01})},
+				expectedError: "invalid server",
+			},
 		},
 		invalidGetExitDelay: []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
-			{name: "missing delay type", params: map[string]string{"ownerKeyId": "m/0/0"}, expectedError: "missing param"},
+			{
+				name:          "missing delay type",
+				params:        map[string]string{"ownerKeyId": "m/0/0"},
+				expectedError: "missing param",
+			},
 			{name: "invalid delay value", params: map[string]string{
 				"refundWithoutReceiverDelayType":  "second",
 				"refundWithoutReceiverDelayValue": "notanumber",
@@ -479,7 +565,9 @@ func TestHandlerGetSignerKey(t *testing.T) {
 				h := fixtureHandler(t, mode)
 				for _, c := range mode.invalidGetSignerKey {
 					t.Run(c.name, func(t *testing.T) {
-						signer, err := h.GetSignerKey(types.Contract{Script: "broken", Params: c.params})
+						signer, err := h.GetSignerKey(
+							types.Contract{Script: "broken", Params: c.params},
+						)
 						require.Error(t, err)
 						require.ErrorContains(t, err, c.expectedError)
 						require.Nil(t, signer)
@@ -516,7 +604,9 @@ func TestHandlerGetExitDelay(t *testing.T) {
 				h := fixtureHandler(t, mode)
 				for _, c := range mode.invalidGetExitDelay {
 					t.Run(c.name, func(t *testing.T) {
-						delay, err := h.GetExitDelay(types.Contract{Script: "broken", Params: c.params})
+						delay, err := h.GetExitDelay(
+							types.Contract{Script: "broken", Params: c.params},
+						)
 						require.Error(t, err)
 						require.ErrorContains(t, err, c.expectedError)
 						require.Nil(t, delay)
