@@ -53,7 +53,7 @@ func (e explorerClient) BroadcastTransaction(tx *wire.MsgTx) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to broadcast transaction: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
@@ -86,8 +86,7 @@ func (e explorerClient) GetFeeRate() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// nolint:all
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("failed to get fee rate: %s", resp.Status)
@@ -118,7 +117,7 @@ func (e explorerClient) GetCurrentBlockHeight() (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get block height: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("failed to get block height: status %s", resp.Status)
@@ -148,7 +147,7 @@ func (e explorerClient) GetTransactionStatus(txid string) (*TransactionStatus, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return &TransactionStatus{Confirmed: false}, nil
@@ -190,11 +189,16 @@ func (e explorerClient) GetTransaction(txid string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get transaction %s: %w", txid, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("get transaction %s failed with status %d: %s", txid, resp.StatusCode, string(body))
+		return "", fmt.Errorf(
+			"get transaction %s failed with status %d: %s",
+			txid,
+			resp.StatusCode,
+			string(body),
+		)
 	}
 
 	txHex, err := io.ReadAll(resp.Body)

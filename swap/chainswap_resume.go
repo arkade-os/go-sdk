@@ -63,7 +63,8 @@ func (h *SwapHandler) ResumeChainSwap(
 	}
 
 	arkToBtc := params.From == boltz.CurrencyArk && params.To == boltz.CurrencyBtc
-	if !arkToBtc && !(params.From == boltz.CurrencyBtc && params.To == boltz.CurrencyArk) {
+	btcToArk := params.From == boltz.CurrencyBtc && params.To == boltz.CurrencyArk
+	if !arkToBtc && !btcToArk {
 		return nil, fmt.Errorf("unsupported swap direction: %s -> %s", params.From, params.To)
 	}
 
@@ -124,7 +125,10 @@ func (h *SwapHandler) ResumeChainSwap(
 
 	if arkToBtc {
 		if params.UserBtcAddress == "" {
-			return nil, fmt.Errorf("btc destination address missing for Ark→BTC swap %s", params.SwapID)
+			return nil, fmt.Errorf(
+				"btc destination address missing for Ark→BTC swap %s",
+				params.SwapID,
+			)
 		}
 
 		go func() {

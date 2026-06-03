@@ -31,8 +31,8 @@ type SwapStatusResponse struct {
 }
 
 type SwapUpdate struct {
-	SwapStatusResponse `mapstructure:",squash"`
-	Id                 string `json:"id"`
+	SwapStatusResponse `       mapstructure:",squash"`
+	Id                 string `                       json:"id"`
 }
 
 type Websocket struct {
@@ -77,9 +77,10 @@ func (boltz *Websocket) Connect() error {
 	}
 	wsUrl.Path += "/v2/ws"
 
-	if wsUrl.Scheme == "https" {
+	switch wsUrl.Scheme {
+	case "https":
 		wsUrl.Scheme = "wss"
-	} else if wsUrl.Scheme == "http" {
+	case "http":
 		wsUrl.Scheme = "ws"
 	}
 
@@ -146,6 +147,7 @@ func (boltz *Websocket) Connect() error {
 						for _, arg := range response.Args {
 							var update SwapUpdate
 							if err := mapstructure.Decode(arg, &update); err != nil {
+								continue
 							}
 							boltz.Updates <- update
 						}
@@ -232,12 +234,15 @@ func (boltz *Websocket) Reconnect() error {
 		return errors.New("websocket is closed")
 	}
 	boltz.reconnect = true
-	if err := boltz.conn.Close(); err != nil {
-	}
+	_ = boltz.conn.Close()
 	return boltz.Connect()
 }
 
-func (boltz *Websocket) ConnectAndSubscribe(ctx context.Context, swapIds []string, retryInterval time.Duration) error {
+func (boltz *Websocket) ConnectAndSubscribe(
+	ctx context.Context,
+	swapIds []string,
+	retryInterval time.Duration,
+) error {
 	err := Retry(ctx, retryInterval, func(ctx context.Context) (bool, error) {
 		err := boltz.Connect()
 		if err != nil {

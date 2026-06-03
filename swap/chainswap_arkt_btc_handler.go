@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/arkade-os/go-sdk/swap/boltz"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -64,7 +64,10 @@ func (h *arkToBtcHandler) HandleLockupFailed(ctx context.Context, update boltz.S
 	return h.handleArkToBtcFailure(ctx, update, getQuote)
 }
 
-func (h *arkToBtcHandler) HandleUserLockedMempool(ctx context.Context, update boltz.SwapUpdate) error {
+func (h *arkToBtcHandler) HandleUserLockedMempool(
+	ctx context.Context,
+	update boltz.SwapUpdate,
+) error {
 	log.Infof("User lockup transaction for swap %s detected in mempool", h.chainSwapState.SwapID)
 	return nil
 }
@@ -73,7 +76,10 @@ func (h *arkToBtcHandler) HandleUserLocked(ctx context.Context, update boltz.Swa
 	return h.handleArkToBtcUserLocked(ctx, update)
 }
 
-func (h *arkToBtcHandler) HandleServerLockedMempool(ctx context.Context, update boltz.SwapUpdate) error {
+func (h *arkToBtcHandler) HandleServerLockedMempool(
+	ctx context.Context,
+	update boltz.SwapUpdate,
+) error {
 	return h.handleArkToBtcServerLocked(ctx, update)
 }
 
@@ -85,7 +91,10 @@ func (h *arkToBtcHandler) HandleSwapExpired(ctx context.Context, update boltz.Sw
 	return h.handleArkToBtcFailure(ctx, update, "swap expired")
 }
 
-func (h *arkToBtcHandler) HandleTransactionFailed(ctx context.Context, update boltz.SwapUpdate) error {
+func (h *arkToBtcHandler) HandleTransactionFailed(
+	ctx context.Context,
+	update boltz.SwapUpdate,
+) error {
 	return h.handleArkToBtcFailure(ctx, update, "transaction failed")
 }
 
@@ -132,7 +141,10 @@ func (h *arkToBtcHandler) handleArkToBtcServerLocked(
 	ctx context.Context,
 	update boltz.SwapUpdate,
 ) error {
-	log.Infof("Boltz locked BTC for swap %s (confirmed), proceeding with claim", h.chainSwapState.SwapID)
+	log.Infof(
+		"Boltz locked BTC for swap %s (confirmed), proceeding with claim",
+		h.chainSwapState.SwapID,
+	)
 
 	serverLockupTxID := update.Transaction.Id
 	serverLockupTxHex := update.Transaction.Hex
@@ -173,30 +185,43 @@ func (h *arkToBtcHandler) handleArkToBtcFailure(
 	}
 
 	if reason == getQuote {
-		log.Warnf("User lockup failed for swap %s (amount mismatch), fetching quote", h.chainSwapState.SwapID)
+		log.Warnf(
+			"User lockup failed for swap %s (amount mismatch), fetching quote",
+			h.chainSwapState.SwapID,
+		)
 
 		quote, err := h.swapHandler.boltzSvc.GetChainSwapQuote(h.chainSwapState.SwapID)
 		if err != nil {
-			h.chainSwapState.Swap.UserLockedFailed(fmt.Sprintf("lockup failed, quote error: %v", err))
+			h.chainSwapState.Swap.UserLockedFailed(
+				fmt.Sprintf("lockup failed, quote error: %v", err),
+			)
 			return fmt.Errorf("failed to get quote: %w", err)
 		}
 
 		log.Infof("Quote for swap %s: amount=%d, onchainAmount=%d",
 			h.chainSwapState.SwapID, quote.Amount, quote.OnchainAmount)
 
-		if err := h.swapHandler.boltzSvc.AcceptChainSwapQuote(h.chainSwapState.SwapID, *quote); err != nil {
+		if err := h.swapHandler.boltzSvc.AcceptChainSwapQuote(
+			h.chainSwapState.SwapID, *quote,
+		); err != nil {
 			h.chainSwapState.Swap.UserLockedFailed(fmt.Sprintf("quote acceptance failed: %v", err))
 			return fmt.Errorf("failed to accept quote: %w", err)
 		}
 
 		h.quoteAccepted = true
-		log.Infof("Quote accepted for swap %s, waiting for Boltz to send VTXOs", h.chainSwapState.SwapID)
+		log.Infof(
+			"Quote accepted for swap %s, waiting for Boltz to send VTXOs",
+			h.chainSwapState.SwapID,
+		)
 		return nil
 	}
 	log.Warnf("Swap %s %s, attempting refund", h.chainSwapState.SwapID, reason)
 
 	refundTxid, err := h.swapHandler.RefundArkToBTCSwap(
-		ctx, h.chainSwapState.SwapID, h.chainSwapState.Swap.VhtlcOpts, h.chainSwapState.UnilateralRefundCallback,
+		ctx,
+		h.chainSwapState.SwapID,
+		h.chainSwapState.Swap.VhtlcOpts,
+		h.chainSwapState.UnilateralRefundCallback,
 	)
 	if err != nil {
 		return fmt.Errorf("refund failed: %w", err)
@@ -235,7 +260,8 @@ func (h *arkToBtcHandler) claimBtcLockup(
 		serverLockupHex,
 	)
 	if err != nil {
-		log.WithError(err).Warnf("Cooperative claim failed for swap %s, falling back to script-path claim", swapId)
+		log.WithError(err).
+			Warnf("Cooperative claim failed for swap %s, falling back to script-path claim", swapId)
 
 		return h.claimBtcLockupScriptPath(
 			ctx,
@@ -294,14 +320,17 @@ func (h *arkToBtcHandler) claimBtcLockupCooperative(
 		return "", fmt.Errorf("serialize claim tx: %w", err)
 	}
 
-	boltzSigResp, err := h.swapHandler.boltzSvc.SubmitChainSwapClaim(swapId, boltz.ChainSwapClaimRequest{
-		Preimage: hex.EncodeToString(preimage),
-		ToSign: boltz.ToSign{
-			Nonce:   SerializePubNonce(ourNonce),
-			ClaimTx: claimTxHex,
-			Index:   0,
+	boltzSigResp, err := h.swapHandler.boltzSvc.SubmitChainSwapClaim(
+		swapId,
+		boltz.ChainSwapClaimRequest{
+			Preimage: hex.EncodeToString(preimage),
+			ToSign: boltz.ToSign{
+				Nonce:   SerializePubNonce(ourNonce),
+				ClaimTx: claimTxHex,
+				Index:   0,
+			},
 		},
-	})
+	)
 	if err != nil {
 		return "", fmt.Errorf("submit claim to boltz: %w", err)
 	}
@@ -341,7 +370,13 @@ func (h *arkToBtcHandler) claimBtcLockupCooperative(
 	}
 
 	allPartials := []*musig2.PartialSignature{ourPartial, boltzPartial}
-	finalSig, err := CombineFinalSig(ourPartial.R, allPartials, keys, msg, setup.swapInfo.merkleRoot)
+	finalSig, err := CombineFinalSig(
+		ourPartial.R,
+		allPartials,
+		keys,
+		msg,
+		setup.swapInfo.merkleRoot,
+	)
 	if err != nil {
 		return "", fmt.Errorf("combine sigs: %w", err)
 	}
@@ -411,7 +446,11 @@ func (h *arkToBtcHandler) claimBtcLockupScriptPath(
 
 	internalKey := aggregateKey.FinalKey
 
-	controlBlock, err := createControlBlockFromSwapTree(internalKey, swapTree, true /* isClaimPath */)
+	controlBlock, err := createControlBlockFromSwapTree(
+		internalKey,
+		swapTree,
+		true, /* isClaimPath */
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create control block: %w", err)
 	}
@@ -451,8 +490,13 @@ func (h *arkToBtcHandler) claimBtcLockupScriptPath(
 
 	setup.claimTx.TxIn[0].Witness = witness
 
-	log.Debugf("Script-path claim witness: sig=%d bytes, preimage=%d bytes, script=%d bytes, control=%d bytes",
-		len(witness[0]), len(witness[1]), len(witness[2]), len(witness[3]))
+	log.Debugf(
+		"Script-path claim witness: sig=%d bytes, preimage=%d bytes, script=%d bytes, control=%d bytes",
+		len(witness[0]),
+		len(witness[1]),
+		len(witness[2]),
+		len(witness[3]),
+	)
 
 	log.Infof("Broadcasting script-path claim transaction for swap %s...", swapId)
 
@@ -499,7 +543,11 @@ func (h *arkToBtcHandler) prepareClaimTransaction(
 		Network:         network,
 	}
 
-	claimTx, err := constructClaimTransaction(h.swapHandler.explorerClient, h.swapHandler.config.Dust, claimTxParams)
+	claimTx, err := constructClaimTransaction(
+		h.swapHandler.explorerClient,
+		h.swapHandler.config.Dust,
+		claimTxParams,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("construct claim tx: %w", err)
 	}

@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -489,7 +489,14 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	}
 
 	chainSwap, err := NewChainSwap(
-		swapResp.Id, amount, preimage, vhtlcOpts, string(swapRespJson), arkToBtc, btcDestinationAddress, eventCallback,
+		swapResp.Id,
+		amount,
+		preimage,
+		vhtlcOpts,
+		string(swapRespJson),
+		arkToBtc,
+		btcDestinationAddress,
+		eventCallback,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)
@@ -599,13 +606,23 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		return nil, fmt.Errorf("invalid BTC HTLC refund path: %w", err)
 	}
 
-	vhtlcOpts, err := validateVHTLC(context.Background(), h, arkToBtc, swapResp, preimageHashHASH160)
+	vhtlcOpts, err := validateVHTLC(
+		context.Background(),
+		h,
+		arkToBtc,
+		swapResp,
+		preimageHashHASH160,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid VHTLC: %w", err)
 	}
 
 	log.Infof("Created BTC→ARK chain swap %s with Boltz", swapResp.Id)
-	log.Infof("Please send %d sats to: %s", swapResp.LockupDetails.Amount, swapResp.LockupDetails.LockupAddress)
+	log.Infof(
+		"Please send %d sats to: %s",
+		swapResp.LockupDetails.Amount,
+		swapResp.LockupDetails.LockupAddress,
+	)
 
 	if err := validateBtcLockupAddress(
 		network,
@@ -773,7 +790,10 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 		blocksRemaining := requiredHeight - int(currentHeight)
 		return "", fmt.Errorf(
 			"CLTV timeout not yet reached: current block %d, required %d (wait %d more blocks, ~%d minutes)",
-			currentHeight, requiredHeight, blocksRemaining, blocksRemaining*10,
+			currentHeight,
+			requiredHeight,
+			blocksRemaining,
+			blocksRemaining*10,
 		)
 	}
 
@@ -823,7 +843,11 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	}
 	internalKey := aggregateKey.FinalKey
 
-	controlBlock, err := createControlBlockFromSwapTree(internalKey, swapTree, false /* isClaimPath = refund path */)
+	controlBlock, err := createControlBlockFromSwapTree(
+		internalKey,
+		swapTree,
+		false, /* isClaimPath = refund path */
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create control block: %w", err)
 	}
@@ -890,19 +914,30 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 		}
 
 		if txStatus.Confirmed {
-			log.Infof("Refund transaction %s confirmed at block %d", claimTxid, txStatus.BlockHeight)
+			log.Infof(
+				"Refund transaction %s confirmed at block %d",
+				claimTxid,
+				txStatus.BlockHeight,
+			)
 			confirmed = true
 			break
 		}
 
-		log.Debugf("Waiting for refund transaction confirmation... (elapsed: %v)", time.Since(startTime))
+		log.Debugf(
+			"Waiting for refund transaction confirmation... (elapsed: %v)",
+			time.Since(startTime),
+		)
 		time.Sleep(pollInterval)
 	}
 
 	if !confirmed {
 		// Return success anyway - the BTC is in the boarding address
-		log.Warnf("Refund transaction %s not confirmed within %v, but BTC is in boarding address %s",
-			claimTxid, maxWaitTime, boardingAddr)
+		log.Warnf(
+			"Refund transaction %s not confirmed within %v, but BTC is in boarding address %s",
+			claimTxid,
+			maxWaitTime,
+			boardingAddr,
+		)
 		return claimTxid, nil
 	}
 
@@ -910,7 +945,8 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	settleTxid, err := h.arkClient.Settle(ctx)
 	if err != nil {
 		// Log but don't fail - the BTC is now in the boarding address
-		log.WithError(err).Warnf("Settle() failed, but BTC is safely in boarding address %s", boardingAddr)
+		log.WithError(err).
+			Warnf("Settle() failed, but BTC is safely in boarding address %s", boardingAddr)
 		log.Infof("You can manually settle later to complete the boarding process")
 		return claimTxid, nil
 	}
@@ -952,7 +988,11 @@ func networkNameToParams(networkName string) *chaincfg.Params {
 }
 
 // parsePrevoutFetcher creates a prevout fetcher for transaction signing
-func parsePrevoutFetcher(lockupTxHex string, claimTx *wire.MsgTx, inputIndex int) (txscript.PrevOutputFetcher, error) {
+func parsePrevoutFetcher(
+	lockupTxHex string,
+	claimTx *wire.MsgTx,
+	inputIndex int,
+) (txscript.PrevOutputFetcher, error) {
 	lockupTx, err := deserializeTransaction(lockupTxHex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize lockup tx: %w", err)
@@ -960,7 +1000,11 @@ func parsePrevoutFetcher(lockupTxHex string, claimTx *wire.MsgTx, inputIndex int
 
 	prevOut := claimTx.TxIn[inputIndex].PreviousOutPoint
 	if int(prevOut.Index) >= len(lockupTx.TxOut) {
-		return nil, fmt.Errorf("invalid prevout index %d (lockup tx has %d outputs)", prevOut.Index, len(lockupTx.TxOut))
+		return nil, fmt.Errorf(
+			"invalid prevout index %d (lockup tx has %d outputs)",
+			prevOut.Index,
+			len(lockupTx.TxOut),
+		)
 	}
 
 	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(

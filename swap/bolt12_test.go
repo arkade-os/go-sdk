@@ -28,7 +28,11 @@ func testBolt12Offer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, decoded_offer.AmountInSats, uint64(5000))
 	require.Equal(t, decoded_offer.DescriptionStr, "fun")
-	require.Equal(t, decoded_offer.ID, "4435a4b44691f3e2164dae39814ba0ed13b5557ed1e11bc72f7f2e80e336d4c3")
+	require.Equal(
+		t,
+		decoded_offer.ID,
+		"4435a4b44691f3e2164dae39814ba0ed13b5557ed1e11bc72f7f2e80e336d4c3",
+	)
 }
 
 func testBolt12Invoice(t *testing.T) {
@@ -38,5 +42,9 @@ func testBolt12Invoice(t *testing.T) {
 	decoded_invoice, err := swap.DecodeBolt12Invoice(invoice)
 	require.NoError(t, err)
 	require.Equal(t, decoded_invoice.AmountInSats, uint64(5000))
-	require.Equal(t, hex.EncodeToString(decoded_invoice.PaymentHash160), "c4f9f68a9a92d115970386c1e4bd7308941278fc")
+	require.Equal(
+		t,
+		hex.EncodeToString(decoded_invoice.PaymentHash160),
+		"c4f9f68a9a92d115970386c1e4bd7308941278fc",
+	)
 }

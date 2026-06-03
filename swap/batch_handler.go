@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arkade-os/go-sdk/vhtlc"
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
@@ -17,6 +16,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -122,9 +122,11 @@ func (h *batchSessionHandler) OnBatchStarted(
 			}
 			h.batchSessionId = event.Id
 			batchExpiry := parseLocktime(uint32(event.BatchExpiry))
-			h.musig2BatchSessionHandler.SweepClosure = script.CSVMultisigClosure{
-				MultisigClosure: script.MultisigClosure{PubKeys: []*btcec.PublicKey{h.config.ForfeitPubKey}},
-				Locktime:        batchExpiry,
+			h.SweepClosure = script.CSVMultisigClosure{
+				MultisigClosure: script.MultisigClosure{
+					PubKeys: []*btcec.PublicKey{h.config.ForfeitPubKey},
+				},
+				Locktime: batchExpiry,
 			}
 			log.Debugf("batch %s started with our intent %s", event.Id, h.intentId)
 			return false, time.Duration(event.BatchExpiry) * time.Second, nil
@@ -176,7 +178,9 @@ func (h *batchSessionHandler) createAndSignForfeits(
 
 	if len(connectorsLeaves) != len(h.vtxosToForfeit) {
 		return nil, fmt.Errorf(
-			"insufficient connectors: got %d, need %d", len(connectorsLeaves), len(h.vtxosToForfeit),
+			"insufficient connectors: got %d, need %d",
+			len(connectorsLeaves),
+			len(h.vtxosToForfeit),
 		)
 	}
 
@@ -186,7 +190,11 @@ func (h *batchSessionHandler) createAndSignForfeits(
 
 		connector, connectorOutpoint, err := extractConnector(connectorTx)
 		if err != nil {
-			return nil, fmt.Errorf("connector not found for vtxo %s: %w", vtxo.Outpoint.String(), err)
+			return nil, fmt.Errorf(
+				"connector not found for vtxo %s: %w",
+				vtxo.Outpoint.String(),
+				err,
+			)
 		}
 
 		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
@@ -260,7 +268,14 @@ func newClaimBatchSessionHandler(
 		return nil, fmt.Errorf("missing preimage")
 	}
 	handler, err := newBatchSessionHandler(
-		arkClient, arkClient.Client(), intentId, vtxos, receivers, vhtlcScripts, config, signerSession,
+		arkClient,
+		arkClient.Client(),
+		intentId,
+		vtxos,
+		receivers,
+		vhtlcScripts,
+		config,
+		signerSession,
 	)
 	if err != nil {
 		return nil, err
@@ -468,7 +483,9 @@ func (h *collabRefundBatchSessionHandler) OnBatchFinalization(
 		return nil, fmt.Errorf("failed to sign forfeit: %w", err)
 	}
 
-	if err := h.TransportClient.SubmitSignedForfeitTxs(ctx, []string{signedForfeitTx}, ""); err != nil {
+	if err := h.TransportClient.SubmitSignedForfeitTxs(
+		ctx, []string{signedForfeitTx}, "",
+	); err != nil {
 		return nil, fmt.Errorf("failed to submit signed forfeit: %w", err)
 	}
 

@@ -49,7 +49,10 @@ func (b *btcToArkHandler) HandleLockupFailed(ctx context.Context, update boltz.S
 	return b.handleBtcToArkFailure(ctx, update, getQuote)
 }
 
-func (b *btcToArkHandler) HandleUserLockedMempool(ctx context.Context, update boltz.SwapUpdate) error {
+func (b *btcToArkHandler) HandleUserLockedMempool(
+	ctx context.Context,
+	update boltz.SwapUpdate,
+) error {
 	return b.handleBtcToArkUserLocked(ctx, update)
 }
 
@@ -57,7 +60,10 @@ func (b *btcToArkHandler) HandleUserLocked(ctx context.Context, update boltz.Swa
 	return b.handleBtcToArkUserLocked(ctx, update)
 }
 
-func (b *btcToArkHandler) HandleServerLockedMempool(ctx context.Context, update boltz.SwapUpdate) error {
+func (b *btcToArkHandler) HandleServerLockedMempool(
+	ctx context.Context,
+	update boltz.SwapUpdate,
+) error {
 	//Boltz trusts out BTC lockup that is now in mempool and we claim VTXO immediately
 	return b.handleBtcToArkServerLocked(ctx, update)
 }
@@ -70,7 +76,10 @@ func (b *btcToArkHandler) HandleSwapExpired(ctx context.Context, update boltz.Sw
 	return b.handleBtcToArkFailure(ctx, update, "swap expired")
 }
 
-func (b *btcToArkHandler) HandleTransactionFailed(ctx context.Context, update boltz.SwapUpdate) error {
+func (b *btcToArkHandler) HandleTransactionFailed(
+	ctx context.Context,
+	update boltz.SwapUpdate,
+) error {
 	return b.handleBtcToArkFailure(ctx, update, "transaction expired")
 }
 
@@ -115,7 +124,12 @@ func (b *btcToArkHandler) handleBtcToArkServerLocked(
 
 	// Claim Ark VTXOs lockup
 	//TODO check if we should pass outpoint similarly as in swap
-	claimTxid, err := b.swapHandler.ClaimVHTLC(ctx, b.preimage, b.chainSwapState.Swap.VhtlcOpts, nil)
+	claimTxid, err := b.swapHandler.ClaimVHTLC(
+		ctx,
+		b.preimage,
+		b.chainSwapState.Swap.VhtlcOpts,
+		nil,
+	)
 	if err != nil {
 		// ChainSwap.Fail() emits FailEvent automatically
 		b.chainSwapState.Swap.Fail(fmt.Sprintf("claim failed: %v", err))
@@ -129,8 +143,12 @@ func (b *btcToArkHandler) handleBtcToArkServerLocked(
 
 	// cooperatively sign for Boltz to claim our BTC lockup so that Boltz doesnt need to claim with preimage
 	// which is more expensive since keypath(cooperative) witness is smaller than script-path(preimage)
-	if err := b.signBoltzBtcClaim(ctx, b.chainSwapState.SwapID, b.refundKey, b.swapResp); err != nil {
-		log.WithError(err).Warnf("Failed to provide cooperative signature for Boltz BTC claim (non-critical)")
+	if err := b.signBoltzBtcClaim(
+		ctx, b.chainSwapState.SwapID, b.refundKey, b.swapResp,
+	); err != nil {
+		log.WithError(err).
+			Warnf("Failed to provide cooperative signature for Boltz BTC claim (non-critical)")
+
 		// Non-critical: Boltz can claim via script-path after timeout
 	} else {
 		log.Infof("Successfully provided cooperative signature for Boltz BTC claim")
@@ -150,29 +168,43 @@ func (b *btcToArkHandler) handleBtcToArkFailure(
 	}
 
 	if reason == getQuote {
-		log.Warnf("User lockup failed for swap %s (amount mismatch), fetching quote", b.chainSwapState.SwapID)
+		log.Warnf(
+			"User lockup failed for swap %s (amount mismatch), fetching quote",
+			b.chainSwapState.SwapID,
+		)
 
 		quote, err := b.swapHandler.boltzSvc.GetChainSwapQuote(b.chainSwapState.SwapID)
 		if err != nil {
-			b.chainSwapState.Swap.UserLockedFailed(fmt.Sprintf("lockup failed, quote error: %v", err))
+			b.chainSwapState.Swap.UserLockedFailed(
+				fmt.Sprintf("lockup failed, quote error: %v", err),
+			)
 			return fmt.Errorf("failed to get quote: %w", err)
 		}
 
 		log.Infof("Quote for swap %s: amount=%d, onchainAmount=%d",
 			b.chainSwapState.SwapID, quote.Amount, quote.OnchainAmount)
 
-		if err := b.swapHandler.boltzSvc.AcceptChainSwapQuote(b.chainSwapState.SwapID, *quote); err != nil {
+		if err := b.swapHandler.boltzSvc.AcceptChainSwapQuote(
+			b.chainSwapState.SwapID, *quote,
+		); err != nil {
 			b.chainSwapState.Swap.UserLockedFailed(fmt.Sprintf("quote acceptance failed: %v", err))
 			return fmt.Errorf("failed to accept quote: %w", err)
 		}
 
 		b.quoteAccepted = true
-		log.Infof("Quote accepted for swap %s, waiting for Boltz to send VTXOs", b.chainSwapState.SwapID)
+		log.Infof(
+			"Quote accepted for swap %s, waiting for Boltz to send VTXOs",
+			b.chainSwapState.SwapID,
+		)
 		return nil
 	}
 
 	// Since fulmine is not a BTC wallet, we claim BTC to a boarding address and then settle to convert to VTXO
-	log.Warnf("Swap %s failed: %s, attempting BTC refund via boarding address", b.chainSwapState.SwapID, reason)
+	log.Warnf(
+		"Swap %s failed: %s, attempting BTC refund via boarding address",
+		b.chainSwapState.SwapID,
+		reason,
+	)
 
 	refundTxid, err := b.refundBtcToArkSwap(ctx)
 	if err != nil {

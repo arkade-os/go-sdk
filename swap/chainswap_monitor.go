@@ -98,7 +98,7 @@ func (h *SwapHandler) monitorChainSwap(
 		chainSwapState.Swap.Fail(fmt.Sprintf("websocket subscribe failed: %v", err))
 		return
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	timeout := time.After(chainSwapState.Timeout)
 
@@ -171,7 +171,9 @@ func (h *SwapHandler) monitorChainSwap(
 
 		case <-timeout:
 			log.Warnf("Swap %s monitoring timed out after %v", swapId, chainSwapState.Timeout)
-			chainSwapState.Swap.Fail(fmt.Sprintf("monitoring timed out after %v", chainSwapState.Timeout))
+			chainSwapState.Swap.Fail(
+				fmt.Sprintf("monitoring timed out after %v", chainSwapState.Timeout),
+			)
 			return
 
 		case <-ctx.Done():

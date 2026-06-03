@@ -693,15 +693,10 @@ func registerVHTLCContract(
 	t *testing.T, w arksdk.Wallet, opts vhtlc.Opts,
 ) {
 	t.Helper()
-	cfg, err := w.GetConfigData(t.Context())
-	require.NoError(t, err)
 
-	_, err = w.ContractManager().NewContract(
+	_, err := w.ContractManager().NewContract(
 		t.Context(), vhtlcHandler.ContractTypeVHTLC,
-		contract.WithParams(&vhtlcHandler.ContractParams{
-			Opts:    opts,
-			Network: cfg.Network,
-		}),
+		contract.WithParams(&opts),
 	)
 	require.NoError(t, err)
 }

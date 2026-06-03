@@ -180,13 +180,13 @@ type ChainSwapTimeouts struct {
 }
 
 type CreateChainSwapResponse struct {
-	Id           string      `json:"id"`
-	ClaimDetails SwapLeg     `json:"claimDetails"`
-	LockupDetails SwapLeg    `json:"lockupDetails"`
-	Error        string      `json:"error,omitempty"`
+	Id            string  `json:"id"`
+	ClaimDetails  SwapLeg `json:"claimDetails"`
+	LockupDetails SwapLeg `json:"lockupDetails"`
+	Error         string  `json:"error,omitempty"`
 }
 
-func (c CreateChainSwapResponse) GetSwapTree(isArkToBtc bool) SwapTree{
+func (c CreateChainSwapResponse) GetSwapTree(isArkToBtc bool) SwapTree {
 	if isArkToBtc {
 		return SwapTree{
 			ClaimLeaf: SwapTreeLeaf{
@@ -215,10 +215,10 @@ func (c CreateChainSwapResponse) GetSwapTree(isArkToBtc bool) SwapTree{
 // SwapLeg describes ONE side (one chain) of the swap.
 // Some fields exist only for BTC (swapTree, bip21) or only for ARK (timeouts).
 type SwapLeg struct {
-	ServerPublicKey    string       `json:"serverPublicKey"`
-	Amount             int          `json:"amount"`
-	LockupAddress      string       `json:"lockupAddress"`
-	TimeoutBlockHeight int          `json:"timeoutBlockHeight"`
+	ServerPublicKey    string `json:"serverPublicKey"`
+	Amount             int    `json:"amount"`
+	LockupAddress      string `json:"lockupAddress"`
+	TimeoutBlockHeight int    `json:"timeoutBlockHeight"`
 
 	// BTC-specific (present on the BTC leg; may appear on either claimDetails or lockupDetails)
 	SwapTree *SwapTree `json:"swapTree,omitempty"`
@@ -248,12 +248,12 @@ type ChainSwapClaimDetailsResponse struct {
 }
 
 type ChainSwapClaimRequest struct {
-	Preimage         string              `json:"preimage"`
-	ToSign           ToSign              `json:"toSign"`
-	PubNonce         string              `json:"pubNonce"`
-	PartialSignature string              `json:"partialSignature"`
-	Transaction      string              `json:"transaction"`
-	Index            int                 `json:"index"`
+	Preimage         string             `json:"preimage"`
+	ToSign           ToSign             `json:"toSign"`
+	PubNonce         string             `json:"pubNonce"`
+	PartialSignature string             `json:"partialSignature"`
+	Transaction      string             `json:"transaction"`
+	Index            int                `json:"index"`
 	Signature        CrossSignSignature `json:"signature,omitempty"`
 }
 

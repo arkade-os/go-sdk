@@ -47,34 +47,35 @@ const (
 // Handler is a stateless contract handler for VHTLC scripts.
 // All VHTLC parameters are stored in Contract.Params, so the handler
 // can rebuild the full tapscript tree from any persisted contract.
-type Handler struct{}
+type Handler struct {
+	network arklib.Network
+}
 
 // NewHandler returns a VHTLC contract handler ready to be registered via
 // WithContractHandler(ContractTypeVHTLC, vhtlcHandler.NewHandler()).
-func NewHandler() *Handler { return &Handler{} }
+func NewHandler(network arklib.Network) *Handler {
+	return &Handler{
+		network: network,
+	}
+}
 
 // Derivable returns false — VHTLC contracts require counterparty data
 // (pubkeys, preimage hash, locktimes) and cannot be derived from an HD key alone.
 // Callers must provide WithParams(*ContractParams) when calling Manager.NewContract.
 func (h *Handler) Derivable() bool { return false }
 
-// ContractParams contains the handler-specific parameters for creating a VHTLC
-// contract. Pass via contract.WithParams(&vhtlcHandler.ContractParams{...}).
-type ContractParams struct {
-	Opts    vhtlc.Opts
-	Network arklib.Network
-}
-
 // NewContract builds a VHTLC contract from the caller-provided key and params.
 // params must be *ContractParams; returns an error otherwise.
 func (h *Handler) NewContract(
 	_ context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
-	p, ok := params.(*ContractParams)
+	p, ok := params.(*vhtlc.Opts)
 	if !ok || p == nil {
-		return nil, fmt.Errorf("vhtlc handler requires *vhtlcHandler.ContractParams, got %T", params)
+		return nil, fmt.Errorf(
+			"vhtlc handler requires *vhtlc.Opts, got %T", params,
+		)
 	}
-	return createContract(p.Opts, keyRef, p.Network)
+	return createContract(*p, keyRef, h.network)
 }
 
 func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
@@ -162,23 +163,40 @@ func createContract(
 	}
 
 	params := map[string]string{
-		paramOwnerKeyID:                      ownerKeyRef.Id,
-		paramOwnerKey:                        hex.EncodeToString(schnorr.SerializePubKey(ownerKeyRef.PubKey)),
-		paramSender:                          hex.EncodeToString(opts.Sender.SerializeCompressed()),
-		paramReceiver:                        hex.EncodeToString(opts.Receiver.SerializeCompressed()),
-		paramServer:                          hex.EncodeToString(opts.Server.SerializeCompressed()),
-		paramPreimageHash:                    hex.EncodeToString(opts.PreimageHash),
-		paramRefundLocktime:                  strconv.FormatUint(uint64(opts.RefundLocktime), 10),
-		paramClaimDelayType:                  locktimeTypeName(opts.UnilateralClaimDelay.Type),
-		paramClaimDelayValue:                 strconv.FormatUint(uint64(opts.UnilateralClaimDelay.Value), 10),
-		paramRefundDelayType:                 locktimeTypeName(opts.UnilateralRefundDelay.Type),
-		paramRefundDelayValue:                strconv.FormatUint(uint64(opts.UnilateralRefundDelay.Value), 10),
-		paramRefundWithoutReceiverDelayType:  locktimeTypeName(opts.UnilateralRefundWithoutReceiverDelay.Type),
-		paramRefundWithoutReceiverDelayValue: strconv.FormatUint(uint64(opts.UnilateralRefundWithoutReceiverDelay.Value), 10),
+		paramOwnerKeyID: ownerKeyRef.Id,
+		paramOwnerKey: hex.EncodeToString(
+			schnorr.SerializePubKey(ownerKeyRef.PubKey),
+		),
+		paramSender: hex.EncodeToString(opts.Sender.SerializeCompressed()),
+		paramReceiver: hex.EncodeToString(
+			opts.Receiver.SerializeCompressed(),
+		),
+		paramServer:         hex.EncodeToString(opts.Server.SerializeCompressed()),
+		paramPreimageHash:   hex.EncodeToString(opts.PreimageHash),
+		paramRefundLocktime: strconv.FormatUint(uint64(opts.RefundLocktime), 10),
+		paramClaimDelayType: locktimeTypeName(opts.UnilateralClaimDelay.Type),
+		paramClaimDelayValue: strconv.FormatUint(
+			uint64(opts.UnilateralClaimDelay.Value),
+			10,
+		),
+		paramRefundDelayType: locktimeTypeName(opts.UnilateralRefundDelay.Type),
+		paramRefundDelayValue: strconv.FormatUint(
+			uint64(opts.UnilateralRefundDelay.Value),
+			10,
+		),
+		paramRefundWithoutReceiverDelayType: locktimeTypeName(
+			opts.UnilateralRefundWithoutReceiverDelay.Type,
+		),
+		paramRefundWithoutReceiverDelayValue: strconv.FormatUint(
+			uint64(opts.UnilateralRefundWithoutReceiverDelay.Value),
+			10,
+		),
 	}
 
 	if opts.NonInteractiveClaim != nil {
-		params[paramNICReceiverPkScript] = hex.EncodeToString(opts.NonInteractiveClaim.ReceiverPkScript)
+		params[paramNICReceiverPkScript] = hex.EncodeToString(
+			opts.NonInteractiveClaim.ReceiverPkScript,
+		)
 		params[paramNICIntrospectorPubKey] = hex.EncodeToString(
 			opts.NonInteractiveClaim.IntrospectorPubKey.SerializeCompressed(),
 		)
@@ -214,7 +232,11 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 	}
 	preimageHash, err := hex.DecodeString(preimageHashHex)
 	if err != nil {
-		return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: invalid preimage hash: %w", c.Script, err)
+		return vhtlc.Opts{}, fmt.Errorf(
+			"vhtlc contract %s: invalid preimage hash: %w",
+			c.Script,
+			err,
+		)
 	}
 	refundLockStr, err := requireParam(c, paramRefundLocktime)
 	if err != nil {
@@ -222,7 +244,11 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 	}
 	refundLock, err := strconv.ParseUint(refundLockStr, 10, 32)
 	if err != nil {
-		return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: invalid refund locktime: %w", c.Script, err)
+		return vhtlc.Opts{}, fmt.Errorf(
+			"vhtlc contract %s: invalid refund locktime: %w",
+			c.Script,
+			err,
+		)
 	}
 	claimDelay, err := parseRelativeLocktime(c, paramClaimDelayType, paramClaimDelayValue)
 	if err != nil {
@@ -254,7 +280,11 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 	if recvHex, ok := c.Params[paramNICReceiverPkScript]; ok && recvHex != "" {
 		recv, err := hex.DecodeString(recvHex)
 		if err != nil {
-			return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: invalid NIC receiver pkScript: %w", c.Script, err)
+			return vhtlc.Opts{}, fmt.Errorf(
+				"vhtlc contract %s: invalid NIC receiver pkScript: %w",
+				c.Script,
+				err,
+			)
 		}
 		introspector, err := parseCompressedParam(c, paramNICIntrospectorPubKey)
 		if err != nil {
@@ -339,4 +369,3 @@ func locktimeTypeName(t arklib.RelativeLocktimeType) string {
 		return ""
 	}
 }
-

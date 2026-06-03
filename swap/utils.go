@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arkade-os/go-sdk/vhtlc"
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -129,7 +129,10 @@ type pendingTxIntentInput struct {
 	ConditionWitness wire.TxWitness
 }
 
-func getPendingTxIntent(inputsData []pendingTxIntentInput, locktime uint32) (string, string, error) {
+func getPendingTxIntent(
+	inputsData []pendingTxIntentInput,
+	locktime uint32,
+) (string, string, error) {
 	if len(inputsData) == 0 {
 		return "", "", fmt.Errorf("missing pending vtxos")
 	}
@@ -524,7 +527,7 @@ func validatePreimage(preimage, expectedHash []byte) error {
 func getEventTopics(vtxos []clientTypes.VtxoWithTapTree, signerPubkey string) []string {
 	topics := make([]string, 0, len(vtxos)+1)
 	for _, vtxo := range vtxos {
-		topics = append(topics, vtxo.Vtxo.Outpoint.String())
+		topics = append(topics, vtxo.Outpoint.String())
 	}
 	topics = append(topics, signerPubkey)
 	return topics

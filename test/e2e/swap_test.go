@@ -43,7 +43,7 @@ func settleBoltzFulmine(t *testing.T) {
 		t.Logf("warning: failed to settle boltz-fulmine: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	t.Logf("boltz-fulmine settle status: %d", resp.StatusCode)
 }
 
@@ -1426,14 +1426,22 @@ func TestRefundSwap(t *testing.T) {
 
 	// Build VHTLC opts from Boltz's response
 	opts := vhtlc.Opts{
-		Sender:                               pubKey,
-		Receiver:                             receiverPub,
-		Server:                               cfg.SignerPubKey,
-		PreimageHash:                         preimageHash,
-		RefundLocktime:                       arklib.AbsoluteLocktime(createResp.TimeoutBlockHeights.RefundLocktime),
-		UnilateralClaimDelay:                 boltzRelativeLocktime(createResp.TimeoutBlockHeights.UnilateralClaim),
-		UnilateralRefundDelay:                boltzRelativeLocktime(createResp.TimeoutBlockHeights.UnilateralRefund),
-		UnilateralRefundWithoutReceiverDelay: boltzRelativeLocktime(createResp.TimeoutBlockHeights.UnilateralRefundWithoutReceiver),
+		Sender:       pubKey,
+		Receiver:     receiverPub,
+		Server:       cfg.SignerPubKey,
+		PreimageHash: preimageHash,
+		RefundLocktime: arklib.AbsoluteLocktime(
+			createResp.TimeoutBlockHeights.RefundLocktime,
+		),
+		UnilateralClaimDelay: boltzRelativeLocktime(
+			createResp.TimeoutBlockHeights.UnilateralClaim,
+		),
+		UnilateralRefundDelay: boltzRelativeLocktime(
+			createResp.TimeoutBlockHeights.UnilateralRefund,
+		),
+		UnilateralRefundWithoutReceiverDelay: boltzRelativeLocktime(
+			createResp.TimeoutBlockHeights.UnilateralRefundWithoutReceiver,
+		),
 	}
 
 	// Verify locally derived VHTLC address matches Boltz's
@@ -1449,7 +1457,11 @@ func TestRefundSwap(t *testing.T) {
 		{To: createResp.Address, Amount: underfundAmount},
 	})
 	require.NoError(t, err)
-	t.Logf("Underfunded swap with %d sats (expected %d)", underfundAmount, createResp.ExpectedAmount)
+	t.Logf(
+		"Underfunded swap with %d sats (expected %d)",
+		underfundAmount,
+		createResp.ExpectedAmount,
+	)
 
 	// Wait for Boltz to observe the underfunded lockup and mark swap as failed
 	time.Sleep(5 * time.Second)
@@ -1458,7 +1470,14 @@ func TestRefundSwap(t *testing.T) {
 	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, privKey, 120)
 	require.NoError(t, err)
 
-	refundTxid, err := handler.RefundSwap(ctx, swap.SwapTypeSubmarine, createResp.Id, true, opts, nil)
+	refundTxid, err := handler.RefundSwap(
+		ctx,
+		swap.SwapTypeSubmarine,
+		createResp.Id,
+		true,
+		opts,
+		nil,
+	)
 	require.NoError(t, err, "cooperative refund of an underfunded submarine swap should succeed")
 	require.NotEmpty(t, refundTxid)
 	t.Logf("Refund succeeded: txid=%s", refundTxid)

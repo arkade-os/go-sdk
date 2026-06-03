@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -40,9 +40,15 @@ func validateVHTLC(
 
 		receiverKey = boltzReceiverKey
 		refundLocktime = arklib.AbsoluteLocktime(swapResp.LockupDetails.Timeouts.Refund)
-		unilateralClaimDelay = parseLocktime(uint32(swapResp.LockupDetails.Timeouts.UnilateralClaim))
-		unilateralRefundDelay = parseLocktime(uint32(swapResp.LockupDetails.Timeouts.UnilateralRefund))
-		unilateralRefundWithoutReceiverDelay = parseLocktime(uint32(swapResp.LockupDetails.Timeouts.UnilateralRefundWithoutReceiver))
+		unilateralClaimDelay = parseLocktime(
+			uint32(swapResp.LockupDetails.Timeouts.UnilateralClaim),
+		)
+		unilateralRefundDelay = parseLocktime(
+			uint32(swapResp.LockupDetails.Timeouts.UnilateralRefund),
+		)
+		unilateralRefundWithoutReceiverDelay = parseLocktime(
+			uint32(swapResp.LockupDetails.Timeouts.UnilateralRefundWithoutReceiver),
+		)
 	} else {
 		vhtlcAddr = swapResp.ClaimDetails.LockupAddress
 		boltzSenderKey, err := parsePubkey(swapResp.ClaimDetails.ServerPublicKey)
@@ -54,8 +60,12 @@ func validateVHTLC(
 		receiverKey = nil
 		refundLocktime = arklib.AbsoluteLocktime(swapResp.ClaimDetails.Timeouts.Refund)
 		unilateralClaimDelay = parseLocktime(uint32(swapResp.ClaimDetails.Timeouts.UnilateralClaim))
-		unilateralRefundDelay = parseLocktime(uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefund))
-		unilateralRefundWithoutReceiverDelay = parseLocktime(uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefundWithoutReceiver))
+		unilateralRefundDelay = parseLocktime(
+			uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefund),
+		)
+		unilateralRefundWithoutReceiverDelay = parseLocktime(
+			uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefundWithoutReceiver),
+		)
 	}
 
 	vhtlcAddress, _, vhtlcOpts, err := h.getVHTLC(
@@ -179,7 +189,10 @@ func (p *scriptParser) readFixedBytes(n int, name string) ([]byte, error) {
 // Returns an error if extra bytes are present.
 func (p *scriptParser) expectNoMoreBytes() error {
 	if p.buf.Len() != 0 {
-		return fmt.Errorf("unexpected extra bytes at end of script: %d bytes remaining", p.buf.Len())
+		return fmt.Errorf(
+			"unexpected extra bytes at end of script: %d bytes remaining",
+			p.buf.Len(),
+		)
 	}
 	return nil
 }
@@ -328,14 +341,20 @@ func validateClaimPath(
 	}
 
 	if len(serverPubKey.SerializeCompressed()) != 33 {
-		return fmt.Errorf("server public key must be 33 bytes compressed, got %d", len(serverPubKey.SerializeCompressed()))
+		return fmt.Errorf(
+			"server public key must be 33 bytes compressed, got %d",
+			len(serverPubKey.SerializeCompressed()),
+		)
 	}
 
 	if claimPubKey == nil {
 		return fmt.Errorf("claim public key is nil")
 	}
 	if len(claimPubKey.SerializeCompressed()) != 33 {
-		return fmt.Errorf("claim public key must be 33 bytes compressed, got %d", len(claimPubKey.SerializeCompressed()))
+		return fmt.Errorf(
+			"claim public key must be 33 bytes compressed, got %d",
+			len(claimPubKey.SerializeCompressed()),
+		)
 	}
 
 	claimPubKeyXOnly := claimPubKey.SerializeCompressed()[1:]
@@ -396,7 +415,10 @@ func ValidateRefundLeafScript(outputHex string) (*RefundHTLCComponents, error) {
 func parseRefundHTLCScriptManually(script []byte) (*RefundHTLCComponents, error) {
 	// Minimum: 1 (push 32) + 32 (pubkey) + 1 (OP_CHECKSIGVERIFY) + 1 (push len) + 2 (timeout) + 1 (OP_CLTV) = 38 bytes
 	if len(script) < 38 {
-		return nil, fmt.Errorf("refund script too short: expected at least 38 bytes, got %d", len(script))
+		return nil, fmt.Errorf(
+			"refund script too short: expected at least 38 bytes, got %d",
+			len(script),
+		)
 	}
 
 	p := newScriptParser(script)
@@ -438,7 +460,9 @@ func parseRefundHTLCScriptManually(script []byte) (*RefundHTLCComponents, error)
 	}
 
 	// Read OP_CHECKLOCKTIMEVERIFY (0xb1) - Boltz uses absolute timelock, not relative
-	if err := p.expectOpcode(txscript.OP_CHECKLOCKTIMEVERIFY, "OP_CHECKLOCKTIMEVERIFY"); err != nil {
+	if err := p.expectOpcode(
+		txscript.OP_CHECKLOCKTIMEVERIFY, "OP_CHECKLOCKTIMEVERIFY",
+	); err != nil {
 		return nil, err
 	}
 
@@ -555,7 +579,10 @@ func validateSwapTree(swapTree boltz.SwapTree) error {
 	}
 
 	if swapTree.ClaimLeaf.Version != 0xc0 {
-		return fmt.Errorf("invalid claim leaf version: expected 0xc0, got 0x%x", swapTree.ClaimLeaf.Version)
+		return fmt.Errorf(
+			"invalid claim leaf version: expected 0xc0, got 0x%x",
+			swapTree.ClaimLeaf.Version,
+		)
 	}
 
 	if swapTree.RefundLeaf.Output == "" {
@@ -563,7 +590,10 @@ func validateSwapTree(swapTree boltz.SwapTree) error {
 	}
 
 	if swapTree.RefundLeaf.Version != 0xc0 {
-		return fmt.Errorf("invalid refund leaf version: expected 0xc0, got 0x%x", swapTree.RefundLeaf.Version)
+		return fmt.Errorf(
+			"invalid refund leaf version: expected 0xc0, got 0x%x",
+			swapTree.RefundLeaf.Version,
+		)
 	}
 
 	if _, err := hex.DecodeString(swapTree.ClaimLeaf.Output); err != nil {

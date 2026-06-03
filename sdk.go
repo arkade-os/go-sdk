@@ -68,7 +68,10 @@ type Wallet interface {
 	BurnAsset(
 		ctx context.Context, assetID string, amount uint64,
 	) (string, error)
-	SendOffChain(ctx context.Context, receivers []clienttypes.Receiver, opts ...clientwallet.SendOption) (string, error)
+	SendOffChain(
+		ctx context.Context, receivers []clienttypes.Receiver,
+		opts ...clientwallet.SendOption,
+	) (string, error)
 	RegisterIntent(
 		ctx context.Context,
 		vtxos []clienttypes.Vtxo, boardingUtxos []clienttypes.Utxo, notes []string,

@@ -136,7 +136,9 @@ func NewVhtlcScript(
 	if err != nil {
 		return nil, err
 	}
-	refundWithoutReceiverClosure, err := parseRefundWithoutReceiverClosure(refundWithoutReceiverLeaf)
+	refundWithoutReceiverClosure, err := parseRefundWithoutReceiverClosure(
+		refundWithoutReceiverLeaf,
+	)
 	if err != nil {
 		return nil, err
 	}

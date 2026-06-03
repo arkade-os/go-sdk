@@ -211,7 +211,11 @@ func ComputeTweakedOutputKey(keys []*btcec.PublicKey, merkleRoot []byte) (*btcec
 }
 
 // VerifyFinalSig verifies against the tweaked output key (recommended debug gate).
-func VerifyFinalSig(msg [32]byte, finalSig *schnorr.Signature, tweakedOutputKey *btcec.PublicKey) error {
+func VerifyFinalSig(
+	msg [32]byte,
+	finalSig *schnorr.Signature,
+	tweakedOutputKey *btcec.PublicKey,
+) error {
 	if finalSig == nil {
 		return fmt.Errorf("nil finalSig")
 	}
@@ -228,7 +232,10 @@ func VerifyFinalSig(msg [32]byte, finalSig *schnorr.Signature, tweakedOutputKey 
 
 func ParsePubNonce(nonceHex string) ([66]byte, error) {
 	if len(nonceHex) != 132 { // 66 bytes * 2
-		return [66]byte{}, fmt.Errorf("invalid nonce length: got %d want 132 hex chars", len(nonceHex))
+		return [66]byte{}, fmt.Errorf(
+			"invalid nonce length: got %d want 132 hex chars",
+			len(nonceHex),
+		)
 	}
 	b, err := hex.DecodeString(nonceHex)
 	if err != nil {
@@ -268,7 +275,10 @@ func ParsePartialSignatureScalar32(sigHex string) (*musig2.PartialSignature, err
 	return ps, nil
 }
 
-func NewPrevOutputFetcher(prevOut *wire.TxOut, prevOutPoint wire.OutPoint) txscript.PrevOutputFetcher {
+func NewPrevOutputFetcher(
+	prevOut *wire.TxOut,
+	prevOutPoint wire.OutPoint,
+) txscript.PrevOutputFetcher {
 	return txscript.NewMultiPrevOutFetcher(map[wire.OutPoint]*wire.TxOut{
 		prevOutPoint: prevOut,
 	})

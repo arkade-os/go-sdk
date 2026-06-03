@@ -59,7 +59,12 @@ func (h *musig2BatchSessionHandler) OnTreeSigningStarted(
 		return false, err
 	}
 
-	return false, h.TransportClient.SubmitTreeNonces(ctx, event.Id, h.SignerSession.GetPublicKey(), nonces)
+	return false, h.TransportClient.SubmitTreeNonces(
+		ctx,
+		event.Id,
+		h.SignerSession.GetPublicKey(),
+		nonces,
+	)
 }
 
 func (h *musig2BatchSessionHandler) OnTreeNonces(

@@ -3,6 +3,7 @@ module github.com/arkade-os/go-sdk
 go 1.26.3
 
 require (
+	github.com/ArkLabsHQ/introspector/pkg/arkade v0.0.0-20260501150319-697f94f40245
 	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260429091057-9246f043c4c8
 	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260522114250-299b7ad60d9f
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ArkLabsHQ/introspector/pkg/arkade"
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/extension"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
@@ -64,7 +65,7 @@ func TestNonInteractiveClaim(t *testing.T) {
 	preimageHash := btcutil.Hash160(preimg)
 
 	// Build arkade enforcement script
-	arkadeScript, err := vhtlc.EnforcePayTo(receiverPkScript)
+	arkadeScript, err := enforcePayTo(t, receiverPkScript)
 	require.NoError(t, err)
 
 	// Build VHTLC with NIC opts
@@ -76,9 +77,18 @@ func TestNonInteractiveClaim(t *testing.T) {
 		RefundLocktime: arklib.AbsoluteLocktime(
 			time.Now().Add(24 * time.Hour).Unix(),
 		),
-		UnilateralClaimDelay:                 arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		UnilateralRefundDelay:                arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 512},
-		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: 1024},
+		UnilateralClaimDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 512,
+		},
+		UnilateralRefundDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 512,
+		},
+		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeSecond,
+			Value: 1024,
+		},
 		NonInteractiveClaim: &vhtlc.NonInteractiveClaimOpts{
 			ReceiverPkScript:   receiverPkScript,
 			IntrospectorPubKey: introPub,
@@ -135,7 +145,7 @@ func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	t.Helper()
 	resp, err := http.Get(fmt.Sprintf("%s/v1/preimage/solver-pubkey", solverHTTPAddr))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	var result struct {
@@ -152,6 +162,25 @@ func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	intro, err := btcec.ParsePubKey(introRaw)
 	require.NoError(t, err)
 	return solver, intro
+}
+
+func enforcePayTo(t *testing.T, receiverPkScript []byte) ([]byte, error) {
+	t.Helper()
+	require.Len(t, receiverPkScript, 34)
+	witnessProgram := receiverPkScript[2:]
+	return txscript.NewScriptBuilder().
+		AddOp(arkade.OP_PUSHCURRENTINPUTINDEX).
+		AddOp(arkade.OP_DUP).
+		AddOp(arkade.OP_INSPECTOUTPUTSCRIPTPUBKEY).
+		AddOp(arkade.OP_1).
+		AddOp(arkade.OP_EQUALVERIFY).
+		AddData(witnessProgram).
+		AddOp(arkade.OP_EQUALVERIFY).
+		AddOp(arkade.OP_INSPECTOUTPUTVALUE).
+		AddOp(arkade.OP_PUSHCURRENTINPUTINDEX).
+		AddOp(arkade.OP_INSPECTINPUTVALUE).
+		AddOp(arkade.OP_GREATERTHANOREQUAL).
+		Script()
 }
 
 func pollForVtxoAtScript(
@@ -237,16 +266,6 @@ func eciesDeriveKey(priv *btcec.PrivateKey, peer *btcec.PublicKey, salt []byte) 
 	r := hkdf.New(func() hash.Hash { return sha256.New() }, shared, salt, []byte(eciesHkdfInfo))
 	out := make([]byte, 32)
 	_, _ = io.ReadFull(r, out)
-	return out
-}
-
-func buildSecretPayload(preimg, arkadeScript []byte) []byte {
-	out := make([]byte, 0, 32+binary.MaxVarintLen64+len(arkadeScript))
-	out = append(out, preimg...)
-	lenBuf := make([]byte, binary.MaxVarintLen64)
-	n := binary.PutUvarint(lenBuf, uint64(len(arkadeScript)))
-	out = append(out, lenBuf[:n]...)
-	out = append(out, arkadeScript...)
 	return out
 }
 

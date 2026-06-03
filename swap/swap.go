@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arkade-os/go-sdk/swap/boltz"
-	"github.com/arkade-os/go-sdk/vhtlc"
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
@@ -23,6 +21,8 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -204,7 +204,10 @@ func (h *SwapHandler) getPendingVHTLCTx(
 		Sequence: wire.MaxTxInSequenceNum - 1,
 	}}
 
-	proof, message, err := getPendingTxIntent(inputs, uint32(vhtlcScript.RefundWithoutReceiverClosure.Locktime))
+	proof, message, err := getPendingTxIntent(
+		inputs,
+		uint32(vhtlcScript.RefundWithoutReceiverClosure.Locktime),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -285,7 +288,7 @@ func (h *SwapHandler) ClaimVHTLC(
 		return "", err
 	}
 
-	amount, err := safecast.ToInt64(vtxo.Amount)
+	amount, err := safecast.Convert[int64](vtxo.Amount)
 	if err != nil {
 		return "", err
 	}
@@ -445,7 +448,7 @@ func (h *SwapHandler) RefundSwap(
 		return "", err
 	}
 
-	amount, err := safecast.ToInt64(vtxo.Amount)
+	amount, err := safecast.Convert[int64](vtxo.Amount)
 	if err != nil {
 		return "", err
 	}
@@ -611,7 +614,9 @@ func (h *SwapHandler) RefundSwap(
 		return "", fmt.Errorf("failed to encode final checkpoint tx: %s", err)
 	}
 
-	if err := h.arkClient.Client().FinalizeTx(ctx, arkTxid, []string{finalCheckpointTx}); err != nil {
+	if err := h.arkClient.Client().FinalizeTx(
+		ctx, arkTxid, []string{finalCheckpointTx},
+	); err != nil {
 		return "", fmt.Errorf("failed to finalize refund tx: %w", err)
 	}
 
@@ -1142,12 +1147,12 @@ func (h *SwapHandler) waitAndClaim(
 	defer cancel()
 
 	ws := h.boltzSvc.NewWebsocket()
-	defer ws.Close()
 
 	err := ws.ConnectAndSubscribe(ctx, []string{swapId}, 5*time.Second)
 	if err != nil {
 		return "", err
 	}
+	defer func() { _ = ws.Close() }()
 
 	var txid string
 	for {
@@ -1234,7 +1239,10 @@ func (h *SwapHandler) collaborativeRefund(
 // or refund a vhtlc.
 // NOTE: signerSession is meant to not be nil only if the collaborative refund path is used.
 func (h *SwapHandler) getBatchSessionArgs(
-	ctx context.Context, vhtlcOpts vhtlc.Opts, outpoint *clientTypes.Outpoint, signerSession *tree.SignerSession,
+	ctx context.Context,
+	vhtlcOpts vhtlc.Opts,
+	outpoint *clientTypes.Outpoint,
+	signerSession *tree.SignerSession,
 ) (*batchSessionArgs, error) {
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(vhtlcOpts)
 	if err != nil {

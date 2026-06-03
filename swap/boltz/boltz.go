@@ -17,15 +17,22 @@ type Api struct {
 	Client http.Client
 }
 
-func (boltz *Api) CreateReverseSwap(request CreateReverseSwapRequest) (*CreateReverseSwapResponse, error) {
+func (boltz *Api) CreateReverseSwap(
+	request CreateReverseSwapRequest,
+) (*CreateReverseSwapResponse, error) {
 	limits, err := sendGetRequest[GetSwapLimitsResponse](boltz, "/swap/submarine")
 	if err != nil {
 		return nil, err
 	}
 
-	if limits.Ark.Btc.Limits.Minimal > int(request.InvoiceAmount) || limits.Ark.Btc.Limits.Maximal < int(request.InvoiceAmount) {
-		return nil, fmt.Errorf("out of limits: invoice amount %d must be between %d and %d", request.InvoiceAmount,
-			limits.Ark.Btc.Limits.Minimal, limits.Ark.Btc.Limits.Maximal)
+	if limits.Ark.Btc.Limits.Minimal > int(request.InvoiceAmount) ||
+		limits.Ark.Btc.Limits.Maximal < int(request.InvoiceAmount) {
+		return nil, fmt.Errorf(
+			"out of limits: invoice amount %d must be between %d and %d",
+			request.InvoiceAmount,
+			limits.Ark.Btc.Limits.Minimal,
+			limits.Ark.Btc.Limits.Maximal,
+		)
 	}
 
 	resp, err := sendPostRequest[CreateReverseSwapResponse](boltz, "/swap/reverse", request)
@@ -39,8 +46,14 @@ func (boltz *Api) CreateReverseSwap(request CreateReverseSwapRequest) (*CreateRe
 	return resp, nil
 }
 
-func (boltz *Api) FetchBolt12Invoice(request FetchBolt12InvoiceRequest) (*FetchBolt12InvoiceResponse, error) {
-	resp, err := sendPostRequest[FetchBolt12InvoiceResponse](boltz, "/lightning/BTC/bolt12/fetch", request)
+func (boltz *Api) FetchBolt12Invoice(
+	request FetchBolt12InvoiceRequest,
+) (*FetchBolt12InvoiceResponse, error) {
+	resp, err := sendPostRequest[FetchBolt12InvoiceResponse](
+		boltz,
+		"/lightning/BTC/bolt12/fetch",
+		request,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +76,10 @@ func (boltz *Api) CreateSwap(request CreateSwapRequest) (*CreateSwapResponse, er
 	return resp, nil
 }
 
-func (boltz *Api) RefundChainSwap(swapId string, request RefundSwapRequest) (*RefundSwapResponse, error) {
+func (boltz *Api) RefundChainSwap(
+	swapId string,
+	request RefundSwapRequest,
+) (*RefundSwapResponse, error) {
 	url := fmt.Sprintf("/swap/chain/%s/refund/ark", swapId)
 	resp, err := sendPostRequest[RefundSwapResponse](boltz, url, request)
 	if err != nil {
@@ -76,7 +92,10 @@ func (boltz *Api) RefundChainSwap(swapId string, request RefundSwapRequest) (*Re
 	return resp, nil
 }
 
-func (boltz *Api) RefundSubmarine(swapId string, request RefundSwapRequest) (*RefundSwapResponse, error) {
+func (boltz *Api) RefundSubmarine(
+	swapId string,
+	request RefundSwapRequest,
+) (*RefundSwapResponse, error) {
 	url := fmt.Sprintf("/swap/submarine/%s/refund/ark", swapId)
 	resp, err := sendPostRequest[RefundSwapResponse](boltz, url, request)
 	if err != nil {
@@ -120,7 +139,9 @@ func (boltz *Api) GetSwapHistory(pubkey string) ([]Swap, error) {
 
 // Chain Swap API Methods
 
-func (boltz *Api) CreateChainSwap(request CreateChainSwapRequest) (*CreateChainSwapResponse, error) {
+func (boltz *Api) CreateChainSwap(
+	request CreateChainSwapRequest,
+) (*CreateChainSwapResponse, error) {
 	resp, err := sendPostRequest[CreateChainSwapResponse](boltz, "/swap/chain", request)
 	if err != nil {
 		return nil, err
@@ -137,7 +158,10 @@ func (boltz *Api) GetChainSwapClaimDetails(swapId string) (*ChainSwapClaimDetail
 	return sendGetRequest[ChainSwapClaimDetailsResponse](boltz, url)
 }
 
-func (boltz *Api) SubmitChainSwapClaim(swapId string, request ChainSwapClaimRequest) (*PartialSignatureResponse, error) {
+func (boltz *Api) SubmitChainSwapClaim(
+	swapId string,
+	request ChainSwapClaimRequest,
+) (*PartialSignatureResponse, error) {
 	url := fmt.Sprintf("/swap/chain/%s/claim", swapId)
 	resp, err := sendPostRequest[PartialSignatureResponse](boltz, url, request)
 	if err != nil {
@@ -185,7 +209,12 @@ func sendPostRequest[T any](boltz *Api, endpoint string, requestBody any) (*T, e
 	return callApi[T](ctx, &boltz.Client, http.MethodPost, url, requestBody)
 }
 
-func callApi[T any](ctx context.Context, c *http.Client, method, url string, reqBody any) (*T, error) {
+func callApi[T any](
+	ctx context.Context,
+	c *http.Client,
+	method, url string,
+	reqBody any,
+) (*T, error) {
 	var body io.Reader
 	if reqBody != nil {
 		b, err := json.Marshal(reqBody)
@@ -208,7 +237,7 @@ func callApi[T any](ctx context.Context, c *http.Client, method, url string, req
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, url, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {

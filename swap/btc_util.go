@@ -120,7 +120,11 @@ func deserializeTransaction(txHex string) (*wire.MsgTx, error) {
 	return tx, nil
 }
 
-func findOutputForAddress(tx *wire.MsgTx, address string, network *chaincfg.Params) (uint32, uint64, error) {
+func findOutputForAddress(
+	tx *wire.MsgTx,
+	address string,
+	network *chaincfg.Params,
+) (uint32, uint64, error) {
 	if tx == nil {
 		return 0, 0, fmt.Errorf("tx is nil")
 	}
