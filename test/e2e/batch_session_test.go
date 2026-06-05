@@ -1,11 +1,13 @@
 package e2e
 
 import (
+	"sort"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -299,5 +301,81 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, balance)
 		require.GreaterOrEqual(t, int(balance.OffchainBalance.Total), 29000)
+	})
+
+	// In this test Alice funds Bob with 60 vtxos of 1k sats each, then Bob settles.
+	// Settlement is capped at 50 vtxos per batch, so 10 vtxos must be left untouched,
+	// still carrying their original expiration.
+	t.Run("settle caps the number of vtxos per batch", func(t *testing.T) {
+		ctx := t.Context()
+
+		const (
+			numVtxos    = 60
+			vtxoAmount  = uint64(1000)
+			maxPerBatch = 50
+			leftover    = numVtxos - maxPerBatch
+		)
+
+		// Alice is the funder: she redeems a single note worth 60k sats.
+		alice := setupClient(t, "")
+		aliceAddr, err := alice.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+
+		// Bob is the receiver: he ends up with 60 vtxos of 1k sats each.
+		bob := setupClient(t, "")
+		bobAddr, err := bob.NewOffchainAddress(ctx)
+		require.NoError(t, err)
+
+		faucetOffchain(t, alice, aliceAddr, 0.001)
+
+		// Alice sends 60 offchain txs of 1k sats each to Bob.
+		for i := range numVtxos {
+			if ((i + 1) % 10) == 0 {
+				_, err := alice.Settle(ctx)
+				require.NoError(t, err)
+				time.Sleep(200 * time.Millisecond)
+			}
+
+			wg := &sync.WaitGroup{}
+			var notifyErr error
+			wg.Go(func() {
+				_, notifyErr = alice.NotifyIncomingFunds(ctx, bobAddr)
+			})
+			_, err := alice.SendOffChain(ctx, []clientTypes.Receiver{{
+				To:     bobAddr,
+				Amount: vtxoAmount,
+			}})
+			require.NoError(t, err, "failed at %d: %v", i, err)
+			wg.Wait()
+			require.NoError(t, notifyErr)
+		}
+
+		bobBalance, err := bob.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
+		require.Equal(t, 60000, int(bobBalance.OffchainBalance.Total))
+		sort.SliceStable(bobBalance.OffchainBalance.Details, func(i, j int) bool {
+			a, _ := time.Parse(time.RFC3339, bobBalance.OffchainBalance.Details[i].ExpiryTime)
+			b, _ := time.Parse(time.RFC3339, bobBalance.OffchainBalance.Details[j].ExpiryTime)
+			return a.Before(b)
+		})
+		nextExpiry := bobBalance.OffchainBalance.Details[0].ExpiryTime
+
+		// Bob settles. The cap leaves 10 vtxos out of the batch.
+		commitmentTxid, err := bob.Settle(ctx)
+		require.NoError(t, err)
+		require.NotEmpty(t, commitmentTxid)
+
+		bobBalance, err = bob.Balance(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, bobBalance)
+		require.Equal(t, 60000, int(bobBalance.OffchainBalance.Total))
+		sort.SliceStable(bobBalance.OffchainBalance.Details, func(i, j int) bool {
+			a, _ := time.Parse(time.RFC3339, bobBalance.OffchainBalance.Details[i].ExpiryTime)
+			b, _ := time.Parse(time.RFC3339, bobBalance.OffchainBalance.Details[j].ExpiryTime)
+			return a.Before(b)
+		})
+		// Next expiry should not have changed
+		require.Equal(t, nextExpiry, bobBalance.OffchainBalance.Details[0].ExpiryTime)
 	})
 }
