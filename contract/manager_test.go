@@ -557,7 +557,9 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 		t.Run("built-ins only", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			expectedTypes := []types.ContractType{
-				types.ContractTypeBoarding, types.ContractTypeDefault,
+				types.ContractTypeBoarding,
+				types.ContractTypeDefault,
+				types.ContractTypeVHTLC,
 			}
 			got := mgr.Registry().SupportedTypes()
 			require.Equal(t, expectedTypes, got)
@@ -568,7 +570,10 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 			mockHandler(h, "custom")
 			mgr := newTestManagerWithHandlers(t, contract.WithHandler("custom", h))
 			expectedTypes := []types.ContractType{
-				types.ContractTypeBoarding, types.ContractType("custom"), types.ContractTypeDefault,
+				types.ContractTypeBoarding,
+				types.ContractType("custom"),
+				types.ContractTypeDefault,
+				types.ContractTypeVHTLC,
 			}
 			got := mgr.Registry().SupportedTypes()
 			require.Equal(t, expectedTypes, got)

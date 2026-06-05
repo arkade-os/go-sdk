@@ -1,6 +1,7 @@
 package vhtlcHandler
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
@@ -16,9 +19,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 )
-
-// ContractTypeVHTLC is the contract type for VHTLC contracts.
-const ContractTypeVHTLC types.ContractType = "vhtlc"
 
 // Param keys stored in Contract.Params.
 const (
@@ -37,6 +37,7 @@ const (
 	paramRefundWithoutReceiverDelayValue = "refundWithoutReceiverDelayValue"
 	paramNICReceiverPkScript             = "nicReceiverPkScript"
 	paramNICIntrospectorPubKey           = "nicIntrospectorPubKey"
+	paramCheckpointExitPath              = "checkpointExitPath"
 )
 
 const (
@@ -49,25 +50,27 @@ const (
 // can rebuild the full tapscript tree from any persisted contract.
 type Handler struct {
 	network arklib.Network
+	client  client.Client
 }
 
 // NewHandler returns a VHTLC contract handler ready to be registered via
-// WithContractHandler(ContractTypeVHTLC, vhtlcHandler.NewHandler()).
-func NewHandler(network arklib.Network) *Handler {
+// the contract manager built-in handler registry.
+func NewHandler(c client.Client, network arklib.Network) *Handler {
 	return &Handler{
 		network: network,
+		client:  c,
 	}
 }
 
 // Derivable returns false — VHTLC contracts require counterparty data
 // (pubkeys, preimage hash, locktimes) and cannot be derived from an HD key alone.
-// Callers must provide WithParams(*ContractParams) when calling Manager.NewContract.
+// Callers must provide WithParams(*vhtlc.Opts) when calling Manager.NewContract.
 func (h *Handler) Derivable() bool { return false }
 
 // NewContract builds a VHTLC contract from the caller-provided key and params.
-// params must be *ContractParams; returns an error otherwise.
+// params must be *vhtlc.Opts; returns an error otherwise.
 func (h *Handler) NewContract(
-	_ context.Context, keyRef identity.KeyRef, params any,
+	ctx context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
 	p, ok := params.(*vhtlc.Opts)
 	if !ok || p == nil {
@@ -75,7 +78,11 @@ func (h *Handler) NewContract(
 			"vhtlc handler requires *vhtlc.Opts, got %T", params,
 		)
 	}
-	return createContract(*p, keyRef, h.network)
+	checkpointExitPath, err := h.resolveCheckpointExitPath(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return createContract(*p, keyRef, h.network, checkpointExitPath)
 }
 
 func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
@@ -103,7 +110,43 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{c.Script: keyRef.Id}, nil
+
+	keys := map[string]string{c.Script: keyRef.Id}
+
+	checkpointExitPath, err := h.getCheckpointExitPath(c)
+	if err != nil {
+		return nil, err
+	}
+
+	opts, err := OptsFromContract(c)
+	if err != nil {
+		return nil, err
+	}
+	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
+	if err != nil {
+		return nil, fmt.Errorf("vhtlc contract %s: rebuild script: %w", c.Script, err)
+	}
+
+	exitPath := &script.CSVMultisigClosure{}
+	valid, err := exitPath.Decode(checkpointExitPath)
+	if err != nil {
+		return nil, fmt.Errorf("vhtlc contract %s: decode checkpoint exit path: %w", c.Script, err)
+	}
+	if !valid {
+		return nil, fmt.Errorf("vhtlc contract %s: invalid checkpoint exit path", c.Script)
+	}
+
+	for _, closure := range []script.Closure{
+		vhtlcScript.ClaimClosure,
+		vhtlcScript.RefundClosure,
+		vhtlcScript.RefundWithoutReceiverClosure,
+	} {
+		if err := addCheckpointKeyRef(keys, exitPath, closure, keyRef); err != nil {
+			return nil, fmt.Errorf("vhtlc contract %s: checkpoint key ref: %w", c.Script, err)
+		}
+	}
+
+	return keys, nil
 }
 
 func (h *Handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
@@ -144,6 +187,7 @@ func createContract(
 	opts vhtlc.Opts,
 	ownerKeyRef identity.KeyRef,
 	network arklib.Network,
+	checkpointExitPath string,
 ) (*types.Contract, error) {
 	s, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	if err != nil {
@@ -201,9 +245,10 @@ func createContract(
 			opts.NonInteractiveClaim.IntrospectorPubKey.SerializeCompressed(),
 		)
 	}
+	params[paramCheckpointExitPath] = checkpointExitPath
 
 	return &types.Contract{
-		Type:      ContractTypeVHTLC,
+		Type:      types.ContractTypeVHTLC,
 		Script:    hex.EncodeToString(pkScript),
 		Address:   addr,
 		Params:    params,
@@ -300,6 +345,84 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 }
 
 // --- helpers ---
+
+func (h *Handler) resolveCheckpointExitPath(ctx context.Context) (string, error) {
+	if h.client == nil {
+		return "", fmt.Errorf("missing client")
+	}
+	info, err := h.client.GetInfo(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get server info: %w", err)
+	}
+	return info.CheckpointTapscript, nil
+}
+
+func (h *Handler) getCheckpointExitPath(c types.Contract) ([]byte, error) {
+	checkpointExitPath, err := requireParam(c, paramCheckpointExitPath)
+	if err != nil {
+		return nil, err
+	}
+
+	buf, err := hex.DecodeString(checkpointExitPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid checkpoint exit path hex: %w", err)
+	}
+	return buf, nil
+}
+
+func addCheckpointKeyRef(
+	keys map[string]string,
+	exitPath *script.CSVMultisigClosure,
+	spendPath script.Closure,
+	keyRef *identity.KeyRef,
+) error {
+	if !closureContainsKey(spendPath, keyRef.PubKey) {
+		return nil
+	}
+
+	rawCheckpointScript := script.TapscriptsVtxoScript{
+		Closures: []script.Closure{exitPath, spendPath},
+	}
+	taprootKey, _, err := rawCheckpointScript.TapTree()
+	if err != nil {
+		return fmt.Errorf("compute checkpoint taproot key: %w", err)
+	}
+
+	checkpointScript, err := script.P2TRScript(taprootKey)
+	if err != nil {
+		return fmt.Errorf("compute checkpoint script: %w", err)
+	}
+
+	keys[hex.EncodeToString(checkpointScript)] = keyRef.Id
+	return nil
+}
+
+func closureContainsKey(closure script.Closure, pubkey *btcec.PublicKey) bool {
+	if pubkey == nil {
+		return false
+	}
+
+	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
+	for _, candidate := range closurePubKeys(closure) {
+		if bytes.Equal(schnorr.SerializePubKey(candidate), xOnlyPubkey) {
+			return true
+		}
+	}
+	return false
+}
+
+func closurePubKeys(closure script.Closure) []*btcec.PublicKey {
+	switch c := closure.(type) {
+	case *script.MultisigClosure:
+		return c.PubKeys
+	case *script.CLTVMultisigClosure:
+		return c.PubKeys
+	case *script.ConditionMultisigClosure:
+		return c.PubKeys
+	default:
+		return nil
+	}
+}
 
 func requireParam(c types.Contract, key string) (string, error) {
 	if c.Params == nil {

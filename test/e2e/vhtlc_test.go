@@ -15,8 +15,8 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/contract"
-	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/swap"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -695,7 +695,7 @@ func registerVHTLCContract(
 	t.Helper()
 
 	_, err := w.ContractManager().NewContract(
-		t.Context(), vhtlcHandler.ContractTypeVHTLC,
+		t.Context(), types.ContractTypeVHTLC,
 		contract.WithParams(&opts),
 	)
 	require.NoError(t, err)

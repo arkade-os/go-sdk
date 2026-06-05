@@ -63,13 +63,16 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			name: vhtlcMode,
 			handler: func(t *testing.T) handlers.Handler {
 				t.Helper()
-				return vhtlcHandler.NewHandler(testNetwork)
+				return vhtlcHandler.NewHandler(
+					&mockClient{info: newTestInfo(newTestPubKey(t))},
+					testNetwork,
+				)
 			},
 			params: func(t *testing.T) any {
 				t.Helper()
 				return newTestVHTLCOpts(t)
 			},
-			expectType:      vhtlcHandler.ContractTypeVHTLC,
+			expectType:      types.ContractTypeVHTLC,
 			expectDerivable: false,
 		},
 	}

@@ -13,12 +13,10 @@ import (
 	"testing"
 	"time"
 
-	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey"
 	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey/store/inmemory"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
-	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
@@ -68,10 +66,6 @@ func setupSwapClient(t *testing.T) (sdk.Wallet, *btcec.PrivateKey) {
 	seed := hex.EncodeToString(privkey.Serialize())
 	w := setupClient(t, seed,
 		sdk.WithIdentity(singleKey),
-		sdk.WithContractHandler(
-			vhtlcHandler.ContractTypeVHTLC,
-			vhtlcHandler.NewHandler(arklib.BitcoinRegTest),
-		),
 	)
 
 	return w, privkey

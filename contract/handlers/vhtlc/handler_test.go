@@ -1,12 +1,14 @@
 package vhtlcHandler
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
@@ -19,6 +21,8 @@ import (
 
 var testNetwork = arklib.BitcoinRegTest
 
+const testCheckpointTapscript = "03a80040b27520dfcaec558c7e78cf3e38b898ba8a43cfb5727266bae32c5c5b3aeb32c558aa0bac"
+
 type invalidCase struct {
 	name          string
 	params        map[string]string
@@ -29,7 +33,7 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		_, keyRef, opts, c := newVHTLCContract(t, newTestVHTLCOpts(t))
 
-		require.Equal(t, ContractTypeVHTLC, c.Type)
+		require.Equal(t, types.ContractTypeVHTLC, c.Type)
 		require.Equal(t, types.ContractStateActive, c.State)
 		require.NotEmpty(t, c.Script)
 		require.NotEmpty(t, c.Address)
@@ -37,8 +41,19 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 		assertVHTLCContract(t, c, keyRef, opts)
 	})
 
+	t.Run("stores checkpoint exit path from client info", func(t *testing.T) {
+		h := NewHandler(&mockInfoClient{
+			info: &client.Info{CheckpointTapscript: testCheckpointTapscript},
+		}, testNetwork)
+		keyRef := newTestKeyRef(t)
+
+		got, err := h.NewContract(t.Context(), keyRef, newTestVHTLCOpts(t))
+		require.NoError(t, err)
+		require.Equal(t, testCheckpointTapscript, got.Params[paramCheckpointExitPath])
+	})
+
 	t.Run("invalid", func(t *testing.T) {
-		h := NewHandler(testNetwork)
+		h := newTestVHTLCHandler(t)
 		keyRef := newTestKeyRef(t)
 
 		t.Run("nil params", func(t *testing.T) {
@@ -140,7 +155,7 @@ func TestVHTLCHandlerGetKeyRef(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		h := NewHandler(testNetwork)
+		h := newTestVHTLCHandler(t)
 		cases := []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
 			{
@@ -194,8 +209,38 @@ func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 		require.Equal(t, keyRef.Id, refs[c.Script])
 	})
 
+	t.Run("with sender checkpoint aliases", func(t *testing.T) {
+		h := newTestVHTLCHandler(t)
+		opts := newTestVHTLCOpts(t)
+		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Sender}
+
+		built, err := h.NewContract(t.Context(), keyRef, opts)
+		require.NoError(t, err)
+
+		refs, err := h.GetKeyRefs(*built)
+		require.NoError(t, err)
+		require.Len(t, refs, 3)
+		require.Equal(t, keyRef.Id, refs[built.Script])
+		assertCheckpointAliases(t, refs, built.Script, keyRef.Id, 2)
+	})
+
+	t.Run("with receiver checkpoint aliases", func(t *testing.T) {
+		h := newTestVHTLCHandler(t)
+		opts := newTestVHTLCOpts(t)
+		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Receiver}
+
+		built, err := h.NewContract(t.Context(), keyRef, opts)
+		require.NoError(t, err)
+
+		refs, err := h.GetKeyRefs(*built)
+		require.NoError(t, err)
+		require.Len(t, refs, 3)
+		require.Equal(t, keyRef.Id, refs[built.Script])
+		assertCheckpointAliases(t, refs, built.Script, keyRef.Id, 2)
+	})
+
 	t.Run("invalid", func(t *testing.T) {
-		h := NewHandler(testNetwork)
+		h := newTestVHTLCHandler(t)
 		cases := []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
 			{
@@ -219,6 +264,24 @@ func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 	})
 }
 
+func assertCheckpointAliases(
+	t *testing.T, refs map[string]string, contractScript, keyID string, expected int,
+) {
+	t.Helper()
+
+	aliases := 0
+	for script, id := range refs {
+		if script == contractScript {
+			continue
+		}
+		require.Equal(t, keyID, id)
+		require.Len(t, script, 68)
+		require.Equal(t, "5120", script[:4])
+		aliases++
+	}
+	require.Equal(t, expected, aliases)
+}
+
 func TestVHTLCHandlerGetSignerKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		h, _, opts, c := newVHTLCContract(t, newTestVHTLCOpts(t))
@@ -230,7 +293,7 @@ func TestVHTLCHandlerGetSignerKey(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		h := NewHandler(testNetwork)
+		h := newTestVHTLCHandler(t)
 		cases := []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
 			{
@@ -280,7 +343,7 @@ func TestVHTLCHandlerGetExitDelay(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		h := NewHandler(testNetwork)
+		h := newTestVHTLCHandler(t)
 		cases := []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
 			{
@@ -350,7 +413,7 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 	})
 
 	t.Run("invalid", func(t *testing.T) {
-		h := NewHandler(testNetwork)
+		h := newTestVHTLCHandler(t)
 		cases := []struct {
 			name          string
 			nilParams     bool
@@ -583,11 +646,19 @@ func newVHTLCContract(
 	t *testing.T, opts *vhtlc.Opts,
 ) (*Handler, identity.KeyRef, *vhtlc.Opts, types.Contract) {
 	t.Helper()
-	h := NewHandler(testNetwork)
+	h := newTestVHTLCHandler(t)
 	keyRef := newTestKeyRef(t)
 	built, err := h.NewContract(t.Context(), keyRef, opts)
 	require.NoError(t, err)
 	return h, keyRef, opts, *built
+}
+
+func newTestVHTLCHandler(t *testing.T) *Handler {
+	t.Helper()
+	return NewHandler(
+		&mockInfoClient{info: &client.Info{CheckpointTapscript: testCheckpointTapscript}},
+		testNetwork,
+	)
 }
 
 func newVHTLCParams(t *testing.T) map[string]string {
@@ -656,6 +727,16 @@ func newTestP2TRPkScript(t *testing.T) []byte {
 	pkScript, err := txscript.PayToTaprootScript(newTestPubKey(t))
 	require.NoError(t, err)
 	return pkScript
+}
+
+type mockInfoClient struct {
+	client.Client
+	info *client.Info
+	err  error
+}
+
+func (m *mockInfoClient) GetInfo(_ context.Context) (*client.Info, error) {
+	return m.info, m.err
 }
 
 func assertVHTLCContract(
