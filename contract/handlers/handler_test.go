@@ -11,11 +11,13 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
+	htlcHandler "github.com/arkade-os/go-sdk/contract/handlers/htlc"
 	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 )
@@ -23,6 +25,7 @@ import (
 const (
 	offchainMode = "offchain"
 	onchainMode  = "onchain"
+	htlcMode     = "htlc"
 	vhtlcMode    = "vhtlc"
 
 	// Values below and above 512 exercise block-based and second-based
@@ -40,9 +43,10 @@ var testNetwork = arklib.BitcoinRegTest
 type handlerInterfaceContractCase struct {
 	name            string
 	handler         func(t *testing.T) handlers.Handler
-	params          func(t *testing.T) any
+	params          func(t *testing.T, keyRef identity.KeyRef) any
 	expectType      types.ContractType
 	expectDerivable bool
+	expectExitDelay bool
 }
 
 func TestHandlerInterfaceContract(t *testing.T) {
@@ -52,12 +56,24 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			handler:         func(t *testing.T) handlers.Handler { return newTestDefaultHandler(t, false) },
 			expectType:      types.ContractTypeDefault,
 			expectDerivable: true,
+			expectExitDelay: true,
 		},
 		{
 			name:            onchainMode,
 			handler:         func(t *testing.T) handlers.Handler { return newTestDefaultHandler(t, true) },
 			expectType:      types.ContractTypeBoarding,
 			expectDerivable: true,
+			expectExitDelay: true,
+		},
+		{
+			name:    htlcMode,
+			handler: func(t *testing.T) handlers.Handler { return htlcHandler.NewHandler(testNetwork) },
+			params: func(t *testing.T, keyRef identity.KeyRef) any {
+				t.Helper()
+				return newTestHTLCOpts(t, keyRef.PubKey)
+			},
+			expectType:      types.ContractTypeHTLC,
+			expectDerivable: false,
 		},
 		{
 			name: vhtlcMode,
@@ -68,12 +84,13 @@ func TestHandlerInterfaceContract(t *testing.T) {
 					testNetwork,
 				)
 			},
-			params: func(t *testing.T) any {
+			params: func(t *testing.T, _ identity.KeyRef) any {
 				t.Helper()
 				return newTestVHTLCOpts(t)
 			},
 			expectType:      types.ContractTypeVHTLC,
 			expectDerivable: false,
+			expectExitDelay: true,
 		},
 	}
 
@@ -83,7 +100,7 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			require.Equal(t, tc.expectDerivable, h.Derivable())
 
 			keyRef := newTestKeyRef(t)
-			built, err := h.NewContract(t.Context(), keyRef, testParams(t, tc.params))
+			built, err := h.NewContract(t.Context(), keyRef, testParams(t, tc.params, keyRef))
 			require.NoError(t, err)
 			c := *built
 
@@ -113,8 +130,12 @@ func TestHandlerInterfaceContract(t *testing.T) {
 
 			delay, err := h.GetExitDelay(c)
 			require.NoError(t, err)
-			require.NotNil(t, delay)
-			require.NotZero(t, delay.Value)
+			if tc.expectExitDelay {
+				require.NotNil(t, delay)
+				require.NotZero(t, delay.Value)
+			} else {
+				require.Nil(t, delay)
+			}
 
 			scripts, err := h.GetTapscripts(c)
 			require.NoError(t, err)
@@ -123,12 +144,16 @@ func TestHandlerInterfaceContract(t *testing.T) {
 	}
 }
 
-func testParams(t *testing.T, params func(t *testing.T) any) any {
+func testParams(
+	t *testing.T,
+	params func(t *testing.T, keyRef identity.KeyRef) any,
+	keyRef identity.KeyRef,
+) any {
 	t.Helper()
 	if params == nil {
 		return nil
 	}
-	return params(t)
+	return params(t, keyRef)
 }
 
 func newTestDefaultHandler(t *testing.T, isOnchain bool) handlers.Handler {
@@ -183,4 +208,51 @@ func newTestVHTLCOpts(t *testing.T) *vhtlc.Opts {
 			Type: arklib.LocktimeTypeSecond, Value: 1024,
 		},
 	}
+}
+
+func newTestHTLCOpts(t *testing.T, ownerKey *btcec.PublicKey) *htlcHandler.Opts {
+	t.Helper()
+	return &htlcHandler.Opts{
+		Server: newTestPubKey(t),
+		ClaimLeaf: htlcHandler.Leaf{
+			Version: uint8(txscript.BaseLeafVersion),
+			Output:  hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
+		},
+		RefundLeaf: htlcHandler.Leaf{
+			Version: uint8(txscript.BaseLeafVersion),
+			Output:  hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
+		},
+	}
+}
+
+func newTestClaimLeafScript(t *testing.T, claimKey *btcec.PublicKey) []byte {
+	t.Helper()
+	preimageHash := make([]byte, 20)
+	_, err := rand.Read(preimageHash)
+	require.NoError(t, err)
+
+	scriptBytes, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_SIZE).
+		AddData([]byte{0x20}).
+		AddOp(txscript.OP_EQUALVERIFY).
+		AddOp(txscript.OP_HASH160).
+		AddData(preimageHash).
+		AddOp(txscript.OP_EQUALVERIFY).
+		AddData(schnorr.SerializePubKey(claimKey)).
+		AddOp(txscript.OP_CHECKSIG).
+		Script()
+	require.NoError(t, err)
+	return scriptBytes
+}
+
+func newTestRefundLeafScript(t *testing.T, refundKey *btcec.PublicKey) []byte {
+	t.Helper()
+	scriptBytes, err := txscript.NewScriptBuilder().
+		AddData(schnorr.SerializePubKey(refundKey)).
+		AddOp(txscript.OP_CHECKSIGVERIFY).
+		AddData([]byte{0xf8, 0x02}).
+		AddOp(txscript.OP_CHECKLOCKTIMEVERIFY).
+		Script()
+	require.NoError(t, err)
+	return scriptBytes
 }

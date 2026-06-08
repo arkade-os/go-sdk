@@ -27,11 +27,12 @@
 //
 //   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
 //     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to the built-in handlers (default,
-//     boarding, vhtlc) so they share a single GetInfo cache. Handlers
-//     added by callers via [WithHandler] are constructed outside the
-//     manager and own their own client wiring — see the Extending section
-//     below.
+//     and hands the wrapped client to the built-in handlers that need
+//     server info (default, boarding, vhtlc) so they share a single
+//     GetInfo cache. The htlc built-in does not need server info.
+//     Handlers added by callers via [WithHandler] are constructed outside
+//     the manager and own their own client wiring — see the Extending
+//     section below.
 //
 //   - keyProvider (unexported, defined in types.go) is the subset of the
 //     identity.Identity surface the manager needs to derive contracts:
@@ -92,7 +93,7 @@
 //     new types.ContractType. WithHandler rejects empty types, nil
 //     handlers, typed-nil concrete values, and duplicates in the same
 //     options list. NewManager additionally rejects any type that
-//     collides with a built-in (default, boarding, vhtlc).
+//     collides with a built-in (default, boarding, htlc, vhtlc).
 //  3. If the new type's "has this contract been used externally?" probe
 //     differs from the indexer or explorer paths the dispatcher already
 //     knows about, adding a branch in ScanContracts that selects the

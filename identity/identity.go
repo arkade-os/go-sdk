@@ -466,39 +466,11 @@ func (s *service) signTapscriptSpend(
 		return err
 	}
 	xOnlyPub := schnorr.SerializePubKey(prvkey.PubKey())
+	signed := false
 
 	for _, leaf := range input.TaprootLeafScript {
-		closure, err := script.DecodeClosure(leaf.Script)
-		if err != nil {
+		if !canSignTapscriptLeaf(leaf.Script, xOnlyPub) {
 			continue
-		}
-
-		checkKeys := func(keys []*btcec.PublicKey) bool {
-			for _, key := range keys {
-				if bytes.Equal(schnorr.SerializePubKey(key), xOnlyPub) {
-					return true
-				}
-			}
-			return false
-		}
-
-		var sign bool
-		switch c := closure.(type) {
-		case *script.CSVMultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		case *script.MultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		case *script.CLTVMultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		case *script.ConditionMultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		}
-
-		if !sign {
-			return fmt.Errorf(
-				"cannot sign taproot input %d with script-path: pubkey %x not found in witness",
-				inputIndex, xOnlyPub,
-			)
 		}
 
 		hash := txscript.NewTapLeaf(leaf.LeafVersion, leaf.Script).TapHash()
@@ -535,9 +507,96 @@ func (s *service) signTapscriptSpend(
 				SigHash:     input.SighashType,
 			},
 		)
+		signed = true
 	}
 
+	if !signed {
+		return fmt.Errorf(
+			"cannot sign taproot input %d with script-path: pubkey %x not found in witness",
+			inputIndex, xOnlyPub,
+		)
+	}
 	return nil
+}
+
+func canSignTapscriptLeaf(leafScript, xOnlyPub []byte) bool {
+	closure, err := script.DecodeClosure(leafScript)
+	if err == nil {
+		return closureContainsKey(closure, xOnlyPub)
+	}
+	return isHTLCLeafWithKey(leafScript, xOnlyPub)
+}
+
+func closureContainsKey(closure script.Closure, xOnlyPub []byte) bool {
+	checkKeys := func(keys []*btcec.PublicKey) bool {
+		for _, key := range keys {
+			if bytes.Equal(schnorr.SerializePubKey(key), xOnlyPub) {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch c := closure.(type) {
+	case *script.CSVMultisigClosure:
+		return checkKeys(c.PubKeys)
+	case *script.MultisigClosure:
+		return checkKeys(c.PubKeys)
+	case *script.CLTVMultisigClosure:
+		return checkKeys(c.PubKeys)
+	case *script.ConditionMultisigClosure:
+		return checkKeys(c.PubKeys)
+	default:
+		return false
+	}
+}
+
+func isHTLCLeafWithKey(leafScript, xOnlyPub []byte) bool {
+	return isHTLCClaimLeafWithKey(leafScript, xOnlyPub) ||
+		isHTLCRefundLeafWithKey(leafScript, xOnlyPub)
+}
+
+func isHTLCClaimLeafWithKey(leafScript, xOnlyPub []byte) bool {
+	if len(xOnlyPub) != schnorr.PubKeyBytesLen {
+		return false
+	}
+	const claimLeafLen = 61
+	if len(leafScript) != claimLeafLen {
+		return false
+	}
+	const preimageLen = 32
+	return leafScript[0] == txscript.OP_SIZE &&
+		leafScript[1] == txscript.OP_DATA_1 &&
+		leafScript[2] == preimageLen &&
+		leafScript[3] == txscript.OP_EQUALVERIFY &&
+		leafScript[4] == txscript.OP_HASH160 &&
+		leafScript[5] == txscript.OP_DATA_20 &&
+		leafScript[26] == txscript.OP_EQUALVERIFY &&
+		leafScript[27] == txscript.OP_DATA_32 &&
+		bytes.Equal(leafScript[28:60], xOnlyPub) &&
+		leafScript[60] == txscript.OP_CHECKSIG
+}
+
+func isHTLCRefundLeafWithKey(leafScript, xOnlyPub []byte) bool {
+	if len(xOnlyPub) != schnorr.PubKeyBytesLen {
+		return false
+	}
+	const minRefundLeafLen = 38
+	if len(leafScript) < minRefundLeafLen ||
+		leafScript[0] != txscript.OP_DATA_32 ||
+		!bytes.Equal(leafScript[1:33], xOnlyPub) ||
+		leafScript[33] != txscript.OP_CHECKSIGVERIFY {
+		return false
+	}
+
+	timeoutLen := int(leafScript[34])
+	if timeoutLen < 1 || timeoutLen > 4 {
+		return false
+	}
+	if len(leafScript) != 36+timeoutLen {
+		return false
+	}
+	return leafScript[35+timeoutLen] == txscript.OP_CHECKLOCKTIMEVERIFY
 }
 
 func (s *service) signTaprootKeySpend(

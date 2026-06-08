@@ -11,6 +11,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
+	htlcHandler "github.com/arkade-os/go-sdk/contract/handlers/htlc"
 	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
@@ -50,7 +51,8 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
-		types.ContractTypeVHTLC: vhtlcHandler.NewHandler(cachedClient, args.Network),
+		types.ContractTypeHTLC:     htlcHandler.NewHandler(args.Network),
+		types.ContractTypeVHTLC:    vhtlcHandler.NewHandler(cachedClient, args.Network),
 	}
 	reg, err := newRegistry(builtins, o.customHandlers)
 	if err != nil {

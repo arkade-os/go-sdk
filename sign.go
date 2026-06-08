@@ -68,7 +68,7 @@ func (w *wallet) finalizePendingTxs(
 	scripts := make([]string, 0, len(contracts))
 	contractsByScript := make(map[string]types.Contract)
 	for _, contract := range contracts {
-		if contract.Type == types.ContractTypeBoarding {
+		if contract.Type == types.ContractTypeBoarding || contract.Type == types.ContractTypeHTLC {
 			continue
 		}
 		scripts = append(scripts, contract.Script)

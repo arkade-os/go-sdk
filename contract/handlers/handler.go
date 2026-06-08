@@ -12,7 +12,7 @@ import (
 type Handler interface {
 	// Derivable returns whether this handler can derive contracts from an HD key
 	// alone. Derivable handlers participate in ScanContracts gap-limit recovery.
-	// Non-derivable handlers (VHTLC, delegate, covenant) require external params
+	// Non-derivable handlers (HTLC, VHTLC, delegate, covenant) require external params
 	// passed via Manager.NewContract with WithParams.
 	Derivable() bool
 	// NewContract builds a contract from a key reference and optional handler-specific

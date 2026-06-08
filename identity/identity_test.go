@@ -8,9 +8,11 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/stretchr/testify/require"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -802,6 +804,59 @@ func TestServiceConcurrentAccess(t *testing.T) {
 	keys, err := svc.ListKeys(t.Context())
 	require.NoError(t, err)
 	require.Len(t, keys, allocs)
+}
+
+func TestCanSignTapscriptLeafWithRawHTLCScript(t *testing.T) {
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	xOnlyPub := schnorr.SerializePubKey(priv.PubKey())
+
+	leafScript, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_SIZE).
+		AddData([]byte{0x20}).
+		AddOp(txscript.OP_EQUALVERIFY).
+		AddOp(txscript.OP_HASH160).
+		AddData([]byte{
+			0x00, 0x01, 0x02, 0x03, 0x04,
+			0x05, 0x06, 0x07, 0x08, 0x09,
+			0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+			0x0f, 0x10, 0x11, 0x12, 0x13,
+		}).
+		AddOp(txscript.OP_EQUALVERIFY).
+		AddData(xOnlyPub).
+		AddOp(txscript.OP_CHECKSIG).
+		Script()
+	require.NoError(t, err)
+
+	require.True(t, canSignTapscriptLeaf(leafScript, xOnlyPub))
+
+	refundScript, err := txscript.NewScriptBuilder().
+		AddData(xOnlyPub).
+		AddOp(txscript.OP_CHECKSIGVERIFY).
+		AddData([]byte{0xf8, 0x02}).
+		AddOp(txscript.OP_CHECKLOCKTIMEVERIFY).
+		Script()
+	require.NoError(t, err)
+	require.True(t, canSignTapscriptLeaf(refundScript, xOnlyPub))
+
+	otherPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	require.False(t, canSignTapscriptLeaf(leafScript, schnorr.SerializePubKey(otherPriv.PubKey())))
+
+	genericChecksigScript, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_NOP).
+		AddData(xOnlyPub).
+		AddOp(txscript.OP_CHECKSIG).
+		Script()
+	require.NoError(t, err)
+	require.False(t, canSignTapscriptLeaf(genericChecksigScript, xOnlyPub))
+
+	dataOnlyScript, err := txscript.NewScriptBuilder().
+		AddData(xOnlyPub).
+		AddOp(txscript.OP_DROP).
+		Script()
+	require.NoError(t, err)
+	require.False(t, canSignTapscriptLeaf(dataOnlyScript, xOnlyPub))
 }
 
 func newMasterKey(t *testing.T) *hdkeychain.ExtendedKey {
