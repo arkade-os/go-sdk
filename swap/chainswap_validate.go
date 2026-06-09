@@ -23,6 +23,7 @@ func validateVHTLC(
 	isArkToBtc bool,
 	swapResp *boltz.CreateChainSwapResponse,
 	preimageHashHASH160 []byte,
+	localPubkey *btcec.PublicKey,
 ) (*vhtlc.Opts, error) {
 	var (
 		vhtlcAddr                                                                         string
@@ -68,6 +69,14 @@ func validateVHTLC(
 		)
 	}
 
+	if localPubkey == nil {
+		keyRef, err := h.localVHTLCKeyForAddress(ctx, vhtlcAddr)
+		if err != nil {
+			return nil, err
+		}
+		localPubkey = keyRef.PubKey
+	}
+
 	vhtlcAddress, _, vhtlcOpts, err := h.getVHTLC(
 		ctx,
 		receiverKey,
@@ -77,6 +86,7 @@ func validateVHTLC(
 		unilateralClaimDelay,
 		unilateralRefundDelay,
 		unilateralRefundWithoutReceiverDelay,
+		localPubkey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute VHTLC: %w", err)

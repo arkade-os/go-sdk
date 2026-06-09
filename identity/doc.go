@@ -65,7 +65,9 @@
 // and signTaprootKeySpend in identity.go for the per-mode logic.
 //
 // [Identity.SignMessage] schnorr-signs a raw message hash with the
-// account's first key. [Identity.NewVtxoTreeSigner] returns a
+// account's first key. The concrete HD identity also implements
+// [KeyedTaprootSigner] for BTC/taproot flows that need to sign with a
+// specific wallet key id. [Identity.NewVtxoTreeSigner] returns a
 // short-lived signer session compatible with arkd's VTXO tree musig2
 // flow.
 //

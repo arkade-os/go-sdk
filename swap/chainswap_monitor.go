@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	log "github.com/sirupsen/logrus"
 )
@@ -17,7 +17,7 @@ func (h *SwapHandler) monitorAndClaimArkToBtcSwap(
 	network *chaincfg.Params,
 	eventCallback ChainSwapEventCallback,
 	unilateralRefundCallback func(swapId string, opts vhtlc.Opts) error,
-	btcClaimPrivKey *btcec.PrivateKey,
+	btcClaimKeyRef *arkidentity.KeyRef,
 	preimage []byte,
 	btcDestinationAddress string,
 	swapResp *boltz.CreateChainSwapResponse,
@@ -46,7 +46,7 @@ func (h *SwapHandler) monitorAndClaimArkToBtcSwap(
 			Swap:                     swap,
 		},
 		network,
-		btcClaimPrivKey,
+		btcClaimKeyRef,
 		preimage,
 		btcDestinationAddress,
 		swapResp,
@@ -61,7 +61,7 @@ func (h *SwapHandler) monitorBtcToArkChainSwap(
 	ctx context.Context,
 	eventCallback ChainSwapEventCallback,
 	preimage []byte,
-	refundKey *btcec.PrivateKey,
+	refundKeyRef *arkidentity.KeyRef,
 	swapResp *boltz.CreateChainSwapResponse,
 	swap *ChainSwap,
 ) {
@@ -74,7 +74,7 @@ func (h *SwapHandler) monitorBtcToArkChainSwap(
 			Swap:          swap,
 		},
 		preimage,
-		refundKey,
+		refundKeyRef,
 		swapResp,
 	)
 

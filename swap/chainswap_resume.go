@@ -71,7 +71,7 @@ func (h *SwapHandler) ResumeChainSwap(
 	preimageHashSHA := sha256.Sum256(preimage)
 	preimageHash160 := input.Ripemd160H(preimageHashSHA[:])
 
-	vhtlcOpts, err := validateVHTLC(ctx, h, arkToBtc, &swapResp, preimageHash160)
+	vhtlcOpts, err := validateVHTLC(ctx, h, arkToBtc, &swapResp, preimageHash160, nil)
 	if err != nil {
 		return nil, fmt.Errorf("invalid VHTLC: %w", err)
 	}
@@ -80,21 +80,27 @@ func (h *SwapHandler) ResumeChainSwap(
 		return nil, fmt.Errorf("network is required")
 	}
 
+	btcLockupAddress := swapResp.LockupDetails.LockupAddress
+	btcServerPubKey := swapResp.LockupDetails.ServerPublicKey
+	if arkToBtc {
+		btcLockupAddress = swapResp.ClaimDetails.LockupAddress
+		btcServerPubKey = swapResp.ClaimDetails.ServerPublicKey
+	}
+	htlcKeyRef, err := h.ensureLocalHTLCContract(
+		ctx,
+		btcLockupAddress,
+		btcServerPubKey,
+		swapResp.GetSwapTree(arkToBtc),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BTC HTLC: %w", err)
+	}
+
 	if err := validateBtcLockupAddress(
 		params.Network,
-		func() string {
-			if arkToBtc {
-				return swapResp.ClaimDetails.LockupAddress
-			}
-			return swapResp.LockupDetails.LockupAddress
-		}(),
-		func() string {
-			if arkToBtc {
-				return swapResp.ClaimDetails.ServerPublicKey
-			}
-			return swapResp.LockupDetails.ServerPublicKey
-		}(),
-		h.privateKey.PubKey(),
+		btcLockupAddress,
+		btcServerPubKey,
+		htlcKeyRef.PubKey,
 		swapResp.GetSwapTree(arkToBtc),
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
@@ -143,7 +149,7 @@ func (h *SwapHandler) ResumeChainSwap(
 				params.Network,
 				params.EventCallback,
 				params.UnilateralRefundCB,
-				h.privateKey,
+				htlcKeyRef,
 				preimage,
 				params.UserBtcAddress,
 				&swapResp,
@@ -165,7 +171,7 @@ func (h *SwapHandler) ResumeChainSwap(
 			ctx,
 			params.EventCallback,
 			preimage,
-			h.privateKey,
+			htlcKeyRef,
 			&swapResp,
 			swap,
 		)

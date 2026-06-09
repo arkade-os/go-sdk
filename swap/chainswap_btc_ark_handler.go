@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
@@ -20,7 +21,7 @@ type btcToArkHandler struct {
 	swapHandler    *SwapHandler
 	chainSwapState ChainSwapState
 	preimage       []byte
-	refundKey      *btcec.PrivateKey
+	refundKeyRef   *arkidentity.KeyRef
 	swapResp       *boltz.CreateChainSwapResponse
 	quoteAccepted  bool
 }
@@ -29,14 +30,14 @@ func NewBtcToArkHandler(
 	swapHandler *SwapHandler,
 	chainSwapState ChainSwapState,
 	preimage []byte,
-	refundKey *btcec.PrivateKey,
+	refundKeyRef *arkidentity.KeyRef,
 	swapResp *boltz.CreateChainSwapResponse,
 ) ChainSwapEventHandler {
 	return &btcToArkHandler{
 		swapHandler:    swapHandler,
 		chainSwapState: chainSwapState,
 		preimage:       preimage,
-		refundKey:      refundKey,
+		refundKeyRef:   refundKeyRef,
 		swapResp:       swapResp,
 	}
 }
@@ -143,9 +144,7 @@ func (b *btcToArkHandler) handleBtcToArkServerLocked(
 
 	// cooperatively sign for Boltz to claim our BTC lockup so that Boltz doesnt need to claim with preimage
 	// which is more expensive since keypath(cooperative) witness is smaller than script-path(preimage)
-	if err := b.signBoltzBtcClaim(
-		ctx, b.chainSwapState.SwapID, b.refundKey, b.swapResp,
-	); err != nil {
+	if err := b.signBoltzBtcClaim(ctx, b.chainSwapState.SwapID, b.swapResp); err != nil {
 		log.WithError(err).
 			Warnf("Failed to provide cooperative signature for Boltz BTC claim (non-critical)")
 
@@ -235,9 +234,8 @@ func (b *btcToArkHandler) refundBtcToArkSwap(ctx context.Context) (string, error
 
 // signBoltzBtcClaim provides a cooperative signature for Boltz to claim the user's BTC lockup
 func (b *btcToArkHandler) signBoltzBtcClaim(
-	_ context.Context,
+	ctx context.Context,
 	swapId string,
-	refundKey *btcec.PrivateKey,
 	swapResp *boltz.CreateChainSwapResponse,
 ) error {
 	log.Infof("Providing cooperative signature for Boltz to claim BTC lockup for swap %s", swapId)
@@ -256,12 +254,16 @@ func (b *btcToArkHandler) signBoltzBtcClaim(
 		return fmt.Errorf("failed to parse Boltz public key: %w", err)
 	}
 
-	musigCtx, err := NewMuSigContext(refundKey, boltzPubKey)
+	if b.refundKeyRef == nil || b.refundKeyRef.Id == "" || b.refundKeyRef.PubKey == nil {
+		return fmt.Errorf("missing BTC refund key")
+	}
+
+	musigSession, err := b.swapHandler.newMuSig2Session(ctx, b.refundKeyRef.Id, boltzPubKey)
 	if err != nil {
 		return fmt.Errorf("musig context: %w", err)
 	}
 
-	ourNonce, err := musigCtx.GenerateNonce()
+	ourNonce, err := musigSession.GenerateNonce()
 	if err != nil {
 		return fmt.Errorf("generate nonce: %w", err)
 	}
@@ -278,7 +280,7 @@ func (b *btcToArkHandler) signBoltzBtcClaim(
 	var msg [32]byte
 	copy(msg[:], txHashBytes)
 
-	combinedNonce, err := musigCtx.AggregateNonces(boltzNonce)
+	combinedNonce, err := musigSession.AggregateNonces(boltzNonce)
 	if err != nil {
 		return fmt.Errorf("aggregate nonces: %w", err)
 	}
@@ -288,8 +290,7 @@ func (b *btcToArkHandler) signBoltzBtcClaim(
 		return fmt.Errorf("compute merkle root: %w", err)
 	}
 
-	keys := musigCtx.Keys()
-	partialSig, err := musigCtx.OurPartialSign(combinedNonce, keys, msg, merkleRoot)
+	partialSig, err := musigSession.PartialSign(ctx, combinedNonce, msg, merkleRoot)
 	if err != nil {
 		return fmt.Errorf("our partial sig: %w", err)
 	}

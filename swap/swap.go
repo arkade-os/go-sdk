@@ -40,8 +40,6 @@ type SwapHandler struct {
 	arkClient      arksdk.Wallet
 	boltzSvc       *boltz.Api
 	explorerClient ExplorerClient
-	privateKey     *btcec.PrivateKey
-	publicKey      *btcec.PublicKey
 	timeout        uint32
 	config         clientTypes.Config
 }
@@ -71,7 +69,6 @@ func NewSwapHandler(
 	arkClient arksdk.Wallet,
 	boltzSvc *boltz.Api,
 	esploraURL string,
-	privateKey *btcec.PrivateKey,
 	timeout uint32,
 ) (*SwapHandler, error) {
 	cfg, err := arkClient.GetConfigData(context.Background())
@@ -82,8 +79,6 @@ func NewSwapHandler(
 		arkClient:      arkClient,
 		boltzSvc:       boltzSvc,
 		explorerClient: NewExplorerClient(esploraURL),
-		privateKey:     privateKey,
-		publicKey:      privateKey.PubKey(),
 		timeout:        timeout,
 		config:         *cfg,
 	}, nil
@@ -166,6 +161,9 @@ func (h *SwapHandler) GetVHTLCSpendingTx(
 	if err != nil {
 		return "", false, fmt.Errorf("failed to create VHTLC script: %w", err)
 	}
+	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
+		return "", false, err
+	}
 
 	vtxo, pending, err := h.selectClaimableVTXO(ctx, vhtlcScript, outpoint)
 	if err != nil {
@@ -234,6 +232,9 @@ func (h *SwapHandler) ClaimVHTLC(
 ) (string, error) {
 	vHTLC, err := vhtlc.NewVHTLCScriptFromOpts(vhtlcOpts)
 	if err != nil {
+		return "", err
+	}
+	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
 		return "", err
 	}
 
@@ -327,13 +328,6 @@ func (h *SwapHandler) ClaimVHTLC(
 			return "", err
 		}
 
-		// VHTLC leaves are unknown to the go-sdk's contract manager and
-		// therefore unsigned by arkClient.SignTransaction — sign them
-		// locally. See signLocalTapscriptInputs for the full rationale.
-		if err := signLocalTapscriptInputs(tx, h.privateKey); err != nil {
-			return "", err
-		}
-
 		encoded, err := tx.B64Encode()
 		if err != nil {
 			return "", err
@@ -391,6 +385,9 @@ func (h *SwapHandler) RefundSwap(
 	if err != nil {
 		return "", err
 	}
+	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
+		return "", err
+	}
 
 	vtxo, pending, err := h.selectClaimableVTXO(ctx, vhtlcScript, outpoint)
 	if err != nil {
@@ -439,7 +436,6 @@ func (h *SwapHandler) RefundSwap(
 
 	offchainPkScript, err := offchainAddressPkScript(offchainAddress)
 	if err != nil {
-
 		return "", err
 	}
 
@@ -489,12 +485,6 @@ func (h *SwapHandler) RefundSwap(
 	}
 
 	signTransaction := func(tx *psbt.Packet) (string, error) {
-		// VHTLC leaves are unknown to the go-sdk's contract manager and
-		// therefore unsigned by arkClient.SignTransaction — sign them
-		// locally. See signLocalTapscriptInputs for the full rationale.
-		if err := signLocalTapscriptInputs(tx, h.privateKey); err != nil {
-			return "", err
-		}
 		encoded, err := tx.B64Encode()
 		if err != nil {
 			return "", err
@@ -631,6 +621,9 @@ func (h *SwapHandler) SettleVHTLCWithClaimPath(
 	if err := validatePreimage(preimage, vhtlcOpts.PreimageHash); err != nil {
 		return "", err
 	}
+	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
+		return "", err
+	}
 
 	session, err := h.getBatchSessionArgs(ctx, vhtlcOpts, outpoint, nil)
 	if err != nil {
@@ -687,6 +680,10 @@ func (h *SwapHandler) SettleVHTLCWithClaimPath(
 func (h *SwapHandler) SettleVhtlcWithRefundPath(
 	ctx context.Context, vhtlcOpts vhtlc.Opts, outpoint *clientTypes.Outpoint,
 ) (string, error) {
+	ownerKey, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts)
+	if err != nil {
+		return "", err
+	}
 	session, err := h.getBatchSessionArgs(ctx, vhtlcOpts, outpoint, nil)
 	if err != nil {
 		return "", err
@@ -725,7 +722,7 @@ func (h *SwapHandler) SettleVhtlcWithRefundPath(
 		withoutReceiver,
 		map[string]*vhtlc.VHTLCScript{session.vtxos[0].Script: session.vhtlcScript},
 		h.config,
-		h.publicKey,
+		ownerKey.PubKey,
 		session.signerSession,
 	)
 	if err != nil {
@@ -746,6 +743,9 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 	partialForfeitTx, proof, message string, signerSession tree.SignerSession,
 	outpoint *clientTypes.Outpoint,
 ) (string, error) {
+	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
+		return "", err
+	}
 	session, err := h.getBatchSessionArgs(ctx, vhtlcOpts, outpoint, &signerSession)
 	if err != nil {
 		return "", err
@@ -822,12 +822,17 @@ func (h *SwapHandler) submarineSwap(
 		preimageHash = hash
 	}
 
+	refundKeyRef, err := h.newLocalVHTLCKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the swap
 	swap, err := h.boltzSvc.CreateSwap(boltz.CreateSwapRequest{
 		From:            boltz.CurrencyArk,
 		To:              boltz.CurrencyBtc,
 		Invoice:         invoice,
-		RefundPublicKey: hex.EncodeToString(h.publicKey.SerializeCompressed()),
+		RefundPublicKey: hex.EncodeToString(refundKeyRef.PubKey.SerializeCompressed()),
 		PaymentTimeout:  h.timeout,
 	})
 	if err != nil {
@@ -848,9 +853,13 @@ func (h *SwapHandler) submarineSwap(
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefund),
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefundWithoutReceiver),
+		refundKeyRef.PubKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify vHTLC: %v", err)
+	}
+	if err := h.storeLocalVHTLCContract(ctx, *refundKeyRef, *vhtlcOpts, ""); err != nil {
+		return nil, err
 	}
 	if swap.Address != vhtlcAddress {
 		return nil, fmt.Errorf("boltz is trying to scam us, vHTLCs do not match")
@@ -960,11 +969,16 @@ func (h *SwapHandler) reverseSwap(
 	buf := sha256.Sum256(preimage)
 	preimageHash = input.Ripemd160H(buf[:])
 
+	claimKeyRef, err := h.newLocalVHTLCKey(ctx)
+	if err != nil {
+		return Swap{}, err
+	}
+
 	swap, err := h.boltzSvc.CreateReverseSwap(boltz.CreateReverseSwapRequest{
 		From:           boltz.CurrencyBtc,
 		To:             boltz.CurrencyArk,
 		InvoiceAmount:  amount,
-		ClaimPublicKey: hex.EncodeToString(h.publicKey.SerializeCompressed()),
+		ClaimPublicKey: hex.EncodeToString(claimKeyRef.PubKey.SerializeCompressed()),
 		PreimageHash:   hex.EncodeToString(buf[:]),
 	})
 	if err != nil {
@@ -1003,7 +1017,14 @@ func (h *SwapHandler) reverseSwap(
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefund),
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefundWithoutReceiver),
+		claimKeyRef.PubKey,
 	)
+	if err != nil {
+		return Swap{}, fmt.Errorf("failed to verify vHTLC: %v", err)
+	}
+	if err := h.storeLocalVHTLCContract(ctx, *claimKeyRef, *vhtlcOpts, ""); err != nil {
+		return Swap{}, err
+	}
 
 	swapDetails := Swap{
 		Id:           swap.Id,
@@ -1102,17 +1123,21 @@ func (h *SwapHandler) getVHTLC(
 	refundLocktime arklib.AbsoluteLocktime,
 	unilateralClaimDelay, unilateralRefundDelay,
 	unilateralRefundWithoutReceiverDelay arklib.RelativeLocktime,
+	localPubkey *btcec.PublicKey,
 ) (string, *vhtlc.VHTLCScript, *vhtlc.Opts, error) {
 	receiverPubkeySet := receiverPubkey != nil
 	senderPubkeySet := senderPubkey != nil
 	if receiverPubkeySet == senderPubkeySet {
 		return "", nil, nil, fmt.Errorf("only one of receiver and sender pubkey must be set")
 	}
+	if localPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing local VHTLC pubkey")
+	}
 	if !receiverPubkeySet {
-		receiverPubkey = h.publicKey
+		receiverPubkey = localPubkey
 	}
 	if !senderPubkeySet {
-		senderPubkey = h.publicKey
+		senderPubkey = localPubkey
 	}
 
 	opts := vhtlc.Opts{
@@ -1263,12 +1288,10 @@ func (h *SwapHandler) getBatchSessionArgs(
 	}
 
 	if signerSession == nil {
-		ephemeralKey, err := btcec.NewPrivateKey()
+		ephemeralSignerSession, err := h.arkClient.Identity().NewVtxoTreeSigner(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create ephemeral key: %w", err)
+			return nil, fmt.Errorf("failed to create ephemeral signer session: %w", err)
 		}
-
-		ephemeralSignerSession := tree.NewTreeSignerSession(ephemeralKey)
 		signerSession = &ephemeralSignerSession
 	}
 

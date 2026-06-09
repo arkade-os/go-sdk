@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -21,7 +21,7 @@ type arkToBtcHandler struct {
 	swapHandler           *SwapHandler
 	chainSwapState        ChainSwapState
 	network               *chaincfg.Params
-	btcClaimPrivKey       *btcec.PrivateKey
+	btcClaimKeyRef        *arkidentity.KeyRef
 	preimage              []byte
 	btcDestinationAddress string
 	swapResp              *boltz.CreateChainSwapResponse
@@ -35,7 +35,7 @@ func NewArkToBtcHandler(
 	swapHandler *SwapHandler,
 	state ChainSwapState,
 	network *chaincfg.Params,
-	btcClaimPrivKey *btcec.PrivateKey,
+	btcClaimKeyRef *arkidentity.KeyRef,
 	preimage []byte,
 	btcDestinationAddress string,
 	swapResp *boltz.CreateChainSwapResponse,
@@ -46,7 +46,7 @@ func NewArkToBtcHandler(
 		swapHandler:           swapHandler,
 		chainSwapState:        state,
 		network:               network,
-		btcClaimPrivKey:       btcClaimPrivKey,
+		btcClaimKeyRef:        btcClaimKeyRef,
 		preimage:              preimage,
 		btcDestinationAddress: btcDestinationAddress,
 		swapResp:              swapResp,
@@ -155,7 +155,7 @@ func (h *arkToBtcHandler) handleArkToBtcServerLocked(
 		ctx,
 		h.chainSwapState.SwapID,
 		h.preimage,
-		h.btcClaimPrivKey,
+		h.btcClaimKeyRef,
 		h.btcDestinationAddress,
 		h.network,
 		h.swapTree,
@@ -239,7 +239,7 @@ func (h *arkToBtcHandler) claimBtcLockup(
 	ctx context.Context,
 	swapId string,
 	preimage []byte,
-	claimKey *btcec.PrivateKey,
+	claimKeyRef *arkidentity.KeyRef,
 	btcAddress string,
 	network *chaincfg.Params,
 	swapTree boltz.SwapTree,
@@ -252,7 +252,7 @@ func (h *arkToBtcHandler) claimBtcLockup(
 		ctx,
 		swapId,
 		preimage,
-		claimKey,
+		claimKeyRef,
 		btcAddress,
 		network,
 		swapTree,
@@ -267,7 +267,7 @@ func (h *arkToBtcHandler) claimBtcLockup(
 			ctx,
 			swapId,
 			preimage,
-			claimKey,
+			claimKeyRef,
 			btcAddress,
 			network,
 			swapTree,
@@ -281,10 +281,10 @@ func (h *arkToBtcHandler) claimBtcLockup(
 }
 
 func (h *arkToBtcHandler) claimBtcLockupCooperative(
-	_ context.Context,
+	ctx context.Context,
 	swapId string,
 	preimage []byte,
-	claimKey *btcec.PrivateKey,
+	claimKeyRef *arkidentity.KeyRef,
 	btcAddress string,
 	network *chaincfg.Params,
 	swapTree boltz.SwapTree,
@@ -292,10 +292,13 @@ func (h *arkToBtcHandler) claimBtcLockupCooperative(
 	serverLockupHex string,
 ) (string, error) {
 	log.Infof("Performing cooperative MuSig2 claim for swap %s", swapId)
+	if claimKeyRef == nil || claimKeyRef.Id == "" || claimKeyRef.PubKey == nil {
+		return "", fmt.Errorf("missing BTC claim key")
+	}
 
 	setup, err := h.prepareClaimTransaction(
 		serverPubKey,
-		claimKey.PubKey(),
+		claimKeyRef.PubKey,
 		swapTree,
 		serverLockupHex,
 		btcAddress,
@@ -305,12 +308,12 @@ func (h *arkToBtcHandler) claimBtcLockupCooperative(
 		return "", err
 	}
 
-	musigCtx, err := NewMuSigContext(claimKey, serverPubKey)
+	musigSession, err := h.swapHandler.newMuSig2Session(ctx, claimKeyRef.Id, serverPubKey)
 	if err != nil {
 		return "", fmt.Errorf("musig context: %w", err)
 	}
 
-	ourNonce, err := musigCtx.GenerateNonce()
+	ourNonce, err := musigSession.GenerateNonce()
 	if err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
@@ -349,13 +352,13 @@ func (h *arkToBtcHandler) claimBtcLockupCooperative(
 		return "", fmt.Errorf("taproot message: %w", err)
 	}
 
-	combinedNonce, err := musigCtx.AggregateNonces(boltzNonce)
+	combinedNonce, err := musigSession.AggregateNonces(boltzNonce)
 	if err != nil {
 		return "", fmt.Errorf("aggregate nonces: %w", err)
 	}
 
-	keys := musigCtx.Keys()
-	ourPartial, err := musigCtx.OurPartialSign(combinedNonce, keys, msg, setup.swapInfo.merkleRoot)
+	keys := musigSession.Keys()
+	ourPartial, err := musigSession.PartialSign(ctx, combinedNonce, msg, setup.swapInfo.merkleRoot)
 	if err != nil {
 		return "", fmt.Errorf("our partial sig: %w", err)
 	}
@@ -402,10 +405,10 @@ func (h *arkToBtcHandler) claimBtcLockupCooperative(
 // claimBtcLockupScriptPath performs a non-cooperative script-path claim
 // This method signs with only the claim key and includes the preimage in the witness
 func (h *arkToBtcHandler) claimBtcLockupScriptPath(
-	_ context.Context,
+	ctx context.Context,
 	swapId string,
 	preimage []byte,
-	claimKey *btcec.PrivateKey,
+	claimKeyRef *arkidentity.KeyRef,
 	btcAddress string,
 	network *chaincfg.Params,
 	swapTree boltz.SwapTree,
@@ -413,10 +416,13 @@ func (h *arkToBtcHandler) claimBtcLockupScriptPath(
 	serverLockupHex string,
 ) (string, error) {
 	log.Infof("Performing script-path claim for swap %s (non-cooperative)", swapId)
+	if claimKeyRef == nil || claimKeyRef.Id == "" || claimKeyRef.PubKey == nil {
+		return "", fmt.Errorf("missing BTC claim key")
+	}
 
 	setup, err := h.prepareClaimTransaction(
 		serverPubKey,
-		claimKey.PubKey(),
+		claimKeyRef.PubKey,
 		swapTree,
 		serverLockupHex,
 		btcAddress,
@@ -435,7 +441,7 @@ func (h *arkToBtcHandler) claimBtcLockupScriptPath(
 
 	// Compute tweaked output key (internal key + merkle root tweak)
 	// IMPORTANT: Server pubkey MUST be first for Boltz compatibility
-	allPubKeys := []*btcec.PublicKey{serverPubKey, claimKey.PubKey()}
+	allPubKeys := []*btcec.PublicKey{serverPubKey, claimKeyRef.PubKey}
 	aggregateKey, _, _, err := musig2.AggregateKeys(
 		allPubKeys,
 		false, // sort keys
@@ -474,7 +480,7 @@ func (h *arkToBtcHandler) claimBtcLockupScriptPath(
 
 	var msgHash [32]byte
 	copy(msgHash[:], sigHash)
-	signature, err := schnorr.Sign(claimKey, msgHash[:])
+	signature, err := h.swapHandler.signSchnorr(ctx, claimKeyRef.Id, msgHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Schnorr signature: %w", err)
 	}

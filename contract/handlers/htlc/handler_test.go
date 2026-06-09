@@ -103,16 +103,6 @@ func TestHTLCHandlerNewContractInvalid(t *testing.T) {
 		require.Nil(t, got)
 	})
 
-	t.Run("invalid leaf version", func(t *testing.T) {
-		opts := newTestOpts(t, keyRef.PubKey)
-		opts.ClaimLeaf.Version = 0x00
-
-		got, err := h.NewContract(t.Context(), keyRef, opts)
-		require.Error(t, err)
-		require.ErrorContains(t, err, "invalid claim leaf version")
-		require.Nil(t, got)
-	})
-
 	t.Run("owner key absent from scripts", func(t *testing.T) {
 		opts := newTestOpts(t, newTestPubKey(t))
 
@@ -137,8 +127,8 @@ func expectedHTLCOutputScript(
 		false,
 	)
 	require.NoError(t, err)
-	claimHash := tapLeafHash(opts.ClaimLeaf.Version, claimScript)
-	refundHash := tapLeafHash(opts.RefundLeaf.Version, refundScript)
+	claimHash := tapLeafHash(claimScript)
+	refundHash := tapLeafHash(refundScript)
 	root := merkleRoot(claimHash[:], refundHash[:])
 	taprootKey := txscript.ComputeTaprootOutputKey(aggregateKey.FinalKey, root)
 	outputScript, err := txscript.PayToTaprootScript(taprootKey)
@@ -151,12 +141,10 @@ func newTestOpts(t *testing.T, ownerKey *btcec.PublicKey) *Opts {
 	return &Opts{
 		Server: newTestPubKey(t),
 		ClaimLeaf: Leaf{
-			Version: uint8(txscript.BaseLeafVersion),
-			Output:  hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
+			Output: hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
 		},
 		RefundLeaf: Leaf{
-			Version: uint8(txscript.BaseLeafVersion),
-			Output:  hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
+			Output: hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
 		},
 	}
 }

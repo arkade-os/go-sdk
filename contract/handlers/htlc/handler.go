@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"strconv"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -23,19 +22,18 @@ import (
 )
 
 const (
-	paramOwnerKeyID        = "ownerKeyId"
-	paramOwnerKey          = "ownerKey"
-	paramServerKey         = "serverKey"
-	paramClaimLeafVersion  = "claimLeafVersion"
-	paramClaimLeafScript   = "claimLeafScript"
-	paramRefundLeafVersion = "refundLeafVersion"
-	paramRefundLeafScript  = "refundLeafScript"
+	paramOwnerKeyID       = "ownerKeyId"
+	paramOwnerKey         = "ownerKey"
+	paramServerKey        = "serverKey"
+	paramClaimLeafScript  = "claimLeafScript"
+	paramRefundLeafScript = "refundLeafScript"
+
+	supportedLeafVersion = uint8(txscript.BaseLeafVersion)
 )
 
 // Leaf identifies one Boltz BTC HTLC tapscript leaf.
 type Leaf struct {
-	Version uint8
-	Output  string
+	Output string
 }
 
 // Opts are the parameters needed to create a BTC HTLC lockup contract.
@@ -124,11 +122,11 @@ func (h *Handler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, error)
 }
 
 func (h *Handler) GetTapscripts(c types.Contract) ([]string, error) {
-	claimScript, _, err := parseLeafFromContract(c, paramClaimLeafVersion, paramClaimLeafScript)
+	claimScript, err := parseLeafFromContract(c, paramClaimLeafScript)
 	if err != nil {
 		return nil, err
 	}
-	refundScript, _, err := parseLeafFromContract(c, paramRefundLeafVersion, paramRefundLeafScript)
+	refundScript, err := parseLeafFromContract(c, paramRefundLeafScript)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +173,8 @@ func createContract(
 		return nil, fmt.Errorf("failed to aggregate HTLC keys: %w", err)
 	}
 
-	claimLeafHash := tapLeafHash(p.ClaimLeaf.Version, claimScript)
-	refundLeafHash := tapLeafHash(p.RefundLeaf.Version, refundScript)
+	claimLeafHash := tapLeafHash(claimScript)
+	refundLeafHash := tapLeafHash(refundScript)
 	merkleRoot := merkleRoot(claimLeafHash[:], refundLeafHash[:])
 	taprootKey := txscript.ComputeTaprootOutputKey(aggregateKey.FinalKey, merkleRoot)
 
@@ -197,11 +195,7 @@ func createContract(
 			paramOwnerKeyID:       keyRef.Id,
 			paramOwnerKey:         hex.EncodeToString(ownerKey),
 			paramServerKey:        hex.EncodeToString(schnorr.SerializePubKey(p.Server)),
-			paramClaimLeafVersion: strconv.FormatUint(uint64(p.ClaimLeaf.Version), 10),
 			paramClaimLeafScript:  hex.EncodeToString(claimScript),
-			paramRefundLeafVersion: strconv.FormatUint(
-				uint64(p.RefundLeaf.Version), 10,
-			),
 			paramRefundLeafScript: hex.EncodeToString(refundScript),
 		},
 		Script:    hex.EncodeToString(outputScript),
@@ -212,12 +206,6 @@ func createContract(
 }
 
 func parseLeaf(leaf Leaf, name string) ([]byte, error) {
-	if leaf.Version != uint8(txscript.BaseLeafVersion) {
-		return nil, fmt.Errorf(
-			"invalid %s leaf version: expected 0x%x, got 0x%x",
-			name, txscript.BaseLeafVersion, leaf.Version,
-		)
-	}
 	if leaf.Output == "" {
 		return nil, fmt.Errorf("%s leaf script is empty", name)
 	}
@@ -232,28 +220,20 @@ func parseLeaf(leaf Leaf, name string) ([]byte, error) {
 }
 
 func parseLeafFromContract(
-	c types.Contract, versionParam, scriptParam string,
-) ([]byte, uint8, error) {
-	versionStr, err := requireParam(c, versionParam)
-	if err != nil {
-		return nil, 0, err
-	}
-	version, err := strconv.ParseUint(versionStr, 10, 8)
-	if err != nil {
-		return nil, 0, fmt.Errorf("htlc contract %s: invalid leaf version: %w", c.Script, err)
-	}
+	c types.Contract, scriptParam string,
+) ([]byte, error) {
 	scriptHex, err := requireParam(c, scriptParam)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	script, err := hex.DecodeString(scriptHex)
 	if err != nil {
-		return nil, 0, fmt.Errorf("htlc contract %s: invalid leaf script hex: %w", c.Script, err)
+		return nil, fmt.Errorf("htlc contract %s: invalid leaf script hex: %w", c.Script, err)
 	}
 	if len(script) == 0 {
-		return nil, 0, fmt.Errorf("htlc contract %s: empty leaf script", c.Script)
+		return nil, fmt.Errorf("htlc contract %s: empty leaf script", c.Script)
 	}
-	return script, uint8(version), nil
+	return script, nil
 }
 
 func requireParam(c types.Contract, name string) (string, error) {
@@ -279,9 +259,9 @@ func merkleRoot(left, right []byte) []byte {
 	return chainhash.TaggedHash(chainhash.TagTapBranch, branch)[:]
 }
 
-func tapLeafHash(leafVersion uint8, script []byte) [32]byte {
+func tapLeafHash(script []byte) [32]byte {
 	var b bytes.Buffer
-	b.WriteByte(leafVersion)
+	b.WriteByte(supportedLeafVersion)
 	_ = wire.WriteVarInt(&b, 0, uint64(len(script)))
 	b.Write(script)
 	sum := chainhash.TaggedHash(chainhash.TagTapLeaf, b.Bytes())

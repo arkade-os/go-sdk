@@ -215,12 +215,10 @@ func newTestHTLCOpts(t *testing.T, ownerKey *btcec.PublicKey) *htlcHandler.Opts 
 	return &htlcHandler.Opts{
 		Server: newTestPubKey(t),
 		ClaimLeaf: htlcHandler.Leaf{
-			Version: uint8(txscript.BaseLeafVersion),
-			Output:  hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
+			Output: hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
 		},
 		RefundLeaf: htlcHandler.Leaf{
-			Version: uint8(txscript.BaseLeafVersion),
-			Output:  hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
+			Output: hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
 		},
 	}
 }

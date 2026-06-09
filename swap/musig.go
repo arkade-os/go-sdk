@@ -11,78 +11,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
-// MuSigContext holds just what we need for the Boltz cooperative (2-of-2) MuSig2 flow.
-// We intentionally DO NOT use musig2.Session API here to avoid tweak/sort/session mismatch
-// and to match the proven working pattern from your tree signer code:
-//
-// - GenNonces (keep SecNonce + PubNonce)
-// - send PubNonce to Boltz
-// - receive their PubNonce + their partial sig (S-only 32B scalar)
-// - AggregateNonces
-// - musig2.Sign(... WithTaprootSignTweak(merkleRoot) ...)
-// - musig2.CombineSigs(... WithTaprootTweakedCombine(...))
-type MuSigContext struct {
-	privateKey     *btcec.PrivateKey
-	publicKey      *btcec.PublicKey
-	theirPublicKey *btcec.PublicKey
-
-	ourNonces *musig2.Nonces
-}
-
-// NewMuSigContext creates a MuSig2 context for 2-of-2 signing.
-// IMPORTANT: ordering must match Boltz expectation. We keep "their key first" in Keys().
-func NewMuSigContext(ourPriv *btcec.PrivateKey, theirPub *btcec.PublicKey) (*MuSigContext, error) {
-	if ourPriv == nil {
-		return nil, fmt.Errorf("nil private key")
-	}
-	if theirPub == nil {
-		return nil, fmt.Errorf("nil their public key")
-	}
-
-	return &MuSigContext{
-		privateKey:     ourPriv,
-		publicKey:      ourPriv.PubKey(),
-		theirPublicKey: theirPub,
-	}, nil
-}
-
-// Keys returns the signer keyset in the canonical order used in this swap flow.
-// We intentionally return [their, ours] because you noted Boltz expects server first.
-func (c *MuSigContext) Keys() []*btcec.PublicKey {
-	return []*btcec.PublicKey{c.theirPublicKey, c.publicKey}
-}
-
-// GenerateNonce generates a fresh MuSig2 nonce pair (secret+public).
-// WARNING: Never reuse c.ourNonces.SecNonce across different messages/txs.
-func (c *MuSigContext) GenerateNonce() ([66]byte, error) {
-	nonces, err := musig2.GenNonces(
-		musig2.WithPublicKey(c.publicKey),
-	)
-	if err != nil {
-		return [66]byte{}, fmt.Errorf("musig2.GenNonces: %w", err)
-	}
-
-	c.ourNonces = nonces
-	return nonces.PubNonce, nil
-}
-
-// AggregateNonces aggregates our pubnonce and their pubnonce.
-func (c *MuSigContext) AggregateNonces(theirNonce [66]byte) ([66]byte, error) {
-	if c.ourNonces == nil {
-		return [66]byte{}, fmt.Errorf("nonce not generated")
-	}
-
-	combined, err := musig2.AggregateNonces([][66]byte{
-		c.ourNonces.PubNonce,
-		theirNonce,
-	})
-	if err != nil {
-		return [66]byte{}, fmt.Errorf("musig2.AggregateNonces: %w", err)
-	}
-
-	return combined, nil
-}
-
 // TaprootMessage computes the BIP341 sighash (32 bytes) for key-path signing.
 func TaprootMessage(
 	tx *wire.MsgTx,
@@ -114,43 +42,6 @@ func TaprootMessage(
 	var msg [32]byte
 	copy(msg[:], msg32)
 	return msg, nil
-}
-
-// OurPartialSign produces our partial signature for the given message,
-// using the aggregated nonce and Taproot tweak (merkleRoot/scriptRoot).
-//
-// merkleRoot MUST be 32 bytes (taproot script root).
-func (c *MuSigContext) OurPartialSign(
-	combinedNonce [66]byte,
-	keys []*btcec.PublicKey,
-	msg [32]byte,
-	merkleRoot []byte,
-) (*musig2.PartialSignature, error) {
-	if c.ourNonces == nil {
-		return nil, fmt.Errorf("nonce not generated")
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("empty key set")
-	}
-	if len(merkleRoot) != 32 {
-		return nil, fmt.Errorf("invalid merkleRoot len: got %d want 32", len(merkleRoot))
-	}
-
-	// This mirrors your working tree code.
-	ps, err := musig2.Sign(
-		c.ourNonces.SecNonce,
-		c.privateKey,
-		combinedNonce,
-		keys,
-		msg,
-		musig2.WithTaprootSignTweak(merkleRoot), // critical: must match address/output key tweak
-		musig2.WithFastSign(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("musig2.Sign: %w", err)
-	}
-
-	return ps, nil
 }
 
 // CombineFinalSig combines two partial signatures into a final Schnorr signature.
