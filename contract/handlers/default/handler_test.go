@@ -124,7 +124,12 @@ func TestCandidateContractsDistinctSigners(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 
-	require.NotEqual(t, got[0].Script, got[1].Script, "distinct signers must yield distinct scripts")
+	require.NotEqual(
+		t,
+		got[0].Script,
+		got[1].Script,
+		"distinct signers must yield distinct scripts",
+	)
 	require.Equal(t, xOnly(current), got[0].Params[signerKeyParam])
 	require.Equal(t, xOnly(deprecated), got[1].Params[signerKeyParam])
 

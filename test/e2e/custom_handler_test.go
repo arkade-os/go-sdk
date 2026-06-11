@@ -11,6 +11,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	sdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
@@ -92,4 +93,9 @@ func (h *customTestHandler) GetExitDelay(types.Contract) (*arklib.RelativeLockti
 }
 func (h *customTestHandler) GetTapscripts(types.Contract) ([]string, error) {
 	return nil, nil
+}
+func (h *customTestHandler) CandidateContracts(
+	ctx context.Context, k identity.KeyRef, signers []*btcec.PublicKey,
+) ([]types.Contract, error) {
+	return handlers.DefaultCandidateContracts(ctx, h, k, signers)
 }

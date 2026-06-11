@@ -164,6 +164,19 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		err := w.refreshDb(ctx)
 		if err == nil {
 			w.scheduleNextSettlement()
+
+			// Item A discovery (ScanContracts above) has already persisted any
+			// pre-rotation deprecated-signer contracts and refreshDb has pulled
+			// their vtxos, so migration now has a consistent view. Initialize
+			// the live-rotation digest and migrate actionable (dueNow)
+			// deprecated-signer vtxos onto current-signer outputs. A migration
+			// failure must NEVER block Unlock: log and continue.
+			if info, infoErr := w.Client().GetInfo(ctx); infoErr == nil {
+				w.lastSignerSetDigest = signerSetDigest(info)
+			}
+			if _, recErr := w.reconcileDeprecatedSigners(ctx); recErr != nil {
+				log.WithError(recErr).Warn("deprecated signer reconciliation failed")
+			}
 		}
 		w.syncCh <- err
 		close(w.syncCh)

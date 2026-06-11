@@ -330,6 +330,12 @@ func (h *mockedHandler) GetTapscripts(c types.Contract) ([]string, error) {
 	return s, a.Error(1)
 }
 
+func (h *mockedHandler) CandidateContracts(
+	ctx context.Context, k identity.KeyRef, signers []*btcec.PublicKey,
+) ([]types.Contract, error) {
+	return handlers.DefaultCandidateContracts(ctx, h, k, signers)
+}
+
 // mockHandler wires every method on h to a zero-value successful response, with NewContract
 // returning a contract of type ct.
 // Fixtures that want to force a specific failure register their failing call first

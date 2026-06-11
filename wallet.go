@@ -75,6 +75,11 @@ type wallet struct {
 	network           arklib.Network
 	dustAmount        uint64
 
+	// lastSignerSetDigest is the digest of the server signer set observed at
+	// the last refresh. A change between refreshes signals a live rotation and
+	// triggers reconcileDeprecatedSigners without requiring a restart.
+	lastSignerSetDigest string
+
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
@@ -1332,7 +1337,45 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 				log.WithError(err).Error("failed to refresh db")
 				continue
 			}
+			w.detectAndHandleRotation(ctx)
 		}
+	}
+}
+
+// detectAndHandleRotation checks whether the server signer set changed since
+// the last refresh and, if so, runs a full rescan + reconcile so a rotation
+// that happens while a long-running daemon is up is handled without a restart.
+// It is best-effort: any error is logged, never fatal.
+func (w *wallet) detectAndHandleRotation(ctx context.Context) {
+	if w.contractManager == nil {
+		return
+	}
+	info, err := w.Client().GetInfo(ctx)
+	if err != nil {
+		log.WithError(err).Debug("rotation detection: failed to get server info")
+		return
+	}
+	digest := signerSetDigest(info)
+	if digest == w.lastSignerSetDigest {
+		return
+	}
+	log.Infof("rotation detection: signer set changed, rescanning and reconciling")
+	w.lastSignerSetDigest = digest
+
+	// Force a fresh signer set for the rescan, then discover any contracts
+	// under the (new or newly-deprecated) signer and pull their vtxos before
+	// reconciling.
+	w.contractManager.InvalidateInfoCache()
+	if err := w.contractManager.ScanContracts(ctx, w.hdGapLimit); err != nil {
+		log.WithError(err).Warn("rotation detection: rescan failed")
+		return
+	}
+	if err := w.refreshDb(ctx); err != nil {
+		log.WithError(err).Warn("rotation detection: refresh after rescan failed")
+		return
+	}
+	if _, err := w.reconcileDeprecatedSigners(ctx); err != nil {
+		log.WithError(err).Warn("rotation detection: reconciliation failed")
 	}
 }
 

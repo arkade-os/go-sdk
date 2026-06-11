@@ -131,15 +131,22 @@ func TestContractStoreAddContract(t *testing.T) {
 		})
 	})
 
-	t.Run("invalid", func(t *testing.T) {
+	t.Run("idempotent", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			t.Run("duplicated contract", func(t *testing.T) {
+			t.Run("duplicate contract is a no-op", func(t *testing.T) {
+				// AddContract uses INSERT OR IGNORE on the script primary key:
+				// re-adding a contract whose script already exists must succeed
+				// silently and leave exactly one row. The rotation-aware scan
+				// relies on this when persisting candidate contracts that may
+				// already be stored (re-scan on every unlock, or the same owner
+				// index under multiple signers).
 				ctx := t.Context()
 				require.NoError(t, s.AddContract(ctx, testContractA, 0))
+				require.NoError(t, s.AddContract(ctx, testContractA, 0))
 
-				err := s.AddContract(ctx, testContractA, 0)
-				require.Error(t, err)
-				require.ErrorContains(t, err, "already exists")
+				got, err := s.GetContractsByScripts(ctx, []string{testContractA.Script})
+				require.NoError(t, err)
+				require.Len(t, got, 1, "duplicate AddContract must not create a second row")
 			})
 		})
 	})
