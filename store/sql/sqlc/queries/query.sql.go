@@ -92,14 +92,16 @@ WITH page_keys AS (
             WHERE av.vtxo_txid = vtxo.txid AND av.vtxo_vout = vtxo.vout
                   AND av.asset_id = CAST(?2 AS TEXT)
         ))
-        AND (CAST(?3 AS INTEGER) IS NULL
+        AND (CAST(?3 AS TEXT) IS NULL
+            OR vtxo.script = CAST(?3 AS TEXT))
+        AND (CAST(?4 AS INTEGER) IS NULL
             OR (vtxo.created_at, vtxo.txid, vtxo.vout) < (
-                CAST(?3 AS INTEGER),
-                CAST(?4 AS TEXT),
-                CAST(?5 AS INTEGER)
+                CAST(?4 AS INTEGER),
+                CAST(?5 AS TEXT),
+                CAST(?6 AS INTEGER)
             ))
     ORDER BY created_at DESC, txid DESC, vout DESC
-    LIMIT ?6
+    LIMIT ?7
 )
 SELECT v.txid, v.vout, v.script, v.amount, v.commitment_txids, v.spent_by, v.spent, v.expires_at, v.created_at, v.preconfirmed, v.swept, v.settled_by, v.unrolled, v.ark_txid, v.asset_id, v.asset_amount
 FROM asset_vtxo_vw v
@@ -110,6 +112,7 @@ ORDER BY pk.created_at DESC, pk.txid DESC, pk.vout DESC
 type GetVtxosParams struct {
 	StatusFilter    sql.NullString
 	AssetID         sql.NullString
+	ScriptFilter    sql.NullString
 	CursorCreatedAt sql.NullInt64
 	CursorTxid      sql.NullString
 	CursorVout      sql.NullInt64
@@ -130,7 +133,8 @@ type GetVtxosParams struct {
 // anchor.
 // status_filter accepts NULL (no filter), spendable (spent=false AND
 // unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
-// EXISTS rather than JOIN so the row count stays at VTXO count. The cursor
+// EXISTS rather than JOIN so the row count stays at VTXO count. script_filter
+// filters by exact match on the vtxo.script column (NULL = no filter). The cursor
 // predicate uses SQL row-value comparison which is the canonical
 // composite-key keyset idiom. CAST wrappers around sqlc.narg are required
 // so sqlc emits typed nullable Go args instead of interface{}.
@@ -141,6 +145,7 @@ func (q *Queries) GetVtxos(ctx context.Context, arg GetVtxosParams) ([]AssetVtxo
 	rows, err := q.db.QueryContext(ctx, getVtxos,
 		arg.StatusFilter,
 		arg.AssetID,
+		arg.ScriptFilter,
 		arg.CursorCreatedAt,
 		arg.CursorTxid,
 		arg.CursorVout,
