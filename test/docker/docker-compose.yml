@@ -96,5 +96,6 @@ services:
 
 networks:
     default:
-        name: arkade-regtest
+        # Default network of the arkade-regtest compose project (regtest/ submodule).
+        name: arkade-regtest_default
         external: true

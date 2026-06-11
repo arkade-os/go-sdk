@@ -497,7 +497,7 @@ See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sd
 
 Run integration tests. First start the [arkade-regtest](https://github.com/ArkLabsHQ/arkade-regtest)
 base stack (Bitcoin Core + Fulcrum + mempool), which provides the `bitcoin` and
-`mempool_web` containers and the `arkade-regtest` Docker network that the SDK's
+`mempool_web` containers and the `arkade-regtest_default` Docker network that the SDK's
 own arkd compose (`test/docker/docker-compose.yml`) layers on top of:
 
 ```sh
