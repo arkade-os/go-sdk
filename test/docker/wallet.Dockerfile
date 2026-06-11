@@ -1,6 +1,9 @@
 # First stage: build the ark-wallet-daemon binary
 FROM golang:1.26.3 AS builder
 
+# arkd master may require a newer Go than the image ships; let go download it.
+ENV GOTOOLCHAIN=auto
+
 ARG VERSION
 ARG TARGETOS
 ARG TARGETARCH
