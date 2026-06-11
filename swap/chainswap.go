@@ -883,11 +883,7 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 		return "", fmt.Errorf("failed to decode refund script: %w", err)
 	}
 
-	serverPubKeyBytes, err := hex.DecodeString(swapResp.LockupDetails.ServerPublicKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode server public key: %w", err)
-	}
-	serverPubKey, err := btcec.ParsePubKey(serverPubKeyBytes)
+	serverPubKey, err := parsePubkey(swapResp.LockupDetails.ServerPublicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse server public key: %w", err)
 	}

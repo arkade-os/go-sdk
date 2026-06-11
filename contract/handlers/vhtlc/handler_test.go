@@ -31,7 +31,7 @@ type invalidCase struct {
 
 func TestVHTLCHandlerNewContract(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		_, keyRef, opts, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+		_, keyRef, opts, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 
 		require.Equal(t, types.ContractTypeVHTLC, c.Type)
 		require.Equal(t, types.ContractStateActive, c.State)
@@ -47,7 +47,7 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 		}, testNetwork)
 		keyRef := newTestKeyRef(t)
 
-		got, err := h.NewContract(t.Context(), keyRef, newTestVHTLCOpts(t))
+		got, err := h.NewContract(t.Context(), keyRef, newTestVHTLCContractOpts(t))
 		require.NoError(t, err)
 		require.Equal(t, testCheckpointTapscript, got.Params[paramCheckpointExitPath])
 	})
@@ -76,14 +76,17 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 			expectedError string
 		}{
 			{
-				name:          "missing sender",
-				mutate:        func(o *vhtlc.Opts) { o.Sender = nil },
-				expectedError: "missing sender pubkey",
+				name: "missing sender and receiver",
+				mutate: func(o *vhtlc.Opts) {
+					o.Sender = nil
+					o.Receiver = nil
+				},
+				expectedError: "requires exactly one of sender or receiver",
 			},
 			{
-				name:          "missing receiver",
-				mutate:        func(o *vhtlc.Opts) { o.Receiver = nil },
-				expectedError: "missing receiver pubkey",
+				name:          "sender and receiver both set",
+				mutate:        func(o *vhtlc.Opts) { o.Sender = newTestPubKey(t) },
+				expectedError: "requires exactly one of sender or receiver",
 			},
 			{
 				name:          "missing server",
@@ -128,7 +131,7 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				opts := newTestVHTLCOpts(t)
+				opts := newTestVHTLCContractOpts(t)
 				tc.mutate(opts)
 				got, err := h.NewContract(t.Context(), keyRef, opts)
 				require.Error(t, err)
@@ -141,7 +144,22 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 
 func TestVHTLCHandlerGetKeyRef(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
+
+		ref, err := h.GetKeyRef(c)
+		require.NoError(t, err)
+		require.NotNil(t, ref)
+		require.Equal(t, keyRef.Id, ref.Id)
+		require.Equal(
+			t,
+			keyRef.PubKey.SerializeCompressed(),
+			ref.PubKey.SerializeCompressed(),
+		)
+	})
+
+	t.Run("valid legacy x-only owner key", func(t *testing.T) {
+		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
+		c.Params[paramOwnerKey] = hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey))
 
 		ref, err := h.GetKeyRef(c)
 		require.NoError(t, err)
@@ -201,18 +219,20 @@ func TestVHTLCHandlerGetKeyRef(t *testing.T) {
 
 func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 
 		refs, err := h.GetKeyRefs(c)
 		require.NoError(t, err)
-		require.Len(t, refs, 1)
+		require.Len(t, refs, 3)
 		require.Equal(t, keyRef.Id, refs[c.Script])
+		assertCheckpointAliases(t, refs, c.Script, keyRef.Id, 2)
 	})
 
 	t.Run("with sender checkpoint aliases", func(t *testing.T) {
 		h := newTestVHTLCHandler(t)
 		opts := newTestVHTLCOpts(t)
 		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Sender}
+		opts.Sender = nil
 
 		built, err := h.NewContract(t.Context(), keyRef, opts)
 		require.NoError(t, err)
@@ -228,6 +248,7 @@ func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 		h := newTestVHTLCHandler(t)
 		opts := newTestVHTLCOpts(t)
 		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Receiver}
+		opts.Receiver = nil
 
 		built, err := h.NewContract(t.Context(), keyRef, opts)
 		require.NoError(t, err)
@@ -284,7 +305,7 @@ func assertCheckpointAliases(
 
 func TestVHTLCHandlerGetSignerKey(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		h, _, opts, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+		h, _, opts, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 
 		signer, err := h.GetSignerKey(c)
 		require.NoError(t, err)
@@ -333,7 +354,7 @@ func TestVHTLCHandlerGetSignerKey(t *testing.T) {
 
 func TestVHTLCHandlerGetExitDelay(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		h, _, opts, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+		h, _, opts, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 
 		delay, err := h.GetExitDelay(c)
 		require.NoError(t, err)
@@ -390,7 +411,7 @@ func TestVHTLCHandlerGetExitDelay(t *testing.T) {
 func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Run("standard", func(t *testing.T) {
-			h, _, _, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+			h, _, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 
 			scripts, err := h.GetTapscripts(c)
 			require.NoError(t, err)
@@ -401,7 +422,7 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 		})
 
 		t.Run("non-interactive claim", func(t *testing.T) {
-			h, _, _, c := newVHTLCContract(t, newTestVHTLCOptsWithNIC(t))
+			h, _, _, c := newVHTLCContract(t, newTestVHTLCContractOptsWithNIC(t))
 
 			scripts, err := h.GetTapscripts(c)
 			require.NoError(t, err)
@@ -663,7 +684,7 @@ func newTestVHTLCHandler(t *testing.T) *Handler {
 
 func newVHTLCParams(t *testing.T) map[string]string {
 	t.Helper()
-	_, _, _, c := newVHTLCContract(t, newTestVHTLCOpts(t))
+	_, _, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 	return copyParams(c.Params)
 }
 
@@ -700,6 +721,13 @@ func newTestVHTLCOpts(t *testing.T) *vhtlc.Opts {
 	}
 }
 
+func newTestVHTLCContractOpts(t *testing.T) *vhtlc.Opts {
+	t.Helper()
+	opts := newTestVHTLCOpts(t)
+	opts.Sender = nil
+	return opts
+}
+
 func newTestVHTLCOptsWithNIC(t *testing.T) *vhtlc.Opts {
 	t.Helper()
 	opts := newTestVHTLCOpts(t)
@@ -707,6 +735,13 @@ func newTestVHTLCOptsWithNIC(t *testing.T) *vhtlc.Opts {
 		ReceiverPkScript:   newTestP2TRPkScript(t),
 		IntrospectorPubKey: newTestPubKey(t),
 	}
+	return opts
+}
+
+func newTestVHTLCContractOptsWithNIC(t *testing.T) *vhtlc.Opts {
+	t.Helper()
+	opts := newTestVHTLCOptsWithNIC(t)
+	opts.Sender = nil
 	return opts
 }
 
@@ -743,11 +778,23 @@ func assertVHTLCContract(
 	t *testing.T, c types.Contract, keyRef identity.KeyRef, opts *vhtlc.Opts,
 ) {
 	t.Helper()
+	expected, err := prepareOwnedOpts(*opts, keyRef)
+	require.NoError(t, err)
 	require.Equal(t, keyRef.Id, c.Params[paramOwnerKeyID])
 	require.Equal(
 		t,
-		hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
+		hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		c.Params[paramOwnerKey],
+	)
+	require.Equal(
+		t,
+		hex.EncodeToString(expected.Sender.SerializeCompressed()),
+		c.Params[paramSender],
+	)
+	require.Equal(
+		t,
+		hex.EncodeToString(expected.Receiver.SerializeCompressed()),
+		c.Params[paramReceiver],
 	)
 	require.Equal(
 		t,

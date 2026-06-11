@@ -341,11 +341,7 @@ func validateClaimPath(
 	if serverPubKeyHex == "" {
 		return fmt.Errorf("server public key is empty")
 	}
-	serverPubKeyBytes, err := hex.DecodeString(serverPubKeyHex)
-	if err != nil {
-		return fmt.Errorf("invalid server public key hex: %w", err)
-	}
-	serverPubKey, err := btcec.ParsePubKey(serverPubKeyBytes)
+	serverPubKey, err := parsePubkey(serverPubKeyHex)
 	if err != nil {
 		return fmt.Errorf("invalid server public key: %w", err)
 	}
@@ -546,11 +542,7 @@ func validateBtcLockupAddress(
 	clientPubKey *btcec.PublicKey,
 	swapTree boltz.SwapTree,
 ) error {
-	serverPubKeyBytes, err := hex.DecodeString(serverPubKeyHex)
-	if err != nil {
-		return fmt.Errorf("decode server pubkey hex: %w", err)
-	}
-	serverPubKey, err := btcec.ParsePubKey(serverPubKeyBytes)
+	serverPubKey, err := parsePubkey(serverPubKeyHex)
 	if err != nil {
 		return fmt.Errorf("parse server pubkey: %w", err)
 	}

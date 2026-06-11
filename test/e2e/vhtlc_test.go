@@ -704,11 +704,35 @@ func registerVHTLCContract(
 ) {
 	t.Helper()
 
-	_, err := w.ContractManager().NewContract(
+	contractOpts := opts
+	keys, err := w.Identity().ListKeys(t.Context())
+	require.NoError(t, err)
+
+	ownsVHTLC := false
+	for _, key := range keys {
+		switch {
+		case sameVHTLCPubKey(key.PubKey, opts.Sender):
+			contractOpts.Sender = nil
+			ownsVHTLC = true
+		case sameVHTLCPubKey(key.PubKey, opts.Receiver):
+			contractOpts.Receiver = nil
+			ownsVHTLC = true
+		}
+		if ownsVHTLC {
+			break
+		}
+	}
+	require.True(t, ownsVHTLC, "wallet should own sender or receiver VHTLC key")
+
+	_, err = w.ContractManager().NewContract(
 		t.Context(), types.ContractTypeVHTLC,
-		contract.WithParams(&opts),
+		contract.WithParams(&contractOpts),
 	)
 	require.NoError(t, err)
+}
+
+func sameVHTLCPubKey(a, b *btcec.PublicKey) bool {
+	return a != nil && b != nil && a.IsEqual(b)
 }
 
 // generatePreimage creates a random 32-byte preimage and returns

@@ -86,7 +86,9 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			},
 			params: func(t *testing.T, _ identity.KeyRef) any {
 				t.Helper()
-				return newTestVHTLCOpts(t)
+				opts := newTestVHTLCOpts(t)
+				opts.Sender = nil
+				return opts
 			},
 			expectType:      types.ContractTypeVHTLC,
 			expectDerivable: false,

@@ -63,12 +63,13 @@ func NewHandler(c client.Client, network arklib.Network) *Handler {
 }
 
 // Derivable returns false — VHTLC contracts require counterparty data
-// (pubkeys, preimage hash, locktimes) and cannot be derived from an HD key alone.
+// (pubkey, preimage hash, locktimes) and cannot be derived from an HD key alone.
 // Callers must provide WithParams(*vhtlc.Opts) when calling Manager.NewContract.
 func (h *Handler) Derivable() bool { return false }
 
 // NewContract builds a VHTLC contract from the caller-provided key and params.
-// params must be *vhtlc.Opts; returns an error otherwise.
+// params must be *vhtlc.Opts with exactly one of Sender or Receiver set. The
+// missing side is populated with keyRef.PubKey, making keyRef the stored owner.
 func (h *Handler) NewContract(
 	ctx context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
@@ -78,11 +79,15 @@ func (h *Handler) NewContract(
 			"vhtlc handler requires *vhtlc.Opts, got %T", params,
 		)
 	}
+	opts, err := prepareOwnedOpts(*p, keyRef)
+	if err != nil {
+		return nil, err
+	}
 	checkpointExitPath, err := h.resolveCheckpointExitPath(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return createContract(*p, keyRef, h.network, checkpointExitPath)
+	return createContract(opts, keyRef, h.network, checkpointExitPath)
 }
 
 func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
@@ -90,17 +95,9 @@ func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubHex, err := requireParam(c, paramOwnerKey)
+	pub, err := parseOwnerKey(c)
 	if err != nil {
 		return nil, err
-	}
-	buf, err := hex.DecodeString(pubHex)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid owner key hex: %w", c.Script, err)
-	}
-	pub, err := schnorr.ParsePubKey(buf)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid owner key: %w", c.Script, err)
 	}
 	return &identity.KeyRef{Id: keyID, PubKey: pub}, nil
 }
@@ -208,10 +205,8 @@ func createContract(
 
 	params := map[string]string{
 		paramOwnerKeyID: ownerKeyRef.Id,
-		paramOwnerKey: hex.EncodeToString(
-			schnorr.SerializePubKey(ownerKeyRef.PubKey),
-		),
-		paramSender: hex.EncodeToString(opts.Sender.SerializeCompressed()),
+		paramOwnerKey:   hex.EncodeToString(ownerKeyRef.PubKey.SerializeCompressed()),
+		paramSender:     hex.EncodeToString(opts.Sender.SerializeCompressed()),
 		paramReceiver: hex.EncodeToString(
 			opts.Receiver.SerializeCompressed(),
 		),
@@ -449,6 +444,62 @@ func parseCompressedParam(c types.Contract, key string) (*btcec.PublicKey, error
 		return nil, fmt.Errorf("vhtlc contract %s: invalid %s: %w", c.Script, key, err)
 	}
 	return pub, nil
+}
+
+func parseOwnerKey(c types.Contract) (*btcec.PublicKey, error) {
+	raw, err := requireParam(c, paramOwnerKey)
+	if err != nil {
+		return nil, err
+	}
+	buf, err := hex.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("vhtlc contract %s: invalid owner key hex: %w", c.Script, err)
+	}
+
+	switch len(buf) {
+	case schnorr.PubKeyBytesLen:
+		pub, err := schnorr.ParsePubKey(buf)
+		if err != nil {
+			return nil, fmt.Errorf("vhtlc contract %s: invalid owner key: %w", c.Script, err)
+		}
+		return pub, nil
+	case btcec.PubKeyBytesLenCompressed:
+		pub, err := btcec.ParsePubKey(buf)
+		if err != nil {
+			return nil, fmt.Errorf("vhtlc contract %s: invalid owner key: %w", c.Script, err)
+		}
+		return pub, nil
+	default:
+		return nil, fmt.Errorf(
+			"vhtlc contract %s: invalid owner key: expected 32-byte x-only or 33-byte compressed key, got %d bytes",
+			c.Script,
+			len(buf),
+		)
+	}
+}
+
+func prepareOwnedOpts(opts vhtlc.Opts, keyRef identity.KeyRef) (vhtlc.Opts, error) {
+	if keyRef.Id == "" {
+		return vhtlc.Opts{}, fmt.Errorf("missing owner key ID")
+	}
+	if keyRef.PubKey == nil {
+		return vhtlc.Opts{}, fmt.Errorf("missing owner pubkey")
+	}
+
+	hasSender := opts.Sender != nil
+	hasReceiver := opts.Receiver != nil
+	if hasSender == hasReceiver {
+		return vhtlc.Opts{}, fmt.Errorf(
+			"vhtlc handler requires exactly one of sender or receiver pubkey",
+		)
+	}
+
+	if hasSender {
+		opts.Receiver = keyRef.PubKey
+	} else {
+		opts.Sender = keyRef.PubKey
+	}
+	return opts, nil
 }
 
 func parseRelativeLocktime(

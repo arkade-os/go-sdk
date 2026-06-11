@@ -181,13 +181,21 @@ for _ in {1..30}; do
     fi
     sleep 2
 done
-seed=$(curl -s $fulmineBoltzUrl/wallet/genseed | jq -r .hex)
-if [ $? -ne 0 ] || [ -z "$seed" ] || [ "$seed" = "null" ]; then
-    exit "  ❌ failed to generate seed (seed=$seed)"
+seedResponse=$(curl -s $fulmineBoltzUrl/wallet/genseed)
+mnemonic=$(echo "$seedResponse" | jq -r '.mnemonic // empty')
+seed=$(echo "$seedResponse" | jq -r '.hex // empty')
+if [ $? -ne 0 ] || { [ -z "$mnemonic" ] && [ -z "$seed" ]; }; then
+    exit "  ❌ failed to generate seed (response=$seedResponse)"
+fi
+
+if [ -n "$mnemonic" ]; then
+    createPayload="{\"mnemonic\": \"$mnemonic\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}"
+else
+    createPayload="{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}"
 fi
 
 err=$(curl -s -X POST $fulmineBoltzUrl/wallet/create -H 'Content-Type: application/json' \
-    -d "{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}")
+    -d "$createPayload")
 if [ $? -ne 0 ]; then
     exit "  ❌ failed to initialize (status=$status) (err=$err)"
 else

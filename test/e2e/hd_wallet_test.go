@@ -56,7 +56,6 @@ func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
 }
 
 func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 
 	aliceClientHD := setupClient(t, "")
@@ -142,7 +141,6 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 }
 
 func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 
 	const gapLimit = uint32(5)
@@ -196,7 +194,6 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 }
 
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 
 	aliceClientHD := setupClient(t, "", sdk.WithoutAutoSettle())

@@ -17,6 +17,7 @@ import (
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,17 @@ const (
 	// boltz-fulmine REST API (used by real Boltz for ARK operations)
 	boltzFulmineUrl = "http://127.0.0.1:7003/api/v1"
 )
+
+func parseBoltzPubkey(pubkey string) (*btcec.PublicKey, error) {
+	decoded, err := hex.DecodeString(pubkey)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) == schnorr.PubKeyBytesLen {
+		return schnorr.ParsePubKey(decoded)
+	}
+	return btcec.ParsePubKey(decoded)
+}
 
 // settleBoltzFulmine ensures boltz-fulmine has settled VTXOs available.
 // Without this, swept/expired VTXOs cause "missing vtxos" errors on Boltz.
@@ -59,7 +71,6 @@ func settleBoltzFulmine(t *testing.T) {
 // - User claims BTC cooperatively with Boltz
 // - Swap reaches ChainSwapClaimed terminal state
 func TestChainSwapArkToBtc(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 	alice := setupClient(t, "")
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
@@ -170,7 +181,6 @@ func TestChainSwapArkToBtc(t *testing.T) {
 // a round yet. This is a known limitation in pkg/swap that needs a retry mechanism.
 // The test verifies that the swap reaches at least ServerLocked state successfully.
 func TestChainSwapBtcToArk(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 	alice := setupClient(t, "")
 
@@ -288,7 +298,6 @@ func TestChainSwapBtcToArk(t *testing.T) {
 // 3. Boltz claims the VHTLC and pays the Lightning invoice
 // 4. Returns SwapSuccess when invoice is settled
 func TestSubmarineSwap(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 	alice := setupClient(t, "")
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
@@ -341,7 +350,6 @@ func TestSubmarineSwap(t *testing.T) {
 // limitation as TestChainSwapBtcToArk. The test verifies swap creation,
 // invoice generation, LN payment, and Boltz VTXO delivery.
 func TestReverseSwap(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 	alice := setupClient(t, "")
 	// Alice needs some initial funds for the VHTLC fee overhead
@@ -872,7 +880,6 @@ func TestChainSwapMockBTCToARKUnilateralRefund(t *testing.T) {
 //
 // Adapted from fulmine's TestChainSwapBTCtoARKWithQuote (chainswap_test.go:98).
 func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 	alice := setupClient(t, "")
 
@@ -1126,7 +1133,6 @@ func TestChainSwapMockArkToBTCScriptPathClaim(t *testing.T) {
 //
 // Adapted from fulmine's TestCircularSwap (swap_test.go:126).
 func TestCircularSwap(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 	alice := setupClient(t, "")
 	faucetOffchain(t, alice, 0.002) // 200,000 sats (needs enough for both send + receive fees)
@@ -1213,8 +1219,8 @@ func TestCircularSwap(t *testing.T) {
 //
 // Adapted from fulmine's TestConcurrentSwaps (swap_test.go:147).
 func TestConcurrentSwaps(t *testing.T) {
-	settleBoltzFulmine(t)
 	t.Run("distinct submarine swaps", func(t *testing.T) {
+		settleBoltzFulmine(t)
 		alice := setupClient(t, "")
 		faucetOffchain(t, alice, 0.002) // enough for two submarine swaps
 
@@ -1263,6 +1269,7 @@ func TestConcurrentSwaps(t *testing.T) {
 	})
 
 	t.Run("submarine and reverse swaps", func(t *testing.T) {
+		settleBoltzFulmine(t)
 		alice := setupClient(t, "")
 		faucetOffchain(t, alice, 0.002)
 
@@ -1318,6 +1325,7 @@ func TestConcurrentSwaps(t *testing.T) {
 	})
 
 	t.Run("distinct reverse swaps", func(t *testing.T) {
+		settleBoltzFulmine(t)
 		alice := setupClient(t, "")
 		faucetOffchain(t, alice, 0.002)
 
@@ -1380,7 +1388,6 @@ func TestConcurrentSwaps(t *testing.T) {
 //  6. Call handler.RefundSwap cooperatively (Boltz co-signs the refund)
 //  7. Verify the refund succeeds
 func TestRefundSwap(t *testing.T) {
-	t.Parallel()
 	settleBoltzFulmine(t)
 
 	alice, privKey := setupSwapClient(t)
@@ -1419,9 +1426,7 @@ func TestRefundSwap(t *testing.T) {
 		createResp.Id, createResp.ExpectedAmount, createResp.Address)
 
 	// Parse Boltz's claim public key (the receiver in the VHTLC)
-	receiverPubBytes, err := hex.DecodeString(createResp.ClaimPublicKey)
-	require.NoError(t, err)
-	receiverPub, err := btcec.ParsePubKey(receiverPubBytes)
+	receiverPub, err := parseBoltzPubkey(createResp.ClaimPublicKey)
 	require.NoError(t, err)
 
 	// Build VHTLC opts from Boltz's response

@@ -76,8 +76,13 @@ func (h *SwapHandler) storeLocalVHTLCContract(
 		}
 	}
 
+	contractOpts, err := optsForLocalVHTLCOwner(opts, keyRef.PubKey)
+	if err != nil {
+		return err
+	}
+
 	handler := vhtlcHandler.NewHandler(h.arkClient.Client(), h.config.Network)
-	built, err := handler.NewContract(ctx, keyRef, &opts)
+	built, err := handler.NewContract(ctx, keyRef, &contractOpts)
 	if err != nil {
 		return fmt.Errorf("build local VHTLC contract: %w", err)
 	}
@@ -96,6 +101,24 @@ func (h *SwapHandler) storeLocalVHTLCContract(
 		return fmt.Errorf("store local VHTLC contract: %w", err)
 	}
 	return nil
+}
+
+func optsForLocalVHTLCOwner(
+	opts vhtlc.Opts,
+	owner *btcec.PublicKey,
+) (vhtlc.Opts, error) {
+	if owner == nil {
+		return vhtlc.Opts{}, fmt.Errorf("missing local VHTLC owner key")
+	}
+	if samePubKey(owner, opts.Sender) {
+		opts.Sender = nil
+		return opts, nil
+	}
+	if samePubKey(owner, opts.Receiver) {
+		opts.Receiver = nil
+		return opts, nil
+	}
+	return vhtlc.Opts{}, fmt.Errorf("wallet does not own sender or receiver key")
 }
 
 func (h *SwapHandler) findLocalVHTLCKey(

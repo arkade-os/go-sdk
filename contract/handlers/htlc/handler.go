@@ -79,11 +79,7 @@ func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	buf, err := hex.DecodeString(pubHex)
-	if err != nil {
-		return nil, fmt.Errorf("htlc contract %s: invalid owner key hex: %w", c.Script, err)
-	}
-	pub, err := schnorr.ParsePubKey(buf)
+	pub, err := parseStoredPubKey(pubHex)
 	if err != nil {
 		return nil, fmt.Errorf("htlc contract %s: invalid owner key: %w", c.Script, err)
 	}
@@ -104,11 +100,7 @@ func (h *Handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	buf, err := hex.DecodeString(serverHex)
-	if err != nil {
-		return nil, fmt.Errorf("htlc contract %s: invalid server key hex: %w", c.Script, err)
-	}
-	pub, err := schnorr.ParsePubKey(buf)
+	pub, err := parseStoredPubKey(serverHex)
 	if err != nil {
 		return nil, fmt.Errorf("htlc contract %s: invalid server key: %w", c.Script, err)
 	}
@@ -160,8 +152,8 @@ func createContract(
 		return nil, err
 	}
 
-	ownerKey := schnorr.SerializePubKey(keyRef.PubKey)
-	if !isHTLCLeafWithKey(claimScript, ownerKey) && !isHTLCLeafWithKey(refundScript, ownerKey) {
+	ownerKeyXOnly := schnorr.SerializePubKey(keyRef.PubKey)
+	if !isHTLCLeafWithKey(claimScript, ownerKeyXOnly) && !isHTLCLeafWithKey(refundScript, ownerKeyXOnly) {
 		return nil, fmt.Errorf("owner key is not present in HTLC tapscripts")
 	}
 
@@ -193,8 +185,8 @@ func createContract(
 		Type: types.ContractTypeHTLC,
 		Params: map[string]string{
 			paramOwnerKeyID:       keyRef.Id,
-			paramOwnerKey:         hex.EncodeToString(ownerKey),
-			paramServerKey:        hex.EncodeToString(schnorr.SerializePubKey(p.Server)),
+			paramOwnerKey:         hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
+			paramServerKey:        hex.EncodeToString(p.Server.SerializeCompressed()),
 			paramClaimLeafScript:  hex.EncodeToString(claimScript),
 			paramRefundLeafScript: hex.EncodeToString(refundScript),
 		},
@@ -248,6 +240,23 @@ func requireParam(c types.Contract, name string) (string, error) {
 		return "", fmt.Errorf("htlc contract %s has empty %s", c.Script, name)
 	}
 	return value, nil
+}
+
+func parseStoredPubKey(pubHex string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(pubHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid key hex: %w", err)
+	}
+	const compressedPubKeyLen = 33
+	if len(buf) != compressedPubKeyLen {
+		return nil, fmt.Errorf(
+			"expected compressed key length %d, got %d", compressedPubKeyLen, len(buf),
+		)
+	}
+	if buf[0] != 0x02 && buf[0] != 0x03 {
+		return nil, fmt.Errorf("expected compressed key prefix 0x02 or 0x03, got 0x%02x", buf[0])
+	}
+	return btcec.ParsePubKey(buf)
 }
 
 func merkleRoot(left, right []byte) []byte {

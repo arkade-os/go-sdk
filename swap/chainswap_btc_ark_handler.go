@@ -9,7 +9,6 @@ import (
 
 	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
-	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -245,11 +244,7 @@ func (b *btcToArkHandler) signBoltzBtcClaim(
 		return fmt.Errorf("failed to get claim details: %w", err)
 	}
 
-	boltzPubKeyBytes, err := hex.DecodeString(claimDetails.PublicKey)
-	if err != nil {
-		return fmt.Errorf("failed to decode Boltz public key: %w", err)
-	}
-	boltzPubKey, err := btcec.ParsePubKey(boltzPubKeyBytes)
+	boltzPubKey, err := parsePubkey(claimDetails.PublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to parse Boltz public key: %w", err)
 	}

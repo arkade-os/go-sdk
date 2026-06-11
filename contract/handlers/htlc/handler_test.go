@@ -43,12 +43,12 @@ func TestHTLCHandlerNewContract(t *testing.T) {
 	require.Equal(t, keyRef.Id, got.Params[paramOwnerKeyID])
 	require.Equal(
 		t,
-		hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey)),
+		hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		got.Params[paramOwnerKey],
 	)
 	require.Equal(
 		t,
-		hex.EncodeToString(schnorr.SerializePubKey(opts.Server)),
+		hex.EncodeToString(opts.Server.SerializeCompressed()),
 		got.Params[paramServerKey],
 	)
 }
@@ -63,7 +63,7 @@ func TestHTLCHandlerGetters(t *testing.T) {
 	ref, err := h.GetKeyRef(*c)
 	require.NoError(t, err)
 	require.Equal(t, keyRef.Id, ref.Id)
-	require.Equal(t, schnorr.SerializePubKey(keyRef.PubKey), schnorr.SerializePubKey(ref.PubKey))
+	require.Equal(t, keyRef.PubKey.SerializeCompressed(), ref.PubKey.SerializeCompressed())
 
 	keyRefs, err := h.GetKeyRefs(*c)
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestHTLCHandlerGetters(t *testing.T) {
 
 	signerKey, err := h.GetSignerKey(*c)
 	require.NoError(t, err)
-	require.Equal(t, schnorr.SerializePubKey(opts.Server), schnorr.SerializePubKey(signerKey))
+	require.Equal(t, opts.Server.SerializeCompressed(), signerKey.SerializeCompressed())
 
 	delay, err := h.GetExitDelay(*c)
 	require.NoError(t, err)
@@ -80,6 +80,45 @@ func TestHTLCHandlerGetters(t *testing.T) {
 	tapscripts, err := h.GetTapscripts(*c)
 	require.NoError(t, err)
 	require.Equal(t, []string{opts.ClaimLeaf.Output, opts.RefundLeaf.Output}, tapscripts)
+}
+
+func TestHTLCHandlerPreservesOwnerKeyParity(t *testing.T) {
+	h := NewHandler(testNetwork)
+	keyRef := identity.KeyRef{Id: "m/0/1", PubKey: newTestOddPubKey(t)}
+	opts := newTestOpts(t, keyRef.PubKey)
+
+	c, err := h.NewContract(t.Context(), keyRef, opts)
+	require.NoError(t, err)
+
+	ref, err := h.GetKeyRef(*c)
+	require.NoError(t, err)
+	require.Equal(t, keyRef.PubKey.SerializeCompressed(), ref.PubKey.SerializeCompressed())
+
+	expectedScript := expectedHTLCOutputScript(t, opts.Server, keyRef.PubKey, opts)
+	restoredScript := expectedHTLCOutputScript(t, opts.Server, ref.PubKey, opts)
+	require.Equal(t, expectedScript, restoredScript)
+	require.Equal(t, hex.EncodeToString(expectedScript), c.Script)
+}
+
+func TestHTLCHandlerRejectsXOnlyStoredKeys(t *testing.T) {
+	h := NewHandler(testNetwork)
+	keyRef := newTestKeyRef(t)
+	opts := newTestOpts(t, keyRef.PubKey)
+	c, err := h.NewContract(t.Context(), keyRef, opts)
+	require.NoError(t, err)
+
+	c.Params[paramOwnerKey] = hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey))
+	ref, err := h.GetKeyRef(*c)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "expected compressed key length")
+	require.Nil(t, ref)
+
+	c.Params[paramOwnerKey] = hex.EncodeToString(keyRef.PubKey.SerializeCompressed())
+	c.Params[paramServerKey] = hex.EncodeToString(schnorr.SerializePubKey(opts.Server))
+	signer, err := h.GetSignerKey(*c)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "expected compressed key length")
+	require.Nil(t, signer)
 }
 
 func TestHTLCHandlerNewContractInvalid(t *testing.T) {
@@ -159,6 +198,16 @@ func newTestPubKey(t *testing.T) *btcec.PublicKey {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	return priv.PubKey()
+}
+
+func newTestOddPubKey(t *testing.T) *btcec.PublicKey {
+	t.Helper()
+	for {
+		pub := newTestPubKey(t)
+		if pub.SerializeCompressed()[0] == 0x03 {
+			return pub
+		}
+	}
 }
 
 func newTestClaimLeafScript(t *testing.T, claimKey *btcec.PublicKey) []byte {
