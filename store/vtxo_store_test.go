@@ -656,6 +656,95 @@ func TestVtxoStoreGetVtxos(t *testing.T) {
 				require.Fail(t, "multi-asset vtxo not found in WithAssetID result")
 			})
 
+			t.Run("WithScript filter semantics", func(t *testing.T) {
+				require.NoError(t, s.Clean(ctx))
+
+				const scriptA = "0000000000000000000000000000000000000000000000000000000000000aaa"
+				const scriptB = "0000000000000000000000000000000000000000000000000000000000000bbb"
+
+				vtxoA := clientTypes.Vtxo{
+					Outpoint:        clientTypes.Outpoint{Txid: "aaaa000000000000000000000000000000000000000000000000000000000001", VOut: 0},
+					Script:          scriptA,
+					Amount:          1000,
+					CommitmentTxids: []string{"0000000000000000000000000000000000000000000000000000000000000000"},
+					ExpiresAt:       seed[0].ExpiresAt,
+					CreatedAt:       seed[0].CreatedAt,
+				}
+				vtxoB := clientTypes.Vtxo{
+					Outpoint:        clientTypes.Outpoint{Txid: "bbbb000000000000000000000000000000000000000000000000000000000001", VOut: 0},
+					Script:          scriptB,
+					Amount:          2000,
+					CommitmentTxids: []string{"0000000000000000000000000000000000000000000000000000000000000000"},
+					ExpiresAt:       seed[0].ExpiresAt,
+					CreatedAt:       seed[0].CreatedAt,
+				}
+				vtxoA2 := clientTypes.Vtxo{
+					Outpoint:        clientTypes.Outpoint{Txid: "aaaa000000000000000000000000000000000000000000000000000000000002", VOut: 0},
+					Script:          scriptA,
+					Amount:          3000,
+					CommitmentTxids: []string{"0000000000000000000000000000000000000000000000000000000000000000"},
+					ExpiresAt:       seed[0].ExpiresAt,
+					CreatedAt:       seed[0].CreatedAt,
+				}
+				seedVtxos(t, s, vtxoA, vtxoB, vtxoA2)
+
+				// Filter by scriptA: must return exactly vtxoA and vtxoA2.
+				got, _, err := s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status: types.VtxoStatusAll,
+					Script: scriptA,
+					Limit:  1000,
+				})
+				require.NoError(t, err)
+				require.Len(t, got, 2)
+				for _, v := range got {
+					require.Equal(t, scriptA, v.Script)
+				}
+
+				// Filter by scriptB: must return exactly vtxoB.
+				got, _, err = s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status: types.VtxoStatusAll,
+					Script: scriptB,
+					Limit:  1000,
+				})
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				require.Equal(t, vtxoB.Outpoint, got[0].Outpoint)
+
+				// Non-matching script: must return empty.
+				got, _, err = s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status: types.VtxoStatusAll,
+					Script: "0000000000000000000000000000000000000000000000000000000000000fff",
+					Limit:  1000,
+				})
+				require.NoError(t, err)
+				require.Empty(t, got)
+
+				// Combined with WithSpendableOnly: only unspent vtxos with scriptA.
+				_, err = s.SpendVtxos(ctx, map[clientTypes.Outpoint]string{
+					vtxoA.Outpoint: "spendertx",
+				}, "arktx")
+				require.NoError(t, err)
+
+				got, _, err = s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status: types.VtxoStatusSpendable,
+					Script: scriptA,
+					Limit:  1000,
+				})
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				require.Equal(t, vtxoA2.Outpoint, got[0].Outpoint)
+
+				// Combined with AssetID: no vtxos match (none have assets).
+				got, _, err = s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status:  types.VtxoStatusAll,
+					Script:  scriptA,
+					AssetID: testVtxoAsset1.AssetId,
+					Limit:   1000,
+				})
+				require.NoError(t, err)
+				require.Empty(t, got)
+			})
+
 			t.Run("tiebreaker on identical created_at", func(t *testing.T) {
 				// Seed N VTXOs with identical created_at and distinct
 				// (txid, vout). Page through in small pages and assert that
