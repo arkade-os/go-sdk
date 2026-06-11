@@ -53,6 +53,10 @@ func NewHandler(
 	}
 }
 
+// NewContract is the allocation path: it derives a contract committing to the
+// CURRENT server signer. Behavior is unchanged for callers — it reads the
+// current signer from GetInfo and delegates the actual script/address/params
+// construction to buildContract.
 func (h *defaultHandler) NewContract(
 	ctx context.Context, keyRef identity.KeyRef,
 ) (*types.Contract, error) {
@@ -70,6 +74,44 @@ func (h *defaultHandler) NewContract(
 		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
 	}
 
+	return h.buildContract(keyRef, signerKey, info)
+}
+
+// CandidateContracts is the discovery path: it derives one contract per
+// accepted signer for the given owner key. Each contract carries the correct
+// signerKey param (normalized x-only), so once a used candidate is persisted,
+// every downstream reconstruction (getScript, GetTapscripts, signing) is
+// signer-correct — including for a candidate committing to a deprecated
+// signer. The server info (exit delay, checkpoint tapscript) is read once and
+// reused for every signer.
+func (h *defaultHandler) CandidateContracts(
+	ctx context.Context, keyRef identity.KeyRef, signers []*btcec.PublicKey,
+) ([]types.Contract, error) {
+	info, err := h.getInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server info: %w", err)
+	}
+
+	contracts := make([]types.Contract, 0, len(signers))
+	for _, signer := range signers {
+		c, err := h.buildContract(keyRef, signer, info)
+		if err != nil {
+			return nil, err
+		}
+		contracts = append(contracts, *c)
+	}
+	return contracts, nil
+}
+
+// buildContract builds a single contract for an explicit signer key. Both the
+// allocation path (NewContract, current signer) and the discovery path
+// (CandidateContracts, current + deprecated signers) flow through here so the
+// script/address/params construction lives in exactly one place. It dispatches
+// on h.isOnchain for the exit delay, address encoding and checkpoint param,
+// exactly as the original NewContract did.
+func (h *defaultHandler) buildContract(
+	keyRef identity.KeyRef, signerKey *btcec.PublicKey, info *client.Info,
+) (*types.Contract, error) {
 	delay := info.UnilateralExitDelay
 	if h.isOnchain {
 		delay = info.BoardingExitDelay

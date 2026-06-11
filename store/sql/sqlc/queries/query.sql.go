@@ -206,7 +206,7 @@ func (q *Queries) InsertAssetVtxo(ctx context.Context, arg InsertAssetVtxoParams
 }
 
 const insertContract = `-- name: InsertContract :exec
-INSERT INTO contract (
+INSERT OR IGNORE INTO contract (
     script, type, label, address, state, created_at, params, key_index, metadata
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `

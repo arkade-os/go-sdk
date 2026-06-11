@@ -46,6 +46,18 @@ func (c *infoCache) set(resp *client.Info) {
 	c.lastUpdate = time.Now()
 }
 
+// Invalidate clears the cached response so the next GetInfo call hits the
+// transport. ScanContracts calls this at entry to guarantee a fresh signer
+// set on restore: discovery must never derive candidate scripts from a stale
+// server signer key (which would make pre-rotation vtxos invisible) nor miss
+// a freshly-rotated signer set.
+func (c *infoCache) Invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resp = nil
+	c.lastUpdate = time.Time{}
+}
+
 // cachingClient is a transport-client decorator that intercepts GetInfo
 // and serves it from a shared infoCache. Every other call passes through
 // to the embedded client unchanged via Go's method promotion.

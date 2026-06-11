@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -56,9 +55,12 @@ func (v *contractStore) AddContract(
 		KeyIndex:  int64(keyIndex),
 		Metadata:  sql.NullString{String: metadata, Valid: len(metadata) > 0},
 	}); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
-			return fmt.Errorf("contract %s already exists", contract.Script)
-		}
+		// The InsertContract query uses INSERT OR IGNORE, so a row whose
+		// script already exists is silently skipped rather than raising a
+		// unique-constraint error. This makes AddContract idempotent, which
+		// the rotation-aware scan relies on when persisting candidate
+		// contracts that may already be stored (e.g. re-scan on every unlock,
+		// or the same owner index under multiple signers).
 		return err
 	}
 	return nil

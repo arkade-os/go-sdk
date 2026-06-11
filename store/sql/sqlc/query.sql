@@ -175,7 +175,7 @@ WHERE txid = :txid AND vout = :vout;
 DELETE FROM utxo;
 
 -- name: InsertContract :exec
-INSERT INTO contract (
+INSERT OR IGNORE INTO contract (
     script, type, label, address, state, created_at, params, key_index, metadata
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 

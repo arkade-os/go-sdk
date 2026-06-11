@@ -176,11 +176,24 @@ func (m *mockTransportClient) Close() {}
 type mockIndexer struct {
 	usedScripts map[string]struct{}
 	err         error
+	// callCount records how many times GetVtxos was invoked. Rotation tests
+	// assert that discovery issues exactly one batched probe per index-batch
+	// rather than one probe per signer.
+	callCount int
+	// lastScripts records the scripts passed to the most recent GetVtxos call,
+	// so a test can assert the candidate list was deduplicated before probing.
+	lastScripts []string
 }
 
 func (m *mockIndexer) GetVtxos(
-	_ context.Context, _ ...indexer.GetVtxosOption,
+	_ context.Context, opts ...indexer.GetVtxosOption,
 ) (*indexer.VtxosResponse, error) {
+	m.callCount++
+	// Reconstruct the requested scripts from the options so tests can assert on
+	// dedup/batching. indexer.WithScripts sets the Scripts field on the request.
+	if applied, err := indexer.ApplyGetVtxosOptions(opts...); err == nil {
+		m.lastScripts = applied.Scripts
+	}
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -229,6 +242,14 @@ type mockedEnv struct {
 	identity       identity.Identity
 	derive         func(keyId string) types.Contract
 	deriveBoarding func(keyId string) types.Contract
+	// deriveForSigner builds the offchain contract the scan would produce for
+	// an explicit signer key (current or deprecated) at the given key id, so
+	// rotation tests can mark deprecated-signer scripts as used. Implemented
+	// via the handler's CandidateContracts so the derived script matches the
+	// scan path byte-for-byte.
+	deriveForSigner func(keyId string, signer *btcec.PublicKey) types.Contract
+	// deriveBoardingForSigner is the boarding (onchain) counterpart.
+	deriveBoardingForSigner func(keyId string, signer *btcec.PublicKey) types.Contract
 }
 
 func newMockedEnv(t *testing.T) *mockedEnv {
@@ -274,14 +295,80 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 		require.NoError(t, err)
 		return *c
 	}
+	deriveForSigner := func(keyId string, signer *btcec.PublicKey) types.Contract {
+		t.Helper()
+		keyRef, err := wsvc.GetKey(t.Context(), keyId)
+		require.NoError(t, err)
+		cs, err := offchainHandler.CandidateContracts(
+			t.Context(), *keyRef, []*btcec.PublicKey{signer},
+		)
+		require.NoError(t, err)
+		require.Len(t, cs, 1)
+		return cs[0]
+	}
+	deriveBoardingForSigner := func(keyId string, signer *btcec.PublicKey) types.Contract {
+		t.Helper()
+		keyRef, err := wsvc.GetKey(t.Context(), keyId)
+		require.NoError(t, err)
+		cs, err := boardingHandler.CandidateContracts(
+			t.Context(), *keyRef, []*btcec.PublicKey{signer},
+		)
+		require.NoError(t, err)
+		require.Len(t, cs, 1)
+		return cs[0]
+	}
 
 	return &mockedEnv{
-		indexer:        &mockIndexer{},
-		explorer:       &mockExplorer{},
-		transport:      transport,
-		identity:       wsvc,
-		derive:         derive,
-		deriveBoarding: deriveBoarding,
+		indexer:                 &mockIndexer{},
+		explorer:                &mockExplorer{},
+		transport:               transport,
+		identity:                wsvc,
+		derive:                  derive,
+		deriveBoarding:          deriveBoarding,
+		deriveForSigner:         deriveForSigner,
+		deriveBoardingForSigner: deriveBoardingForSigner,
+	}
+}
+
+// addDeprecatedSigner registers a deprecated signer on the env's GetInfo
+// response and returns its pubkey so tests can derive and mark its scripts.
+func (e *mockedEnv) addDeprecatedSigner(t *testing.T) *btcec.PublicKey {
+	t.Helper()
+	key := newTestPubKey(t)
+	e.transport.info.DeprecatedSignerPubKeys = append(
+		e.transport.info.DeprecatedSignerPubKeys,
+		client.DeprecatedSigner{
+			PubKey: hex.EncodeToString(key.SerializeCompressed()),
+		},
+	)
+	return key
+}
+
+// markUsedForSigner marks the offchain scripts for (keyId, signer) pairs as
+// used in the mock indexer.
+func (e *mockedEnv) markUsedForSigner(
+	t *testing.T, signer *btcec.PublicKey, keyIds ...string,
+) {
+	t.Helper()
+	if e.indexer.usedScripts == nil {
+		e.indexer.usedScripts = make(map[string]struct{}, len(keyIds))
+	}
+	for _, k := range keyIds {
+		e.indexer.usedScripts[e.deriveForSigner(k, signer).Script] = struct{}{}
+	}
+}
+
+// markBoardingUsedForSigner marks the boarding addresses for (keyId, signer)
+// pairs as used in the mock explorer.
+func (e *mockedEnv) markBoardingUsedForSigner(
+	t *testing.T, signer *btcec.PublicKey, keyIds ...string,
+) {
+	t.Helper()
+	if e.explorer.usedAddresses == nil {
+		e.explorer.usedAddresses = make(map[string]struct{}, len(keyIds))
+	}
+	for _, k := range keyIds {
+		e.explorer.usedAddresses[e.deriveBoardingForSigner(k, signer).Address] = struct{}{}
 	}
 }
 
@@ -392,6 +479,14 @@ func (h *mockedHandler) GetTapscripts(c types.Contract) ([]string, error) {
 	return s, a.Error(1)
 }
 
+func (h *mockedHandler) CandidateContracts(
+	ctx context.Context, k identity.KeyRef, signers []*btcec.PublicKey,
+) ([]types.Contract, error) {
+	a := h.Called(ctx, k, signers)
+	c, _ := a.Get(0).([]types.Contract)
+	return c, a.Error(1)
+}
+
 // mockHandler wires every method on h to a successful default response, with NewContract returning
 // a contract of type ct.
 // Fixtures that want to force a specific behavior register their .On(...) calls first
@@ -415,4 +510,13 @@ func mockHandler(h *mockedHandler, ct types.ContractType) {
 	h.On("GetSignerKey", mock.Anything).Return(nil, nil)
 	h.On("GetExitDelay", mock.Anything).Return(nil, nil)
 	h.On("GetTapscripts", mock.Anything).Return(nil, nil)
+	h.On("CandidateContracts", mock.Anything, mock.Anything, mock.Anything).Return(
+		[]types.Contract{{
+			Type:    ct,
+			State:   types.ContractStateActive,
+			Script:  string(ct) + "-script",
+			Address: string(ct) + "-address",
+			Params:  map[string]string{ownerKeyIdParam: "m/0/0"},
+		}}, nil,
+	)
 }

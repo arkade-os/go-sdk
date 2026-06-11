@@ -2,20 +2,69 @@ package contract
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	log "github.com/sirupsen/logrus"
 )
 
 const logPrefix = "contract manager:"
+
+// signerHex returns the canonical x-only (32-byte) hex of a signer pubkey.
+// Used as the map key for per-signer scan state so the same key always
+// resolves to the same bucket regardless of how it arrived on the wire
+// (33-byte compressed or 32-byte x-only).
+func signerHex(key *btcec.PublicKey) string {
+	return hex.EncodeToString(schnorr.SerializePubKey(key))
+}
+
+// acceptedSigners returns the full set of signer pubkeys discovery must try,
+// derived from a single GetInfo response: the current signer first, followed
+// by every deprecated signer. Every key is normalized to x-only and the set
+// is deduplicated (a deprecated entry equal to the current key, or a repeated
+// deprecated key, collapses to one). Malformed entries are skipped with a
+// warning — discovery (and therefore Unlock) must never fail because the
+// server advertised a bad deprecated key.
+func acceptedSigners(info *client.Info) []*btcec.PublicKey {
+	seen := make(map[string]struct{})
+	result := make([]*btcec.PublicKey, 0, 1+len(info.DeprecatedSignerPubKeys))
+
+	addKey := func(hexStr string) {
+		buf, err := hex.DecodeString(hexStr)
+		if err != nil {
+			log.Warnf("%s skipping malformed signer key %q: %v", logPrefix, hexStr, err)
+			return
+		}
+		key, err := btcec.ParsePubKey(buf)
+		if err != nil {
+			log.Warnf("%s skipping invalid signer key %q: %v", logPrefix, hexStr, err)
+			return
+		}
+		xOnly := signerHex(key)
+		if _, dup := seen[xOnly]; dup {
+			return
+		}
+		seen[xOnly] = struct{}{}
+		result = append(result, key)
+	}
+
+	addKey(info.SignerPubKey)
+	for _, d := range info.DeprecatedSignerPubKeys {
+		addKey(d.PubKey)
+	}
+	return result
+}
 
 type contractManager struct {
 	store       types.ContractStore
@@ -25,6 +74,15 @@ type contractManager struct {
 	network     arklib.Network
 	registry    Registry
 	mu          sync.RWMutex
+	// client is the shared GetInfo-caching transport wrapper. The manager
+	// reads the accepted signer set (current + deprecated) directly from it
+	// during discovery, sharing the same cache the handlers use so we don't
+	// fan out redundant GetInfo calls.
+	client client.Client
+	// infoCache is the cache backing `client`. The manager invalidates it at
+	// the start of every scan so the signer set is always fresh on restore
+	// and after a live rotation.
+	infoCache *infoCache
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
@@ -45,7 +103,8 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	// built-in handlers reuse the same cached server info. Custom handlers
 	// supplied via WithHandler are constructed outside the manager and own
 	// their own client wiring.
-	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
+	cache := newInfoCache(infoCacheTTL)
+	cachedClient := newCachingClient(args.Client, cache)
 	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
@@ -62,7 +121,17 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		network:     args.Network,
 		registry:    reg,
 		mu:          sync.RWMutex{},
+		client:      cachedClient,
+		infoCache:   cache,
 	}, nil
+}
+
+// InvalidateInfoCache clears the shared GetInfo cache so the next scan (or
+// any handler call) fetches a fresh server info. Exposed on the Manager
+// interface so the wallet can force a re-read when it detects a live signer
+// rotation.
+func (m *contractManager) InvalidateInfoCache() {
+	m.infoCache.Invalidate()
 }
 
 func (m *contractManager) Registry() Registry { return m.registry }
@@ -71,12 +140,25 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Force a fresh GetInfo so the signer set is never stale on restore (a
+	// rotation that happened while the wallet was locked must be reflected) and
+	// after a live rotation. Every subsequent GetInfo in this scan (here and in
+	// the handlers) is served from the freshly-populated cache.
+	m.infoCache.Invalidate()
+
+	info, err := m.client.GetInfo(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get server info: %w", err)
+	}
+	signers := acceptedSigners(info)
+
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		// A single-key identity has only one derivable contract per type, so the
-		// gap-limit loop would just churn on the same script. Derive each type's
-		// one contract and batch the offchain probe into a single indexer call;
-		// boarding still goes per-address through the explorer.
-		return m.scanSingleKeyContracts(ctx)
+		// A single-key identity has only one derivable contract per type and
+		// signer, so the gap-limit loop would just churn on the same scripts.
+		// Derive each type's contract for every accepted signer and batch the
+		// offchain probe into a single indexer call; boarding still goes
+		// per-address through the explorer.
+		return m.scanSingleKeyContracts(ctx, signers)
 	}
 
 	for _, contractType := range m.registry.SupportedTypes() {
@@ -91,7 +173,9 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 		if contractType == types.ContractTypeBoarding {
 			findUsed = m.findUsedBoardingContracts
 		}
-		if err := m.scanContracts(ctx, contractType, gapLimit, handler, findUsed); err != nil {
+		if err := m.scanContracts(
+			ctx, contractType, gapLimit, handler, findUsed, signers,
+		); err != nil {
 			return err
 		}
 	}
@@ -218,49 +302,91 @@ type findUsedFn func(
 	ctx context.Context, contracts []types.Contract,
 ) (map[string]struct{}, error)
 
+// signerScanState tracks one signer's independent gap-limit walk. The current
+// signer and each deprecated signer get their own state so a gap in one space
+// never stops the scan in another (EC-1). lastUsedIdx anchors persistence;
+// contractByIndex holds the derived contract for every scanned index so we can
+// persist the contiguous range [startIdx, lastUsedIdx] without re-deriving.
+type signerScanState struct {
+	startIdx          uint32
+	consecutiveUnused uint32
+	lastUsedIdx       int64 // -1 sentinel until a hit
+	done              bool
+	contractByIndex   map[uint32]types.Contract
+}
+
 func (m *contractManager) scanContracts(
 	ctx context.Context, contractType types.ContractType,
 	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
+	signers []*btcec.PublicKey,
 ) error {
+	const noUsage int64 = -1
+
+	// Where the CURRENT signer (signers[0]) starts. We keep the existing
+	// "resume strictly after the last stored index" optimization for it, since
+	// everything up to the latest allocated current-signer contract is already
+	// tracked. Deprecated signers always start from index 0: a pre-rotation
+	// vtxo can sit at any low index even when current-signer contracts exist at
+	// high indices (EC-2, spec 3.3.5).
+	var currentStartIdx uint32
 	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
 		)
 	}
-
-	// Where to start scanning. For a fresh wallet (no contracts of this
-	// type stored yet) we scan from index 0; otherwise strictly after
-	// the last stored index, since everything up to it is already
-	// allocated.
-	var startIdx uint32
-	var currentKeyId string
 	if contract != nil {
 		keyRef, err := handler.GetKeyRef(*contract)
 		if err != nil {
 			return fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 		}
-		currentKeyId = keyRef.Id
-		currentIdx, err := m.keyProvider.GetKeyIndex(ctx, currentKeyId)
+		currentIdx, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 		if err != nil {
 			return fmt.Errorf("failed to parse key id for contract %s: %w", contract.Script, err)
 		}
-		startIdx = currentIdx + 1
+		currentStartIdx = currentIdx + 1
 	}
 
-	// Gap-limit scan. `lastUsedIdx` stays at the sentinel value until a
-	// hit promotes it; if no key is ever flagged as used we leave the
-	// contract store untouched.
-	const noUsage int64 = -1
-	var (
-		lastUsedIdx       = noUsage
-		consecutiveUnused uint32
-		contractByIndex   = make(map[uint32]types.Contract, gapLimit)
-	)
-scan:
-	for consecutiveUnused < gapLimit {
-		contractBatch := make([]types.Contract, 0, gapLimit)
-		keyIndexByScript := make(map[string]uint32, gapLimit)
+	states := make(map[string]*signerScanState, len(signers))
+	for i, s := range signers {
+		startIdx := uint32(0)
+		if i == 0 {
+			startIdx = currentStartIdx
+		}
+		states[signerHex(s)] = &signerScanState{
+			startIdx:        startIdx,
+			lastUsedIdx:     noUsage,
+			contractByIndex: make(map[uint32]types.Contract),
+		}
+	}
+
+	anyActive := func() bool {
+		for _, st := range states {
+			if !st.done {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Walk the shared owner-key HD chain from index 0 upward. The owner key is
+	// per-index and signer-independent, so we derive it once per index and fan
+	// it out across every still-active signer via CandidateContracts. We probe
+	// gapLimit indices at a time: all candidate scripts across signers AND
+	// indices in the batch are deduplicated and sent in a SINGLE findUsed call
+	// (EC-3, EC-11) so we never multiply indexer round-trips by the signer
+	// count.
+	currentKeyId := ""
+	for anyActive() {
+		type entry struct {
+			signerKey string
+			idx       uint32
+			contract  types.Contract
+		}
+		batch := make([]entry, 0, int(gapLimit)*len(signers))
+		probe := make([]types.Contract, 0, int(gapLimit)*len(signers))
+		probeSeen := make(map[string]struct{}, int(gapLimit)*len(signers))
+
 		for range gapLimit {
 			nextKeyId, err := m.keyProvider.NextKeyId(ctx, currentKeyId)
 			if err != nil {
@@ -274,53 +400,91 @@ scan:
 			if err != nil {
 				return err
 			}
-			contract, err := handler.NewContract(ctx, *keyRef)
+			currentKeyId = nextKeyId
+
+			// Only the signers that still need this index.
+			activeSigners := make([]*btcec.PublicKey, 0, len(signers))
+			for _, s := range signers {
+				st := states[signerHex(s)]
+				if st.done || idx < st.startIdx {
+					continue
+				}
+				activeSigners = append(activeSigners, s)
+			}
+			if len(activeSigners) == 0 {
+				continue
+			}
+
+			candidates, err := handler.CandidateContracts(ctx, *keyRef, activeSigners)
 			if err != nil {
 				return fmt.Errorf(
-					"failed to derive %s contract for key %s: %w",
+					"failed to derive %s candidate contracts for key %s: %w",
 					contractType, nextKeyId, err,
 				)
 			}
-			contractBatch = append(contractBatch, *contract)
-			keyIndexByScript[contract.Script] = idx
-			currentKeyId = nextKeyId
-			contractByIndex[idx] = *contract
+			for j, c := range candidates {
+				sHex := signerHex(activeSigners[j])
+				batch = append(batch, entry{signerKey: sHex, idx: idx, contract: c})
+				states[sHex].contractByIndex[idx] = c
+				if _, dup := probeSeen[c.Script]; !dup {
+					probeSeen[c.Script] = struct{}{}
+					probe = append(probe, c)
+				}
+			}
 		}
 
-		used, err := findUsed(ctx, contractBatch)
+		if len(probe) == 0 {
+			// No active signer reached its start index in this batch (e.g. the
+			// only signer is the current one resuming at a high startIdx while
+			// this batch covered lower indices). Keep walking the chain; the
+			// loop condition (anyActive) is what actually terminates the scan.
+			continue
+		}
+
+		used, err := findUsed(ctx, probe)
 		if err != nil {
 			return err
 		}
 
-		for _, c := range contractBatch {
-			idx := keyIndexByScript[c.Script]
-			if _, isUsed := used[c.Script]; isUsed {
-				if int64(idx) > lastUsedIdx {
-					lastUsedIdx = int64(idx)
-				}
-				consecutiveUnused = 0
+		// Credit each candidate back to its own signer's counters so gaps stay
+		// per-signer (EC-1).
+		for _, e := range batch {
+			st := states[e.signerKey]
+			if st.done {
 				continue
 			}
-			consecutiveUnused++
-			if consecutiveUnused >= gapLimit {
-				break scan
+			if _, isUsed := used[e.contract.Script]; isUsed {
+				if int64(e.idx) > st.lastUsedIdx {
+					st.lastUsedIdx = int64(e.idx)
+				}
+				st.consecutiveUnused = 0
+				continue
+			}
+			st.consecutiveUnused++
+			if st.consecutiveUnused >= gapLimit {
+				st.done = true
 			}
 		}
 	}
 
-	if lastUsedIdx == noUsage {
-		return nil
-	}
-
-	// Persist contracts from the start of the scan range up to the
-	// highest used index (inclusive).
-	for i := startIdx; i <= uint32(lastUsedIdx); i++ {
-		contract := contractByIndex[i]
-		if err := m.store.AddContract(ctx, contract, i); err != nil {
-			return fmt.Errorf("failed to store %s contract: %w", contractType, err)
+	// Persist each signer's contiguous range [startIdx, lastUsedIdx]. Persisting
+	// a script that already exists is a no-op thanks to INSERT OR IGNORE (EC-12),
+	// so re-scans and overlapping (index, signer) rows are harmless.
+	for _, s := range signers {
+		st := states[signerHex(s)]
+		if st.lastUsedIdx == noUsage {
+			continue
 		}
-
-		log.Debugf("%s added new %s contract %s", logPrefix, contractType, contract.Script)
+		for i := st.startIdx; i <= uint32(st.lastUsedIdx); i++ {
+			c, ok := st.contractByIndex[i]
+			if !ok {
+				continue
+			}
+			if err := m.store.AddContract(ctx, c, i); err != nil {
+				return fmt.Errorf("failed to store %s contract: %w", contractType, err)
+			}
+			log.Debugf("%s added new %s contract %s", logPrefix, contractType, c.Script)
+		}
 	}
 	return nil
 }
@@ -404,12 +568,21 @@ func (m *contractManager) findUsedBoardingContracts(
 	return used, nil
 }
 
-// scanSingleKeyContracts derives the one contract each registered type can
-// produce under a single-key identity and probes external state to decide
-// which to persist. Offchain types are batched into a single indexer call;
-// boarding types go through the per-address explorer probe (one call per
-// type — at most one boarding handler is registered today).
-func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
+// scanSingleKeyContracts derives, for each registered type, one contract per
+// accepted signer that a single-key identity can produce, and probes external
+// state to decide which to persist. A single-key wallet that held pre-rotation
+// (deprecated-signer) vtxos must still discover them, so we derive candidates
+// for the current signer AND every deprecated signer (EC-9). Offchain
+// candidates are deduplicated and batched into a single indexer call; boarding
+// candidates go through the per-address explorer probe.
+//
+// The previous "skip if any contract of this type is already stored" early-exit
+// is intentionally gone: it would mask a deprecated-signer contract whenever a
+// current-signer one already existed. INSERT OR IGNORE makes re-persisting an
+// already-stored contract a no-op, so re-scans stay idempotent (EC-12).
+func (m *contractManager) scanSingleKeyContracts(
+	ctx context.Context, signers []*btcec.PublicKey,
+) error {
 	type pending struct {
 		typ      types.ContractType
 		contract types.Contract
@@ -421,13 +594,6 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
-		}
-		contracts, err := m.store.GetContractsByType(ctx, contractType)
-		if err != nil {
-			return err
-		}
-		if len(contracts) > 0 {
-			continue
 		}
 		keyId, err := m.keyProvider.NextKeyId(ctx, "")
 		if err != nil {
@@ -441,32 +607,21 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		c, err := handler.NewContract(ctx, *keyRef)
+		candidates, err := handler.CandidateContracts(ctx, *keyRef, signers)
 		if err != nil {
 			return fmt.Errorf(
-				"failed to derive %s contract for key %s: %w", contractType, keyId, err,
+				"failed to derive %s candidate contracts for key %s: %w",
+				contractType, keyId, err,
 			)
 		}
-		p := pending{typ: contractType, contract: *c, keyIdx: idx}
-		if contractType == types.ContractTypeBoarding {
-			boarding = append(boarding, p)
-		} else {
-			offchain = append(offchain, p)
+		for _, c := range candidates {
+			p := pending{typ: contractType, contract: c, keyIdx: idx}
+			if contractType == types.ContractTypeBoarding {
+				boarding = append(boarding, p)
+			} else {
+				offchain = append(offchain, p)
+			}
 		}
-	}
-
-	// One indexer round-trip for every offchain type at once.
-	var offchainUsed map[string]struct{}
-	if len(offchain) > 0 {
-		batch := make([]types.Contract, len(offchain))
-		for i, p := range offchain {
-			batch[i] = p.contract
-		}
-		used, err := m.findUsedContracts(ctx, batch)
-		if err != nil {
-			return err
-		}
-		offchainUsed = used
 	}
 
 	persist := func(p pending) error {
@@ -475,6 +630,26 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		}
 		log.Debugf("%s added new %s contract %s", logPrefix, p.typ, p.contract.Script)
 		return nil
+	}
+
+	// One indexer round-trip for every offchain candidate (all types, all
+	// signers) at once, deduplicated by script.
+	var offchainUsed map[string]struct{}
+	if len(offchain) > 0 {
+		batch := make([]types.Contract, 0, len(offchain))
+		seen := make(map[string]struct{}, len(offchain))
+		for _, p := range offchain {
+			if _, dup := seen[p.contract.Script]; dup {
+				continue
+			}
+			seen[p.contract.Script] = struct{}{}
+			batch = append(batch, p.contract)
+		}
+		used, err := m.findUsedContracts(ctx, batch)
+		if err != nil {
+			return err
+		}
+		offchainUsed = used
 	}
 
 	for _, p := range offchain {
@@ -486,16 +661,27 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		}
 	}
 
-	for _, p := range boarding {
-		used, err := m.findUsedBoardingContracts(ctx, []types.Contract{p.contract})
+	if len(boarding) > 0 {
+		batch := make([]types.Contract, 0, len(boarding))
+		seen := make(map[string]struct{}, len(boarding))
+		for _, p := range boarding {
+			if _, dup := seen[p.contract.Script]; dup {
+				continue
+			}
+			seen[p.contract.Script] = struct{}{}
+			batch = append(batch, p.contract)
+		}
+		used, err := m.findUsedBoardingContracts(ctx, batch)
 		if err != nil {
 			return err
 		}
-		if _, isUsed := used[p.contract.Script]; !isUsed {
-			continue
-		}
-		if err := persist(p); err != nil {
-			return err
+		for _, p := range boarding {
+			if _, isUsed := used[p.contract.Script]; !isUsed {
+				continue
+			}
+			if err := persist(p); err != nil {
+				return err
+			}
 		}
 	}
 

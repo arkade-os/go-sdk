@@ -38,6 +38,18 @@ func TestInfoCache(t *testing.T) {
 		require.Nil(t, c.get(), "entry past TTL must be cleared")
 	})
 
+	t.Run("invalidate clears a fresh entry", func(t *testing.T) {
+		// Invalidate must drop a still-fresh (within-TTL) entry so the next
+		// GetInfo re-reads the signer set — the restore / live-rotation
+		// freshness guarantee (EC-17).
+		c := newInfoCache(time.Minute)
+		c.set(&client.Info{SignerPubKey: "abcd"})
+		require.NotNil(t, c.get(), "fresh entry must be served before invalidate")
+
+		c.Invalidate()
+		require.Nil(t, c.get(), "invalidated entry must be cleared even within TTL")
+	})
+
 	t.Run("concurrent get/set does not race", func(t *testing.T) {
 		// Run with -race for this to mean anything; the assertion is just
 		// that both goroutines complete without deadlock or panic.
@@ -84,6 +96,28 @@ func TestCachingClient(t *testing.T) {
 			require.Equal(t, "abcd", got.SignerPubKey)
 		}
 		require.Equal(t, 1, mock.callCount())
+	})
+
+	t.Run("invalidate forces the next GetInfo to hit the transport", func(t *testing.T) {
+		// Restore / live-rotation path: after Invalidate the cache must re-read
+		// the (possibly rotated) signer set from the transport.
+		cache := newInfoCache(time.Minute)
+		mock := &countingTransport{info: &client.Info{SignerPubKey: "old"}}
+		c := newCachingClient(mock, cache)
+
+		got, err := c.GetInfo(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "old", got.SignerPubKey)
+		require.Equal(t, 1, mock.callCount())
+
+		// Server rotates while cached; without invalidate the stale value sticks.
+		mock.setInfo(&client.Info{SignerPubKey: "new"})
+		cache.Invalidate()
+
+		got, err = c.GetInfo(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "new", got.SignerPubKey, "invalidate must surface the rotated signer")
+		require.Equal(t, 2, mock.callCount())
 	})
 
 	t.Run("after TTL the next GetInfo hits the transport again", func(t *testing.T) {

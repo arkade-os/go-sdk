@@ -297,3 +297,11 @@ func (m *mockHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, er
 func (m *mockHandler) GetTapscripts(types.Contract) ([]string, error) {
 	return []string{m.ctType + "-tapscript"}, nil
 }
+func (m *mockHandler) CandidateContracts(
+	ctx context.Context, k identity.KeyRef, signers []*btcec.PublicKey,
+) ([]types.Contract, error) {
+	// Exercise the package fallback helper a non-rotation-aware custom handler
+	// would use: it ignores the signer set and returns a single current-signer
+	// contract.
+	return handlers.DefaultCandidateContracts(ctx, m, k, signers)
+}
