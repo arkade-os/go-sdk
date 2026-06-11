@@ -6,6 +6,9 @@ import (
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -18,23 +21,38 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 	}
 
 	settle := func() (string, error) {
-		vtxos, err := w.getSpendableVtxos(ctx, true)
-		if err != nil {
-			return "", err
-		}
-		w.dbMu.Lock()
-		utxos, _, err := w.store.UtxoStore().GetAllUtxos(ctx)
-		w.dbMu.Unlock()
-		if err != nil {
-			return "", err
-		}
-		if len(vtxos)+len(utxos) == 0 {
-			return "", ErrNoFundsToSettle
-		}
-
 		batchSessionOpts, err := applyBatchSessionOptions(opts...)
 		if err != nil {
 			return "", fmt.Errorf("invalid options: %v", (err))
+		}
+
+		var vtxos []clienttypes.VtxoWithTapTree
+		var utxos []clienttypes.Utxo
+		if batchSessionOpts.settleVtxos != nil {
+			// Subset settle: resolve contracts for exactly the provided vtxos
+			// and settle only those. No boarding UTXOs are included — this path
+			// is offchain-only (used by reconcileDeprecatedSigners migration).
+			vtxos, err = w.buildVtxosWithTapTree(ctx, batchSessionOpts.settleVtxos)
+			if err != nil {
+				return "", err
+			}
+			if len(vtxos) == 0 {
+				return "", ErrNoFundsToSettle
+			}
+		} else {
+			vtxos, err = w.getSpendableVtxos(ctx, true)
+			if err != nil {
+				return "", err
+			}
+			w.dbMu.Lock()
+			utxos, _, err = w.store.UtxoStore().GetAllUtxos(ctx)
+			w.dbMu.Unlock()
+			if err != nil {
+				return "", err
+			}
+			if len(vtxos)+len(utxos) == 0 {
+				return "", ErrNoFundsToSettle
+			}
 		}
 
 		signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, utxos)
@@ -84,6 +102,61 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 	}
 
 	return w.txHandler.handleBatchTx(settleType, settle)
+}
+
+// buildVtxosWithTapTree enriches a plain []clienttypes.Vtxo subset into the
+// []clienttypes.VtxoWithTapTree shape that getSpendableVtxos produces, by
+// resolving each vtxo's contract and extracting its tapscripts. Vtxos whose
+// contract is not found in the store (or whose handler/tapscripts cannot be
+// resolved) are skipped with a warning — the same behavior getSpendableVtxos
+// exhibits for vtxos missing a contract. Used by the WithSettleVtxos subset
+// path in Settle.
+func (w *wallet) buildVtxosWithTapTree(
+	ctx context.Context, subset []clienttypes.Vtxo,
+) ([]clienttypes.VtxoWithTapTree, error) {
+	if len(subset) == 0 {
+		return nil, nil
+	}
+
+	scripts := make([]string, 0, len(subset))
+	for _, v := range subset {
+		scripts = append(scripts, v.Script)
+	}
+
+	contracts, err := w.contractManager.GetContracts(ctx, contract.WithScripts(scripts))
+	if err != nil {
+		return nil, err
+	}
+
+	contractsByScript := make(map[string]types.Contract, len(contracts))
+	for _, c := range contracts {
+		contractsByScript[c.Script] = c
+	}
+
+	vtxos := make([]clienttypes.VtxoWithTapTree, 0, len(subset))
+	for _, v := range subset {
+		c, ok := contractsByScript[v.Script]
+		if !ok {
+			log.Warnf("skipping vtxo %s: no matching contract", v.Script)
+			continue
+		}
+		handler, err := w.contractManager.GetHandler(ctx, c)
+		if err != nil {
+			log.WithError(err).Warnf("failed to get handler for contract %s", c.Script)
+			continue
+		}
+		tapscripts, err := handler.GetTapscripts(c)
+		if err != nil {
+			log.WithError(err).Warnf("failed to get tapscripts for contract %s", c.Script)
+			continue
+		}
+		vtxos = append(vtxos, clienttypes.VtxoWithTapTree{
+			Vtxo:       v,
+			Tapscripts: tapscripts,
+		})
+	}
+
+	return vtxos, nil
 }
 
 func (w *wallet) CollaborativeExit(

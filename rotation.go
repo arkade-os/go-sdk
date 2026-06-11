@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -15,30 +16,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// defaultMigrationMargin is how far ahead of a deprecated key's cutoff a
-// migration is considered "due now". A settle submitted within this window
-// before the cutoff should confirm before the server stops co-signing for the
-// deprecated key (arkd #822). Conservative by design.
-const defaultMigrationMargin = 24 * time.Hour
-
 // signerState classifies one signer key relative to the current signer set.
 type signerState int
 
 const (
-	// signerCurrent is the active server signer (no action).
-	signerCurrent signerState = iota
-	// signerMigratable is a deprecated key whose cutoff is comfortably in the
-	// future (or has no cutoff). It can still be migrated collaboratively.
-	signerMigratable
-	// signerDueNow is a deprecated key whose cutoff is within the safety
-	// margin: migrate now.
-	signerDueNow
+	// signerActive is the current server signer (no action needed).
+	signerActive signerState = iota
+	// signerToMigrate is a deprecated key whose cutoff is in the future
+	// (including keys with no cutoff). Vtxos under this key are settled onto
+	// current-signer outputs via reconcileDeprecatedSigners.
+	signerToMigrate
 	// signerExpired is a deprecated key past its cutoff: the server refuses to
 	// co-sign, so its vtxos are unilateral-exit-only. Never attempt a
-	// collaborative migration for these.
+	// collaborative settle for these.
 	signerExpired
-	// signerUnknown is a stored contract whose signer is neither current nor
-	// any advertised deprecated key (defensive; surfaced and logged).
+	// signerUnknown is internal-only: a stored contract whose signer is neither
+	// the current signer nor any advertised deprecated key. It is logged as a
+	// warning and NOT counted in any exported field.
 	signerUnknown
 )
 
@@ -46,38 +40,35 @@ const (
 // Callers (e.g. fulmine) can surface it to users. Counts are over spendable
 // vtxos grouped by the state of the signer their contract commits to.
 type DeprecatedSignerStatus struct {
-	// Current is the number of spendable vtxos under the active signer.
-	Current int
-	// Migratable is the number under a deprecated signer with a comfortable
-	// cutoff (or none).
-	Migratable int
-	// DueNow is the number under a deprecated signer due for migration now.
-	DueNow int
-	// Expired is the number under a past-cutoff signer (exit-only).
+	// Active is the number of spendable vtxos under the current signer.
+	Active int
+	// ToMigrate is the number under a deprecated signer that can still be
+	// settled collaboratively (cutoff in future, or no cutoff).
+	ToMigrate int
+	// Expired is the number under a past-cutoff signer (unilateral-exit-only).
 	Expired int
-	// UnknownSigner is the number under a signer that is neither current nor a
-	// listed deprecated key.
-	UnknownSigner int
 	// NearestCutoff is the earliest non-zero cutoff among deprecated signers
 	// that still hold spendable vtxos; zero if none.
 	NearestCutoff time.Time
-	// AmountAtRisk is the total satoshi value under deprecated signers that are
-	// dueNow or expired.
+	// AmountAtRisk is the total satoshi value under ToMigrate + Expired vtxos.
 	AmountAtRisk uint64
-	// Migrated reports whether this reconcile actually submitted a settle to
-	// migrate dueNow vtxos onto current-signer outputs.
+	// Migrated reports whether this reconcile actually submitted a Settle to
+	// migrate ToMigrate vtxos onto current-signer outputs.
 	Migrated bool
 }
 
 // classifySigner maps a signer x-only hex to its state given the current signer
-// and the deprecated set, using `now` and `margin` for the cutoff thresholds.
+// and the deprecated set, using `now` for the cutoff threshold. Deprecated keys
+// with a future (or zero) cutoff are signerToMigrate; past-cutoff keys are
+// signerExpired. A signer in neither set returns signerUnknown, which callers
+// treat as "log and skip" (it is never counted in DeprecatedSignerStatus).
 func classifySigner(
 	signerHex, currentHex string,
 	deprecated map[string]client.DeprecatedSigner,
-	now time.Time, margin time.Duration,
+	now time.Time,
 ) (signerState, int64) {
 	if signerHex == currentHex {
-		return signerCurrent, 0
+		return signerActive, 0
 	}
 	d, ok := deprecated[signerHex]
 	if !ok {
@@ -85,17 +76,13 @@ func classifySigner(
 	}
 	// cutoffDate == 0 means "no cutoff": always migratable, never expires.
 	if d.CutoffDate == 0 {
-		return signerMigratable, 0
+		return signerToMigrate, 0
 	}
 	cutoff := time.Unix(d.CutoffDate, 0)
-	switch {
-	case now.After(cutoff):
+	if now.After(cutoff) {
 		return signerExpired, d.CutoffDate
-	case cutoff.Sub(now) <= margin:
-		return signerDueNow, d.CutoffDate
-	default:
-		return signerMigratable, d.CutoffDate
 	}
+	return signerToMigrate, d.CutoffDate
 }
 
 // deprecatedSignerSet builds an x-only-keyed map of the advertised deprecated
@@ -205,7 +192,7 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 	signerByScript := signerKeysByScript(ctx, w, contracts)
 
 	now := time.Now()
-	var hasDueNow bool
+	var hasToMigrate bool
 	for _, v := range spendable {
 		sHex, ok := signerByScript[v.Script]
 		if !ok {
@@ -214,17 +201,14 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 			// persisting the contract before reconcile runs.
 			continue
 		}
-		state, cutoff := classifySigner(sHex, currentHex, deprecated, now, defaultMigrationMargin)
+		state, cutoff := classifySigner(sHex, currentHex, deprecated, now)
 		switch state {
-		case signerCurrent:
-			status.Current++
-		case signerMigratable:
-			status.Migratable++
-			updateNearestCutoff(&status, cutoff)
-		case signerDueNow:
-			status.DueNow++
+		case signerActive:
+			status.Active++
+		case signerToMigrate:
+			status.ToMigrate++
 			status.AmountAtRisk += v.Amount
-			hasDueNow = true
+			hasToMigrate = true
 			updateNearestCutoff(&status, cutoff)
 		case signerExpired:
 			status.Expired++
@@ -233,8 +217,10 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 				"reconcile: vtxo %s under expired signer %s is exit-only (past cutoff)",
 				v.Script, sHex,
 			)
+			updateNearestCutoff(&status, cutoff)
 		case signerUnknown:
-			status.UnknownSigner++
+			// Unknown signers are log-only (FR-EXT1-1): never counted, never
+			// settled.
 			log.Warnf(
 				"reconcile: vtxo %s under unknown signer %s (neither current nor deprecated)",
 				v.Script, sHex,
@@ -242,13 +228,17 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 		}
 	}
 
-	// Migrate the actionable (dueNow) vtxos. Settle moves ALL spendable vtxos
-	// onto a fresh current-signer change output, so it both migrates the
-	// deprecated-signer vtxos and honors #822 (every output commits to the
-	// current signer). It is idempotent across runs: once migrated, those
-	// vtxos are spent and a re-run finds no dueNow entries (EC-12, EC-14).
-	if hasDueNow {
-		if _, err := w.Settle(ctx); err != nil {
+	// Migrate the actionable (ToMigrate) vtxos via a subset settle: only the
+	// ToMigrate vtxos are passed as inputs, and the change/receiver output
+	// commits to the current signer (newOffchainAddress), honoring arkd #822.
+	// Expired vtxos are excluded (exit-only); Active vtxos are left untouched.
+	// It is idempotent across runs: once migrated, those vtxos are spent and a
+	// re-run finds no ToMigrate entries (EC-12, EC-14).
+	if hasToMigrate {
+		toMigrateVtxos := collectToMigrateVtxos(
+			spendable, signerByScript, currentHex, deprecated, now,
+		)
+		if _, err := w.Settle(ctx, WithSettleVtxos(toMigrateVtxos)); err != nil {
 			// Do not fail the caller (Unlock) on a migration error — log and
 			// surface via the returned status.
 			log.WithError(err).Warn("reconcile: failed to migrate deprecated-signer vtxos")
@@ -256,12 +246,37 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 		}
 		status.Migrated = true
 		log.Infof(
-			"reconcile: migrated %d deprecated-signer vtxo(s) onto current-signer outputs",
-			status.DueNow,
+			"reconcile: settled %d ToMigrate vtxo(s) onto current-signer outputs",
+			len(toMigrateVtxos),
 		)
 	}
 
 	return status, nil
+}
+
+// collectToMigrateVtxos returns the subset of spendable vtxos classified as
+// signerToMigrate. Used by reconcileDeprecatedSigners to build the
+// WithSettleVtxos argument so only the actionable vtxos are included in the
+// settlement (Expired and Active vtxos are excluded).
+func collectToMigrateVtxos(
+	spendable []clienttypes.Vtxo,
+	signerByScript map[string]string,
+	currentHex string,
+	deprecated map[string]client.DeprecatedSigner,
+	now time.Time,
+) []clienttypes.Vtxo {
+	var result []clienttypes.Vtxo
+	for _, v := range spendable {
+		sHex, ok := signerByScript[v.Script]
+		if !ok {
+			continue
+		}
+		state, _ := classifySigner(sHex, currentHex, deprecated, now)
+		if state == signerToMigrate {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 func updateNearestCutoff(status *DeprecatedSignerStatus, cutoff int64) {
@@ -320,22 +335,20 @@ func (w *wallet) DeprecatedSignerSummary(
 		if !ok {
 			continue
 		}
-		state, cutoff := classifySigner(sHex, currentHex, deprecated, now, defaultMigrationMargin)
+		state, cutoff := classifySigner(sHex, currentHex, deprecated, now)
 		switch state {
-		case signerCurrent:
-			status.Current++
-		case signerMigratable:
-			status.Migratable++
-			updateNearestCutoff(&status, cutoff)
-		case signerDueNow:
-			status.DueNow++
+		case signerActive:
+			status.Active++
+		case signerToMigrate:
+			status.ToMigrate++
 			status.AmountAtRisk += v.Amount
 			updateNearestCutoff(&status, cutoff)
 		case signerExpired:
 			status.Expired++
 			status.AmountAtRisk += v.Amount
+			updateNearestCutoff(&status, cutoff)
 		case signerUnknown:
-			status.UnknownSigner++
+			// Unknown signers are log-only: never counted in the summary.
 		}
 	}
 	return status, nil

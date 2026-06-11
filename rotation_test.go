@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/stretchr/testify/require"
@@ -26,26 +27,27 @@ func xonlyHexOf(key *btcec.PublicKey) string {
 	return hex.EncodeToString(schnorr.SerializePubKey(key))
 }
 
-// TestClassifySigner covers every signer state and the cutoff thresholds
-// (EC-5 cutoff==0/past-cutoff, EC-15 dueNow margin, EC-16 multiple deprecated).
+// TestClassifySigner covers every counted signer state plus the unknown
+// sentinel and the cutoff thresholds (EC-5 cutoff==0/past-cutoff, EC-16 multiple
+// deprecated). After the 5→3 collapse there is no safety margin: any future (or
+// zero) cutoff is signerToMigrate, any past cutoff is signerExpired.
 func TestClassifySigner(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	margin := 24 * time.Hour
 
 	current := testKey(t)
-	migratable := testKey(t)
-	dueNow := testKey(t)
+	farFuture := testKey(t)
+	nearFuture := testKey(t)
 	expired := testKey(t)
 	noCutoff := testKey(t)
 	unknown := testKey(t)
 
 	currentHex := xonlyHexOf(current)
 	deprecated := map[string]client.DeprecatedSigner{
-		xonlyHexOf(migratable): {
-			PubKey: xonlyHexOf(migratable), CutoffDate: now.Add(72 * time.Hour).Unix(),
+		xonlyHexOf(farFuture): {
+			PubKey: xonlyHexOf(farFuture), CutoffDate: now.Add(72 * time.Hour).Unix(),
 		},
-		xonlyHexOf(dueNow): {
-			PubKey: xonlyHexOf(dueNow), CutoffDate: now.Add(2 * time.Hour).Unix(),
+		xonlyHexOf(nearFuture): {
+			PubKey: xonlyHexOf(nearFuture), CutoffDate: now.Add(2 * time.Hour).Unix(),
 		},
 		xonlyHexOf(expired): {
 			PubKey: xonlyHexOf(expired), CutoffDate: now.Add(-time.Hour).Unix(),
@@ -60,30 +62,82 @@ func TestClassifySigner(t *testing.T) {
 		key  string
 		want signerState
 	}{
-		{"current", currentHex, signerCurrent},
-		{"migratable (cutoff far out)", xonlyHexOf(migratable), signerMigratable},
-		{"dueNow (cutoff within margin)", xonlyHexOf(dueNow), signerDueNow},
+		{"current", currentHex, signerActive},
+		{"toMigrate (cutoff far out)", xonlyHexOf(farFuture), signerToMigrate},
+		{"toMigrate (cutoff near)", xonlyHexOf(nearFuture), signerToMigrate},
 		{"expired (past cutoff)", xonlyHexOf(expired), signerExpired},
-		{"no cutoff is always migratable", xonlyHexOf(noCutoff), signerMigratable},
+		{"no cutoff is always toMigrate", xonlyHexOf(noCutoff), signerToMigrate},
 		{"unknown signer", xonlyHexOf(unknown), signerUnknown},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, _ := classifySigner(c.key, currentHex, deprecated, now, margin)
+			got, _ := classifySigner(c.key, currentHex, deprecated, now)
 			require.Equal(t, c.want, got)
 		})
 	}
+}
 
-	t.Run("cutoff exactly at margin boundary is dueNow", func(t *testing.T) {
-		boundary := testKey(t)
-		set := map[string]client.DeprecatedSigner{
-			xonlyHexOf(boundary): {
-				PubKey: xonlyHexOf(boundary), CutoffDate: now.Add(margin).Unix(),
-			},
-		}
-		got, _ := classifySigner(xonlyHexOf(boundary), currentHex, set, now, margin)
-		require.Equal(t, signerDueNow, got)
-	})
+// TestCollectToMigrateVtxos verifies FR-EXT2-2, FR-EXT2-4, SC-EXT2: the subset
+// passed to WithSettleVtxos contains exactly the signerToMigrate vtxos — Active
+// (current-signer) and Expired (past-cutoff, exit-only) vtxos are excluded, and
+// vtxos with no signer mapping are skipped. This is the input that
+// reconcileDeprecatedSigners feeds to Settle(ctx, WithSettleVtxos(...)).
+func TestCollectToMigrateVtxos(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+
+	current := testKey(t)
+	toMigrateA := testKey(t)
+	toMigrateB := testKey(t)
+	expired := testKey(t)
+
+	currentHex := xonlyHexOf(current)
+	deprecated := map[string]client.DeprecatedSigner{
+		xonlyHexOf(toMigrateA): {
+			PubKey: xonlyHexOf(toMigrateA), CutoffDate: now.Add(72 * time.Hour).Unix(),
+		},
+		xonlyHexOf(toMigrateB): {
+			PubKey: xonlyHexOf(toMigrateB), CutoffDate: 0, // no cutoff → toMigrate
+		},
+		xonlyHexOf(expired): {
+			PubKey: xonlyHexOf(expired), CutoffDate: now.Add(-time.Hour).Unix(),
+		},
+	}
+
+	// 3 Active vtxos, 2 ToMigrate vtxos, 1 Expired vtxo. Scripts are arbitrary
+	// unique tags used only as map keys here.
+	spendable := []clienttypes.Vtxo{
+		{Script: "active-1", Amount: 100},
+		{Script: "active-2", Amount: 200},
+		{Script: "active-3", Amount: 300},
+		{Script: "tomigrate-1", Amount: 1000},
+		{Script: "tomigrate-2", Amount: 2000},
+		{Script: "expired-1", Amount: 9000},
+		{Script: "orphan-1", Amount: 5}, // no signer mapping → skipped
+	}
+	signerByScript := map[string]string{
+		"active-1":    currentHex,
+		"active-2":    currentHex,
+		"active-3":    currentHex,
+		"tomigrate-1": xonlyHexOf(toMigrateA),
+		"tomigrate-2": xonlyHexOf(toMigrateB),
+		"expired-1":   xonlyHexOf(expired),
+		// "orphan-1" intentionally absent.
+	}
+
+	got := collectToMigrateVtxos(spendable, signerByScript, currentHex, deprecated, now)
+
+	require.Len(t, got, 2, "only the two ToMigrate vtxos are collected")
+	gotScripts := map[string]bool{}
+	for _, v := range got {
+		gotScripts[v.Script] = true
+	}
+	require.True(t, gotScripts["tomigrate-1"])
+	require.True(t, gotScripts["tomigrate-2"])
+	require.False(t, gotScripts["active-1"], "current-signer vtxo must be excluded")
+	require.False(t, gotScripts["active-2"], "current-signer vtxo must be excluded")
+	require.False(t, gotScripts["active-3"], "current-signer vtxo must be excluded")
+	require.False(t, gotScripts["expired-1"], "expired vtxo must be excluded (exit-only)")
+	require.False(t, gotScripts["orphan-1"], "unmapped vtxo must be skipped")
 }
 
 // TestDeprecatedSignerSet verifies normalization, dedup of an entry equal to the

@@ -2,6 +2,8 @@ package arksdk
 
 import (
 	"fmt"
+
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 )
 
 const maxRetryNum = 5
@@ -29,6 +31,27 @@ func WithRetries(num int) BatchSessionOption {
 	}
 }
 
+// WithSettleVtxos restricts a Settle call to exactly the provided vtxos.
+// When set (non-nil), Settle skips getSpendableVtxos and uses only the provided
+// vtxos as inputs. Used by reconcileDeprecatedSigners to settle only the
+// ToMigrate subset rather than the full spendable set.
+//
+// Semantics of the argument:
+//   - nil slice: "not set" sentinel — Settle behaves exactly as if the option
+//     were not provided (full spendable settle).
+//   - non-nil empty slice ([]clienttypes.Vtxo{}): settle zero vtxos, which
+//     returns ErrNoFundsToSettle.
+//
+// The vtxos must be present in the wallet's contract store; any vtxo missing a
+// contract entry is silently omitted from signing-key resolution (same behavior
+// as today for vtxos without a contract).
+func WithSettleVtxos(vtxos []clienttypes.Vtxo) BatchSessionOption {
+	return func(o *batchSessionOptions) error {
+		o.settleVtxos = vtxos
+		return nil
+	}
+}
+
 func applyBatchSessionOptions(opts ...BatchSessionOption) (*batchSessionOptions, error) {
 	o := newDefaultBatchSessionOptions()
 	for _, opt := range opts {
@@ -44,6 +67,10 @@ func applyBatchSessionOptions(opts ...BatchSessionOption) (*batchSessionOptions,
 
 type batchSessionOptions struct {
 	retryNum int
+	// settleVtxos, when non-nil, overrides getSpendableVtxos in Settle and
+	// restricts the settlement to exactly these vtxos. A nil value means "not
+	// set" (full settle); a non-nil empty slice means "settle zero vtxos".
+	settleVtxos []clienttypes.Vtxo
 }
 
 func newDefaultBatchSessionOptions() *batchSessionOptions {
