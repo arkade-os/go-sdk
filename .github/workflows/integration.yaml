@@ -30,7 +30,7 @@ jobs:
       - run: go mod tidy
 
       - name: Start arkade-regtest base stack
-        run: node regtest/regtest.mjs start --env regtest/.env.regtest
+        run: node regtest/regtest.mjs start --env .env.regtest
 
       - name: Run regtest environment
         run: make regtest
@@ -40,4 +40,4 @@ jobs:
 
       - name: Tear down arkade-regtest base stack
         if: always()
-        run: node regtest/regtest.mjs clean --env regtest/.env.regtest
+        run: node regtest/regtest.mjs clean --env .env.regtest

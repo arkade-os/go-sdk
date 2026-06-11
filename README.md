@@ -501,6 +501,7 @@ base stack (Bitcoin Core + Fulcrum + mempool), which provides the `bitcoin` and
 own arkd compose (`test/docker/docker-compose.yml`) layers on top of:
 
 ```sh
+git submodule update --init      # fetch the arkade-regtest CLI (regtest/ submodule)
 node regtest/regtest.mjs start   # start the in-house regtest stack (Node >= 18)
 make regtest                     # build + start arkd/arkd-wallet/nbxplorer on the arkade-regtest network
 make integrationtest
