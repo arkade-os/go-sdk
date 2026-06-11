@@ -663,28 +663,43 @@ func TestVtxoStoreGetVtxos(t *testing.T) {
 				const scriptB = "0000000000000000000000000000000000000000000000000000000000000bbb"
 
 				vtxoA := clientTypes.Vtxo{
-					Outpoint:        clientTypes.Outpoint{Txid: "aaaa000000000000000000000000000000000000000000000000000000000001", VOut: 0},
-					Script:          scriptA,
-					Amount:          1000,
-					CommitmentTxids: []string{"0000000000000000000000000000000000000000000000000000000000000000"},
-					ExpiresAt:       seed[0].ExpiresAt,
-					CreatedAt:       seed[0].CreatedAt,
+					Outpoint: clientTypes.Outpoint{
+						Txid: "aaaa000000000000000000000000000000000000000000000000000000000001",
+						VOut: 0,
+					},
+					Script: scriptA,
+					Amount: 1000,
+					CommitmentTxids: []string{
+						"0000000000000000000000000000000000000000000000000000000000000000",
+					},
+					ExpiresAt: seed[0].ExpiresAt,
+					CreatedAt: seed[0].CreatedAt,
 				}
 				vtxoB := clientTypes.Vtxo{
-					Outpoint:        clientTypes.Outpoint{Txid: "bbbb000000000000000000000000000000000000000000000000000000000001", VOut: 0},
-					Script:          scriptB,
-					Amount:          2000,
-					CommitmentTxids: []string{"0000000000000000000000000000000000000000000000000000000000000000"},
-					ExpiresAt:       seed[0].ExpiresAt,
-					CreatedAt:       seed[0].CreatedAt,
+					Outpoint: clientTypes.Outpoint{
+						Txid: "bbbb000000000000000000000000000000000000000000000000000000000001",
+						VOut: 0,
+					},
+					Script: scriptB,
+					Amount: 2000,
+					CommitmentTxids: []string{
+						"0000000000000000000000000000000000000000000000000000000000000000",
+					},
+					ExpiresAt: seed[0].ExpiresAt,
+					CreatedAt: seed[0].CreatedAt,
 				}
 				vtxoA2 := clientTypes.Vtxo{
-					Outpoint:        clientTypes.Outpoint{Txid: "aaaa000000000000000000000000000000000000000000000000000000000002", VOut: 0},
-					Script:          scriptA,
-					Amount:          3000,
-					CommitmentTxids: []string{"0000000000000000000000000000000000000000000000000000000000000000"},
-					ExpiresAt:       seed[0].ExpiresAt,
-					CreatedAt:       seed[0].CreatedAt,
+					Outpoint: clientTypes.Outpoint{
+						Txid: "aaaa000000000000000000000000000000000000000000000000000000000002",
+						VOut: 0,
+					},
+					Script: scriptA,
+					Amount: 3000,
+					CommitmentTxids: []string{
+						"0000000000000000000000000000000000000000000000000000000000000000",
+					},
+					ExpiresAt: seed[0].ExpiresAt,
+					CreatedAt: seed[0].CreatedAt,
 				}
 				seedVtxos(t, s, vtxoA, vtxoB, vtxoA2)
 
