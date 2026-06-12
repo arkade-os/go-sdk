@@ -49,7 +49,7 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 	// Send from the node wallet and mine one block to confirm — mirrors the
 	// `regtest.mjs faucet --confirm` behavior (the arkade-regtest stack does not
 	// auto-mine on every faucet call).
-	_, err := bitcoinCli(t, "sendtoaddress", address, fmt.Sprintf("%.8f", amount))
+	_, err := nodeWalletCli(t, "sendtoaddress", address, fmt.Sprintf("%.8f", amount))
 	require.NoError(t, err)
 	generateBlocks(t, 1)
 }
@@ -177,7 +177,7 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 }
 
 func generateBlocks(t *testing.T, n int) {
-	_, err := bitcoinCli(t, "-generate", fmt.Sprintf("%d", n))
+	_, err := nodeWalletCli(t, "-generate", fmt.Sprintf("%d", n))
 	require.NoError(t, err)
 }
 
@@ -191,4 +191,31 @@ func bitcoinCli(t *testing.T, args ...string) (string, error) {
 		"bitcoin-cli", "-regtest", "-rpcuser=admin1", "-rpcpassword=123",
 	}, args...)
 	return runCommand("docker", full...)
+}
+
+var (
+	nodeWalletOnce sync.Once
+	nodeWalletName string
+)
+
+// nodeWalletCli runs a wallet RPC against the wallet loaded by the
+// arkade-regtest stack. Tests can load extra Core wallets (the RBF test does),
+// after which unscoped wallet RPCs fail with "Multiple wallets are loaded", so
+// the node wallet is pinned explicitly.
+func nodeWalletCli(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	nodeWalletOnce.Do(func() {
+		out, err := bitcoinCli(t, "listwallets")
+		if err != nil {
+			return
+		}
+		var wallets []string
+		if err := json.Unmarshal([]byte(out), &wallets); err != nil {
+			return
+		}
+		if len(wallets) > 0 {
+			nodeWalletName = wallets[0]
+		}
+	})
+	return bitcoinCli(t, append([]string{"-rpcwallet=" + nodeWalletName}, args...)...)
 }

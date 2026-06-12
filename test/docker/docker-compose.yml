@@ -1,6 +1,20 @@
 services:
     # nbxplorer (and its postgres) come from the arkade-regtest base stack on
     # the shared network; arkd-wallet reaches it at http://nbxplorer:32838.
+    #
+    # explorer-shim fronts mempool_web on host port 3000 (the SDK's default
+    # regtest explorer URL) to fill in esplora's /api/fee-estimates, which the
+    # mempool backend doesn't implement. The base stack's own mempool_web host
+    # port is moved to 3001 via MEMPOOL_WEB_PORT in .env.regtest.
+    explorer-shim:
+        restart: unless-stopped
+        image: nginx:1.27-alpine
+        container_name: explorer-shim
+        ports:
+            - "3000:80"
+        volumes:
+            - ./explorer-shim.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
     arkd-wallet:
         restart: unless-stopped
         build:
