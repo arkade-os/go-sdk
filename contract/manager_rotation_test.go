@@ -52,7 +52,7 @@ func contractsBySigner(cs []types.Contract) map[string][]types.Contract {
 // TestScanContractsMultiSigner verifies that a single rotation (current + one
 // deprecated signer) discovers and persists vtxos under BOTH signers, and that
 // the whole batch is probed in a single indexer call rather than one call per
-// signer (EC-11).
+// signer.
 func TestScanContractsMultiSigner(t *testing.T) {
 	env, mgr, _ := newTestManagerWithEnv(t)
 	deprecated := env.addDeprecatedSigner(t)
@@ -184,7 +184,7 @@ func TestScanContractsHighCurrentSignerStartIdx(t *testing.T) {
 // TestScanContractsDeprecatedFromIndex0 verifies that even when current-signer
 // contracts already exist at high indices (so the current scan resumes after
 // them), the deprecated-signer scan starts from index 0 and finds a low-index
-// pre-rotation vtxo (EC-2, spec 3.3.5).
+// pre-rotation vtxo.
 func TestScanContractsDeprecatedFromIndex0(t *testing.T) {
 	env, mgr, _ := newTestManagerWithEnv(t)
 
@@ -214,7 +214,7 @@ func TestScanContractsDeprecatedFromIndex0(t *testing.T) {
 }
 
 // TestScanContractsIdempotent verifies a second scan over an already-scanned DB
-// returns no error and does not duplicate rows (INSERT OR IGNORE, EC-12).
+// returns no error and does not duplicate rows (INSERT OR IGNORE).
 func TestScanContractsIdempotent(t *testing.T) {
 	env, mgr, _ := newTestManagerWithEnv(t)
 	deprecated := env.addDeprecatedSigner(t)
@@ -267,7 +267,7 @@ func TestScanContractsDedupEqualToCurrent(t *testing.T) {
 }
 
 // TestScanContractsBoardingDeprecated verifies boarding (onchain) discovery
-// covers deprecated signers too (EC-7).
+// covers deprecated signers too.
 func TestScanContractsBoardingDeprecated(t *testing.T) {
 	env, mgr, _ := newTestManagerWithEnv(t)
 	deprecated := env.addDeprecatedSigner(t)

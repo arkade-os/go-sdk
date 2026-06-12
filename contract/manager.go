@@ -369,7 +369,8 @@ func (m *contractManager) scanContracts(
 	// everything up to the latest allocated current-signer contract is already
 	// tracked. Deprecated signers always start from index 0: a pre-rotation
 	// vtxo can sit at any low index even when current-signer contracts exist at
-	// high indices (EC-2, spec 3.3.5).
+	// high indices, so a deprecated-signer scan that resumed after the last
+	// stored index would miss those low-index pre-rotation contracts.
 	var currentStartIdx uint32
 	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
@@ -418,8 +419,8 @@ func (m *contractManager) scanContracts(
 	// per-index and signer-independent, so we derive it once per index and fan
 	// it out across every signer via CandidateContracts. We probe gapLimit
 	// indices at a time: all candidate scripts across signers AND indices in the
-	// batch are deduplicated and sent in a SINGLE findUsed call (EC-3, EC-11) so
-	// we never multiply indexer round-trips by the signer count.
+	// batch are deduplicated and sent in a SINGLE findUsed call so we never
+	// multiply indexer round-trips by the signer count.
 	currentKeyId := ""
 	for !scanDone {
 		type entry struct {
@@ -537,8 +538,8 @@ func (m *contractManager) scanContracts(
 	}
 
 	// Persist each signer's contiguous range [startIdx, lastUsedIdx]. Persisting
-	// a script that already exists is a no-op thanks to INSERT OR IGNORE (EC-12),
-	// so re-scans and overlapping (index, signer) rows are harmless.
+	// a script that already exists is a no-op thanks to INSERT OR IGNORE, so
+	// re-scans and overlapping (index, signer) rows are harmless.
 	for _, s := range signers {
 		st := states[signerHex(s)]
 		if st.lastUsedIdx == noUsage {
@@ -641,14 +642,14 @@ func (m *contractManager) findUsedBoardingContracts(
 // accepted signer that a single-key identity can produce, and probes external
 // state to decide which to persist. A single-key wallet that held pre-rotation
 // (deprecated-signer) vtxos must still discover them, so we derive candidates
-// for the current signer AND every deprecated signer (EC-9). Offchain
-// candidates are deduplicated and batched into a single indexer call; boarding
-// candidates go through the per-address explorer probe.
+// for the current signer AND every deprecated signer. Offchain candidates are
+// deduplicated and batched into a single indexer call; boarding candidates go
+// through the per-address explorer probe.
 //
 // The previous "skip if any contract of this type is already stored" early-exit
 // is intentionally gone: it would mask a deprecated-signer contract whenever a
 // current-signer one already existed. INSERT OR IGNORE makes re-persisting an
-// already-stored contract a no-op, so re-scans stay idempotent (EC-12).
+// already-stored contract a no-op, so re-scans stay idempotent.
 func (m *contractManager) scanSingleKeyContracts(
 	ctx context.Context, signers []*btcec.PublicKey,
 ) error {

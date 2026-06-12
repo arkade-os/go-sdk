@@ -41,7 +41,7 @@ func TestInfoCache(t *testing.T) {
 	t.Run("invalidate clears a fresh entry", func(t *testing.T) {
 		// Invalidate must drop a still-fresh (within-TTL) entry so the next
 		// GetInfo re-reads the signer set — the restore / live-rotation
-		// freshness guarantee (EC-17).
+		// freshness guarantee.
 		c := newInfoCache(time.Minute)
 		c.set(&client.Info{SignerPubKey: "abcd"})
 		require.NotNil(t, c.get(), "fresh entry must be served before invalidate")

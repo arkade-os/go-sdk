@@ -174,12 +174,12 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 			// unexported settle (no safeCheck), so it does not hit ErrIsSyncing
 			// even though syncDone is still false here.
 			//
-			// Item A discovery (ScanContracts above) has already persisted any
+			// Contract discovery (ScanContracts above) has already persisted any
 			// pre-rotation deprecated-signer contracts and refreshDb has pulled
 			// their vtxos, so migration has a consistent view.
 			//
 			// The live-rotation digest is initialized ONLY when reconcile
-			// succeeds. This keeps the unlock path consistent with F4's
+			// succeeds. This keeps the unlock path consistent with the
 			// advance-after-success rule (wallet.go detectAndHandleRotation): if
 			// reconcile fails here, lastSignerSetDigest is left at its zero value
 			// so the first periodic tick sees a signer-set change and retries the

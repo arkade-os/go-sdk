@@ -28,9 +28,9 @@ func xonlyHexOf(key *btcec.PublicKey) string {
 }
 
 // TestClassifySigner covers every counted signer state plus the unknown
-// sentinel and the cutoff thresholds (EC-5 cutoff==0/past-cutoff, EC-16 multiple
-// deprecated). After the 5→3 collapse there is no safety margin: any future (or
-// zero) cutoff is signerToMigrate, any past cutoff is signerExpired.
+// sentinel and the cutoff thresholds (cutoff==0 and past-cutoff, plus multiple
+// deprecated signers). There is no safety margin: any future (or zero) cutoff
+// classifies as signerToMigrate, and any past cutoff as signerExpired.
 func TestClassifySigner(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
@@ -77,8 +77,8 @@ func TestClassifySigner(t *testing.T) {
 	}
 }
 
-// TestCollectToMigrateVtxos verifies FR-EXT2-2, FR-EXT2-4, SC-EXT2: the subset
-// passed to WithSettleVtxos contains exactly the signerToMigrate vtxos — Active
+// TestCollectToMigrateVtxos verifies the subset passed to WithSettleVtxos
+// contains exactly the signerToMigrate vtxos — Active
 // (current-signer) and Expired (past-cutoff, exit-only) vtxos are excluded, and
 // vtxos with no signer mapping are skipped. This is the input that
 // reconcileDeprecatedSigners feeds to the unexported settle(ctx,
@@ -143,7 +143,7 @@ func TestCollectToMigrateVtxos(t *testing.T) {
 }
 
 // TestDeprecatedSignerSet verifies normalization, dedup of an entry equal to the
-// current signer, and that malformed entries are skipped (EC-4, EC-10).
+// current signer, and that malformed entries are skipped.
 func TestDeprecatedSignerSet(t *testing.T) {
 	current := testKey(t)
 	dep := testKey(t)

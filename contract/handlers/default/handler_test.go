@@ -143,7 +143,7 @@ func TestCandidateContractsDistinctSigners(t *testing.T) {
 
 // TestCandidateContractsBoardingVsOffchain verifies both the offchain
 // (isOnchain=false) and boarding (isOnchain=true) handlers produce distinct
-// per-signer addresses and scripts (EC-7).
+// per-signer addresses and scripts.
 func TestCandidateContractsBoardingVsOffchain(t *testing.T) {
 	current := newSigner(t)
 	deprecated := newSigner(t)
@@ -164,7 +164,7 @@ func TestCandidateContractsBoardingVsOffchain(t *testing.T) {
 
 // TestCandidateContractsXOnlyNormalization verifies a 33-byte compressed signer
 // key is normalized to a 32-byte x-only signerKey param, and that a compressed
-// and x-only form of the same key produce the SAME script (EC-4).
+// and x-only form of the same key produce the SAME script.
 func TestCandidateContractsXOnlyNormalization(t *testing.T) {
 	current := newSigner(t)
 	deprecated := newSigner(t)

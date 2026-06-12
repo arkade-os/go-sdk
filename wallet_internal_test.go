@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDetectRotationRetryOnScanFailure verifies the F4 fix: the rotation digest
+// TestDetectRotationRetryOnScanFailure verifies the rotation digest
 // is advanced ONLY after discovery (rescan + refresh) succeeds. A transient
 // ScanContracts failure must leave lastSignerSetDigest at its old value so the
 // next periodic tick re-detects the change and retries; reconcile failure must

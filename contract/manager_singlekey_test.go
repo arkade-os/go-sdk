@@ -16,7 +16,7 @@ import (
 
 // TestScanSingleKeyDeprecatedSigner verifies a single-key wallet discovers a
 // pre-rotation (deprecated-signer) offchain vtxo even though a current-signer
-// contract of the same type may already exist (EC-9).
+// contract of the same type may already exist.
 func TestScanSingleKeyDeprecatedSigner(t *testing.T) {
 	env := newMockedEnv(t)
 	deprecated := env.addDeprecatedSigner(t)

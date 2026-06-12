@@ -27,7 +27,7 @@ func newSyncWallet() *wallet {
 	return w
 }
 
-// syncGate reads exactly the sync portion of safeCheck (the part Option B moves
+// syncGate reads exactly the sync portion of safeCheck (the part that runs
 // behind the synchronous migration). It returns ErrIsSyncing until setRestored
 // flips syncDone — i.e. until the unlock sequence (including migrateOnUnlock)
 // has completed and the syncCh send has been consumed.
@@ -187,8 +187,8 @@ func TestMigrateOnUnlockFailureNeverHostage(t *testing.T) {
 		"digest advances once migration succeeds, stopping further retries")
 }
 
-// TestPublicSettleStillSafeChecked proves the public API behavior is unchanged
-// by Option B: the public Settle still runs safeCheck before delegating to the
+// TestPublicSettleStillSafeChecked proves the public API behavior is unchanged:
+// the public Settle still runs safeCheck before delegating to the
 // unexported settle. With a bare wallet (nil client/contractManager) safeCheck
 // returns ErrNotInitialized and Settle never reaches the unexported settle body.
 // This is the guarantee that no external caller bypasses safeCheck — the

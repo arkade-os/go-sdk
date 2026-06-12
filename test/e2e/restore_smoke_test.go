@@ -15,13 +15,13 @@ import (
 )
 
 // TestRestoreAfterSignerRotation is the end-to-end proof of the deprecated-
-// signer (key rotation) support:
+// signer (key rotation) support, in two parts:
 //
-//	Item A — a wallet restored from seed AFTER a server signer rotation
-//	         rediscovers its pre-rotation (deprecated-signer) vtxos, which a
-//	         signer-unaware discovery would render invisible.
-//	Item B — those vtxos are migrated onto outputs committing to the CURRENT
-//	         signer before the deprecated key's cutoff.
+//	Discovery — a wallet restored from seed AFTER a server signer rotation
+//	            rediscovers its pre-rotation (deprecated-signer) vtxos, which a
+//	            signer-unaware discovery would render invisible.
+//	Migration — those vtxos are migrated onto outputs committing to the CURRENT
+//	            signer before the deprecated key's cutoff.
 //
 // It REQUIRES an arkd built with deprecated-signer support (feat/deprecated-keys,
 // arkd#822), which is not yet merged: there is no server build that advertises a
@@ -62,18 +62,18 @@ func TestRestoreAfterSignerRotation(t *testing.T) {
 	// exists this is a placeholder for the rotation step.
 	rotateServerSigner(t)
 
-	// 3. Restore alice from seed into a brand-new (empty) DB. Discovery (Item A)
+	// 3. Restore alice from seed into a brand-new (empty) DB. Discovery
 	// runs inside ScanContracts at unlock, BEFORE refreshDb, so the pre-rotation
 	// deprecated-signer vtxos must be found even though every freshly-allocated
 	// contract now commits to the new signer.
 	restored := setupClient(t, seed)
 
-	// 4. Item A assertion: pre-rotation vtxos are rediscovered. Their total
+	// 4. Discovery assertion: pre-rotation vtxos are rediscovered. Their total
 	// value (before any migration spends them) must equal what alice funded.
 	currentSigner := serverCurrentSigner(t, restored)
 	require.NotEqual(t, oldSigner, currentSigner, "rotation must have changed the active signer")
 
-	// 5. Item B assertion: after restore, reconcileDeprecatedSigners has run in
+	// 5. Migration assertion: after restore, reconcileDeprecatedSigners has run in
 	// the unlock goroutine and migrated the deprecated-signer vtxos onto
 	// current-signer outputs (arkd#822: every settle output commits to the
 	// current signer). All surviving spendable vtxos must therefore commit to

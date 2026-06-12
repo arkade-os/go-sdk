@@ -197,8 +197,8 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 		sHex, ok := signerByScript[v.Script]
 		if !ok {
 			// No contract maps this vtxo's script; skip (a foreign or
-			// not-yet-discovered script). Discovery (Item A) is responsible for
-			// persisting the contract before reconcile runs.
+			// not-yet-discovered script). Contract discovery (ScanContracts) is
+			// responsible for persisting the contract before reconcile runs.
 			continue
 		}
 		state, cutoff := classifySigner(sHex, currentHex, deprecated, now)
@@ -219,8 +219,8 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 			)
 			updateNearestCutoff(&status, cutoff)
 		case signerUnknown:
-			// Unknown signers are log-only (FR-EXT1-1): never counted, never
-			// settled.
+			// Unknown signers (neither current nor deprecated) are log-only:
+			// never counted, never settled.
 			log.Warnf(
 				"reconcile: vtxo %s under unknown signer %s (neither current nor deprecated)",
 				v.Script, sHex,
@@ -233,7 +233,7 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 	// commits to the current signer (newOffchainAddress), honoring arkd #822.
 	// Expired vtxos are excluded (exit-only); Active vtxos are left untouched.
 	// It is idempotent across runs: once migrated, those vtxos are spent and a
-	// re-run finds no ToMigrate entries (EC-12, EC-14).
+	// re-run finds no ToMigrate entries.
 	if hasToMigrate {
 		toMigrateVtxos := collectToMigrateVtxos(
 			spendable, signerByScript, currentHex, deprecated, now,
