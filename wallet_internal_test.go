@@ -1,11 +1,101 @@
 package arksdk
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
+
+// TestDetectRotationRetryOnScanFailure verifies the F4 fix: the rotation digest
+// is advanced ONLY after discovery (rescan + refresh) succeeds. A transient
+// ScanContracts failure must leave lastSignerSetDigest at its old value so the
+// next periodic tick re-detects the change and retries; reconcile failure must
+// NOT block the advance (discovery already succeeded). The seam fields on the
+// wallet let us drive rescanAndReconcile without mocking the whole client /
+// contract-manager surface.
+func TestDetectRotationRetryOnScanFailure(t *testing.T) {
+	const oldDigest = "old"
+	const newDigest = "new"
+
+	// commit mirrors detectAndHandleRotation's gated assignment.
+	commit := func(w *wallet) {
+		if w.rescanAndReconcile(context.Background()) {
+			w.lastSignerSetDigest = newDigest
+		}
+	}
+
+	t.Run("scan failure: digest unchanged, retry on next tick", func(t *testing.T) {
+		scanCalls := 0
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationScanFn: func(_ context.Context, _ uint32) error {
+				scanCalls++
+				return fmt.Errorf("transient rescan failure")
+			},
+			rotationRefreshFn:   func(_ context.Context) error { return nil },
+			rotationReconcileFn: func(_ context.Context) error { return nil },
+		}
+
+		// First tick: scan fails → digest must stay old.
+		commit(w)
+		require.Equal(t, oldDigest, w.lastSignerSetDigest,
+			"digest must not advance when ScanContracts fails")
+		require.Equal(t, 1, scanCalls)
+
+		// Second tick: still old digest, so the rotation is re-detected and the
+		// rescan is retried (and now succeeds).
+		w.rotationScanFn = func(_ context.Context, _ uint32) error {
+			scanCalls++
+			return nil
+		}
+		commit(w)
+		require.Equal(t, newDigest, w.lastSignerSetDigest,
+			"digest must advance once rescan+refresh succeed on retry")
+		require.Equal(t, 2, scanCalls, "rescan must be retried on the next tick")
+	})
+
+	t.Run("refresh failure: digest unchanged", func(t *testing.T) {
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationScanFn:      func(_ context.Context, _ uint32) error { return nil },
+			rotationRefreshFn: func(_ context.Context) error {
+				return fmt.Errorf("transient refresh failure")
+			},
+			rotationReconcileFn: func(_ context.Context) error { return nil },
+		}
+		commit(w)
+		require.Equal(t, oldDigest, w.lastSignerSetDigest,
+			"digest must not advance when refreshDb fails")
+	})
+
+	t.Run("reconcile failure: digest still advances", func(t *testing.T) {
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationScanFn:      func(_ context.Context, _ uint32) error { return nil },
+			rotationRefreshFn:   func(_ context.Context) error { return nil },
+			rotationReconcileFn: func(_ context.Context) error {
+				return fmt.Errorf("migration failed")
+			},
+		}
+		commit(w)
+		require.Equal(t, newDigest, w.lastSignerSetDigest,
+			"reconcile failure must not block the digest advance (discovery succeeded)")
+	})
+
+	t.Run("all succeed: digest advances", func(t *testing.T) {
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationScanFn:      func(_ context.Context, _ uint32) error { return nil },
+			rotationRefreshFn:   func(_ context.Context) error { return nil },
+			rotationReconcileFn: func(_ context.Context) error { return nil },
+		}
+		commit(w)
+		require.Equal(t, newDigest, w.lastSignerSetDigest)
+	})
+}
 
 func TestGroupSpentVtxosByTx(t *testing.T) {
 	t.Parallel()

@@ -80,6 +80,14 @@ type wallet struct {
 	// triggers reconcileDeprecatedSigners without requiring a restart.
 	lastSignerSetDigest string
 
+	// rotationScanFn/rotationRefreshFn/rotationReconcileFn are test-only seams
+	// for rescanAndReconcile. They are nil in production (the real methods run);
+	// internal tests set them to inject failures and assert the digest-advance
+	// ordering without mocking the whole client/contract-manager surface.
+	rotationScanFn      func(ctx context.Context, gapLimit uint32) error
+	rotationRefreshFn   func(ctx context.Context) error
+	rotationReconcileFn func(ctx context.Context) error
+
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
@@ -1360,23 +1368,65 @@ func (w *wallet) detectAndHandleRotation(ctx context.Context) {
 		return
 	}
 	log.Infof("rotation detection: signer set changed, rescanning and reconciling")
-	w.lastSignerSetDigest = digest
 
+	// Only advance lastSignerSetDigest once discovery (rescan + refresh) has
+	// actually succeeded. If we advanced it up-front, a transient ScanContracts
+	// or refreshDb failure here would return early but leave the digest pointing
+	// at the new signer set, so the next periodic tick would see no change and
+	// never retry — funds under the new signer would stay undiscovered until a
+	// restart or another rotation. Reconcile failure does NOT block the advance:
+	// discovery already succeeded and migration is retried out-of-band.
+	if w.rescanAndReconcile(ctx) {
+		w.lastSignerSetDigest = digest
+	}
+}
+
+// rescanAndReconcile runs the discovery + migration steps of a detected
+// rotation and reports whether the rotation digest may now be advanced. It
+// returns true iff rescan AND refresh succeeded (reconcile failure is
+// non-fatal). Split out from detectAndHandleRotation so the digest-advance
+// decision can be unit-tested via the rotationStep seams without mocking the
+// whole wallet. The seam fields are nil in production and fall through to the
+// real methods.
+func (w *wallet) rescanAndReconcile(ctx context.Context) bool {
 	// Force a fresh signer set for the rescan, then discover any contracts
 	// under the (new or newly-deprecated) signer and pull their vtxos before
 	// reconciling.
-	w.contractManager.InvalidateInfoCache()
-	if err := w.contractManager.ScanContracts(ctx, w.hdGapLimit); err != nil {
+	if w.contractManager != nil {
+		w.contractManager.InvalidateInfoCache()
+	}
+
+	scan := w.rotationScanFn
+	if scan == nil {
+		scan = w.contractManager.ScanContracts
+	}
+	if err := scan(ctx, w.hdGapLimit); err != nil {
 		log.WithError(err).Warn("rotation detection: rescan failed")
-		return
+		return false
 	}
-	if err := w.refreshDb(ctx); err != nil {
+
+	refresh := w.rotationRefreshFn
+	if refresh == nil {
+		refresh = w.refreshDb
+	}
+	if err := refresh(ctx); err != nil {
 		log.WithError(err).Warn("rotation detection: refresh after rescan failed")
-		return
+		return false
 	}
-	if _, err := w.reconcileDeprecatedSigners(ctx); err != nil {
+
+	reconcile := w.rotationReconcileFn
+	if reconcile == nil {
+		reconcile = func(ctx context.Context) error {
+			_, err := w.reconcileDeprecatedSigners(ctx)
+			return err
+		}
+	}
+	if err := reconcile(ctx); err != nil {
+		// Non-fatal: discovery already succeeded, only migration failed. The
+		// digest still advances; migration is retried out-of-band.
 		log.WithError(err).Warn("rotation detection: reconciliation failed")
 	}
+	return true
 }
 
 func (w *wallet) handleCommitmentTx(

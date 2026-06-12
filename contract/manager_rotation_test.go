@@ -87,19 +87,24 @@ func TestScanContractsMultiSigner(t *testing.T) {
 	)
 }
 
-// TestScanContractsPerSignerGapIndependence verifies that the current and
-// deprecated signers walk independent gap counters (EC-1): the current signer
-// hitting only its first index (and then exhausting its gap) must not stop the
-// deprecated signer from discovering a hit at a higher index that lies within
-// the deprecated signer's OWN gap window.
-func TestScanContractsPerSignerGapIndependence(t *testing.T) {
+// TestScanContractsUnionGapAcrossSigners verifies the SINGLE union gap counter
+// (the post-fix termination rule): a hit by ANY accepted signer at an index
+// resets the shared counter, so a deprecated-signer hit keeps discovery alive
+// past the point where the current signer alone would have stopped. The
+// protective behavior the old per-signer design provided (a current-signer stop
+// must not hide a later deprecated-signer hit) is preserved by the union
+// counter — but now the SAME counter also protects the current signer's own
+// late hits (see TestScanContractsHighCurrentSignerStartIdx).
+func TestScanContractsUnionGapAcrossSigners(t *testing.T) {
 	env, mgr, _ := newTestManagerWithEnv(t)
 	deprecated := env.addDeprecatedSigner(t)
 	current := currentSignerKey(t, env)
 
-	// Current signer: single hit at m/0/0, then a run of misses that exhausts
-	// its gap. Deprecated signer: hit at m/0/4, reachable within gapLimit=5
-	// from index 0 even though the current signer has long since stopped.
+	// Current signer: single hit at m/0/0, then a run of misses. Deprecated
+	// signer: hit at m/0/4. With the union counter and gapLimit=5 the shared
+	// counter resets at index 0 (current+deprecated hit) and again at index 4
+	// (deprecated hit), so the scan never fires its gap inside 0..4 and both
+	// signers' contracts in that range are discovered.
 	env.markUsedForSigner(t, current, "m/0/0")
 	env.markUsedForSigner(t, deprecated, "m/0/4")
 
@@ -114,13 +119,65 @@ func TestScanContractsPerSignerGapIndependence(t *testing.T) {
 
 	// Current signer persists up to its last hit (m/0/0).
 	require.ElementsMatch(t, []string{"m/0/0"}, ownerKeyIds(bySigner[curHex]))
-	// Deprecated signer, scanning from 0 with its own gap counter, persists
-	// 0..4 — its hit at m/0/4 is found independently of the current signer's
-	// earlier stop.
+	// Deprecated signer, scanning from 0, persists 0..4 — its hit at m/0/4 is
+	// discovered because the union counter never reached gapLimit before it.
 	require.ElementsMatch(
 		t, []string{"m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4"},
 		ownerKeyIds(bySigner[depHex]),
-		"deprecated-signer hit within its own gap must be discovered independently",
+		"deprecated-signer hit within the shared gap window must be discovered",
+	)
+}
+
+// TestScanContractsHighCurrentSignerStartIdx is THE P0 regression test for the
+// union gap counter. It reproduces the index-1000 fund-loss scenario (scaled
+// down): after a rotation, the current signer's FIRST hit sits beyond gapLimit
+// from index 0, while the deprecated signer has hits at the low indices. On a
+// fresh-DB restore the current signer (signers[0]) resumes at index 0, so a
+// per-signer gap counter would exhaust the current signer's window long before
+// its first hit and that post-rotation balance would be lost forever.
+//
+// The union counter fixes this: the deprecated signer's contiguous low-index
+// hits keep the shared counter alive across the gap, so the scan walks far
+// enough to reach the current signer's late hit and discovers BOTH signers'
+// funds.
+//
+// This test would FAIL against the pre-fix per-signer counter logic: the
+// current signer's gap would fire at index gapLimit (no current-signer hit
+// in 0..gapLimit-1), marking it done before its hit at m/0/8 is ever probed.
+func TestScanContractsHighCurrentSignerStartIdx(t *testing.T) {
+	env, mgr, _ := newTestManagerWithEnv(t)
+	deprecated := env.addDeprecatedSigner(t)
+	current := currentSignerKey(t, env)
+
+	// Deprecated signer (pre-rotation funds) has contiguous hits at the low
+	// indices 0..5. The current signer's only hit is at m/0/8 — strictly beyond
+	// gapLimit=5 from index 0, i.e. a per-signer counter for the current signer
+	// would have fired at index 5 (no current hit in 0..4). m/0/8 is reachable
+	// because the deprecated hits at 0..5 keep the shared counter at 0 through
+	// index 5; from index 5 the union counter then has indices 6,7 unused (2 < 5)
+	// before the current-signer hit at 8 resets it again.
+	env.markUsedForSigner(t, deprecated, "m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4", "m/0/5")
+	env.markUsedForSigner(t, current, "m/0/8")
+
+	require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+	got, err := mgr.GetContracts(t.Context(), contract.WithType(types.ContractTypeDefault))
+	require.NoError(t, err)
+
+	bySigner := contractsBySigner(got)
+	curHex := xOnlyHex(t, current)
+	depHex := xOnlyHex(t, deprecated)
+
+	// The whole point: the current signer's high-index hit IS discovered.
+	require.Contains(
+		t, ownerKeyIds(bySigner[curHex]), "m/0/8",
+		"current-signer hit beyond gapLimit must be discovered via the union counter",
+	)
+	// Deprecated signer's low-index funds are discovered too (range 0..5).
+	require.ElementsMatch(
+		t, []string{"m/0/0", "m/0/1", "m/0/2", "m/0/3", "m/0/4", "m/0/5"},
+		ownerKeyIds(bySigner[depHex]),
+		"deprecated-signer low-index funds must be discovered",
 	)
 }
 

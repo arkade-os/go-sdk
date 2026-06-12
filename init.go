@@ -167,19 +167,42 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 			// Item A discovery (ScanContracts above) has already persisted any
 			// pre-rotation deprecated-signer contracts and refreshDb has pulled
-			// their vtxos, so migration now has a consistent view. Initialize
-			// the live-rotation digest and migrate actionable (dueNow)
-			// deprecated-signer vtxos onto current-signer outputs. A migration
-			// failure must NEVER block Unlock: log and continue.
+			// their vtxos, so migration now has a consistent view. Initialize the
+			// live-rotation digest so the periodic rotation detector does not
+			// redundantly re-scan for the same signer set. The actual migration is
+			// launched AFTER syncCh is closed (below) so the wallet is fully synced
+			// (syncDone == true) by the time Settle runs — otherwise Settle's
+			// safeCheck returns ErrIsSyncing and migration is silently skipped.
 			if info, infoErr := w.Client().GetInfo(ctx); infoErr == nil {
 				w.lastSignerSetDigest = signerSetDigest(info)
-			}
-			if _, recErr := w.reconcileDeprecatedSigners(ctx); recErr != nil {
-				log.WithError(recErr).Warn("deprecated signer reconciliation failed")
 			}
 		}
 		w.syncCh <- err
 		close(w.syncCh)
+
+		// Migrate actionable deprecated-signer vtxos onto current-signer outputs.
+		// Launched only on a successful sync and only AFTER syncCh is closed:
+		// reconcile → Settle → safeCheck requires syncDone == true, otherwise it
+		// returns ErrIsSyncing and migration is silently skipped. We wait on
+		// IsSynced (which fires once setRestored sets syncDone) to make the
+		// ordering deterministic rather than racing the syncCh listener. A
+		// migration failure must NEVER affect Unlock: it runs detached and only
+		// logs on error.
+		if err == nil {
+			w.bgWg.Go(func() {
+				select {
+				case <-ctx.Done():
+					return
+				case ev := <-w.IsSynced(ctx):
+					if !ev.Synced {
+						return
+					}
+				}
+				if _, recErr := w.reconcileDeprecatedSigners(ctx); recErr != nil {
+					log.WithError(recErr).Warn("deprecated signer reconciliation failed")
+				}
+			})
+		}
 
 		w.bgWg.Go(func() { w.listenForArkTxs(ctx) })
 		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network) })

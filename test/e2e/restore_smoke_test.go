@@ -81,9 +81,19 @@ func TestRestoreAfterSignerRotation(t *testing.T) {
 	postVtxos, _, err := restored.ListVtxos(ctx, arksdk.WithSpendableOnly())
 	require.NoError(t, err)
 	require.NotEmpty(t, postVtxos, "restored wallet must hold the recovered funds")
-	require.Equal(
-		t, fundSats, vtxoTotalAmount(postVtxos),
-		"migration must preserve the total recovered value",
+	// The migration is a real subset settle, which deducts settlement fees, so
+	// the post-migration total is at most the funded amount and at least
+	// fundSats minus a generous fee allowance. An exact equality would break the
+	// moment the test is unskipped against a live arkd that charges any fee.
+	const maxMigrationFeeSats = uint64(5_000)
+	postTotal := vtxoTotalAmount(postVtxos)
+	require.LessOrEqual(
+		t, postTotal, fundSats,
+		"migration cannot create value above the funded amount",
+	)
+	require.GreaterOrEqual(
+		t, postTotal, fundSats-maxMigrationFeeSats,
+		"migration must preserve the recovered value net of settlement fees",
 	)
 	for _, v := range postVtxos {
 		require.Equal(

@@ -248,3 +248,42 @@ func TestUpdateNearestCutoff(t *testing.T) {
 	updateNearestCutoff(&status, later)
 	require.Equal(t, time.Unix(sooner, 0), status.NearestCutoff, "later cutoff must not override")
 }
+
+// TestSkipMigrationSettleGuard verifies the empty-toMigrate guard
+// (skipMigrationSettle): an empty/nil ToMigrate subset must be skipped so it
+// never reaches Settle, where WithSettleVtxos(nil) would fall back to a FULL
+// settle of every spendable vtxo. A non-empty subset must proceed.
+func TestSkipMigrationSettleGuard(t *testing.T) {
+	require.True(t, skipMigrationSettle(nil), "nil subset must be skipped")
+	require.True(t, skipMigrationSettle([]clienttypes.Vtxo{}),
+		"empty subset must be skipped")
+	require.False(t, skipMigrationSettle([]clienttypes.Vtxo{{Script: "a"}}),
+		"non-empty subset must proceed to settle")
+
+	// End-to-end of the guard's premise: when no spendable vtxo classifies as
+	// ToMigrate, collectToMigrateVtxos returns empty — exactly the case where the
+	// guard must engage rather than passing nil to Settle. Here every vtxo is
+	// either current-signer (Active) or past-cutoff (Expired); none is ToMigrate.
+	now := time.Unix(1_700_000_000, 0)
+	current := testKey(t)
+	expired := testKey(t)
+	currentHex := xonlyHexOf(current)
+	deprecated := map[string]client.DeprecatedSigner{
+		xonlyHexOf(expired): {
+			PubKey: xonlyHexOf(expired), CutoffDate: now.Add(-time.Hour).Unix(),
+		},
+	}
+	spendable := []clienttypes.Vtxo{
+		{Script: "active-1", Amount: 100},
+		{Script: "expired-1", Amount: 200},
+	}
+	signerByScript := map[string]string{
+		"active-1":  currentHex,
+		"expired-1": xonlyHexOf(expired),
+	}
+	toMigrate := collectToMigrateVtxos(spendable, signerByScript, currentHex, deprecated, now)
+	require.Empty(t, toMigrate, "no vtxo should classify as ToMigrate in this setup")
+	require.True(t, skipMigrationSettle(toMigrate),
+		"guard must skip settle when no vtxo is actually migratable, "+
+			"preventing an accidental full-settle of the Active/Expired vtxos")
+}

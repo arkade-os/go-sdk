@@ -238,6 +238,19 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 		toMigrateVtxos := collectToMigrateVtxos(
 			spendable, signerByScript, currentHex, deprecated, now,
 		)
+		if skipMigrationSettle(toMigrateVtxos) {
+			// Defensive guard: hasToMigrate was set above, so collectToMigrateVtxos
+			// should return a non-empty subset. If it does not (e.g. a
+			// classification/derivation mismatch), skip Settle entirely:
+			// WithSettleVtxos(nil) falls back to a FULL settle of every spendable
+			// vtxo, which would migrate Active and Expired vtxos too — exactly what
+			// the subset settle is designed to avoid. Log and return the status.
+			log.Warn(
+				"reconcile: classified ToMigrate vtxos but collected an empty " +
+					"subset; skipping settle to avoid an accidental full-settle fallback",
+			)
+			return status, nil
+		}
 		if _, err := w.Settle(ctx, WithSettleVtxos(toMigrateVtxos)); err != nil {
 			// Do not fail the caller (Unlock) on a migration error — log and
 			// surface via the returned status.
@@ -252,6 +265,15 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 	}
 
 	return status, nil
+}
+
+// skipMigrationSettle reports whether the migration Settle must be skipped
+// because the collected ToMigrate subset is empty. Passing an empty/nil slice
+// to WithSettleVtxos triggers a FULL settle of every spendable vtxo (the
+// no-op-options fallback), which would sweep Active and Expired vtxos the subset
+// settle is meant to exclude — so an empty subset must never reach Settle.
+func skipMigrationSettle(toMigrate []clienttypes.Vtxo) bool {
+	return len(toMigrate) == 0
 }
 
 // collectToMigrateVtxos returns the subset of spendable vtxos classified as

@@ -205,17 +205,52 @@ func (m *contractManager) NewContract(
 	defer m.mu.Unlock()
 
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		// A single-key identity reuses the same key for every contract of a given type, so the
-		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
-		// the stored contract.
+		// A single-key identity reuses the same key for every contract of a given
+		// type, so the derived script is identical across calls under the SAME
+		// signer. Treat a repeat as idempotent reuse and return the stored
+		// contract — but only one that commits to the CURRENT server signer.
+		//
+		// After a rotation, ScanContracts persists both deprecated-signer and
+		// current-signer contracts of the same type, and GetContractsByType has no
+		// signer filter or ordering. Returning contracts[0] could hand back a
+		// deprecated-signer contract, so a new incoming payment would commit to a
+		// deprecated signer (violating arkd #822). Filter by the current signer
+		// (read from fresh server info) and fall through to derive a fresh
+		// current-signer contract if none of the stored ones match.
+		info, err := m.client.GetInfo(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get server info: %w", err)
+		}
+		currentBuf, err := hex.DecodeString(info.SignerPubKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode current signer key: %w", err)
+		}
+		currentKey, err := btcec.ParsePubKey(currentBuf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse current signer key: %w", err)
+		}
+		currentHex := signerHex(currentKey)
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
 		}
-		if len(contracts) > 0 {
-			contract := contracts[0]
-			return &contract, nil
+		for _, c := range contracts {
+			signerKey, err := handler.GetSignerKey(c)
+			if err != nil {
+				// A contract whose signer we cannot resolve cannot be confirmed as
+				// current-signer; skip it rather than risk reusing a deprecated one.
+				log.Warnf(
+					"%s skipping stored contract %s with unresolvable signer: %v",
+					logPrefix, c.Script, err,
+				)
+				continue
+			}
+			if signerHex(signerKey) == currentHex {
+				contract := c
+				return &contract, nil
+			}
 		}
+		// No stored current-signer contract: fall through to derive a new one.
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
@@ -302,17 +337,24 @@ type findUsedFn func(
 	ctx context.Context, contracts []types.Contract,
 ) (map[string]struct{}, error)
 
-// signerScanState tracks one signer's independent gap-limit walk. The current
-// signer and each deprecated signer get their own state so a gap in one space
-// never stops the scan in another (EC-1). lastUsedIdx anchors persistence;
-// contractByIndex holds the derived contract for every scanned index so we can
-// persist the contiguous range [startIdx, lastUsedIdx] without re-deriving.
+// signerScanState tracks one signer's persistence state during the shared
+// gap-limit walk. Termination is governed by a SINGLE union gap counter shared
+// across all signers (see scanContracts), not by per-signer counters: the
+// owner-key HD allocation is one monotonic stream regardless of signer
+// (NewContract advances via the signer-agnostic GetLatestContract), so a "used"
+// index is any index where ANY accepted signer has a hit. A union counter that
+// resets on any signer's hit is therefore the correct termination rule and is
+// what lets the current signer's first post-rotation hit (which can sit far
+// beyond gapLimit on a fresh restore) still be discovered, as long as some
+// signer keeps the shared counter alive across the intervening indices.
+//
+// lastUsedIdx anchors persistence; contractByIndex holds the derived contract
+// for every scanned index so we can persist the contiguous range
+// [startIdx, lastUsedIdx] without re-deriving.
 type signerScanState struct {
-	startIdx          uint32
-	consecutiveUnused uint32
-	lastUsedIdx       int64 // -1 sentinel until a hit
-	done              bool
-	contractByIndex   map[uint32]types.Contract
+	startIdx        uint32
+	lastUsedIdx     int64 // -1 sentinel until a hit
+	contractByIndex map[uint32]types.Contract
 }
 
 func (m *contractManager) scanContracts(
@@ -360,24 +402,26 @@ func (m *contractManager) scanContracts(
 		}
 	}
 
-	anyActive := func() bool {
-		for _, st := range states {
-			if !st.done {
-				return true
-			}
-		}
-		return false
-	}
+	// A SINGLE union gap counter governs termination. The owner-key HD chain is
+	// one monotonic allocation stream shared by every signer, so the scan must
+	// not stop until gapLimit CONSECUTIVE indices pass with no hit from ANY
+	// accepted signer. consecutiveUnusedShared resets to 0 on a hit by any
+	// signer at an index and increments only when an index produced no hit at
+	// all; the scan ends once it reaches gapLimit. This is what lets the current
+	// signer's first post-rotation hit be discovered even when it sits far
+	// beyond gapLimit from index 0 on a fresh restore: the deprecated signer's
+	// hits at the low indices keep the shared counter alive across the gap.
+	var consecutiveUnusedShared uint32
+	scanDone := false
 
 	// Walk the shared owner-key HD chain from index 0 upward. The owner key is
 	// per-index and signer-independent, so we derive it once per index and fan
-	// it out across every still-active signer via CandidateContracts. We probe
-	// gapLimit indices at a time: all candidate scripts across signers AND
-	// indices in the batch are deduplicated and sent in a SINGLE findUsed call
-	// (EC-3, EC-11) so we never multiply indexer round-trips by the signer
-	// count.
+	// it out across every signer via CandidateContracts. We probe gapLimit
+	// indices at a time: all candidate scripts across signers AND indices in the
+	// batch are deduplicated and sent in a SINGLE findUsed call (EC-3, EC-11) so
+	// we never multiply indexer round-trips by the signer count.
 	currentKeyId := ""
-	for anyActive() {
+	for !scanDone {
 		type entry struct {
 			signerKey string
 			idx       uint32
@@ -386,6 +430,9 @@ func (m *contractManager) scanContracts(
 		batch := make([]entry, 0, int(gapLimit)*len(signers))
 		probe := make([]types.Contract, 0, int(gapLimit)*len(signers))
 		probeSeen := make(map[string]struct{}, int(gapLimit)*len(signers))
+		// Indices probed in this batch, in ascending order, so the union counter
+		// can be advanced index-by-index after the batch result comes back.
+		batchIdxs := make([]uint32, 0, int(gapLimit))
 
 		for range gapLimit {
 			nextKeyId, err := m.keyProvider.NextKeyId(ctx, currentKeyId)
@@ -402,18 +449,28 @@ func (m *contractManager) scanContracts(
 			}
 			currentKeyId = nextKeyId
 
-			// Only the signers that still need this index.
+			// Every signer probes every index (until the shared counter fires),
+			// except the current signer which keeps the "resume strictly after the
+			// last stored index" optimization (idx < its startIdx is already
+			// tracked). Deprecated signers always start at 0 (startIdx==0), so the
+			// only skipped pairs are current-signer indices below currentStartIdx.
 			activeSigners := make([]*btcec.PublicKey, 0, len(signers))
 			for _, s := range signers {
 				st := states[signerHex(s)]
-				if st.done || idx < st.startIdx {
+				if idx < st.startIdx {
 					continue
 				}
 				activeSigners = append(activeSigners, s)
 			}
 			if len(activeSigners) == 0 {
+				// Nothing to probe at this index (only the current signer is left
+				// and it is resuming above this index). Do NOT record it for the
+				// union counter: it sits inside the already-tracked current-signer
+				// range, not in a real gap.
 				continue
 			}
+			// Only indices we actually probe participate in the union gap counter.
+			batchIdxs = append(batchIdxs, idx)
 
 			candidates, err := handler.CandidateContracts(ctx, *keyRef, activeSigners)
 			if err != nil {
@@ -434,10 +491,11 @@ func (m *contractManager) scanContracts(
 		}
 
 		if len(probe) == 0 {
-			// No active signer reached its start index in this batch (e.g. the
-			// only signer is the current one resuming at a high startIdx while
-			// this batch covered lower indices). Keep walking the chain; the
-			// loop condition (anyActive) is what actually terminates the scan.
+			// No signer reached its start index in this batch (e.g. the only
+			// signer is the current one resuming at a high startIdx while this
+			// batch covered lower indices). Those indices did not participate in
+			// the union counter (batchIdxs is empty), so keep walking the chain;
+			// the shared gap counter on a later batch is what terminates the scan.
 			continue
 		}
 
@@ -446,23 +504,34 @@ func (m *contractManager) scanContracts(
 			return err
 		}
 
-		// Credit each candidate back to its own signer's counters so gaps stay
-		// per-signer (EC-1).
+		// Record per-signer hits (for persistence) and per-index hit presence
+		// (for the union counter). A hit by ANY signer at an index marks that
+		// index "used".
+		hitAtIdx := make(map[uint32]struct{}, len(batchIdxs))
 		for _, e := range batch {
+			if _, isUsed := used[e.contract.Script]; !isUsed {
+				continue
+			}
 			st := states[e.signerKey]
-			if st.done {
+			if int64(e.idx) > st.lastUsedIdx {
+				st.lastUsedIdx = int64(e.idx)
+			}
+			hitAtIdx[e.idx] = struct{}{}
+		}
+
+		// Advance the single union gap counter index-by-index in ascending order.
+		// It resets on any signer's hit and increments on a fully-unused index;
+		// the scan terminates the moment it reaches gapLimit so we never walk the
+		// chain forever.
+		for _, idx := range batchIdxs {
+			if _, hit := hitAtIdx[idx]; hit {
+				consecutiveUnusedShared = 0
 				continue
 			}
-			if _, isUsed := used[e.contract.Script]; isUsed {
-				if int64(e.idx) > st.lastUsedIdx {
-					st.lastUsedIdx = int64(e.idx)
-				}
-				st.consecutiveUnused = 0
-				continue
-			}
-			st.consecutiveUnused++
-			if st.consecutiveUnused >= gapLimit {
-				st.done = true
+			consecutiveUnusedShared++
+			if consecutiveUnusedShared >= gapLimit {
+				scanDone = true
+				break
 			}
 		}
 	}

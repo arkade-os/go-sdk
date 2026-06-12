@@ -70,6 +70,86 @@ func TestScanSingleKeyDeprecatedSigner(t *testing.T) {
 	require.Equal(t, xOnlyHex(t, deprecated), persisted[0].Params[signerKeyParam])
 }
 
+// TestSingleKeyAllocationAfterRotation verifies that, after a rotation has left
+// BOTH a deprecated-signer and a current-signer contract of the same type in the
+// store, NewContract returns the CURRENT-signer contract — never the deprecated
+// one. GetContractsByType has no signer filter or ordering, so before the fix
+// NewContract could hand back the deprecated-signer contract (contracts[0]) and
+// a new incoming payment would commit to a deprecated signer (arkd#822).
+func TestSingleKeyAllocationAfterRotation(t *testing.T) {
+	env := newMockedEnv(t)
+	deprecated := env.addDeprecatedSigner(t)
+	current := currentSignerKey(t, env)
+
+	skStore, err := singlekeystore.NewStore()
+	require.NoError(t, err)
+	id, err := singlekeyidentity.NewIdentity(skStore)
+	require.NoError(t, err)
+	_, err = id.Create(t.Context(), chaincfg.RegressionNetParams, testPassword, "")
+	require.NoError(t, err)
+	_, err = id.Unlock(t.Context(), testPassword)
+	require.NoError(t, err)
+
+	svc, err := store.NewStore(store.Config{StoreType: types.SQLStore, Args: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(svc.Close)
+	cstore := svc.ContractStore()
+
+	mgr, err := contract.NewManager(contract.Args{
+		Store:       cstore,
+		KeyProvider: id,
+		Client:      env.transport,
+		Indexer:     env.indexer,
+		Explorer:    env.explorer,
+		Network:     testNetwork,
+	})
+	require.NoError(t, err)
+	t.Cleanup(mgr.Close)
+
+	// Derive the single-key offchain contract for BOTH signers and mark BOTH as
+	// used so ScanContracts persists both a deprecated-signer and a
+	// current-signer contract of the same type.
+	keyId, err := id.NextKeyId(t.Context(), "")
+	require.NoError(t, err)
+	keyRef, err := id.GetKey(t.Context(), keyId)
+	require.NoError(t, err)
+	offchain := defaultHandler.NewHandler(env.transport, testNetwork, false)
+	depContracts, err := offchain.CandidateContracts(
+		t.Context(), *keyRef, []*btcec.PublicKey{deprecated},
+	)
+	require.NoError(t, err)
+	require.Len(t, depContracts, 1)
+	curContracts, err := offchain.CandidateContracts(
+		t.Context(), *keyRef, []*btcec.PublicKey{current},
+	)
+	require.NoError(t, err)
+	require.Len(t, curContracts, 1)
+	env.indexer.usedScripts = map[string]struct{}{
+		depContracts[0].Script: {},
+		curContracts[0].Script: {},
+	}
+
+	require.NoError(t, mgr.ScanContracts(t.Context(), 5))
+
+	// Sanity: both contracts are in the store after the scan.
+	persisted, err := cstore.GetContractsByType(t.Context(), types.ContractTypeDefault)
+	require.NoError(t, err)
+	require.Len(t, persisted, 2, "both deprecated- and current-signer contracts must be stored")
+
+	// The allocation path must return ONLY the current-signer contract.
+	got, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+	require.NoError(t, err)
+	require.Equal(
+		t, curContracts[0].Script, got.Script,
+		"single-key allocation must return the current-signer contract after rotation",
+	)
+	require.Equal(t, xOnlyHex(t, current), got.Params[signerKeyParam])
+	require.NotEqual(
+		t, depContracts[0].Script, got.Script,
+		"single-key allocation must never return a deprecated-signer contract",
+	)
+}
+
 // A single-key identity reuses the same key (and therefore the same script) for
 // every contract of a given type, so it backs exactly one address per type.
 // NewContract treats a repeat request as idempotent reuse and returns the
