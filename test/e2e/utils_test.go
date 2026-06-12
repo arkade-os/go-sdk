@@ -205,12 +205,16 @@ var (
 func nodeWalletCli(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	nodeWalletOnce.Do(func() {
+		// On failure the name stays "", which still targets the stack's wallet
+		// when it is the Core-30 auto-created unnamed one.
 		out, err := bitcoinCli(t, "listwallets")
 		if err != nil {
+			t.Logf("failed to discover node wallet, using unnamed wallet: %s", err)
 			return
 		}
 		var wallets []string
 		if err := json.Unmarshal([]byte(out), &wallets); err != nil {
+			t.Logf("failed to parse listwallets output, using unnamed wallet: %s", err)
 			return
 		}
 		if len(wallets) > 0 {

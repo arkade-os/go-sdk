@@ -51,24 +51,25 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	faucetOnchain(t, fundAddr, 1)
 	generateBlocks(t, 1)
 
-	// Set a low fee rate so bumpfee has room to increase.
-	_, err = rpc("settxfee", "0.00001000")
-	require.NoError(t, err)
-
 	// Send 5 boarding transactions, each RBF-bumped and mined individually.
 	// Mining after each bump ensures the wallet has a confirmed UTXO for the
 	// next send (otherwise sendtoaddress fails due to insufficient funds).
+	// The sends use the floor fee rate (1 sat/vB) so bumpfee has room to
+	// increase; settxfee was removed in Bitcoin Core 30, so the fee rate is
+	// passed per call, and bumpfee gets an explicit target since regtest has
+	// no fee estimates to fall back on.
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	const numBoardingTxs = 5
 	for range numBoardingTxs {
 		txidOut, err := rpc("-named", "sendtoaddress",
 			fmt.Sprintf("address=%s", boardingAddr), "amount=0.001", "replaceable=true",
+			"fee_rate=1",
 		)
 		require.NoError(t, err)
 		origTxid := strings.TrimSpace(txidOut)
 
 		// Bump the fee — this creates a replacement tx that may reorder outputs.
-		bumpOut, err := rpc("bumpfee", origTxid)
+		bumpOut, err := rpc("bumpfee", origTxid, `{"fee_rate": 10}`)
 		require.NoError(t, err)
 
 		var bumpResp struct {
