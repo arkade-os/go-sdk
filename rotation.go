@@ -251,7 +251,10 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) (DeprecatedSign
 			)
 			return status, nil
 		}
-		if _, err := w.Settle(ctx, WithSettleVtxos(toMigrateVtxos)); err != nil {
+		// Use the unexported settle (no safeCheck) because reconcile runs
+		// synchronously during Unlock, before the wallet is marked synced. The
+		// public Settle would return ErrIsSyncing here and skip the migration.
+		if _, err := w.settle(ctx, WithSettleVtxos(toMigrateVtxos)); err != nil {
 			// Do not fail the caller (Unlock) on a migration error — log and
 			// surface via the returned status.
 			log.WithError(err).Warn("reconcile: failed to migrate deprecated-signer vtxos")

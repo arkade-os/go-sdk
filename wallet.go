@@ -88,6 +88,15 @@ type wallet struct {
 	rotationRefreshFn   func(ctx context.Context) error
 	rotationReconcileFn func(ctx context.Context) error
 
+	// unlockReconcileFn / unlockDigestFn are test-only seams for migrateOnUnlock:
+	// the synchronous deprecated-signer migration that runs during Unlock before
+	// the wallet is marked synced. They are nil in production
+	// (reconcileDeprecatedSigners and the real GetInfo-based digest run); internal
+	// tests set them to count calls / inject failures and assert the
+	// digest-seeding-on-success rule without mocking the whole client surface.
+	unlockReconcileFn func(ctx context.Context) error
+	unlockDigestFn    func(ctx context.Context) (string, bool)
+
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]

@@ -81,7 +81,9 @@ func TestClassifySigner(t *testing.T) {
 // passed to WithSettleVtxos contains exactly the signerToMigrate vtxos — Active
 // (current-signer) and Expired (past-cutoff, exit-only) vtxos are excluded, and
 // vtxos with no signer mapping are skipped. This is the input that
-// reconcileDeprecatedSigners feeds to Settle(ctx, WithSettleVtxos(...)).
+// reconcileDeprecatedSigners feeds to the unexported settle(ctx,
+// WithSettleVtxos(...)) (the safeCheck-free path used during the synchronous
+// unlock-time migration).
 func TestCollectToMigrateVtxos(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 

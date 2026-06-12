@@ -165,44 +165,35 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		if err == nil {
 			w.scheduleNextSettlement()
 
+			// Migrate actionable deprecated-signer vtxos onto current-signer
+			// outputs SYNCHRONOUSLY, before the wallet is marked synced. The user
+			// requirement is that the wallet must be usable only after the
+			// migration attempt completes: no public (safeCheck-gated) operation
+			// may proceed, and the caller must not receive the synced
+			// notification, until reconcile has finished. reconcile calls the
+			// unexported settle (no safeCheck), so it does not hit ErrIsSyncing
+			// even though syncDone is still false here.
+			//
 			// Item A discovery (ScanContracts above) has already persisted any
 			// pre-rotation deprecated-signer contracts and refreshDb has pulled
-			// their vtxos, so migration now has a consistent view. Initialize the
-			// live-rotation digest so the periodic rotation detector does not
-			// redundantly re-scan for the same signer set. The actual migration is
-			// launched AFTER syncCh is closed (below) so the wallet is fully synced
-			// (syncDone == true) by the time Settle runs — otherwise Settle's
-			// safeCheck returns ErrIsSyncing and migration is silently skipped.
-			if info, infoErr := w.Client().GetInfo(ctx); infoErr == nil {
-				w.lastSignerSetDigest = signerSetDigest(info)
-			}
+			// their vtxos, so migration has a consistent view.
+			//
+			// The live-rotation digest is initialized ONLY when reconcile
+			// succeeds. This keeps the unlock path consistent with F4's
+			// advance-after-success rule (wallet.go detectAndHandleRotation): if
+			// reconcile fails here, lastSignerSetDigest is left at its zero value
+			// so the first periodic tick sees a signer-set change and retries the
+			// rescan+reconcile. Seeding the digest unconditionally would suppress
+			// that retry and leave a failed migration stuck until a restart.
+			//
+			// A reconcile failure must NEVER hold the wallet hostage: the error is
+			// logged and surfaced via DeprecatedSignerStatus, but the wallet still
+			// proceeds to mark itself synced below (err stays the refreshDb error,
+			// which is nil here).
+			w.migrateOnUnlock(ctx)
 		}
 		w.syncCh <- err
 		close(w.syncCh)
-
-		// Migrate actionable deprecated-signer vtxos onto current-signer outputs.
-		// Launched only on a successful sync and only AFTER syncCh is closed:
-		// reconcile → Settle → safeCheck requires syncDone == true, otherwise it
-		// returns ErrIsSyncing and migration is silently skipped. We wait on
-		// IsSynced (which fires once setRestored sets syncDone) to make the
-		// ordering deterministic rather than racing the syncCh listener. A
-		// migration failure must NEVER affect Unlock: it runs detached and only
-		// logs on error.
-		if err == nil {
-			w.bgWg.Go(func() {
-				select {
-				case <-ctx.Done():
-					return
-				case ev := <-w.IsSynced(ctx):
-					if !ev.Synced {
-						return
-					}
-				}
-				if _, recErr := w.reconcileDeprecatedSigners(ctx); recErr != nil {
-					log.WithError(recErr).Warn("deprecated signer reconciliation failed")
-				}
-			})
-		}
 
 		w.bgWg.Go(func() { w.listenForArkTxs(ctx) })
 		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network) })
@@ -211,6 +202,51 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	})
 
 	return nil
+}
+
+// migrateOnUnlock runs the deprecated-signer migration synchronously during
+// Unlock (before the wallet is marked synced) and seeds the live-rotation
+// digest only when the migration attempt succeeds. It is split out of the
+// Unlock goroutine so the reconcile-vs-digest interaction is unit-testable via
+// the unlockReconcileFn seam without standing up a full client.
+//
+// Digest semantics (consistent with detectAndHandleRotation's
+// advance-after-success rule):
+//   - success  → seed lastSignerSetDigest from the current signer set, so the
+//     periodic rotation detector does not redundantly re-scan the same set.
+//   - failure  → leave lastSignerSetDigest at its zero value, so the first
+//     periodic tick sees a signer-set change and retries rescan+reconcile.
+//
+// It never returns an error: a migration failure is logged and surfaced via
+// DeprecatedSignerStatus but must not block the caller (never-hostage rule).
+func (w *wallet) migrateOnUnlock(ctx context.Context) {
+	reconcile := w.unlockReconcileFn
+	if reconcile == nil {
+		reconcile = func(ctx context.Context) error {
+			_, err := w.reconcileDeprecatedSigners(ctx)
+			return err
+		}
+	}
+	if err := reconcile(ctx); err != nil {
+		// Never-hostage: log + surface via status, but do not seed the digest so
+		// the periodic tick retries the migration.
+		log.WithError(err).Warn("deprecated signer reconciliation failed")
+		return
+	}
+
+	digest := w.unlockDigestFn
+	if digest == nil {
+		digest = func(ctx context.Context) (string, bool) {
+			info, err := w.Client().GetInfo(ctx)
+			if err != nil {
+				return "", false
+			}
+			return signerSetDigest(info), true
+		}
+	}
+	if d, ok := digest(ctx); ok {
+		w.lastSignerSetDigest = d
+	}
 }
 
 func (w *wallet) Lock(ctx context.Context) error {

@@ -15,11 +15,25 @@ var (
 	ErrNoFundsToSettle = fmt.Errorf("no funds to settle")
 )
 
+// Settle is the public settlement entrypoint. It guards on safeCheck (returns
+// ErrIsSyncing while the wallet is still restoring) and then delegates to the
+// unexported settle. External callers always go through this guarded path; the
+// behavior of the public API is unchanged.
 func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
 	if err := w.safeCheck(); err != nil {
 		return "", err
 	}
+	return w.settle(ctx, opts...)
+}
 
+// settle performs a settlement WITHOUT the safeCheck guard. It is the shared
+// body of the public Settle and is also invoked by reconcileDeprecatedSigners,
+// which runs the deprecated-signer migration synchronously during Unlock —
+// BEFORE the wallet is marked synced — so it must bypass safeCheck (which would
+// otherwise return ErrIsSyncing and silently skip the migration). It is
+// unexported and reachable only from Settle and reconcileDeprecatedSigners; no
+// other caller bypasses safeCheck.
+func (w *wallet) settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
 	settle := func() (string, error) {
 		batchSessionOpts, err := applyBatchSessionOptions(opts...)
 		if err != nil {
