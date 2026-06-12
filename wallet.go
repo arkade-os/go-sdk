@@ -1028,23 +1028,33 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 			txsToConfirm := make([]string, 0)
 			utxosToConfirm := make(map[clienttypes.Outpoint]int64)
 			utxosToSpend := make(map[clienttypes.Outpoint]string)
-			if len(update.NewUtxos) > 0 {
-				for _, u := range update.NewUtxos {
-					txsToAdd = append(txsToAdd, clienttypes.Transaction{
-						TransactionKey: clienttypes.TransactionKey{
-							BoardingTxid: u.Txid,
-						},
-						Amount:    u.Amount,
-						Type:      clienttypes.TxReceived,
-						CreatedAt: u.CreatedAt,
-					})
-				}
-			}
-			if len(update.ConfirmedUtxos) > 0 {
-				for _, u := range update.ConfirmedUtxos {
+			newUtxos := make(
+				[]clienttypes.OnchainOutput, 0,
+				len(update.NewUtxos)+len(update.ConfirmedUtxos),
+			)
+			newUtxos = append(newUtxos, update.NewUtxos...)
+			for _, u := range update.ConfirmedUtxos {
+				// The explorer reports a tx it first sees in a block (mined in
+				// the same instant it was broadcast, or while the websocket was
+				// down) only as confirmed: it never appears in NewUtxos. Route
+				// utxos missing from the store through the "new" path, or they
+				// would be dropped (confirming them is a no-op).
+				if w.isKnownUtxo(ctx, u.Outpoint) {
 					txsToConfirm = append(txsToConfirm, u.Txid)
 					utxosToConfirm[u.Outpoint] = u.CreatedAt.Unix()
+				} else {
+					newUtxos = append(newUtxos, u)
 				}
+			}
+			for _, u := range newUtxos {
+				txsToAdd = append(txsToAdd, clienttypes.Transaction{
+					TransactionKey: clienttypes.TransactionKey{
+						BoardingTxid: u.Txid,
+					},
+					Amount:    u.Amount,
+					Type:      clienttypes.TxReceived,
+					CreatedAt: u.CreatedAt,
+				})
 			}
 			if len(update.SpentUtxos) > 0 {
 				for _, u := range update.SpentUtxos {
@@ -1141,9 +1151,9 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 				}
 			}
 
-			if len(update.NewUtxos) > 0 {
-				utxosToAdd := make([]clienttypes.Utxo, 0, len(update.NewUtxos))
-				for _, u := range update.NewUtxos {
+			if len(newUtxos) > 0 {
+				utxosToAdd := make([]clienttypes.Utxo, 0, len(newUtxos))
+				for _, u := range newUtxos {
 					contracts, err := w.contractManager.GetContracts(
 						ctx, contract.WithScripts([]string{u.Script}),
 					)
@@ -1243,6 +1253,22 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 			}
 		}
 	}
+}
+
+// isKnownUtxo reports whether the given outpoint is already in the utxo store.
+func (w *wallet) isKnownUtxo(ctx context.Context, outpoint clienttypes.Outpoint) bool {
+	w.dbMu.Lock()
+	utxos, err := w.store.UtxoStore().GetUtxosByTxid(ctx, outpoint.Txid)
+	w.dbMu.Unlock()
+	if err != nil {
+		return false
+	}
+	for _, u := range utxos {
+		if u.Outpoint == outpoint {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *wallet) listenDbEvents(ctx context.Context) {
