@@ -3,8 +3,12 @@ package arksdk
 import (
 	"context"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 func (a *arkClient) SendOffChain(
@@ -19,6 +23,13 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	return a.sendOffChain(ctx, receivers, vtxos, false)
+}
+
+func (a *arkClient) sendOffChain(
+	ctx context.Context,
+	receivers []clientTypes.Receiver, vtxos []clientTypes.VtxoWithTapTree, selfSend bool,
+) (string, error) {
 	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
 		return "", err
@@ -49,6 +60,10 @@ func (a *arkClient) SendOffChain(
 		return "", err
 	}
 
+	if selfSend {
+		res.Outputs = receivers
+	}
+
 	// mark vtxos as spent and add transaction to DB before unlocking the mutex
 	if err := a.saveSendTransaction(ctx, *res); err != nil {
 		return "", err
@@ -66,11 +81,13 @@ func (a *arkClient) getSpendableVtxos(
 	if err != nil {
 		return nil, err
 	}
-	_, offchainAddrs, _, _, err := a.ArkClient.GetAddresses(ctx)
+
+	cfg, err := a.GetConfigData(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := a.GetConfigData(ctx)
+
+	offchainAddrs, err := a.getAddresses(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -82,12 +99,12 @@ func (a *arkClient) getSpendableVtxos(
 				continue
 			}
 
-			vtxoAddr, err := v.Address(cfg.SignerPubKey, cfg.Network)
+			vtxoAddr, err := v.Address(offchainAddr.SignerPubKey, cfg.Network)
 			if err != nil {
 				return nil, err
 			}
 
-			if vtxoAddr == offchainAddr.Address {
+			if vtxoAddr == offchainAddr.Address.Address {
 				vtxos = append(vtxos, clientTypes.VtxoWithTapTree{
 					Vtxo:       v,
 					Tapscripts: offchainAddr.Tapscripts,
@@ -97,4 +114,73 @@ func (a *arkClient) getSpendableVtxos(
 	}
 
 	return vtxos, nil
+}
+
+type addressWithSignerkey struct {
+	clientTypes.Address
+	SignerPubKey *btcec.PublicKey
+}
+
+func (a *arkClient) getAddresses(
+	ctx context.Context, cfgData *clientTypes.Config,
+) ([]addressWithSignerkey, error) {
+	keys := make([]wallet.KeyRef, 0)
+	seenKeys := make(map[string]struct{})
+
+	keyRefs, err := a.Wallet().ListKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, key := range keyRefs {
+		if _, ok := seenKeys[key.Id]; ok {
+			continue
+		}
+		seenKeys[key.Id] = struct{}{}
+		keys = append(keys, key)
+	}
+
+	signerKeys := []*btcec.PublicKey{cfgData.SignerPubKey}
+	for _, ds := range cfgData.DeprecatedSigners {
+		signerKeys = append(signerKeys, ds.PubKey)
+	}
+
+	offchainAddrs := make([]addressWithSignerkey, 0, len(keys))
+	for _, key := range keys {
+		for _, signerKey := range signerKeys {
+			defaultVtxoScript := script.NewDefaultVtxoScript(
+				key.PubKey, signerKey, cfgData.UnilateralExitDelay,
+			)
+			vtxoTapKey, _, err := defaultVtxoScript.TapTree()
+			if err != nil {
+				return nil, err
+			}
+
+			offchainAddress := &arklib.Address{
+				HRP:        cfgData.Network.Addr,
+				Signer:     signerKey,
+				VtxoTapKey: vtxoTapKey,
+			}
+			encodedOffchainAddr, err := offchainAddress.EncodeV0()
+			if err != nil {
+				return nil, err
+			}
+
+			tapscripts, err := defaultVtxoScript.Encode()
+			if err != nil {
+				return nil, err
+			}
+
+			offchainAddrs = append(offchainAddrs, addressWithSignerkey{
+				Address: clientTypes.Address{
+					KeyID:      key.Id,
+					Tapscripts: tapscripts,
+					Address:    encodedOffchainAddr,
+				},
+				SignerPubKey: signerKey,
+			})
+		}
+	}
+
+	return offchainAddrs, nil
 }

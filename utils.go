@@ -1,17 +1,21 @@
 package arksdk
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
+	tpClient "github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/types"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/arkd/pkg/client-lib/wallet"
 	"github.com/arkade-os/go-sdk/wallet/hdwallet"
 	filewalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/file"
 	inmemorywalletstore "github.com/arkade-os/go-sdk/wallet/hdwallet/store/inmemory"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -225,4 +229,21 @@ func networkFromString(net string) arklib.Network {
 	default:
 		return arklib.Bitcoin
 	}
+}
+
+func parseDeprecatedSigners(ds []tpClient.DeprecatedSigner) []clientTypes.DeprecatedSigner {
+	var signers []clientTypes.DeprecatedSigner
+	for _, d := range ds {
+		pubkey, _ := parsePubkey(d.PubKey)
+		signers = append(signers, clientTypes.DeprecatedSigner{
+			PubKey:     pubkey,
+			CutoffDate: time.Unix(d.CutoffDate, 0),
+		})
+	}
+	return signers
+}
+
+func parsePubkey(key string) (*btcec.PublicKey, error) {
+	buf, _ := hex.DecodeString(key)
+	return btcec.ParsePubKey(buf)
 }

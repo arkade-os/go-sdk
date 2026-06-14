@@ -3,12 +3,14 @@ package arksdk
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -103,6 +105,13 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
+		cfgData, err := a.GetConfigData(ctx)
+		if err != nil {
+			a.syncCh <- err
+			close(a.syncCh)
+			return
+		}
+
 		if _, err := a.discoverHDWalletKeys(ctx); err != nil {
 			a.syncCh <- err
 			close(a.syncCh)
@@ -115,7 +124,93 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 			log.WithError(err).Warn("failed to finalize pending txs")
 		}
 
-		err := a.refreshDb(ctx)
+		if err := a.refreshDb(ctx); err != nil {
+			a.syncCh <- err
+			close(a.syncCh)
+			return
+		}
+
+		info, err := a.Client().GetInfo(ctx)
+		if err != nil {
+			a.syncCh <- err
+			close(a.syncCh)
+			return
+		}
+
+		if len(info.DeprecatedSignerPubKeys) > 0 {
+			signerPubkey, _ := parsePubkey(info.SignerPubKey)
+			if !cfgData.SignerPubKey.IsEqual(signerPubkey) {
+				log.Debugf(
+					"detected deprecation of signer %x, updating config and migratiing "+
+						"all btc funds to new address with signer %s...",
+					cfgData.SignerPubKey.SerializeCompressed(), info.SignerPubKey,
+				)
+				cfgData.SignerPubKey = signerPubkey
+				cfgData.DeprecatedSigners = parseDeprecatedSigners(info.DeprecatedSignerPubKeys)
+				if err := a.GetConfigStore().AddData(ctx, *cfgData); err != nil {
+					a.syncCh <- err
+					close(a.syncCh)
+					return
+				}
+				log.Debug("configuration updated")
+
+				vtxosToMigrate, err := a.getSpendableVtxos(ctx, false)
+				if err != nil {
+					a.syncCh <- err
+					close(a.syncCh)
+					return
+				}
+
+				if len(vtxosToMigrate) <= 0 {
+					log.Debug("no vtxos to migrate, signer(s) deprecation completed")
+					return
+				}
+
+				if len(vtxosToMigrate) > 0 {
+					log.Debugf("migrating %d vtxos to new offchain address...", len(vtxosToMigrate))
+					_, offchainAddr, _, err := a.Receive(ctx)
+					if err != nil {
+						a.syncCh <- err
+						close(a.syncCh)
+						return
+					}
+
+					leftVtxos := make([]clientTypes.VtxoWithTapTree, len(vtxosToMigrate))
+					copy(leftVtxos, vtxosToMigrate)
+					txids := make([]string, 0)
+					for len(leftVtxos) > 0 {
+						limit := maxVtxos
+						if len(leftVtxos) < maxVtxos {
+							limit = len(leftVtxos)
+						}
+						amount := uint64(0)
+						for _, v := range leftVtxos[:limit] {
+							amount += v.Amount
+						}
+
+						receivers := []clientTypes.Receiver{{
+							To:     offchainAddr.Address,
+							Amount: amount,
+						}}
+
+						txid, err := a.sendOffChain(ctx, receivers, leftVtxos[:limit], true)
+						if err != nil {
+							a.syncCh <- err
+							close(a.syncCh)
+							return
+						}
+						txids = append(txids, txid)
+
+						leftVtxos = leftVtxos[limit:]
+					}
+					log.Debugf(
+						"migrated all btc funds to new offchain address with tx(s) %s",
+						strings.Join(txids, ", "),
+					)
+				}
+			}
+
+		}
 		a.syncCh <- err
 		close(a.syncCh)
 

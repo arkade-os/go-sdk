@@ -7,7 +7,7 @@ import (
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 )
 
-const maxVtxosPerBatch = 50
+const maxVtxos = 50
 
 func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (string, error) {
 	if err := a.safeCheck(); err != nil {
@@ -19,8 +19,8 @@ func (a *arkClient) Settle(ctx context.Context, opts ...BatchSessionOption) (str
 		return "", err
 	}
 
-	if len(vtxos) > maxVtxosPerBatch {
-		vtxos = vtxos[:maxVtxosPerBatch]
+	if len(vtxos) > maxVtxos {
+		vtxos = vtxos[:maxVtxos]
 	}
 
 	a.dbMu.Lock()
