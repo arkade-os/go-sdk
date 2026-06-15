@@ -174,7 +174,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 
 				if len(vtxosToMigrate) <= 0 {
 					log.Debug("no vtxos to migrate, signer(s) deprecation completed")
-					return
+					goto done
 				}
 
 				log.Debugf("migrating %d vtxos to new offchain address...", len(vtxosToMigrate))
@@ -220,6 +220,7 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 			}
 
 		}
+	done:
 		a.syncCh <- err
 		close(a.syncCh)
 
