@@ -33,7 +33,7 @@ func (a *arkClient) Init(
 		return ErrNotInitialized
 	}
 
-	transportClient, err := grpcclient.NewClient(serverUrl)
+	transportClient, err := grpcclient.NewClient(serverUrl, Version)
 	if err != nil {
 		return err
 	}

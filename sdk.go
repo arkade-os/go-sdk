@@ -14,7 +14,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-var Version string
+const Version = "go-sdk/0.9.1"
 
 type ArkClient interface {
 	Wallet() wallet.WalletService

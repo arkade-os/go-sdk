@@ -98,7 +98,7 @@ func NewArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
-	clientOpts := make([]client.ServiceOption, 0)
+	clientOpts := []client.ServiceOption{client.WithClientVersion(Version)}
 	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
 	}
@@ -169,7 +169,7 @@ func LoadArkClient(datadir string, opts ...ClientOption) (ArkClient, error) {
 		return nil, err
 	}
 
-	clientOpts := make([]client.ServiceOption, 0)
+	clientOpts := []client.ServiceOption{client.WithClientVersion(Version)}
 	var explorerSvc explorer.Explorer
 	if o.verbose {
 		clientOpts = append(clientOpts, client.WithVerbose())
