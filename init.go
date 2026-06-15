@@ -138,15 +138,26 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 		}
 
 		if len(info.DeprecatedSignerPubKeys) > 0 {
-			signerPubkey, _ := parsePubkey(info.SignerPubKey)
+			signerPubkey, err := parsePubkey(info.SignerPubKey)
+			if err != nil {
+				a.syncCh <- err
+				close(a.syncCh)
+				return
+			}
 			if !cfgData.SignerPubKey.IsEqual(signerPubkey) {
 				log.Debugf(
-					"detected deprecation of signer %x, updating config and migratiing "+
+					"detected deprecation of signer %x, updating config and migrating "+
 						"all btc funds to new address with signer %s...",
 					cfgData.SignerPubKey.SerializeCompressed(), info.SignerPubKey,
 				)
+				deprecatedSigners, err := parseDeprecatedSigners(info.DeprecatedSignerPubKeys)
+				if err != nil {
+					a.syncCh <- err
+					close(a.syncCh)
+					return
+				}
 				cfgData.SignerPubKey = signerPubkey
-				cfgData.DeprecatedSigners = parseDeprecatedSigners(info.DeprecatedSignerPubKeys)
+				cfgData.DeprecatedSigners = deprecatedSigners
 				if err := a.GetConfigStore().AddData(ctx, *cfgData); err != nil {
 					a.syncCh <- err
 					close(a.syncCh)
@@ -166,48 +177,46 @@ func (a *arkClient) Unlock(ctx context.Context, password string) error {
 					return
 				}
 
-				if len(vtxosToMigrate) > 0 {
-					log.Debugf("migrating %d vtxos to new offchain address...", len(vtxosToMigrate))
-					_, offchainAddr, _, err := a.Receive(ctx)
+				log.Debugf("migrating %d vtxos to new offchain address...", len(vtxosToMigrate))
+				_, offchainAddr, _, err := a.Receive(ctx)
+				if err != nil {
+					a.syncCh <- err
+					close(a.syncCh)
+					return
+				}
+
+				leftVtxos := make([]clientTypes.VtxoWithTapTree, len(vtxosToMigrate))
+				copy(leftVtxos, vtxosToMigrate)
+				txids := make([]string, 0)
+				for len(leftVtxos) > 0 {
+					limit := maxVtxos
+					if len(leftVtxos) < maxVtxos {
+						limit = len(leftVtxos)
+					}
+					amount := uint64(0)
+					for _, v := range leftVtxos[:limit] {
+						amount += v.Amount
+					}
+
+					receivers := []clientTypes.Receiver{{
+						To:     offchainAddr.Address,
+						Amount: amount,
+					}}
+
+					txid, err := a.sendOffChain(ctx, receivers, leftVtxos[:limit], true)
 					if err != nil {
 						a.syncCh <- err
 						close(a.syncCh)
 						return
 					}
+					txids = append(txids, txid)
 
-					leftVtxos := make([]clientTypes.VtxoWithTapTree, len(vtxosToMigrate))
-					copy(leftVtxos, vtxosToMigrate)
-					txids := make([]string, 0)
-					for len(leftVtxos) > 0 {
-						limit := maxVtxos
-						if len(leftVtxos) < maxVtxos {
-							limit = len(leftVtxos)
-						}
-						amount := uint64(0)
-						for _, v := range leftVtxos[:limit] {
-							amount += v.Amount
-						}
-
-						receivers := []clientTypes.Receiver{{
-							To:     offchainAddr.Address,
-							Amount: amount,
-						}}
-
-						txid, err := a.sendOffChain(ctx, receivers, leftVtxos[:limit], true)
-						if err != nil {
-							a.syncCh <- err
-							close(a.syncCh)
-							return
-						}
-						txids = append(txids, txid)
-
-						leftVtxos = leftVtxos[limit:]
-					}
-					log.Debugf(
-						"migrated all btc funds to new offchain address with tx(s) %s",
-						strings.Join(txids, ", "),
-					)
+					leftVtxos = leftVtxos[limit:]
 				}
+				log.Debugf(
+					"migrated all btc funds to new offchain address with tx(s) %s",
+					strings.Join(txids, ", "),
+				)
 			}
 
 		}

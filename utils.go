@@ -231,19 +231,25 @@ func networkFromString(net string) arklib.Network {
 	}
 }
 
-func parseDeprecatedSigners(ds []tpClient.DeprecatedSigner) []clientTypes.DeprecatedSigner {
+func parseDeprecatedSigners(ds []tpClient.DeprecatedSigner) ([]clientTypes.DeprecatedSigner, error) {
 	var signers []clientTypes.DeprecatedSigner
 	for _, d := range ds {
-		pubkey, _ := parsePubkey(d.PubKey)
+		pubkey, err := parsePubkey(d.PubKey)
+		if err != nil {
+			return nil, err
+		}
 		signers = append(signers, clientTypes.DeprecatedSigner{
 			PubKey:     pubkey,
 			CutoffDate: time.Unix(d.CutoffDate, 0),
 		})
 	}
-	return signers
+	return signers, nil
 }
 
 func parsePubkey(key string) (*btcec.PublicKey, error) {
-	buf, _ := hex.DecodeString(key)
+	buf, err := hex.DecodeString(key)
+	if err != nil {
+		return nil, fmt.Errorf("expected pubkey in hex format, got %s", key)
+	}
 	return btcec.ParsePubKey(buf)
 }
