@@ -760,6 +760,102 @@ func TestVtxoStoreGetVtxos(t *testing.T) {
 				require.Empty(t, got)
 			})
 
+			t.Run("script and asset filters combine", func(t *testing.T) {
+				// Models a stablecoin payment-tracking backend recovering after
+				// a crash: at startup it calls GetVtxos filtered by BOTH the
+				// receiving address' script AND the tracked asset id, to
+				// enumerate only the payments of that asset that landed on that
+				// address. VTXOs matching only one of the two predicates (right
+				// address but wrong asset, right asset but wrong address, or
+				// bitcoin-only) must be excluded.
+				require.NoError(t, s.Clean(ctx))
+
+				const (
+					addrA = "0000000000000000000000000000000000000000000000000000000000000a11"
+					addrB = "0000000000000000000000000000000000000000000000000000000000000b22"
+				)
+				usdt := testVtxoAsset1 // the stablecoin we are tracking
+				usdc := testVtxoAsset2 // a different asset
+
+				mk := func(txid, script string, assets ...clientTypes.Asset) clientTypes.Vtxo {
+					return clientTypes.Vtxo{
+						Outpoint: clientTypes.Outpoint{Txid: txid, VOut: 0},
+						Script:   script,
+						Amount:   1000,
+						CommitmentTxids: []string{
+							"0000000000000000000000000000000000000000000000000000000000000000",
+						},
+						ExpiresAt: seed[0].ExpiresAt,
+						CreatedAt: seed[0].CreatedAt,
+						Assets:    assets,
+					}
+				}
+
+				// Two payments matching BOTH addrA and the tracked stablecoin.
+				wantA1 := mk(
+					"1111000000000000000000000000000000000000000000000000000000000001", addrA, usdt,
+				)
+				wantA2 := mk(
+					"1111000000000000000000000000000000000000000000000000000000000002", addrA, usdt,
+				)
+				// Right address, wrong asset — must be excluded.
+				addrAWrongAsset := mk(
+					"2222000000000000000000000000000000000000000000000000000000000001", addrA, usdc,
+				)
+				// Right asset, wrong address — must be excluded.
+				addrBRightAsset := mk(
+					"3333000000000000000000000000000000000000000000000000000000000001", addrB, usdt,
+				)
+				// Right address, bitcoin only (no asset) — must be excluded.
+				addrANoAsset := mk(
+					"4444000000000000000000000000000000000000000000000000000000000001", addrA,
+				)
+
+				seedVtxos(
+					t, s, wantA1, wantA2, addrAWrongAsset, addrBRightAsset, addrANoAsset,
+				)
+
+				got, _, err := s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status:  types.VtxoStatusAll,
+					Script:  addrA,
+					AssetID: usdt.AssetId,
+					Limit:   1000,
+				})
+				require.NoError(t, err)
+				require.Len(t, got, 2)
+				gotOutpoints := map[clientTypes.Outpoint]bool{}
+				for _, v := range got {
+					gotOutpoints[v.Outpoint] = true
+					require.Equal(t, addrA, v.Script)
+					hasAsset := false
+					for _, a := range v.Assets {
+						if a.AssetId == usdt.AssetId {
+							hasAsset = true
+						}
+					}
+					require.True(t, hasAsset, "returned vtxo must carry the tracked asset")
+				}
+				require.True(t, gotOutpoints[wantA1.Outpoint])
+				require.True(t, gotOutpoints[wantA2.Outpoint])
+
+				// Narrowing further to spendable only must still respect both
+				// filters: once wantA1 is spent, only wantA2 remains.
+				_, err = s.SpendVtxos(ctx, map[clientTypes.Outpoint]string{
+					wantA1.Outpoint: "spendertx",
+				}, "arktx")
+				require.NoError(t, err)
+
+				got, _, err = s.GetVtxos(ctx, types.GetVtxoFilter{
+					Status:  types.VtxoStatusSpendable,
+					Script:  addrA,
+					AssetID: usdt.AssetId,
+					Limit:   1000,
+				})
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				require.Equal(t, wantA2.Outpoint, got[0].Outpoint)
+			})
+
 			t.Run("tiebreaker on identical created_at", func(t *testing.T) {
 				// Seed N VTXOs with identical created_at and distinct
 				// (txid, vout). Page through in small pages and assert that
