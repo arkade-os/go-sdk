@@ -15,12 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// maxMigrationInputs caps how many vtxos a single migration transaction
-// consolidates, so the resulting offchain tx stays within the server's per-tx
-// input/weight budget. A larger ToMigrate set is split into multiple capped
-// transactions in the same reconcile pass.
-const maxMigrationInputs = 50
-
 // signerState classifies one signer key relative to the current signer set.
 type signerState int
 
@@ -130,9 +124,15 @@ func signerSetDigest(info *client.Info) string {
 }
 
 // migrationBatches sorts the migration candidates by sats value descending and
-// splits them into maxMigrationInputs-sized batches. It is a pure function
-// (sorts a copy of the input) so the cap behaviour is directly unit-testable.
-func migrationBatches(candidates []clienttypes.VtxoWithTapTree) [][]clienttypes.VtxoWithTapTree {
+// splits them into maxInputs-sized batches. It is a pure function (sorts a copy
+// of the input) so the cap behaviour is directly unit-testable.
+func migrationBatches(
+	candidates []clienttypes.VtxoWithTapTree, maxInputs int,
+) [][]clienttypes.VtxoWithTapTree {
+	if maxInputs <= 0 {
+		maxInputs = defaultMaxMigrationInputs
+	}
+
 	sorted := make([]clienttypes.VtxoWithTapTree, len(candidates))
 	copy(sorted, candidates)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -145,16 +145,23 @@ func migrationBatches(candidates []clienttypes.VtxoWithTapTree) [][]clienttypes.
 
 	batches := make(
 		[][]clienttypes.VtxoWithTapTree, 0,
-		(len(sorted)+maxMigrationInputs-1)/maxMigrationInputs,
+		(len(sorted)+maxInputs-1)/maxInputs,
 	)
-	for start := 0; start < len(sorted); start += maxMigrationInputs {
-		end := start + maxMigrationInputs
+	for start := 0; start < len(sorted); start += maxInputs {
+		end := start + maxInputs
 		if end > len(sorted) {
 			end = len(sorted)
 		}
 		batches = append(batches, sorted[start:end])
 	}
 	return batches
+}
+
+func (w *wallet) migrationInputLimit() int {
+	if w.maxMigrationInputs <= 0 {
+		return defaultMaxMigrationInputs
+	}
+	return w.maxMigrationInputs
 }
 
 // reconcileDeprecatedSigners classifies the wallet's spendable vtxos by the
@@ -167,9 +174,9 @@ func migrationBatches(candidates []clienttypes.VtxoWithTapTree) [][]clienttypes.
 // never blocks the caller on a migration failure: the send error is returned to
 // the unlock/live-rotation wrapper, which logs it and leaves the wallet usable.
 //
-// At most maxMigrationInputs vtxos are migrated per transaction, but reconcile
-// loops over every batch in the same pass. No vtxo is left for a later reconcile
-// just because the set exceeded the per-transaction cap.
+// At most the configured migration input limit is migrated per transaction, but
+// reconcile loops over every batch in the same pass. No vtxo is left for a later
+// reconcile just because the set exceeded the per-transaction cap.
 //
 // After the send succeeds, all migrated contracts are flipped to
 // ContractStateInactive (all-or-nothing: on failure none are flipped, so the
@@ -230,22 +237,24 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 
 	// Migrate the actionable (ToMigrate) vtxos by consolidating each capped batch
 	// into one output: all BTC plus every asset in that batch collapse into a
-	// single vtxo at one fresh current-signer address (newOffchainAddress),
-	// honoring arkd #822. The consolidated receiver declares the per-asset totals
-	// so createAssetPacket balances inputs == outputs per asset and no asset value
-	// is stripped. Only the migrated vtxos are pinned as inputs; Expired vtxos are
-	// excluded (exit-only) and Active vtxos are left untouched. Idempotent across
-	// runs: once migrated, those vtxos are spent and a re-run finds no ToMigrate
-	// entries for them.
+	// single vtxo at one fresh current-signer address, honoring arkd #822. The
+	// consolidated receiver declares the per-asset totals so createAssetPacket
+	// balances inputs == outputs per asset and no asset value is stripped. Only
+	// the migrated vtxos are pinned as inputs; Expired vtxos are excluded
+	// (exit-only) and Active vtxos are left untouched. Idempotent across runs:
+	// once migrated, those vtxos are spent and a re-run finds no ToMigrate entries
+	// for them.
 	//
-	// Input cap: at most maxMigrationInputs vtxos are consolidated per transaction.
-	// The set is sorted by sats value descending and then drained in capped
-	// batches in this same reconcile pass. This bounds the per-tx input/weight
-	// cost without leaving a remainder for a later reconcile.
+	// Input cap: at most the configured migration input limit is consolidated per
+	// transaction. The set is sorted by sats value descending and then drained in
+	// capped batches in this same reconcile pass. This bounds the per-tx
+	// input/weight cost without leaving a remainder for a later reconcile.
 	//
-	// sendOffchainConsolidated bypasses safeCheck because reconcile runs
-	// synchronously during Unlock, before the wallet is marked synced; the public
-	// SendOffChain would return ErrIsSyncing here and skip the migration.
+	// sendOffchain bypasses safeCheck because reconcile runs synchronously during
+	// Unlock, before the wallet is marked synced; the public SendOffChain would
+	// return ErrIsSyncing here and skip the migration. It still serializes each
+	// migration batch through txHandler, so periodic rotation cannot overlap user
+	// sends/assets/settles.
 	//
 	// All-or-nothing rule per batch: inactivation is applied only after that
 	// batch's consolidated send returns without error, and only for the migrated
@@ -253,25 +262,19 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 	// active for retry, so a contract is never inactivated before the send that
 	// consumed its vtxo succeeded.
 	if len(toMigrate) > 0 {
-		batches := migrationBatches(toMigrate)
+		maxInputs := w.migrationInputLimit()
+		batches := migrationBatches(toMigrate, maxInputs)
 		if len(batches) > 1 {
 			log.Infof(
 				"reconcile: splitting %d deprecated-signer vtxo(s) into %d migration batch(es), max %d input(s) each",
 				len(toMigrate),
 				len(batches),
-				maxMigrationInputs,
+				maxInputs,
 			)
 		}
 
 		for i, batch := range batches {
-			destAddr, err := w.newOffchainAddress(ctx)
-			if err != nil {
-				return err
-			}
-
-			receiver := buildConsolidatedReceiver(batch, destAddr, w.dustAmount)
-
-			txid, err := w.sendOffchainConsolidated(ctx, batch, receiver)
+			txid, err := w.sendOffchain(ctx, batch)
 			if err != nil {
 				log.WithError(err).Warnf(
 					"reconcile: failed to migrate batch %d/%d (%d vtxo(s)) — left active for retry",

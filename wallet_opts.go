@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	minInterval     = 30 * time.Second
-	defaultGapLimit = 20
+	minInterval               = 30 * time.Second
+	defaultGapLimit           = 20
+	defaultMaxMigrationInputs = 50
 )
 
 type WalletOption func(*walletOptions) error
@@ -62,6 +63,23 @@ func WithGapLimit(limit uint32) WalletOption {
 		}
 		o.hdGapLimit = limit
 		o.hdGapLimitSet = true
+		return nil
+	}
+}
+
+// WithMaxMigrationInputs sets the maximum number of deprecated-signer VTXOs
+// consumed by one migration transaction. Must be greater than zero. If unset,
+// it defaults to 50.
+func WithMaxMigrationInputs(limit uint32) WalletOption {
+	return func(o *walletOptions) error {
+		if o.maxMigrationInputsSet {
+			return fmt.Errorf("max migration inputs already set")
+		}
+		if limit == 0 {
+			return fmt.Errorf("max migration inputs must be greater than zero")
+		}
+		o.maxMigrationInputs = int(limit)
+		o.maxMigrationInputsSet = true
 		return nil
 	}
 }
@@ -149,18 +167,23 @@ func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 }
 
 type walletOptions struct {
-	refreshDbInterval time.Duration
-	verbose           bool
-	hdGapLimit        uint32
-	hdGapLimitSet     bool
-	identity          identity.Identity
-	scheduler         scheduler.SchedulerService
-	disableAutoSettle bool
-	customHandlers    map[types.ContractType]handlers.Handler
+	refreshDbInterval     time.Duration
+	verbose               bool
+	hdGapLimit            uint32
+	hdGapLimitSet         bool
+	maxMigrationInputs    int
+	maxMigrationInputsSet bool
+	identity              identity.Identity
+	scheduler             scheduler.SchedulerService
+	disableAutoSettle     bool
+	customHandlers        map[types.ContractType]handlers.Handler
 }
 
 // newDefaultWalletOptions returns a zero-value walletOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultWalletOptions() *walletOptions {
-	return &walletOptions{hdGapLimit: defaultGapLimit}
+	return &walletOptions{
+		hdGapLimit:         defaultGapLimit,
+		maxMigrationInputs: defaultMaxMigrationInputs,
+	}
 }

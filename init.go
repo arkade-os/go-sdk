@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const version = "go-sdk/0.10.1"
+const HeaderVersion = "go-sdk/0.10.1"
 
 var (
 	defaultExplorerUrl = map[string]string{
@@ -36,7 +36,7 @@ func (w *wallet) Init(
 		return ErrNotInitialized
 	}
 
-	transportClient, err := grpcclient.NewClient(serverUrl, version)
+	transportClient, err := grpcclient.NewClient(serverUrl, HeaderVersion)
 	if err != nil {
 		return err
 	}

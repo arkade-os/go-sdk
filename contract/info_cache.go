@@ -21,27 +21,32 @@ type infoCache struct {
 	resp                 *client.Info
 	lastUpdate           time.Time
 	invalidationDuration time.Duration
+	epoch                uint64
 }
 
 func newInfoCache(invalidationDuration time.Duration) *infoCache {
 	return &infoCache{invalidationDuration: invalidationDuration}
 }
 
-func (c *infoCache) get() *client.Info {
+func (c *infoCache) get() (*client.Info, uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	epoch := c.epoch
 	if c.lastUpdate.IsZero() {
-		return nil
+		return nil, epoch
 	}
 	if time.Since(c.lastUpdate) > c.invalidationDuration {
 		c.resp = nil
 	}
-	return c.resp
+	return c.resp, epoch
 }
 
-func (c *infoCache) set(resp *client.Info) {
+func (c *infoCache) set(resp *client.Info, epoch uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.epoch != epoch {
+		return
+	}
 	c.resp = resp
 	c.lastUpdate = time.Now()
 }
@@ -53,6 +58,7 @@ func (c *infoCache) set(resp *client.Info) {
 func (c *infoCache) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.epoch++
 	c.resp = nil
 	c.lastUpdate = time.Time{}
 }
@@ -70,13 +76,14 @@ func newCachingClient(c client.Client, cache *infoCache) *cachingClient {
 }
 
 func (c *cachingClient) GetInfo(ctx context.Context) (*client.Info, error) {
-	if cached := c.cache.get(); cached != nil {
+	cached, epoch := c.cache.get()
+	if cached != nil {
 		return cached, nil
 	}
 	resp, err := c.Client.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.cache.set(resp)
+	c.cache.set(resp, epoch)
 	return resp, nil
 }

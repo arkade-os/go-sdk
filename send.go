@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
@@ -85,10 +86,8 @@ func (w *wallet) SendOffChain(
 		// Wait until the server/indexer has tracked our change before releasing
 		// the slot, so the next queued operation can spend it without hitting
 		// VTXO_NOT_FOUND.
-		if tracked != nil {
-			if err := <-tracked; err != nil {
-				return nil, err
-			}
+		if err := waitTracked(ctx, tracked); err != nil {
+			return nil, err
 		}
 		return res.Txid, nil
 	}
@@ -98,7 +97,11 @@ func (w *wallet) SendOffChain(
 		return "", err
 	}
 
-	return rr.(string), nil
+	txid, ok := rr.(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected send result type %T", rr)
+	}
+	return txid, nil
 }
 
 // buildConsolidatedReceiver constructs the SINGLE Receiver that consolidates an
@@ -163,12 +166,11 @@ func buildConsolidatedReceiver(
 
 // sendOffchainConsolidated migrates a set of vtxos onto the given receiver (a
 // fresh current-signer destination consolidating the whole batch) via the
-// SubmitTx/FinalizeTx (SendOffChain) path. It is the safeCheck-free counterpart
-// of the public SendOffChain, mirroring the settle/Settle split: it is
-// unexported and called ONLY from reconcileDeprecatedSigners, which runs
-// synchronously during Unlock — BEFORE the wallet is marked synced — so it must
-// bypass safeCheck (which would otherwise return ErrIsSyncing and silently skip
-// the migration).
+// SubmitTx/FinalizeTx (SendOffChain) path. It is the safeCheck-free lower-level
+// counterpart of the public SendOffChain, mirroring the settle/Settle split.
+// Callers must enter through sendOffchain so the migration is serialized by
+// txHandler while still bypassing safeCheck (which would otherwise return
+// ErrIsSyncing during unlock-time migration).
 //
 // The input vtxos are pinned explicitly via clientwallet.WithVtxos, bypassing
 // the client-lib auto coin-selection (which would only pick current-signer
@@ -210,10 +212,8 @@ func (w *wallet) sendOffchainConsolidated(
 		return "", err
 	}
 
-	if tracked != nil {
-		if err := <-tracked; err != nil {
-			return "", err
-		}
+	if err := waitTracked(ctx, tracked); err != nil {
+		return "", err
 	}
 
 	return res.Txid, nil
@@ -253,9 +253,9 @@ func sameReceiver(a, b clienttypes.Receiver) bool {
 // vtxos migrate with Receiver.Assets populated so no asset value is stripped.
 //
 // This is the safeCheck-bypass entry exercised by the unit test; the empty-slice
-// case is a no-op ("", nil). The caller (reconcileDeprecatedSigners) performs the
-// same single send directly so it can inactivate the migrated contracts only
-// after the send succeeds.
+// case is a no-op ("", nil). Non-empty migrations still run through txHandler
+// so they cannot race with user sends/assets/settles while reconcile bypasses
+// safeCheck before the wallet is marked synced.
 func (w *wallet) sendOffchain(
 	ctx context.Context, toMigrate []clienttypes.VtxoWithTapTree,
 ) (string, error) {
@@ -263,13 +263,30 @@ func (w *wallet) sendOffchain(
 		return "", nil
 	}
 
-	destAddr, err := w.newOffchainAddress(ctx)
+	if w.txHandler == nil {
+		return "", ErrNotInitialized
+	}
+
+	migrate := func() (any, error) {
+		destAddr, err := w.newOffchainAddress(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		receiver := buildConsolidatedReceiver(toMigrate, destAddr, w.dustAmount)
+		return w.sendOffchainConsolidated(ctx, toMigrate, receiver)
+	}
+
+	rr, err := w.txHandler.handleTx(migrate)
 	if err != nil {
 		return "", err
 	}
 
-	receiver := buildConsolidatedReceiver(toMigrate, destAddr, w.dustAmount)
-	return w.sendOffchainConsolidated(ctx, toMigrate, receiver)
+	txid, ok := rr.(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected migration send result type %T", rr)
+	}
+	return txid, nil
 }
 
 func (w *wallet) getSpendableVtxos(

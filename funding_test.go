@@ -1,8 +1,10 @@
 package arksdk
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"testing"
 	"time"
 
@@ -76,6 +78,34 @@ func TestGetOffchainBalanceClassifiesRecoverableVtxos(t *testing.T) {
 	require.Equal(t, int(7_200), int(balance.Recoverable))
 	require.Equal(t, int(1_000), int(assetsBalance["test"]))
 	require.Equal(t, int(2_000), int(assetsBalance["test-2"]))
+}
+
+func TestWaitTracked(t *testing.T) {
+	t.Run("nil channel", func(t *testing.T) {
+		require.NoError(t, waitTracked(t.Context(), nil))
+	})
+
+	t.Run("tracked success", func(t *testing.T) {
+		tracked := make(chan error, 1)
+		tracked <- nil
+
+		require.NoError(t, waitTracked(t.Context(), tracked))
+	})
+
+	t.Run("tracked error", func(t *testing.T) {
+		wantErr := errors.New("tracking failed")
+		tracked := make(chan error, 1)
+		tracked <- wantErr
+
+		require.ErrorIs(t, waitTracked(t.Context(), tracked), wantErr)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		require.ErrorIs(t, waitTracked(ctx, make(chan error)), context.Canceled)
+	})
 }
 
 func balanceTestVtxo(

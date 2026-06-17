@@ -14,15 +14,17 @@ import (
 func TestInfoCache(t *testing.T) {
 	t.Run("empty cache returns nil", func(t *testing.T) {
 		c := newInfoCache(time.Minute)
-		require.Nil(t, c.get())
+		got, _ := c.get()
+		require.Nil(t, got)
 	})
 
 	t.Run("set then get returns the stored response", func(t *testing.T) {
 		c := newInfoCache(time.Minute)
 		info := &client.Info{SignerPubKey: "abcd"}
-		c.set(info)
+		_, epoch := c.get()
+		c.set(info, epoch)
 
-		got := c.get()
+		got, _ := c.get()
 		require.NotNil(t, got)
 		require.Equal(t, info, got)
 	})
@@ -31,11 +33,14 @@ func TestInfoCache(t *testing.T) {
 		// Tiny TTL so we don't sit in time.Sleep. The cache uses real
 		// time.Now() so a real (short) sleep is the simplest exercise.
 		c := newInfoCache(20 * time.Millisecond)
-		c.set(&client.Info{SignerPubKey: "abcd"})
+		_, epoch := c.get()
+		c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
 
-		require.NotNil(t, c.get(), "fresh entry must still be served")
+		got, _ := c.get()
+		require.NotNil(t, got, "fresh entry must still be served")
 		time.Sleep(40 * time.Millisecond)
-		require.Nil(t, c.get(), "entry past TTL must be cleared")
+		got, _ = c.get()
+		require.Nil(t, got, "entry past TTL must be cleared")
 	})
 
 	t.Run("invalidate clears a fresh entry", func(t *testing.T) {
@@ -43,11 +48,39 @@ func TestInfoCache(t *testing.T) {
 		// GetInfo re-reads the signer set — the restore / live-rotation
 		// freshness guarantee.
 		c := newInfoCache(time.Minute)
-		c.set(&client.Info{SignerPubKey: "abcd"})
-		require.NotNil(t, c.get(), "fresh entry must be served before invalidate")
+		_, epoch := c.get()
+		c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
+		got, _ := c.get()
+		require.NotNil(t, got, "fresh entry must be served before invalidate")
 
 		c.Invalidate()
-		require.Nil(t, c.get(), "invalidated entry must be cleared even within TTL")
+		got, _ = c.get()
+		require.Nil(t, got, "invalidated entry must be cleared even within TTL")
+	})
+
+	t.Run("invalidate discards stale in-flight set", func(t *testing.T) {
+		c := newInfoCache(time.Minute)
+
+		// Simulate a GetInfo cache miss that captures the current epoch before
+		// it starts its transport call.
+		_, epoch := c.get()
+
+		// A rotation invalidates the cache while that transport call is in
+		// flight. The stale response must not repopulate the cache afterward.
+		c.Invalidate()
+		c.set(&client.Info{SignerPubKey: "stale"}, epoch)
+
+		got, _ := c.get()
+		require.Nil(t, got, "stale in-flight response must be discarded")
+
+		// A fresh request after invalidation captures the new epoch and can
+		// populate the cache normally.
+		_, freshEpoch := c.get()
+		fresh := &client.Info{SignerPubKey: "fresh"}
+		c.set(fresh, freshEpoch)
+
+		got, _ = c.get()
+		require.Equal(t, fresh, got)
 	})
 
 	t.Run("concurrent get/set does not race", func(t *testing.T) {
@@ -59,13 +92,14 @@ func TestInfoCache(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 1000; i++ {
-				c.set(&client.Info{SignerPubKey: "abcd"})
+				_, epoch := c.get()
+				c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
 			}
 		}()
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 1000; i++ {
-				_ = c.get()
+				_, _ = c.get()
 			}
 		}()
 		wg.Wait()

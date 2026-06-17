@@ -153,17 +153,16 @@ func TestWithMigrationOutput(t *testing.T) {
 	})
 }
 
-// --- 50-input cap ----------------------------------------------------------
+// --- migration input cap ---------------------------------------------------
 
 // TestMigrationInputCapBatchesAllByValue verifies the per-transaction input cap:
-// when the ToMigrate set exceeds maxMigrationInputs, every vtxo is still included
-// in this reconcile pass, split into capped batches ordered by sats value
-// descending.
+// when the ToMigrate set exceeds the default cap, every vtxo is still included in
+// this reconcile pass, split into capped batches ordered by sats value descending.
 func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
-	// Build maxMigrationInputs+5 vtxos with strictly increasing sats values so
+	// Build defaultMaxMigrationInputs+5 vtxos with strictly increasing sats values so
 	// the top-by-value selection is unambiguous.
 	const extra = 5
-	total := maxMigrationInputs + extra
+	total := defaultMaxMigrationInputs + extra
 	all := make([]clienttypes.VtxoWithTapTree, 0, total)
 	for i := 0; i < total; i++ {
 		all = append(all, vtxoWithScript(
@@ -171,15 +170,15 @@ func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
 		))
 	}
 
-	batches := migrationBatches(all)
+	batches := migrationBatches(all, defaultMaxMigrationInputs)
 
-	expectedBatches := (total + maxMigrationInputs - 1) / maxMigrationInputs
+	expectedBatches := (total + defaultMaxMigrationInputs - 1) / defaultMaxMigrationInputs
 	require.Len(t, batches, expectedBatches, "all inputs are drained across capped batches")
-	require.Len(t, batches[0], maxMigrationInputs, "first batch is capped")
-	require.Len(t, batches[len(batches)-1], total%maxMigrationInputs,
+	require.Len(t, batches[0], defaultMaxMigrationInputs, "first batch is capped")
+	require.Len(t, batches[len(batches)-1], total%defaultMaxMigrationInputs,
 		"last batch carries the remainder")
 
-	// The first batch must be the maxMigrationInputs highest-value vtxos
+	// The first batch must be the defaultMaxMigrationInputs highest-value vtxos
 	// (values total-1 .. extra), and the final batch the lowest-value ones
 	// (values 1000 .. 1000+extra-1).
 	firstBatchValues := map[uint64]bool{}
@@ -197,13 +196,39 @@ func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
 	}
 }
 
+func TestMigrationInputCapUsesConfiguredLimit(t *testing.T) {
+	const cap = 3
+	all := []clienttypes.VtxoWithTapTree{
+		vtxoWith(10), vtxoWith(50), vtxoWith(20), vtxoWith(40), vtxoWith(30),
+	}
+
+	batches := migrationBatches(all, cap)
+
+	require.Len(t, batches, 2)
+	require.Len(t, batches[0], cap)
+	require.Len(t, batches[1], 2)
+	require.Equal(t, uint64(50), batches[0][0].Amount)
+	require.Equal(t, uint64(40), batches[0][1].Amount)
+	require.Equal(t, uint64(30), batches[0][2].Amount)
+	require.Equal(t, uint64(20), batches[1][0].Amount)
+	require.Equal(t, uint64(10), batches[1][1].Amount)
+}
+
+func TestMigrationInputLimitDefault(t *testing.T) {
+	require.Equal(t, defaultMaxMigrationInputs, (&wallet{}).migrationInputLimit())
+	require.Equal(t, 7, (&wallet{maxMigrationInputs: 7}).migrationInputLimit())
+	require.Len(t, migrationBatches([]clienttypes.VtxoWithTapTree{
+		vtxoWith(1),
+	}, 0), 1)
+}
+
 // TestMigrationInputCapNoTruncationUnderCap verifies that a set at or below the
 // cap is migrated in a single sorted batch.
 func TestMigrationInputCapNoTruncationUnderCap(t *testing.T) {
 	all := []clienttypes.VtxoWithTapTree{
 		vtxoWith(300), vtxoWith(100), vtxoWith(200),
 	}
-	batches := migrationBatches(all)
+	batches := migrationBatches(all, defaultMaxMigrationInputs)
 	require.Len(t, batches, 1, "a sub-cap set migrates in one batch")
 	require.Len(t, batches[0], 3, "a sub-cap set migrates in full")
 	// Still sorted highest-value first.

@@ -149,6 +149,19 @@ func (w *wallet) notifyTracked(
 	return ch, cancel
 }
 
+func waitTracked(ctx context.Context, tracked <-chan error) error {
+	if tracked == nil {
+		return nil
+	}
+
+	select {
+	case err := <-tracked:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
 	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault)
 	if err != nil {
