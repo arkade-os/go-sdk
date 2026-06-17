@@ -611,21 +611,20 @@ func TestListKeys(t *testing.T) {
 			_, err := svc.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 
-			first, err := svc.NewKey(t.Context())
-			require.NoError(t, err)
-			second, err := svc.NewKey(t.Context())
-			require.NoError(t, err)
-			third, err := svc.NewKey(t.Context())
-			require.NoError(t, err)
+			const count = 12
+			allocated := make([]string, 0, count)
+			for range count {
+				key, err := svc.NewKey(t.Context())
+				require.NoError(t, err)
+				allocated = append(allocated, key.Id)
+			}
 
 			keys, err := svc.ListKeys(t.Context())
 			require.NoError(t, err)
-			require.Len(t, keys, 3)
-			require.Equal(t, first.Id, keys[0].Id)
-			require.Equal(t, second.Id, keys[1].Id)
-			require.Equal(t, third.Id, keys[2].Id)
-			require.True(t, keys[0].Id < keys[1].Id)
-			require.True(t, keys[1].Id < keys[2].Id)
+			require.Len(t, keys, count)
+			for i, key := range keys {
+				require.Equal(t, allocated[i], key.Id)
+			}
 		})
 	})
 
