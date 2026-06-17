@@ -17,12 +17,18 @@ import (
 )
 
 var (
+	// Default esplora endpoints per network, kept in sync with the canonical
+	// ts-sdk (ESPLORA_URL) and dotnet-sdk (ArkNetworkConfig.EsploraUri).
+	// Mainnet, signet and mutinynet point at the Arkade-operated mempool
+	// deployments. Testnet falls back to the public mempool.space deployment
+	// because Arkade doesn't host it. Regtest assumes a local stack serving
+	// the esplora API at the root (the nigiri convention used by the e2e tests).
 	defaultExplorerUrl = map[string]string{
-		arklib.Bitcoin.Name:          "https://mempool.space/api",
+		arklib.Bitcoin.Name:          "https://mempool.arkade.sh/api",
 		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
 		arklib.BitcoinTestNet.Name:   "https://mempool.space/testnet/api",
-		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
-		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
+		arklib.BitcoinSigNet.Name:    "https://mempool.signet.arkade.sh/api",
+		arklib.BitcoinMutinyNet.Name: "https://mempool.mutinynet.arkade.sh/api",
 	}
 )
 
