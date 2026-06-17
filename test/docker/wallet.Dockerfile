@@ -1,8 +1,6 @@
 # First stage: build the ark-wallet-daemon binary
 FROM golang:1.26.4 AS builder
 
-ENV GOTOOLCHAIN=auto
-
 ARG VERSION
 ARG TARGETOS
 ARG TARGETARCH

@@ -13,7 +13,7 @@ import (
 )
 
 func (w *wallet) SendOffChain(
-	ctx context.Context, receivers []clienttypes.Receiver,
+	ctx context.Context, receivers []clienttypes.Receiver, extraOpts ...SendOffChainOption,
 ) (string, error) {
 	if err := w.safeCheck(); err != nil {
 		return "", err
@@ -71,6 +71,8 @@ func (w *wallet) SendOffChain(
 			tracked, cancel = w.notifyTracked(ctx, changeAddr)
 			defer cancel()
 		}
+
+		opts = append(opts, extraOpts...)
 
 		res, err := w.client.SendOffChain(ctx, clone, opts...)
 		if err != nil {
