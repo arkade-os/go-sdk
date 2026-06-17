@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const version = "0.9.9"
+const version = "go-sdk/0.10.1"
 
 var (
 	defaultExplorerUrl = map[string]string{

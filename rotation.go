@@ -15,6 +15,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// maxMigrationInputs caps how many vtxos a single migration transaction
+// consolidates, so the resulting offchain tx stays within the server's per-tx
+// input/weight budget. A larger ToMigrate set is split into multiple capped
+// transactions in the same reconcile pass.
+const maxMigrationInputs = 50
+
 // signerState classifies one signer key relative to the current signer set.
 type signerState int
 
@@ -122,12 +128,6 @@ func signerSetDigest(info *client.Info) string {
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
 }
-
-// maxMigrationInputs caps how many vtxos a single migration transaction
-// consolidates, so the resulting offchain tx stays within the server's per-tx
-// input/weight budget. A larger ToMigrate set is split into multiple capped
-// transactions in the same reconcile pass.
-const maxMigrationInputs = 3
 
 // migrationBatches sorts the migration candidates by sats value descending and
 // splits them into maxMigrationInputs-sized batches. It is a pure function
