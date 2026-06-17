@@ -16,6 +16,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const version = "0.9.9"
+
 var (
 	defaultExplorerUrl = map[string]string{
 		arklib.Bitcoin.Name:          "https://mempool.space/api",
@@ -34,7 +36,7 @@ func (w *wallet) Init(
 		return ErrNotInitialized
 	}
 
-	transportClient, err := grpcclient.NewClient(serverUrl, "TODO")
+	transportClient, err := grpcclient.NewClient(serverUrl, version)
 	if err != nil {
 		return err
 	}
