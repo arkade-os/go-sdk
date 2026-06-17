@@ -34,7 +34,7 @@ func (w *wallet) Init(
 		return ErrNotInitialized
 	}
 
-	transportClient, err := grpcclient.NewClient(serverUrl)
+	transportClient, err := grpcclient.NewClient(serverUrl, "TODO")
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,8 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
+	w.stopCtx = bgCtx
+	w.txHandler = newTxHandler()
 
 	w.bgWg.Go(func() {
 		w.Explorer().Start()
@@ -162,6 +164,28 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		err := w.refreshDb(ctx)
 		if err == nil {
 			w.scheduleNextSettlement()
+
+			// Reconcile actionable deprecated-signer vtxos onto current-signer
+			// outputs synchronously, before the wallet is marked synced. Wallet
+			// must be usable only after the migration attempt completes: no public
+			// (safeCheck-gated) operation may proceed, and the caller must not
+			// receive the synced notification, until reconcile has finished.
+			//
+			// Pre-rotation deprecated-signer contracts are already persisted: each
+			// contract is stored when its address is first handed out, so refreshDb
+			// (above) has pulled their vtxos and migration has a consistent view.
+			//
+			// Use the same rotation detector as the periodic path. refreshDb has
+			// already run above, so detectAndHandleRotation only compares signer
+			// digest, invalidates cached GetInfo for future current-signer output
+			// allocation, and reconciles. The digest advances only after reconcile
+			// succeeds; on failure the first periodic tick retries.
+			//
+			// A reconcile failure must never hold the wallet hostage: the error is
+			// logged, but the wallet still
+			// proceeds to mark itself synced below (err stays the refreshDb error,
+			// which is nil here).
+			w.detectAndHandleRotation(ctx)
 		}
 		w.syncCh <- err
 		close(w.syncCh)
@@ -185,9 +209,16 @@ func (w *wallet) Lock(ctx context.Context) error {
 		w.scheduler.Stop()
 	}
 
+	// Abort any queued tx operations before tearing down shared state, so a
+	// waiter can't resume and run against a nil contractManager / stopCtx.
+	if w.txHandler != nil {
+		w.txHandler.stop()
+	}
+
 	if w.stopFn != nil {
 		w.stopFn()
 	}
+	w.stopCtx = nil
 
 	if w.contractManager != nil {
 		w.contractManager.Close()

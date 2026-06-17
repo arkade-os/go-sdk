@@ -17,54 +17,73 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 		return "", err
 	}
 
-	vtxos, err := w.getSpendableVtxos(ctx, true)
-	if err != nil {
-		return "", err
-	}
-	w.dbMu.Lock()
-	utxos, _, err := w.store.UtxoStore().GetAllUtxos(ctx)
-	w.dbMu.Unlock()
-	if err != nil {
-		return "", err
-	}
-	if len(vtxos)+len(utxos) == 0 {
-		return "", ErrNoFundsToSettle
+	settle := func() (string, error) {
+		vtxos, err := w.getSpendableVtxos(ctx, true)
+		if err != nil {
+			return "", err
+		}
+		w.dbMu.Lock()
+		utxos, _, err := w.store.UtxoStore().GetAllUtxos(ctx)
+		w.dbMu.Unlock()
+		if err != nil {
+			return "", err
+		}
+		if len(vtxos)+len(utxos) == 0 {
+			return "", ErrNoFundsToSettle
+		}
+
+		batchSessionOpts, err := applyBatchSessionOptions(opts...)
+		if err != nil {
+			return "", fmt.Errorf("invalid options: %v", (err))
+		}
+
+		signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, utxos)
+		if err != nil {
+			return "", err
+		}
+
+		changeAddr, err := w.newOffchainAddress(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		clientOpts := []client.BatchSessionOption{
+			client.WithFunds(utxos, vtxos),
+			client.WithKeys(signingKeyRefs),
+			client.WithReceiver(changeAddr),
+		}
+		if batchSessionOpts.retryNum > 0 {
+			clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
+		}
+
+		// Subscribe to the change address before submitting so we don't miss
+		// the indexer notification once the server tracks the settled vtxo.
+		tracked, cancel := w.notifyTracked(ctx, changeAddr)
+		defer cancel()
+
+		res, err := w.client.Settle(ctx, clientOpts...)
+		if err != nil {
+			return "", err
+		}
+
+		// Persist within the critical section so the next queued operation
+		// sees the refreshed VTXOs before it runs. A deduping settle returns
+		// this same result without re-running, so it won't save twice.
+		if err := w.saveBatchTransaction(ctx, *res); err != nil {
+			return "", err
+		}
+
+		// Wait until the indexer has tracked our settled vtxo before releasing
+		// the slot, so the next queued operation can spend it.
+		if len(res.VtxoOutputs) > 0 {
+			if err := <-tracked; err != nil {
+				return "", err
+			}
+		}
+		return res.CommitmentTxid, nil
 	}
 
-	batchSessionOpts, err := applyBatchSessionOptions(opts...)
-	if err != nil {
-		return "", fmt.Errorf("invalid options: %v", (err))
-	}
-
-	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, utxos)
-	if err != nil {
-		return "", err
-	}
-
-	changeAddr, err := w.newOffchainAddress(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	clientOpts := []client.BatchSessionOption{
-		client.WithFunds(utxos, vtxos),
-		client.WithKeys(signingKeyRefs),
-		client.WithReceiver(changeAddr),
-	}
-	if batchSessionOpts.retryNum > 0 {
-		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
-	}
-
-	res, err := w.client.Settle(ctx, clientOpts...)
-	if err != nil {
-		return "", err
-	}
-
-	if err := w.saveBatchTransaction(ctx, *res); err != nil {
-		return "", err
-	}
-
-	return res.CommitmentTxid, nil
+	return w.txHandler.handleBatchTx(settleType, settle)
 }
 
 func (w *wallet) CollaborativeExit(
@@ -74,45 +93,63 @@ func (w *wallet) CollaborativeExit(
 		return "", err
 	}
 
-	vtxos, err := w.getSpendableVtxos(ctx, true)
-	if err != nil {
-		return "", err
+	collabExit := func() (string, error) {
+		vtxos, err := w.getSpendableVtxos(ctx, true)
+		if err != nil {
+			return "", err
+		}
+
+		batchSessionOpts, err := applyBatchSessionOptions(opts...)
+		if err != nil {
+			return "", fmt.Errorf("invalid options: %v", (err))
+		}
+
+		signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, nil)
+		if err != nil {
+			return "", err
+		}
+
+		changeAddr, err := w.newOffchainAddress(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		clientOpts := []client.BatchSessionOption{
+			client.WithFunds(nil, vtxos),
+			client.WithKeys(signingKeyRefs),
+			client.WithReceiver(changeAddr),
+		}
+		if batchSessionOpts.retryNum > 0 {
+			clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
+		}
+
+		// Subscribe to the change address before submitting so we don't miss
+		// the indexer notification once the server tracks any change vtxo.
+		tracked, cancel := w.notifyTracked(ctx, changeAddr)
+		defer cancel()
+
+		res, err := w.client.CollaborativeExit(ctx, addr, amount, clientOpts...)
+		if err != nil {
+			return "", err
+		}
+
+		// Persist within the critical section so the next queued operation
+		// sees the spent VTXOs before it runs.
+		if err := w.saveBatchTransaction(ctx, *res); err != nil {
+			return "", err
+		}
+
+		// If the exit left change, wait until the indexer has tracked it
+		// before releasing the slot so the next queued operation can spend it.
+		if len(res.VtxoOutputs) > 0 {
+			if err := <-tracked; err != nil {
+				return "", err
+			}
+		}
+		return res.CommitmentTxid, nil
 	}
 
-	batchSessionOpts, err := applyBatchSessionOptions(opts...)
-	if err != nil {
-		return "", fmt.Errorf("invalid options: %v", (err))
-	}
-
-	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, nil)
-	if err != nil {
-		return "", err
-	}
-
-	changeAddr, err := w.newOffchainAddress(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	clientOpts := []client.BatchSessionOption{
-		client.WithFunds(nil, vtxos),
-		client.WithKeys(signingKeyRefs),
-		client.WithReceiver(changeAddr),
-	}
-	if batchSessionOpts.retryNum > 0 {
-		clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
-	}
-
-	res, err := w.client.CollaborativeExit(ctx, addr, amount, clientOpts...)
-	if err != nil {
-		return "", err
-	}
-
-	if err := w.saveBatchTransaction(ctx, *res); err != nil {
-		return "", err
-	}
-
-	return res.CommitmentTxid, nil
+	return w.txHandler.handleBatchTx(collabExitType, collabExit)
 }
 
 func (w *wallet) RegisterIntent(

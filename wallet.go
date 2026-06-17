@@ -31,6 +31,7 @@ import (
 	cronscheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
@@ -38,9 +39,10 @@ import (
 )
 
 var (
-	ErrNotInitialized = fmt.Errorf("wallet not initialized")
-	ErrIsLocked       = fmt.Errorf("wallet is locked")
-	ErrIsSyncing      = fmt.Errorf("wallet is still syncing")
+	ErrNotInitialized   = fmt.Errorf("wallet not initialized")
+	ErrIsLocked         = fmt.Errorf("wallet is locked")
+	ErrIsSyncing        = fmt.Errorf("wallet is still syncing")
+	ErrSettleInProgress = fmt.Errorf("settle in progress, retry later")
 )
 
 type wallet struct {
@@ -49,6 +51,7 @@ type wallet struct {
 	store           types.Store
 	contractManager contract.Manager
 	scheduler       scheduler.SchedulerService
+	txHandler       *txHandler
 
 	syncMu        *sync.Mutex
 	syncCh        chan error
@@ -61,12 +64,29 @@ type wallet struct {
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
 
+	// stopCtx is the background context used by the auto-settle scheduler
+	// and other long-lived goroutines started in Unlock. It is cancelled
+	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
+	stopCtx context.Context
+
 	verbose           bool
 	refreshDbInterval time.Duration
 	lastUpdate        time.Time
 	hdGapLimit        uint32
 	network           arklib.Network
 	dustAmount        uint64
+
+	// lastSignerSetDigest is the server signer-set digest last reconciled
+	// successfully. A change after refreshDb signals a rotation and triggers
+	// reconcileDeprecatedSigners without requiring a restart.
+	lastSignerSetDigest string
+
+	// rotationDigestFn/rotationReconcileFn are test-only seams for
+	// detectAndHandleRotation. They are nil in production (the real methods run);
+	// internal tests set them to inject failures and assert the digest-advance
+	// ordering without mocking the whole client/contract-manager surface.
+	rotationDigestFn    func(ctx context.Context) (string, error)
+	rotationReconcileFn func(ctx context.Context) error
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -367,6 +387,12 @@ func (w *wallet) Stop() {
 	}
 
 	w.stopOnce.Do(func() {
+		// Abort any queued tx operations before tearing down shared state, so a
+		// waiter can't resume and run against a closing store / torn-down state.
+		if w.txHandler != nil {
+			w.txHandler.stop()
+		}
+
 		w.client.Stop()
 
 		if explorer := w.Explorer(); explorer != nil {
@@ -526,12 +552,8 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 			scripts = append(scripts, contract.Script)
 		}
 		opts := []indexer.GetVtxosOption{indexer.WithScripts(scripts)}
-		if !w.lastUpdate.IsZero() {
-			updateUnix := updateTime.Unix()
-			lastUpdateUnix := w.lastUpdate.Unix()
-			if updateUnix > lastUpdateUnix {
-				opts = append(opts, indexer.WithTimeRange(updateUnix, lastUpdateUnix))
-			}
+		if before, after, ok := refreshTimeRange(updateTime, w.lastUpdate); ok {
+			opts = append(opts, indexer.WithTimeRange(before, after))
 		}
 
 		res, err := w.Indexer().GetVtxos(ctx, opts...)
@@ -668,6 +690,18 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 	w.lastUpdate = updateTime
 
 	return nil
+}
+
+func refreshTimeRange(updateTime, lastUpdate time.Time) (before, after int64, ok bool) {
+	if lastUpdate.IsZero() {
+		return 0, 0, false
+	}
+	before = updateTime.UnixMilli()
+	after = lastUpdate.UnixMilli()
+	if before <= after {
+		return 0, 0, false
+	}
+	return before, after, true
 }
 
 func (w *wallet) refreshTxDb(ctx context.Context, newTxs []clienttypes.Transaction) error {
@@ -1319,8 +1353,158 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 				log.WithError(err).Error("failed to refresh db")
 				continue
 			}
+			w.detectAndHandleRotation(ctx)
 		}
 	}
+}
+
+// detectAndHandleRotation checks whether the server signer set changed since
+// the last successful reconcile and, if so, reconciles deprecated-signer vtxos.
+// Callers must run refreshDb before this method; this handler only compares the
+// signer digest, invalidates cached GetInfo for future contract allocation, and
+// runs migration. It is best-effort: any error is logged, never fatal.
+func (w *wallet) detectAndHandleRotation(ctx context.Context) {
+	info, digest, err := w.currentSignerSet(ctx)
+	if err != nil {
+		log.WithError(err).Debug("rotation detection: failed to get server info")
+		return
+	}
+	if digest == w.lastSignerSetDigest {
+		return
+	}
+	log.Infof("rotation detection: signer set changed, reconciling")
+
+	if info != nil {
+		signerPubkey, err := signerPubKeyFromHex(info.SignerPubKey)
+		if err != nil {
+			log.WithError(err).Warn("rotation detection: failed to parse signer pubkey")
+			return
+		}
+		deprecatedSigners := deprecatedSignersForConfig(info, signerPubkey)
+		if err := w.updateConfig(ctx, signerPubkey, deprecatedSigners); err != nil {
+			log.WithError(err).Warn("rotation detection: failed to update config")
+			return
+		}
+	}
+
+	// Only advance lastSignerSetDigest after reconcile succeeds. A reconcile
+	// failure leaves the digest unchanged, so the next periodic tick retries any
+	// batch that failed before all deprecated-signer vtxos were migrated.
+	if w.reconcileDetectedRotation(ctx) {
+		w.lastSignerSetDigest = digest
+	}
+}
+
+func (w *wallet) currentSignerSetDigest(ctx context.Context) (string, error) {
+	_, digest, err := w.currentSignerSet(ctx)
+	return digest, err
+}
+
+func (w *wallet) currentSignerSet(ctx context.Context) (*client.Info, string, error) {
+	if w.rotationDigestFn != nil {
+		digest, err := w.rotationDigestFn(ctx)
+		return nil, digest, err
+	}
+	clientSvc := w.Client()
+	if clientSvc == nil {
+		return nil, "", ErrNotInitialized
+	}
+	info, err := clientSvc.GetInfo(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return info, signerSetDigest(info), nil
+}
+
+func (w *wallet) updateConfig(
+	ctx context.Context,
+	signerPubkey *btcec.PublicKey,
+	deprecatedSigners []clienttypes.DeprecatedSigner,
+) error {
+	cfgData, err := w.client.GetConfigData(ctx)
+	if err != nil {
+		return err
+	}
+
+	updated := *cfgData
+	updated.SignerPubKey = signerPubkey
+	updated.DeprecatedSigners = deprecatedSigners
+
+	if err := w.clientStore.ConfigStore().AddData(ctx, updated); err != nil {
+		return err
+	}
+
+	*cfgData = updated
+
+	return nil
+}
+
+func deprecatedSignersForConfig(
+	info *client.Info,
+	currentSigner *btcec.PublicKey,
+) []clienttypes.DeprecatedSigner {
+	signers := make([]clienttypes.DeprecatedSigner, 0, len(info.DeprecatedSignerPubKeys))
+	for _, d := range info.DeprecatedSignerPubKeys {
+		pubkey, err := signerPubKeyFromHex(d.PubKey)
+		if err != nil {
+			log.WithError(err).Warnf(
+				"rotation detection: skipping malformed deprecated signer %q",
+				d.PubKey,
+			)
+			continue
+		}
+		if currentSigner != nil && pubkey.IsEqual(currentSigner) {
+			continue
+		}
+
+		var cutoff time.Time
+		if d.CutoffDate > 0 {
+			cutoff = time.Unix(d.CutoffDate, 0)
+		}
+		signers = append(signers, clienttypes.DeprecatedSigner{
+			PubKey:     pubkey,
+			CutoffDate: cutoff,
+		})
+	}
+	return signers
+}
+
+func signerPubKeyFromHex(pubkey string) (*btcec.PublicKey, error) {
+	buf, err := hex.DecodeString(strings.TrimSpace(pubkey))
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) == schnorr.PubKeyBytesLen {
+		return schnorr.ParsePubKey(buf)
+	}
+	return btcec.ParsePubKey(buf)
+}
+
+// reconcileDetectedRotation runs the migration step of a detected rotation and
+// reports whether the rotation digest may now be advanced.
+// Split out from detectAndHandleRotation so the digest-advance decision can be
+// unit-tested via the rotation seams without mocking the whole wallet. The seam
+// fields are nil in production and fall through to the real methods.
+func (w *wallet) reconcileDetectedRotation(ctx context.Context) bool {
+	// Force future handler allocations to use fresh server info. ScanContracts is
+	// not called here: this migrate-only branch relies on the store-before-return
+	// invariant, so every script being migrated is already persisted before its
+	// address is handed to a caller.
+	if w.contractManager != nil {
+		w.contractManager.InvalidateInfoCache()
+	}
+
+	reconcile := w.rotationReconcileFn
+	if reconcile == nil {
+		reconcile = func(ctx context.Context) error {
+			return w.reconcileDeprecatedSigners(ctx)
+		}
+	}
+	if err := reconcile(ctx); err != nil {
+		log.WithError(err).Warn("rotation detection: reconciliation failed")
+		return false
+	}
+	return true
 }
 
 func (w *wallet) handleCommitmentTx(

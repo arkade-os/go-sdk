@@ -25,6 +25,11 @@ type contractManager struct {
 	network     arklib.Network
 	registry    Registry
 	mu          sync.RWMutex
+	// infoCache is the shared GetInfo cache backing the handlers' transport
+	// wrapper. The manager exposes InvalidateInfoCache so the wallet can force
+	// a fresh GetInfo when it detects a live signer rotation, ensuring the next
+	// handler call derives scripts from the current signer set.
+	infoCache *infoCache
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
@@ -45,7 +50,8 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	// built-in handlers reuse the same cached server info. Custom handlers
 	// supplied via WithHandler are constructed outside the manager and own
 	// their own client wiring.
-	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
+	cache := newInfoCache(infoCacheTTL)
+	cachedClient := newCachingClient(args.Client, cache)
 	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
@@ -62,7 +68,15 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		network:     args.Network,
 		registry:    reg,
 		mu:          sync.RWMutex{},
+		infoCache:   cache,
 	}, nil
+}
+
+// InvalidateInfoCache clears the shared GetInfo cache so the next handler call
+// fetches fresh server info. Exposed on the Manager interface so the wallet can
+// force a re-read of the signer set when it detects a live rotation.
+func (m *contractManager) InvalidateInfoCache() {
+	m.infoCache.Invalidate()
 }
 
 func (m *contractManager) Registry() Registry { return m.registry }

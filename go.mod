@@ -1,6 +1,6 @@
 module github.com/arkade-os/go-sdk
 
-go 1.26.3
+go 1.26.4
 
 replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 
@@ -110,3 +110,7 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
+
+replace github.com/arkade-os/arkd/pkg/client-lib => /Users/dusansekulic/code/go/ark/pkg/client-lib
+
+replace github.com/arkade-os/arkd/pkg/errors => /Users/dusansekulic/code/go/ark/pkg/errors

@@ -1,11 +1,121 @@
 package arksdk
 
 import (
+	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRefreshTimeRangeUsesMilliseconds(t *testing.T) {
+	updateTime := time.Unix(1_781_692_380, 123_000_000)
+	lastUpdate := time.Unix(1_781_692_370, 456_000_000)
+
+	before, after, ok := refreshTimeRange(updateTime, lastUpdate)
+
+	require.True(t, ok)
+	require.Equal(t, int64(1_781_692_380_123), before)
+	require.Equal(t, int64(1_781_692_370_456), after)
+}
+
+func TestRefreshTimeRangeSkipsInvalidRanges(t *testing.T) {
+	now := time.Unix(1_781_692_380, 0)
+
+	_, _, ok := refreshTimeRange(now, time.Time{})
+	require.False(t, ok, "first refresh should be a full scan without time bounds")
+
+	_, _, ok = refreshTimeRange(now, now)
+	require.False(t, ok, "equal millisecond bounds are rejected by indexer.WithTimeRange")
+}
+
+// TestDetectRotationDigestAdvance verifies the rotation digest is advanced only
+// after reconciliation succeeds. refreshDb is owned by the caller
+// (periodicRefreshDb or Unlock), so this test focuses on the shared detector:
+// digest fetch failure or reconcile failure must leave lastSignerSetDigest at
+// its old value so the next periodic tick re-detects the change and retries.
+func TestDetectRotationDigestAdvance(t *testing.T) {
+	const oldDigest = "old"
+	const newDigest = "new"
+
+	t.Run("digest failure: digest unchanged", func(t *testing.T) {
+		digestCalls := 0
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationDigestFn: func(_ context.Context) (string, error) {
+				digestCalls++
+				return "", fmt.Errorf("transient info failure")
+			},
+			rotationReconcileFn: func(_ context.Context) error {
+				t.Fatal("reconcile must not run when signer digest cannot be read")
+				return nil
+			},
+		}
+
+		w.detectAndHandleRotation(context.Background())
+		require.Equal(t, oldDigest, w.lastSignerSetDigest,
+			"digest must not advance when signer info cannot be read")
+		require.Equal(t, 1, digestCalls)
+	})
+
+	t.Run("reconcile failure: digest unchanged, retry on next tick", func(t *testing.T) {
+		reconcileCalls := 0
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationDigestFn: func(_ context.Context) (string, error) {
+				return newDigest, nil
+			},
+			rotationReconcileFn: func(_ context.Context) error {
+				reconcileCalls++
+				return fmt.Errorf("migration failed")
+			},
+		}
+		w.detectAndHandleRotation(context.Background())
+		require.Equal(t, oldDigest, w.lastSignerSetDigest,
+			"digest must not advance when reconciliation fails")
+		require.Equal(t, 1, reconcileCalls)
+
+		w.rotationReconcileFn = func(_ context.Context) error {
+			reconcileCalls++
+			return nil
+		}
+		w.detectAndHandleRotation(context.Background())
+		require.Equal(t, newDigest, w.lastSignerSetDigest,
+			"digest must advance once reconciliation succeeds on retry")
+		require.Equal(t, 2, reconcileCalls, "reconcile must be retried on the next tick")
+	})
+
+	t.Run("same digest: no reconcile", func(t *testing.T) {
+		reconcileCalls := 0
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationDigestFn: func(_ context.Context) (string, error) {
+				return oldDigest, nil
+			},
+			rotationReconcileFn: func(_ context.Context) error {
+				reconcileCalls++
+				return nil
+			},
+		}
+		w.detectAndHandleRotation(context.Background())
+		require.Equal(t, oldDigest, w.lastSignerSetDigest)
+		require.Equal(t, 0, reconcileCalls)
+	})
+
+	t.Run("all succeed: digest advances", func(t *testing.T) {
+		w := &wallet{
+			lastSignerSetDigest: oldDigest,
+			rotationDigestFn: func(_ context.Context) (string, error) {
+				return newDigest, nil
+			},
+			rotationReconcileFn: func(_ context.Context) error { return nil },
+		}
+		w.detectAndHandleRotation(context.Background())
+		require.Equal(t, newDigest, w.lastSignerSetDigest)
+	})
+}
 
 func TestGroupSpentVtxosByTx(t *testing.T) {
 	t.Parallel()
