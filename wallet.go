@@ -1395,11 +1395,6 @@ func (w *wallet) detectAndHandleRotation(ctx context.Context) {
 	}
 }
 
-func (w *wallet) currentSignerSetDigest(ctx context.Context) (string, error) {
-	_, digest, err := w.currentSignerSet(ctx)
-	return digest, err
-}
-
 func (w *wallet) currentSignerSet(ctx context.Context) (*client.Info, string, error) {
 	if w.rotationDigestFn != nil {
 		digest, err := w.rotationDigestFn(ctx)

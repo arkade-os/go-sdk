@@ -143,7 +143,10 @@ func migrationBatches(candidates []clienttypes.VtxoWithTapTree) [][]clienttypes.
 		return nil
 	}
 
-	batches := make([][]clienttypes.VtxoWithTapTree, 0, (len(sorted)+maxMigrationInputs-1)/maxMigrationInputs)
+	batches := make(
+		[][]clienttypes.VtxoWithTapTree, 0,
+		(len(sorted)+maxMigrationInputs-1)/maxMigrationInputs,
+	)
 	for start := 0; start < len(sorted); start += maxMigrationInputs {
 		end := start + maxMigrationInputs
 		if end > len(sorted) {
@@ -254,7 +257,9 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 		if len(batches) > 1 {
 			log.Infof(
 				"reconcile: splitting %d deprecated-signer vtxo(s) into %d migration batch(es), max %d input(s) each",
-				len(toMigrate), len(batches), maxMigrationInputs,
+				len(toMigrate),
+				len(batches),
+				maxMigrationInputs,
 			)
 		}
 
@@ -277,7 +282,10 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 
 			log.Infof(
 				"reconcile: consolidated batch %d/%d (%d vtxo(s)) offchain into one current-signer output txid=%s",
-				i+1, len(batches), len(batch), txid,
+				i+1,
+				len(batches),
+				len(batch),
+				txid,
 			)
 
 			// Invariant: flip the migrated contracts to inactive only after the
