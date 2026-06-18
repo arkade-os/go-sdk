@@ -13,39 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMigrateViaOffchainTx is the live-test gate for Change 1 (migrate via
-// SendOffChain). It validates the UNPROVEN portion of the SendOffChain
-// migration: specifically, whether arkd's SubmitTx handler accepts a PSBT where
-// the input vtxo commits to a DEPRECATED signer key, and co-signs a checkpoint
-// that moves the funds onto a CURRENT-signer output.
-//
-// The S17 live test proved the Settle / RegisterIntent (batch) path only. The
-// new migration path uses SubmitTx / FinalizeTx (the SendOffChain transport),
-// which is a structurally distinct server flow. The go-sdk client-lib does NOT
-// signer-check input vtxos on the send path (createOffchainTx uses opts.vtxos
-// directly when pinned via WithVtxos), and the receiver is always a
-// current-signer address (newOffchainAddress, the arkd #822 invariant), but
-// whether the SERVER accepts the deprecated-signer input on SubmitTx is a
-// server-side concern that only a live run can confirm.
-//
-// This test MUST be run manually against a live arkd #1097 instance before the
-// feat/deprecated-signer-rotation branch is merged (AC-8 / spec-rework.md
-// "UNPROVEN Risk"). Remove the t.Skip below to execute. If the live run fails
-// (arkd rejects the deprecated-signer input on SubmitTx), the SendOffChain
-// migration approach is blocked pending a server-side fix.
-//
-// Asset extension: the scenario also issues TWO distinct assets under KEY A
-// before the rotation and, after migration, asserts BOTH asset amounts are
-// PRESERVED on the restored (KEY B) wallet — closing the silent-asset-strip
-// defect. This also gates the asset co-sign path (deprecated-signer asset inputs
-// on SubmitTx), which is UNPROVEN against arkd #1097 and shares the same
-// live-test gate.
-//
-// Consolidation: migration collapses the whole ToMigrate set (BTC + both assets)
-// into ONE current-signer vtxo. The test asserts a single consolidated vtxo that
-// carries the full BTC balance and both assets, then SPENDS from it — a small BTC
-// portion and a small amount of ONE asset via SendOffChain — and asserts the
-// remaining BTC, the sent asset, and the untouched second asset all reconcile.
+// TestMigrateViaOffchainTx verifies that a live arkd accepts deprecated-signer
+// inputs through SubmitTx/FinalizeTx and migrates BTC plus assets into one
+// current-signer output.
 func TestMigrateViaOffchainTx(t *testing.T) {
 	t.Skip(
 		"requires arkd #1097; verifies SubmitTx accepts deprecated-signer input " +
@@ -55,15 +25,12 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 
 	ctx := t.Context()
 
-	// 1. Fund Alice under signer KEY A (the soon-to-be-deprecated current signer).
+	// Fund Alice under KEY A, then issue two assets to verify asset preservation.
 	alice := setupClient(t, "")
 	const fundBtc = 0.001
 	const fundSats = uint64(fundBtc * 1e8)
 	faucetOffchain(t, alice, fundBtc)
 
-	// 1b. Issue TWO distinct assets under KEY A (pre-rotation) so migration must
-	// preserve BOTH (not silently strip either to sats — the silent-asset-strip
-	// defect) AND consolidate them into the same output as the BTC balance.
 	const assetSupplyA = uint64(5_000)
 	const assetSupplyB = uint64(3_000)
 
@@ -78,7 +45,6 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	assetB := assetIdsB[0].String()
 	require.NotEqual(t, assetA, assetB, "the two issued assets must be distinct")
 
-	// Confirm alice holds both asset vtxos under KEY A before the rotation.
 	require.Equal(t, assetSupplyA, totalAssetAmount(listVtxosWithAsset(t, alice, assetA), assetA),
 		"full asset-A supply must be visible before rotation")
 	require.Equal(t, assetSupplyB, totalAssetAmount(listVtxosWithAsset(t, alice, assetB), assetB),
@@ -87,39 +53,29 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	preVtxos, _, err := alice.ListVtxos(ctx, arksdk.WithSpendableOnly())
 	require.NoError(t, err)
 	require.NotEmpty(t, preVtxos, "alice must hold spendable vtxos before rotation")
-	// Total pre-rotation sats = the BTC funding plus the asset vtxo's dust
-	// carrier; migration (offchain, no fee) must preserve this total exactly.
+	// Includes the BTC funding plus asset carrier sats.
 	preSats := totalVtxoAmount(preVtxos)
 	require.Greater(t, preSats, fundSats,
 		"pre-rotation sats include the asset carrier on top of the funding")
 
-	// Record KEY A — the signer the funded vtxo commits to.
 	oldSigner := vtxoSignerKey(t, alice, preVtxos[0])
 	require.NotEmpty(t, oldSigner)
 
-	// Export the seed so the migration runs from a fresh DB after the rotation.
 	seed, err := alice.Dump(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, seed)
 
-	// 2. Rotate arkd: KEY B becomes the current signer, KEY A becomes a
-	// deprecated signer with a FUTURE cutoff (so migration is still
-	// collaborative). With arkd #1097 this is driven via the admin / operator
-	// control; until that control is wired here this is the rotation step.
+	// Rotate: KEY B becomes current, KEY A becomes deprecated before cutoff.
 	migrateRotateArkd(t)
 
-	// 3. Restore Alice from seed into a brand-new (empty) DB. migrateOnUnlock
-	// fires during Unlock → reconcileDeprecatedSigners → sendOffchain (the
-	// SubmitTx / FinalizeTx path under test).
+	// Restore from seed so migration runs during Unlock.
 	restored := setupClient(t, seed)
 
-	// KEY B must now be the advertised current signer.
 	currentSigner := arkdCurrentSigner(t, restored)
 	require.NotEqual(t, oldSigner, currentSigner,
 		"rotation must have changed the active signer (A → B)")
 
-	// 4. Migration assertion: all KEY-A (ToMigrate) vtxos have been migrated onto
-	// KEY-B outputs. Every surviving spendable vtxo must commit to KEY B.
+	// All surviving spendable vtxos must now commit to KEY B.
 	postVtxos, _, err := restored.ListVtxos(ctx, arksdk.WithSpendableOnly())
 	require.NoError(t, err)
 	require.NotEmpty(t, postVtxos, "restored wallet must hold the migrated funds")
@@ -128,9 +84,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 			"every migrated vtxo must commit to the current signer KEY B (#822)")
 	}
 
-	// 4b. CONSOLIDATION: the whole ToMigrate set (BTC + both assets) must have
-	// collapsed into exactly ONE current-signer vtxo carrying the full BTC
-	// balance and BOTH assets — not one vtxo per asset profile.
+	// Migration consolidates BTC plus both assets into one current-signer vtxo.
 	require.Len(t, postVtxos, 1,
 		"migration must consolidate the whole set into a single vtxo")
 	consolidated := postVtxos[0]
@@ -143,9 +97,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	require.Equal(t, assetSupplyB, findVtxoAssetAmount(consolidated, assetB),
 		"the consolidated vtxo must carry the full asset-B supply")
 
-	// 4c. Asset-preservation across the wallet: both totals unchanged, every
-	// asset vtxo committing to KEY B (no asset stripped, the silent-asset-strip
-	// defect).
+	// Asset totals must be unchanged after migration.
 	postA := listVtxosWithAsset(t, restored, assetA)
 	postB := listVtxosWithAsset(t, restored, assetB)
 	require.Equal(t, assetSupplyA, totalAssetAmount(postA, assetA),
@@ -153,8 +105,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	require.Equal(t, assetSupplyB, totalAssetAmount(postB, assetB),
 		"total asset-B amount must be preserved across migration")
 
-	// 5. The SendOffChain path charges no fee: the migrated sats balance must
-	// equal the pre-migration total (funding + asset carriers) exactly.
+	// SendOffChain migration should preserve the full sats balance.
 	require.Equal(t, preSats, totalVtxoAmount(postVtxos),
 		"no fee consumed on the offchain (SubmitTx) migration path")
 
@@ -163,8 +114,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	require.Equal(t, preSats, bal.OffchainBalance.Total,
 		"offchain sats balance preserved across the migration")
 
-	// 6. The deprecated (KEY A) contract must be flipped to ContractStateInactive
-	// after the successful migration.
+	// The deprecated KEY-A contract is inactive after successful migration.
 	inactive, err := restored.ContractManager().GetContracts(
 		ctx, contract.WithState(types.ContractStateInactive),
 	)
@@ -175,9 +125,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 		require.Equal(t, types.ContractStateInactive, c.State)
 	}
 
-	// 7. PARTIAL SPEND from the consolidated vtxo: prove the migrated funds are
-	// fully usable by spending a SMALL BTC portion and a SMALL amount of ONE asset
-	// (asset A) to a fresh recipient, leaving the second asset (B) untouched.
+	// Spend part of the consolidated vtxo to prove the migrated funds are usable.
 	bob := setupClient(t, "")
 	bobAddr, err := bob.NewOffchainAddress(ctx)
 	require.NoError(t, err)
@@ -198,8 +146,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	require.NoError(t, err,
 		"spending BTC + a single asset from the consolidated vtxo must succeed")
 
-	// 7a. Recipient balances: bob holds exactly the sent BTC and asset-A amount,
-	// and none of asset B.
+	// Recipient gets BTC and asset A only.
 	bobBal, err := bob.Balance(ctx)
 	require.NoError(t, err)
 	require.Equal(t, sendBtc, bobBal.OffchainBalance.Total,
@@ -210,8 +157,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 	_, hasB := bobBal.AssetBalances[assetB]
 	require.False(t, hasB, "recipient must not receive any of the untouched asset B")
 
-	// 7b. Sender (change) balances: the remaining BTC is preserved (no fee), the
-	// sent asset is debited, and the untouched asset B is unchanged.
+	// Sender keeps the remaining BTC, debited asset A, and all of asset B.
 	senderBal, err := restored.Balance(ctx)
 	require.NoError(t, err)
 	require.Equal(t, preSats-sendBtc, senderBal.OffchainBalance.Total,
@@ -222,8 +168,7 @@ func TestMigrateViaOffchainTx(t *testing.T) {
 		"the untouched asset B must remain fully on the sender")
 }
 
-// findVtxoAssetAmount returns the amount of assetID carried by a single vtxo, or
-// 0 if it carries none of that asset.
+// findVtxoAssetAmount returns the amount of assetID carried by one vtxo.
 func findVtxoAssetAmount(vtxo clientTypes.Vtxo, assetID string) uint64 {
 	for _, a := range vtxo.Assets {
 		if a.AssetId == assetID {
@@ -233,8 +178,7 @@ func findVtxoAssetAmount(vtxo clientTypes.Vtxo, assetID string) uint64 {
 	return 0
 }
 
-// totalAssetAmount sums, across the given vtxos, the amount of the asset with
-// the given assetID (a vtxo may carry several assets; only assetID is counted).
+// totalAssetAmount sums assetID across vtxos.
 func totalAssetAmount(vtxos []clientTypes.Vtxo, assetID string) uint64 {
 	var total uint64
 	for _, v := range vtxos {
@@ -256,8 +200,7 @@ func totalVtxoAmount(vtxos []clientTypes.Vtxo) uint64 {
 	return total
 }
 
-// vtxoSignerKey returns the x-only hex of the signer the contract backing the
-// given vtxo commits to, read from the stored contract via its handler.
+// vtxoSignerKey returns the stored contract signer's x-only hex.
 func vtxoSignerKey(t *testing.T, w arksdk.Wallet, vtxo clientTypes.Vtxo) string {
 	t.Helper()
 	mgr := w.ContractManager()
@@ -274,8 +217,7 @@ func vtxoSignerKey(t *testing.T, w arksdk.Wallet, vtxo clientTypes.Vtxo) string 
 	return hex.EncodeToString(schnorr.SerializePubKey(signerKey))
 }
 
-// arkdCurrentSigner returns the x-only hex of arkd's CURRENT active signer as
-// advertised over the wire.
+// arkdCurrentSigner returns arkd's current signer as x-only hex.
 func arkdCurrentSigner(t *testing.T, w arksdk.Wallet) string {
 	t.Helper()
 	info, err := w.Client().GetInfo(t.Context())
@@ -288,9 +230,7 @@ func arkdCurrentSigner(t *testing.T, w arksdk.Wallet) string {
 	return hex.EncodeToString(schnorr.SerializePubKey(key))
 }
 
-// migrateRotateArkd triggers a signer rotation on the running arkd. Implemented
-// against the admin API once arkd #1097 lands; today it fails loudly so the test
-// can only be unskipped once the rotation control is available.
+// migrateRotateArkd is wired once the arkd rotation control is available.
 func migrateRotateArkd(t *testing.T) {
 	t.Helper()
 	t.Fatal(

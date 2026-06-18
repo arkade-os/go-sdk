@@ -19,36 +19,19 @@ import (
 type signerState int
 
 const (
-	// signerActive is the current server signer (no action needed).
 	signerActive signerState = iota
-	// signerToMigrate is a deprecated key whose cutoff is in the future
-	// (including keys with no cutoff). Vtxos under this key are settled onto
-	// current-signer outputs via reconcileDeprecatedSigners.
+	// Deprecated signer before cutoff, or with no cutoff.
 	signerToMigrate
-	// signerExpired is a deprecated key past its cutoff: the server refuses to
-	// co-sign, so its vtxos are unilateral-exit-only. Never attempt a
-	// collaborative settle for these.
+	// Deprecated signer past cutoff; collaborative migration is no longer possible.
 	signerExpired
-	// Note: a stored contract whose signer is neither the current signer nor any
-	// advertised deprecated key is no longer modeled as an enum value. The
-	// reconcile loop builds a signerMap of current∪deprecated once and treats a
-	// map miss as an inline logged skip (never migrated).
 )
 
-// signerInfo is the classified state of one signer x-only hex, precomputed once
-// per reconcile pass so the per-vtxo loop is a single map lookup.
+// signerInfo is the precomputed state for one x-only signer key.
 type signerInfo struct {
 	state signerState
 }
 
-// buildSignerMap precomputes the state of every known signer (the current
-// signer plus each advertised deprecated key) in a single pass over the
-// deprecated set, using `now` for the cutoff threshold. Deprecated keys with a
-// future (or zero) cutoff are signerToMigrate; past-cutoff keys are
-// signerExpired. The current signer is signerActive. A signer that appears in
-// neither set is absent from the returned map; callers treat a map miss as an
-// inline "log and skip" (it is never migrated) — this replaces the former
-// signerUnknown enum value.
+// buildSignerMap classifies the current and deprecated signers for one reconcile.
 func buildSignerMap(
 	currentHex string,
 	deprecated map[string]client.DeprecatedSigner,
@@ -69,9 +52,7 @@ func buildSignerMap(
 	return m
 }
 
-// deprecatedSignerSet builds an x-only-keyed map of the advertised deprecated
-// signers, plus the current signer's x-only hex. Malformed entries are skipped
-// with a warning so a bad server response can never break reconciliation.
+// deprecatedSignerSet normalizes current/deprecated signers to x-only hex.
 func deprecatedSignerSet(
 	info *client.Info,
 ) (currentHex string, set map[string]client.DeprecatedSigner) {
@@ -106,9 +87,7 @@ func normalizeSignerHex(h string) (string, error) {
 	return hex.EncodeToString(schnorr.SerializePubKey(key)), nil
 }
 
-// signerSetDigest returns a stable representation of the full signer set
-// (current + deprecated), so a live rotation can be detected by comparing
-// digests across refreshes.
+// signerSetDigest returns a stable current+deprecated signer-set representation.
 func signerSetDigest(info *client.Info) string {
 	parts := make([]string, 0, 1+len(info.DeprecatedSignerPubKeys))
 	if cur, err := normalizeSignerHex(info.SignerPubKey); err == nil {
@@ -123,9 +102,7 @@ func signerSetDigest(info *client.Info) string {
 	return strings.Join(parts, "|")
 }
 
-// migrationBatches sorts the migration candidates by sats value descending and
-// splits them into maxInputs-sized batches. It is a pure function (sorts a copy
-// of the input) so the cap behaviour is directly unit-testable.
+// migrationBatches sorts by sats descending and splits into capped batches.
 func migrationBatches(
 	candidates []clienttypes.VtxoWithTapTree, maxInputs int,
 ) [][]clienttypes.VtxoWithTapTree {
@@ -164,30 +141,10 @@ func (w *wallet) migrationInputLimit() int {
 	return w.maxMigrationInputs
 }
 
-// reconcileDeprecatedSigners classifies the wallet's spendable vtxos by the
-// state of the server signer their contract commits to, in a single pass, and
-// migrates the actionable (ToMigrate) ones onto current-signer outputs via the
-// safeCheck-free, asset-aware send path (SubmitTx/FinalizeTx). Each capped batch
-// is consolidated into one output: all BTC plus every asset in that batch
-// collapse into a single vtxo at one fresh current-signer address (the receiver
-// declares the per-asset totals so assets are preserved, never stripped). It
-// never blocks the caller on a migration failure: the send error is returned to
-// the unlock/live-rotation wrapper, which logs it and leaves the wallet usable.
-//
-// At most the configured migration input limit is migrated per transaction, but
-// reconcile loops over every batch in the same pass. No vtxo is left for a later
-// reconcile just because the set exceeded the per-transaction cap.
-//
-// After the send succeeds, all migrated contracts are flipped to
-// ContractStateInactive (all-or-nothing: on failure none are flipped, so the
-// batch stays active for the next reconcile). Expired contracts (exit-only) are
-// flipped at the end of the pass regardless of whether any migration ran. The
-// inactivation is a UI signal only; refreshDb reads contracts state-agnostically
-// today, so it never hides funds.
-//
-// Locking: vtxos/contracts are read under w.dbMu, then the lock is released
-// before the send (which takes w.dbMu internally via the txHandler). The lock is
-// never held across the send.
+// reconcileDeprecatedSigners migrates spendable deprecated-signer vtxos to
+// current-signer outputs. Each capped batch is one asset-aware self-send.
+// Successful batches are marked inactive; failed batches stay active for retry.
+// Expired signer contracts are marked inactive as exit-only.
 func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 	if w.contractManager == nil {
 		return nil
@@ -223,44 +180,18 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 	}
 	signerByScript := signerKeysByScript(ctx, w, contracts)
 
-	// Classify every known signer once (current ∪ deprecated), then make a single
-	// pass over the vtxos. classifyVtxos is a pure function (no I/O) so the
-	// single-pass classification is directly unit-testable.
+	// Classify known signers once, then scan vtxos in one pass.
 	signerMap := buildSignerMap(currentHex, deprecated, time.Now())
 	toMigrateVtxos, expiredScripts := classifyVtxos(spendable, signerByScript, signerMap)
 
-	// Resolve the ToMigrate vtxos to the VtxoWithTapTree shape sendOffchain needs
+	// Resolve ToMigrate vtxos to the VtxoWithTapTree shape sendOffchain needs.
 	toMigrate, err := w.buildVtxosWithTapTree(ctx, toMigrateVtxos)
 	if err != nil {
 		return err
 	}
 
-	// Migrate the actionable (ToMigrate) vtxos by consolidating each capped batch
-	// into one output: all BTC plus every asset in that batch collapse into a
-	// single vtxo at one fresh current-signer address, honoring arkd #822. The
-	// consolidated receiver declares the per-asset totals so createAssetPacket
-	// balances inputs == outputs per asset and no asset value is stripped. Only
-	// the migrated vtxos are pinned as inputs; Expired vtxos are excluded
-	// (exit-only) and Active vtxos are left untouched. Idempotent across runs:
-	// once migrated, those vtxos are spent and a re-run finds no ToMigrate entries
-	// for them.
-	//
-	// Input cap: at most the configured migration input limit is consolidated per
-	// transaction. The set is sorted by sats value descending and then drained in
-	// capped batches in this same reconcile pass. This bounds the per-tx
-	// input/weight cost without leaving a remainder for a later reconcile.
-	//
-	// sendOffchain bypasses safeCheck because reconcile runs synchronously during
-	// Unlock, before the wallet is marked synced; the public SendOffChain would
-	// return ErrIsSyncing here and skip the migration. It still serializes each
-	// migration batch through txHandler, so periodic rotation cannot overlap user
-	// sends/assets/settles.
-	//
-	// All-or-nothing rule per batch: inactivation is applied only after that
-	// batch's consolidated send returns without error, and only for the migrated
-	// scripts. On a send failure the failed batch and all remaining batches stay
-	// active for retry, so a contract is never inactivated before the send that
-	// consumed its vtxo succeeded.
+	// Drain all migration candidates in capped, serialized, current-signer
+	// self-sends. Inactivate only after the batch send succeeds.
 	if len(toMigrate) > 0 {
 		maxInputs := w.migrationInputLimit()
 		batches := migrationBatches(toMigrate, maxInputs)
@@ -291,8 +222,7 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 				txid,
 			)
 
-			// Invariant: flip the migrated contracts to inactive only after the
-			// send succeeds, and only for the scripts that were migrated.
+			// Only flip contracts consumed by the successful batch.
 			migratedScripts := make([]string, 0, len(batch))
 			for _, v := range batch {
 				migratedScripts = append(migratedScripts, v.Script)
@@ -301,21 +231,13 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context) error {
 		}
 	}
 
-	// Flip Expired contracts to inactive regardless of whether a migration ran:
-	// their vtxos are exit-only, so "inactive" directs the user to a unilateral
-	// exit. No migration to wait for, so the timing invariant does not apply here.
+	// Expired deprecated-signer vtxos are exit-only.
 	w.inactivateContracts(ctx, expiredScripts)
 
 	return nil
 }
 
-// buildVtxosWithTapTree enriches a plain []clienttypes.Vtxo subset into the
-// []clienttypes.VtxoWithTapTree shape that getSpendableVtxos produces, by
-// resolving each vtxo's contract and extracting its tapscripts. Vtxos whose
-// contract is not found in the store (or whose handler/tapscripts cannot be
-// resolved) are skipped with a warning — the same behavior getSpendableVtxos
-// exhibits for vtxos missing a contract. Used by reconcileDeprecatedSigners to
-// resolve the ToMigrate subset before handing it to sendOffchain.
+// buildVtxosWithTapTree adds tapscripts for the ToMigrate subset.
 func (w *wallet) buildVtxosWithTapTree(
 	ctx context.Context, subset []clienttypes.Vtxo,
 ) ([]clienttypes.VtxoWithTapTree, error) {
@@ -364,10 +286,7 @@ func (w *wallet) buildVtxosWithTapTree(
 	return vtxos, nil
 }
 
-// inactivateContracts flips each given contract script to ContractStateInactive.
-// Individual failures are logged and skipped — a failed flip never aborts the
-// reconcile pass (the inactive state is a UI signal only; refreshDb reads
-// contracts state-agnostically, so a missed flip cannot hide funds).
+// inactivateContracts marks scripts inactive; failures are logged and skipped.
 func (w *wallet) inactivateContracts(ctx context.Context, scripts []string) {
 	for _, script := range scripts {
 		if err := w.store.ContractStore().UpdateContractState(
@@ -378,12 +297,7 @@ func (w *wallet) inactivateContracts(ctx context.Context, scripts []string) {
 	}
 }
 
-// classifyVtxos makes a single pass over the spendable vtxos, classifying each
-// by the precomputed state of its signer (signerMap). It returns the ordered
-// subset of ToMigrate vtxos plus the expired contract scripts to inactivate. It
-// is a pure function (no I/O): the only side effect is a log line for a vtxo
-// whose signer is in neither the current nor the deprecated set (a map miss),
-// which is skipped. Active vtxos are ignored.
+// classifyVtxos returns migratable vtxos and expired contract scripts.
 func classifyVtxos(
 	spendable []clienttypes.Vtxo,
 	signerByScript map[string]string,
@@ -392,13 +306,10 @@ func classifyVtxos(
 	for _, v := range spendable {
 		sHex, ok := signerByScript[v.Script]
 		if !ok {
-			// No contract maps this vtxo's script; skip (a foreign or not-yet-discovered script).
 			continue
 		}
 		si, known := signerMap[sHex]
 		if !known {
-			// Signer is neither the current signer nor an advertised deprecated
-			// key. Log and skip: never migrated.
 			log.Warnf(
 				"reconcile: vtxo %s under unknown signer %s (neither current nor deprecated)",
 				v.Script, sHex,

@@ -1361,11 +1361,11 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 	}
 }
 
-// detectAndHandleRotation checks whether the server signer set changed since
-// the last successful reconcile and, if so, reconciles deprecated-signer vtxos.
-// Callers must run refreshDb before this method; this handler only compares the
-// signer digest, invalidates cached GetInfo for future contract allocation, and
-// runs migration. It is best-effort: any error is logged, never fatal.
+// detectAndHandleRotation moves deprecated-signer vtxos onto current-signer
+// outputs synchronously, before the wallet is marked synced.
+// Pre-rotation deprecated-signer contracts are already persisted: each
+// contract is stored when its address is first handed out, so refreshDb
+// has pulled their vtxos and migration has a consistent view.
 func (w *wallet) detectAndHandleRotation(ctx context.Context) {
 	info, digest, err := w.currentSignerSet(ctx)
 	if err != nil {
@@ -1390,9 +1390,7 @@ func (w *wallet) detectAndHandleRotation(ctx context.Context) {
 		}
 	}
 
-	// Only advance lastSignerSetDigest after reconcile succeeds. A reconcile
-	// failure leaves the digest unchanged, so the next periodic tick retries any
-	// batch that failed before all deprecated-signer vtxos were migrated.
+	// Advance the digest only after reconcile succeeds, so failures retry.
 	if w.reconcileDetectedRotation(ctx) {
 		w.lastSignerSetDigest = digest
 	}
@@ -1478,16 +1476,9 @@ func signerPubKeyFromHex(pubkey string) (*btcec.PublicKey, error) {
 	return btcec.ParsePubKey(buf)
 }
 
-// reconcileDetectedRotation runs the migration step of a detected rotation and
-// reports whether the rotation digest may now be advanced.
-// Split out from detectAndHandleRotation so the digest-advance decision can be
-// unit-tested via the rotation seams without mocking the whole wallet. The seam
-// fields are nil in production and fall through to the real methods.
+// reconcileDetectedRotation reports whether the signer digest can advance.
 func (w *wallet) reconcileDetectedRotation(ctx context.Context) bool {
-	// Force future handler allocations to use fresh server info. ScanContracts is
-	// not called here: this migrate-only branch relies on the store-before-return
-	// invariant, so every script being migrated is already persisted before its
-	// address is handed to a caller.
+	// Future handler allocations must use fresh server info.
 	if w.contractManager != nil {
 		w.contractManager.InvalidateInfoCache()
 	}

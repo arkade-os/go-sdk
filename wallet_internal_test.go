@@ -31,11 +31,7 @@ func TestRefreshTimeRangeSkipsInvalidRanges(t *testing.T) {
 	require.False(t, ok, "equal millisecond bounds are rejected by indexer.WithTimeRange")
 }
 
-// TestDetectRotationDigestAdvance verifies the rotation digest is advanced only
-// after reconciliation succeeds. refreshDb is owned by the caller
-// (periodicRefreshDb or Unlock), so this test focuses on the shared detector:
-// digest fetch failure or reconcile failure must leave lastSignerSetDigest at
-// its old value so the next periodic tick re-detects the change and retries.
+// TestDetectRotationDigestAdvance advances the digest only after reconcile succeeds.
 func TestDetectRotationDigestAdvance(t *testing.T) {
 	const oldDigest = "old"
 	const newDigest = "new"

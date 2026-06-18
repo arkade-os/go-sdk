@@ -12,10 +12,7 @@ import (
 // the next GetInfo call hits the transport.
 const infoCacheTTL = 5 * time.Minute
 
-// infoCache memoizes the response of client.TransportClient.GetInfo so
-// every handler attached to the same manager shares one cache instead of
-// each owning its own (which would multiply redundant GetInfo calls as
-// new handler kinds — vhtlc, delegate — are added).
+// infoCache memoizes GetInfo across handlers attached to one manager.
 type infoCache struct {
 	mu                   sync.Mutex
 	resp                 *client.Info
@@ -51,10 +48,7 @@ func (c *infoCache) set(resp *client.Info, epoch uint64) {
 	c.lastUpdate = time.Now()
 }
 
-// Invalidate clears the cached response so the next GetInfo call hits the
-// transport. The wallet calls this (via Manager.InvalidateInfoCache) when it
-// detects a live signer rotation, so the next contract allocation derives its
-// script from the current signer set rather than a stale cached one.
+// Invalidate forces the next GetInfo call to hit the transport.
 func (c *infoCache) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -63,9 +57,7 @@ func (c *infoCache) Invalidate() {
 	c.lastUpdate = time.Time{}
 }
 
-// cachingClient is a transport-client decorator that intercepts GetInfo
-// and serves it from a shared infoCache. Every other call passes through
-// to the embedded client unchanged via Go's method promotion.
+// cachingClient serves GetInfo from infoCache; other calls are promoted through.
 type cachingClient struct {
 	client.Client
 	cache *infoCache

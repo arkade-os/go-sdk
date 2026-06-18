@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// findAssetAmount returns the Amount declared for assetId in the receiver's
-// Assets slice, or 0 if absent. Test helper for the asset-receiver assertions.
+// findAssetAmount returns assetID's receiver amount, or 0 if absent.
 func findAssetAmount(assets []clienttypes.Asset, assetID string) uint64 {
 	for _, a := range assets {
 		if a.AssetId == assetID {
@@ -36,11 +35,7 @@ func vtxoWithScript(
 
 // --- buildConsolidatedReceiver ---------------------------------------------
 
-// TestConsolidatedReceiverShape verifies the SINGLE consolidated receiver: a
-// migration batch always produces exactly one Receiver whose Amount is the sum
-// of EVERY input's sats and whose Assets declare every distinct assetId summed
-// across all inputs. Pure-sats batches declare no Assets; a sub-dust total is
-// floored to dust.
+// TestConsolidatedReceiverShape covers sats, assets, sorting, and dust floor.
 func TestConsolidatedReceiverShape(t *testing.T) {
 	const dust = uint64(330)
 
@@ -61,10 +56,6 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 	})
 
 	t.Run("mixed pure-sats + multiple assets => one receiver, all summed", func(t *testing.T) {
-		// A heterogeneous batch: a big pure-sats vtxo, two vtxos of asset aaa,
-		// one of asset bbb, and one multi-asset vtxo carrying aaa AND ccc. The
-		// consolidated receiver must declare ALL assetIds (aaa, bbb, ccc) summed
-		// across every input, with Amount = the sum of EVERY carrier's sats.
 		batch := []clienttypes.VtxoWithTapTree{
 			vtxoWith(50000), // pure sats
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 500}),
@@ -78,18 +69,15 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 
 		r := buildConsolidatedReceiver(batch, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
-		// Amount = sum of ALL sats carriers (50000 + 330*4).
 		require.Equal(t, uint64(50000+330*4), r.Amount,
 			"consolidated Amount must be the sum of every input's sats")
 
-		// Exactly one entry per distinct assetId, each summed across all inputs.
 		require.Len(t, r.Assets, 3, "one entry per distinct assetId")
 		require.Equal(t, uint64(500+300+200), findAssetAmount(r.Assets, "aaa"),
 			"aaa summed across the two single-asset vtxos and the multi-asset vtxo")
 		require.Equal(t, uint64(1000), findAssetAmount(r.Assets, "bbb"))
 		require.Equal(t, uint64(7), findAssetAmount(r.Assets, "ccc"))
 
-		// Assets are sorted by assetId for a deterministic output.
 		require.Equal(t, "aaa", r.Assets[0].AssetId)
 		require.Equal(t, "bbb", r.Assets[1].AssetId)
 		require.Equal(t, "ccc", r.Assets[2].AssetId)
@@ -113,7 +101,6 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 500}),
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 300}),
 		}, "addr1", dust)
-		// Carrier sum: 330 + 330 = 660 (NOT a flat 330 — that would lose 330 sats).
 		require.Equal(t, uint64(660), r.Amount,
 			"consolidated Amount must be the SUM of carrier sats, not a flat dust")
 		require.Len(t, r.Assets, 1)
@@ -155,12 +142,8 @@ func TestWithMigrationOutput(t *testing.T) {
 
 // --- migration input cap ---------------------------------------------------
 
-// TestMigrationInputCapBatchesAllByValue verifies the per-transaction input cap:
-// when the ToMigrate set exceeds the default cap, every vtxo is still included in
-// this reconcile pass, split into capped batches ordered by sats value descending.
+// TestMigrationInputCapBatchesAllByValue verifies capped, sorted batching.
 func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
-	// Build defaultMaxMigrationInputs+5 vtxos with strictly increasing sats values so
-	// the top-by-value selection is unambiguous.
 	const extra = 5
 	total := defaultMaxMigrationInputs + extra
 	all := make([]clienttypes.VtxoWithTapTree, 0, total)
@@ -178,9 +161,6 @@ func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
 	require.Len(t, batches[len(batches)-1], total%defaultMaxMigrationInputs,
 		"last batch carries the remainder")
 
-	// The first batch must be the defaultMaxMigrationInputs highest-value vtxos
-	// (values total-1 .. extra), and the final batch the lowest-value ones
-	// (values 1000 .. 1000+extra-1).
 	firstBatchValues := map[uint64]bool{}
 	for _, v := range batches[0] {
 		firstBatchValues[v.Amount] = true
@@ -222,8 +202,7 @@ func TestMigrationInputLimitDefault(t *testing.T) {
 	}, 0), 1)
 }
 
-// TestMigrationInputCapNoTruncationUnderCap verifies that a set at or below the
-// cap is migrated in a single sorted batch.
+// TestMigrationInputCapNoTruncationUnderCap verifies sub-cap batching.
 func TestMigrationInputCapNoTruncationUnderCap(t *testing.T) {
 	all := []clienttypes.VtxoWithTapTree{
 		vtxoWith(300), vtxoWith(100), vtxoWith(200),
@@ -231,7 +210,6 @@ func TestMigrationInputCapNoTruncationUnderCap(t *testing.T) {
 	batches := migrationBatches(all, defaultMaxMigrationInputs)
 	require.Len(t, batches, 1, "a sub-cap set migrates in one batch")
 	require.Len(t, batches[0], 3, "a sub-cap set migrates in full")
-	// Still sorted highest-value first.
 	require.Equal(t, uint64(300), batches[0][0].Amount)
 	require.Equal(t, uint64(200), batches[0][1].Amount)
 	require.Equal(t, uint64(100), batches[0][2].Amount)

@@ -17,7 +17,6 @@ func (w *wallet) IssueAsset(
 		return "", nil, err
 	}
 
-	// Synchronize with other operations to avoid overlapping.
 	issuance := func() (any, error) {
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
@@ -40,8 +39,6 @@ func (w *wallet) IssueAsset(
 			client.WithKeys(signingKeyRefs),
 		}
 
-		// Subscribe to the receiver address before submitting so we don't miss
-		// the indexer notification once the server tracks the tx.
 		tracked, cancel := w.notifyTracked(ctx, offchainAddr)
 		defer cancel()
 
@@ -50,14 +47,10 @@ func (w *wallet) IssueAsset(
 			return nil, err
 		}
 
-		// Persist within the critical section so the next queued operation
-		// sees the spent VTXOs and freshly created change before it runs.
 		if err := w.saveSendTransaction(ctx, res.OffchainTxRes); err != nil {
 			return nil, err
 		}
 
-		// Wait until the indexer has tracked our new vtxo before releasing the
-		// slot, so the next queued operation can spend it.
 		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
@@ -83,7 +76,6 @@ func (w *wallet) ReissueAsset(
 		return "", err
 	}
 
-	// Synchronize with other operations to avoid overlapping.
 	reissuance := func() (any, error) {
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
@@ -106,8 +98,6 @@ func (w *wallet) ReissueAsset(
 			client.WithKeys(signingKeyRefs),
 		}
 
-		// Subscribe to the receiver address before submitting so we don't miss
-		// the indexer notification once the server tracks the tx.
 		tracked, cancel := w.notifyTracked(ctx, offchainAddr)
 		defer cancel()
 
@@ -116,14 +106,10 @@ func (w *wallet) ReissueAsset(
 			return nil, err
 		}
 
-		// Persist within the critical section so the next queued operation
-		// sees the spent VTXOs and freshly created change before it runs.
 		if err := w.saveSendTransaction(ctx, *res); err != nil {
 			return nil, err
 		}
 
-		// Wait until the indexer has tracked our new vtxo before releasing the
-		// slot, so the next queued operation can spend it.
 		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
@@ -149,7 +135,6 @@ func (w *wallet) BurnAsset(
 		return "", err
 	}
 
-	// Synchronize with other operations to avoid overlapping.
 	burn := func() (any, error) {
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
@@ -172,8 +157,6 @@ func (w *wallet) BurnAsset(
 			client.WithKeys(signingKeyRefs),
 		}
 
-		// Subscribe to the receiver address before submitting so we don't miss
-		// the indexer notification once the server tracks the tx.
 		tracked, cancel := w.notifyTracked(ctx, offchainAddr)
 		defer cancel()
 
@@ -182,14 +165,10 @@ func (w *wallet) BurnAsset(
 			return nil, err
 		}
 
-		// Persist within the critical section so the next queued operation
-		// sees the spent VTXOs and freshly created change before it runs.
 		if err := w.saveSendTransaction(ctx, *res); err != nil {
 			return nil, err
 		}
 
-		// Wait until the indexer has tracked our new vtxo before releasing the
-		// slot, so the next queued operation can spend it.
 		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}

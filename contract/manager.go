@@ -25,10 +25,7 @@ type contractManager struct {
 	network     arklib.Network
 	registry    Registry
 	mu          sync.RWMutex
-	// infoCache is the shared GetInfo cache backing the handlers' transport
-	// wrapper. The manager exposes InvalidateInfoCache so the wallet can force
-	// a fresh GetInfo when it detects a live signer rotation, ensuring the next
-	// handler call derives scripts from the current signer set.
+	// Shared GetInfo cache used by built-in handlers.
 	infoCache *infoCache
 }
 
@@ -46,10 +43,7 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		}
 	}
 
-	// Wrap the transport client once with a shared GetInfo cache so all
-	// built-in handlers reuse the same cached server info. Custom handlers
-	// supplied via WithHandler are constructed outside the manager and own
-	// their own client wiring.
+	// Built-in handlers share one GetInfo cache; custom handlers own their wiring.
 	cache := newInfoCache(infoCacheTTL)
 	cachedClient := newCachingClient(args.Client, cache)
 	builtins := map[types.ContractType]handlers.Handler{
@@ -72,9 +66,7 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	}, nil
 }
 
-// InvalidateInfoCache clears the shared GetInfo cache so the next handler call
-// fetches fresh server info. Exposed on the Manager interface so the wallet can
-// force a re-read of the signer set when it detects a live rotation.
+// InvalidateInfoCache forces the next built-in handler GetInfo call to refresh.
 func (m *contractManager) InvalidateInfoCache() {
 	m.infoCache.Invalidate()
 }
@@ -86,10 +78,7 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	defer m.mu.Unlock()
 
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		// A single-key identity has only one derivable contract per type, so the
-		// gap-limit loop would just churn on the same script. Derive each type's
-		// one contract and batch the offchain probe into a single indexer call;
-		// boarding still goes per-address through the explorer.
+		// Single-key identities have one derivable contract per type.
 		return m.scanSingleKeyContracts(ctx)
 	}
 
@@ -98,9 +87,6 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 		if err != nil {
 			return err
 		}
-		// Pick the "is this contract used externally?" probe for the type:
-		// boarding contracts are looked up via the explorer per-address (and
-		// throttled), offchain ones via the indexer's batch GetVtxos.
 		findUsed := m.findUsedContracts
 		if contractType == types.ContractTypeBoarding {
 			findUsed = m.findUsedBoardingContracts
@@ -135,9 +121,7 @@ func (m *contractManager) NewContract(
 	defer m.mu.Unlock()
 
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		// A single-key identity reuses the same key for every contract of a given type, so the
-		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
-		// the stored contract.
+		// Single-key identities can derive the same script repeatedly; reuse it.
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
@@ -223,11 +207,7 @@ func (m *contractManager) Close() {
 	log.Debugf("%s closed contract manager", logPrefix)
 }
 
-// findUsedFn returns the subset of `contracts`, keyed by Script, that have
-// been used externally — i.e. that the corresponding data source (indexer
-// for offchain, explorer for boarding) has any record of. Defined as a
-// callback so the gap-limit scan body below stays generic across contract
-// types.
+// findUsedFn reports which candidate scripts have external activity.
 type findUsedFn func(
 	ctx context.Context, contracts []types.Contract,
 ) (map[string]struct{}, error)
@@ -243,10 +223,7 @@ func (m *contractManager) scanContracts(
 		)
 	}
 
-	// Where to start scanning. For a fresh wallet (no contracts of this
-	// type stored yet) we scan from index 0; otherwise strictly after
-	// the last stored index, since everything up to it is already
-	// allocated.
+	// Scan from zero on fresh wallets, otherwise after the latest stored index.
 	var startIdx uint32
 	var currentKeyId string
 	if contract != nil {
@@ -262,9 +239,7 @@ func (m *contractManager) scanContracts(
 		startIdx = currentIdx + 1
 	}
 
-	// Gap-limit scan. `lastUsedIdx` stays at the sentinel value until a
-	// hit promotes it; if no key is ever flagged as used we leave the
-	// contract store untouched.
+	// Track the highest externally used index found before the gap limit.
 	const noUsage int64 = -1
 	var (
 		lastUsedIdx       = noUsage
@@ -326,8 +301,7 @@ scan:
 		return nil
 	}
 
-	// Persist contracts from the start of the scan range up to the
-	// highest used index (inclusive).
+	// Persist the contiguous scan range through the highest used index.
 	for i := startIdx; i <= uint32(lastUsedIdx); i++ {
 		contract := contractByIndex[i]
 		if err := m.store.AddContract(ctx, contract, i); err != nil {
@@ -418,11 +392,7 @@ func (m *contractManager) findUsedBoardingContracts(
 	return used, nil
 }
 
-// scanSingleKeyContracts derives the one contract each registered type can
-// produce under a single-key identity and probes external state to decide
-// which to persist. Offchain types are batched into a single indexer call;
-// boarding types go through the per-address explorer probe (one call per
-// type — at most one boarding handler is registered today).
+// scanSingleKeyContracts probes the one contract per registered type.
 func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 	type pending struct {
 		typ      types.ContractType

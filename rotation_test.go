@@ -30,13 +30,7 @@ func xonlyHexOf(key *btcec.PublicKey) string {
 	return hex.EncodeToString(schnorr.SerializePubKey(key))
 }
 
-// TestBuildSignerMap covers every counted signer state and the cutoff
-// thresholds (cutoff==0 and past-cutoff, plus multiple deprecated signers), and
-// asserts that a signer in neither the current nor the deprecated set is ABSENT
-// from the map (a map miss the caller treats as a logged skip — there is no
-// signerUnknown enum value anymore). There is no safety margin: any future (or
-// zero) cutoff classifies as signerToMigrate, and any past cutoff as
-// signerExpired.
+// TestBuildSignerMap covers current, migratable, expired, no-cutoff, and unknown.
 func TestBuildSignerMap(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
@@ -97,21 +91,16 @@ func TestBuildSignerMap(t *testing.T) {
 	})
 }
 
-// TestDeprecatedSignerSet verifies normalization, dedup of an entry equal to the
-// current signer, and that malformed entries are skipped.
+// TestDeprecatedSignerSet covers normalization, dedup, and malformed entries.
 func TestDeprecatedSignerSet(t *testing.T) {
 	current := testKey(t)
 	dep := testKey(t)
 
 	info := &client.Info{
-		// current advertised compressed; helper must normalize to x-only.
 		SignerPubKey: compressedHex(current),
 		DeprecatedSignerPubKeys: []client.DeprecatedSigner{
-			// compressed deprecated key
 			{PubKey: compressedHex(dep), CutoffDate: 123},
-			// duplicate of current → must be dropped
 			{PubKey: compressedHex(current), CutoffDate: 999},
-			// malformed → must be skipped, not fatal
 			{PubKey: "not-hex", CutoffDate: 1},
 			{PubKey: "00", CutoffDate: 1},
 		},
@@ -126,7 +115,6 @@ func TestDeprecatedSignerSet(t *testing.T) {
 	require.Equal(t, int64(123), d.CutoffDate)
 	require.Equal(t, xonlyHexOf(dep), d.PubKey, "stored as x-only")
 
-	// The current key must not appear as a deprecated entry.
 	_, present := set[xonlyHexOf(current)]
 	require.False(t, present)
 }
@@ -154,8 +142,7 @@ func TestDeprecatedSignersForConfig(t *testing.T) {
 	require.True(t, signers[1].CutoffDate.IsZero())
 }
 
-// TestSignerSetDigestStability verifies the digest is stable under reordering
-// and changes when the signer set changes (drives live-rotation detection).
+// TestSignerSetDigestStability covers live-rotation digest behavior.
 func TestSignerSetDigestStability(t *testing.T) {
 	current := testKey(t)
 	a := testKey(t)
@@ -167,7 +154,6 @@ func TestSignerSetDigestStability(t *testing.T) {
 			{PubKey: compressedHex(a)}, {PubKey: compressedHex(b)},
 		},
 	}
-	// Same set, deprecated entries reordered → same digest.
 	info2 := &client.Info{
 		SignerPubKey: compressedHex(current),
 		DeprecatedSignerPubKeys: []client.DeprecatedSigner{
@@ -176,7 +162,6 @@ func TestSignerSetDigestStability(t *testing.T) {
 	}
 	require.Equal(t, signerSetDigest(info1), signerSetDigest(info2))
 
-	// A rotation: current changes → digest changes.
 	rotated := &client.Info{
 		SignerPubKey: compressedHex(a),
 		DeprecatedSignerPubKeys: []client.DeprecatedSigner{
@@ -185,7 +170,6 @@ func TestSignerSetDigestStability(t *testing.T) {
 	}
 	require.NotEqual(t, signerSetDigest(info1), signerSetDigest(rotated))
 
-	// Adding a deprecated key → digest changes.
 	added := &client.Info{
 		SignerPubKey: compressedHex(current),
 		DeprecatedSignerPubKeys: []client.DeprecatedSigner{
@@ -197,9 +181,7 @@ func TestSignerSetDigestStability(t *testing.T) {
 	require.NotEqual(t, signerSetDigest(info1), signerSetDigest(added))
 }
 
-// TestReconcileNoContractManager verifies the no-op guard: with no contract
-// manager (wallet not yet unlocked) reconcile returns no error, so it can never
-// break the Unlock path.
+// TestReconcileNoContractManager covers the pre-unlock no-op guard.
 func TestReconcileNoContractManager(t *testing.T) {
 	w := &wallet{}
 	err := w.reconcileDeprecatedSigners(t.Context())
@@ -208,11 +190,7 @@ func TestReconcileNoContractManager(t *testing.T) {
 
 // --- Test doubles -----------------------------------------------------------
 
-// fakeContractStore records every UpdateContractState call and can be told to
-// fail for specific scripts, so tests can assert WHICH scripts were flipped
-// inactive (and that a failing flip does not abort the pass). Only
-// UpdateContractState is exercised; the rest of the ContractStore interface is
-// satisfied with no-op stubs to keep the double minimal.
+// fakeContractStore records UpdateContractState calls.
 type fakeContractStore struct {
 	updated  map[string]types.ContractState
 	failOn   map[string]bool
@@ -267,9 +245,7 @@ func (f *fakeContractStore) GetLatestContract(
 }
 func (f *fakeContractStore) Clean(context.Context) error { return nil }
 
-// fakeStore is a minimal types.Store that returns the embedded fake
-// ContractStore. Only ContractStore() is used by inactivateContracts; the rest
-// return nil and are never called in these tests.
+// fakeStore only exposes ContractStore for inactivation tests.
 type fakeStore struct {
 	contractStore types.ContractStore
 }
@@ -284,11 +260,7 @@ func (s *fakeStore) Close()                                   {}
 
 // --- Single-pass classification --------------------------------------------
 
-// TestClassifyVtxosSinglePass verifies the unified single-pass classification
-// (classifyVtxos): the ToMigrate bucket collects exactly the migratable vtxos,
-// the expired bucket collects exactly the past-cutoff scripts, and a vtxo under
-// an unknown signer (a signerMap miss) — as well as one with no contract mapping
-// — is skipped.
+// TestClassifyVtxosSinglePass covers migratable, expired, unknown, and orphaned.
 func TestClassifyVtxosSinglePass(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
@@ -311,8 +283,6 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 		},
 	}
 
-	// 1 Active, 2 ToMigrate, 1 Expired, 1 under an unknown signer, 1 orphan
-	// (no signer mapping). Scripts are arbitrary unique tags used as map keys.
 	spendable := []clienttypes.Vtxo{
 		{Script: "active-1", Amount: 100},
 		{Script: "tomigrate-1", Amount: 1000},
@@ -333,7 +303,6 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 	signerMap := buildSignerMap(currentHex, deprecated, now)
 	toMigrate, expiredScripts := classifyVtxos(spendable, signerByScript, signerMap)
 
-	// ToMigrate bucket holds exactly the two migratable vtxos.
 	require.Len(t, toMigrate, 2)
 	migrate := map[string]bool{}
 	for _, v := range toMigrate {
@@ -346,13 +315,10 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 	require.False(t, migrate["unknown-1"], "unknown-signer vtxo must be excluded")
 	require.False(t, migrate["orphan-1"], "unmapped vtxo must be excluded")
 
-	// Expired bucket holds exactly the past-cutoff script.
 	require.Equal(t, []string{"expired-1"}, expiredScripts)
 }
 
-// TestClassifyVtxosExpiredOnly verifies that when there are zero ToMigrate
-// vtxos, the Expired scripts are still collected — the migration block is
-// skipped but the Expired-inactivation block must still run.
+// TestClassifyVtxosExpiredOnly still returns expired scripts with no migration.
 func TestClassifyVtxosExpiredOnly(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
@@ -386,23 +352,14 @@ func TestClassifyVtxosExpiredOnly(t *testing.T) {
 
 // --- sendOffchain bypass (no safeCheck) ------------------------------------
 
-// TestSendOffchainBypassNoSafeCheck proves the internal sendOffchain is NOT
-// safeCheck-gated: on a bare, un-synced wallet (the state during the synchronous
-// unlock-time migration) the public SendOffChain returns ErrNotInitialized via
-// safeCheck, but the internal sendOffchain reaches its own body and returns the
-// empty-slice no-op ("", nil) WITHOUT ever consulting safeCheck. This mirrors
-// TestPublicSettleStillSafeChecked for the SendOffChain split and confirms the
-// migration path can run before the wallet is marked synced.
+// TestSendOffchainBypassNoSafeCheck keeps the internal migration path ungated.
 func TestSendOffchainBypassNoSafeCheck(t *testing.T) {
 	w := &wallet{}
 
-	// Public entry is safeCheck-gated: a bare wallet fails before any work.
 	_, err := w.SendOffChain(context.Background(), nil)
 	require.ErrorIs(t, err, ErrNotInitialized,
 		"public SendOffChain must remain safeCheck-gated")
 
-	// Internal bypass is NOT gated: with an empty migration set it returns the
-	// no-op result without touching safeCheck (which would have errored above).
 	txid, err := w.sendOffchain(context.Background(), nil)
 	require.NoError(t, err,
 		"internal sendOffchain must bypass safeCheck (no ErrNotInitialized)")
@@ -415,11 +372,7 @@ func TestSendOffchainBypassNoSafeCheck(t *testing.T) {
 
 // --- inactivation after migration ------------------------------------------
 
-// TestInactivateAfterMigrationSuccess verifies the inactivateContracts helper —
-// the post-migration flip step — calls UpdateContractState(ContractStateInactive)
-// for every provided script, and that a failing flip for one script does NOT
-// abort the others (errors are logged and skipped). This covers the
-// "inactivate after migration success" requirement and the resilience boundary.
+// TestInactivateAfterMigrationSuccess covers best-effort inactive updates.
 func TestInactivateAfterMigrationSuccess(t *testing.T) {
 	fcs := newFakeContractStore()
 	fcs.failOn["migrate-2"] = true // one flip fails mid-pass
@@ -427,23 +380,17 @@ func TestInactivateAfterMigrationSuccess(t *testing.T) {
 
 	w.inactivateContracts(context.Background(), []string{"migrate-1", "migrate-2", "migrate-3"})
 
-	// All three were attempted (the failure did not abort the loop).
 	require.ElementsMatch(t,
 		[]string{"migrate-1", "migrate-2", "migrate-3"}, fcs.allCalls,
 		"every script must be attempted even if one flip fails")
 
-	// The two that succeeded are recorded inactive; the failing one is not.
 	require.Equal(t, types.ContractStateInactive, fcs.updated["migrate-1"])
 	require.Equal(t, types.ContractStateInactive, fcs.updated["migrate-3"])
 	_, ok := fcs.updated["migrate-2"]
 	require.False(t, ok, "a failed flip must not be recorded as inactive")
 }
 
-// TestInactivateEmptyNoOp verifies that flipping an empty script set is a no-op:
-// when there is nothing to migrate (and nothing expired), no UpdateContractState
-// call is made. This pins the migration-failure boundary: the reconcile caller
-// never builds a migratedScripts set when sendOffchain returns early, so
-// inactivateContracts is invoked with an empty slice.
+// TestInactivateEmptyNoOp verifies an empty script set is a no-op.
 func TestInactivateEmptyNoOp(t *testing.T) {
 	fcs := newFakeContractStore()
 	w := &wallet{store: &fakeStore{contractStore: fcs}}

@@ -19,8 +19,6 @@ func (w *wallet) SendOffChain(
 		return "", err
 	}
 
-	// Synchronize: wait for any in-flight spend to finish, then proceed
-	// with fresh VTXOs.
 	send := func() (any, error) {
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
@@ -77,15 +75,12 @@ func (w *wallet) SendOffChain(
 			return nil, err
 		}
 
-		// Persist within the critical section so the next queued operation
-		// sees the spent VTXOs and freshly created change before it runs.
+		// Keep the queued operation view current before releasing txHandler.
 		if err := w.saveSendTransaction(ctx, *res); err != nil {
 			return nil, err
 		}
 
-		// Wait until the server/indexer has tracked our change before releasing
-		// the slot, so the next queued operation can spend it without hitting
-		// VTXO_NOT_FOUND.
+		// Wait for tracked change so the next queued op can spend it.
 		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
@@ -104,32 +99,9 @@ func (w *wallet) SendOffChain(
 	return txid, nil
 }
 
-// buildConsolidatedReceiver constructs the SINGLE Receiver that consolidates an
-// entire set of migrated vtxos into one current-signer output (destAddr): all
-// BTC and every asset collapse into one vtxo.
-//
-// Receiver.Amount is the exact sum of v.Amount across ALL vtxos in the set. For
-// a pure-sats vtxo that is its balance; for an asset-carrying vtxo v.Amount is
-// the BTC "carrier" dust that rides along with the asset. Summing every input's
-// sats makes the migration a balanced exact self-send (input sats == output
-// sats), so the client-lib coin selection produces no change output (see
-// createOffchainTx: btcAmountToSelect reaches exactly zero once the pinned
-// inputs are consumed). Dropping any carrier would be silent sat loss, so the
-// full sum is mandatory.
-//
-// Receiver.Assets has one entry per distinct assetId present across all inputs,
-// each with Amount = sum of that asset's amounts across every input that carries
-// it. A single vtxo carrying N distinct assets contributes to all N entries; an
-// assetId carried by several vtxos is summed into one entry. createAssetPacket
-// balances purely on per-assetId input/output totals, so one receiver declaring
-// every assetId emits a balanced packet (inputs == outputs per asset) and no
-// asset value is stripped. The entries are sorted by assetId for a deterministic
-// output. When the input set carries no assets the result is a pure-sats
-// receiver with a nil Assets slice.
-//
-// dustAmount is the per-output protocol floor: if the summed sats ever fall
-// below it (defensive — a migration batch is normally well above dust), Amount
-// is raised to the floor so the output is not sub-dust.
+// buildConsolidatedReceiver collapses all migrated BTC and assets into one
+// current-signer receiver. Sats are summed exactly, asset amounts are grouped by
+// asset id, and dustAmount is enforced defensively.
 func buildConsolidatedReceiver(
 	vtxos []clienttypes.VtxoWithTapTree, destAddr string, dustAmount uint64,
 ) clienttypes.Receiver {
@@ -147,7 +119,6 @@ func buildConsolidatedReceiver(
 	}
 
 	if len(totals) == 0 {
-		// No assets in the batch: a plain sats consolidation, no Assets declared.
 		return clienttypes.Receiver{To: destAddr, Amount: amount}
 	}
 
@@ -164,21 +135,8 @@ func buildConsolidatedReceiver(
 	return clienttypes.Receiver{To: destAddr, Amount: amount, Assets: assets}
 }
 
-// sendOffchainConsolidated migrates a set of vtxos onto the given receiver (a
-// fresh current-signer destination consolidating the whole batch) via the
-// SubmitTx/FinalizeTx (SendOffChain) path. It is the safeCheck-free lower-level
-// counterpart of the public SendOffChain, mirroring the settle/Settle split.
-// Callers must enter through sendOffchain so the migration is serialized by
-// txHandler while still bypassing safeCheck (which would otherwise return
-// ErrIsSyncing during unlock-time migration).
-//
-// The input vtxos are pinned explicitly via clientwallet.WithVtxos, bypassing
-// the client-lib auto coin-selection (which would only pick current-signer
-// vtxos and never the deprecated-signer set we are migrating). The receiver
-// commits to the current signer (newOffchainAddress → NewContract under the
-// current signer), satisfying the arkd #822 invariant. The receiver also
-// declares the per-asset totals so createAssetPacket emits a balanced packet
-// (inputs == outputs per asset) and no asset value is stripped.
+// sendOffchainConsolidated is the pinned-input, safeCheck-free migration send.
+// Call through sendOffchain so txHandler still serializes it.
 func (w *wallet) sendOffchainConsolidated(
 	ctx context.Context,
 	vtxos []clienttypes.VtxoWithTapTree,
@@ -193,8 +151,7 @@ func (w *wallet) sendOffchainConsolidated(
 		return "", err
 	}
 
-	// Subscribe to the destination address before submitting so we don't miss
-	// the indexer notification once the server tracks the migrated vtxo.
+	// Subscribe before submitting so the destination notification is not missed.
 	tracked, cancel := w.notifyTracked(ctx, receiver.To)
 	defer cancel()
 
@@ -245,17 +202,8 @@ func sameReceiver(a, b clienttypes.Receiver) bool {
 	return true
 }
 
-// sendOffchain migrates the given deprecated-signer vtxos onto current-signer
-// outputs via the SubmitTx/FinalizeTx (SendOffChain) path, consolidating the
-// WHOLE set into ONE output: all BTC plus every asset collapse into a single
-// vtxo at one fresh current-signer address (buildConsolidatedReceiver +
-// sendOffchainConsolidated), honoring the arkd #822 invariant. Asset-bearing
-// vtxos migrate with Receiver.Assets populated so no asset value is stripped.
-//
-// This is the safeCheck-bypass entry exercised by the unit test; the empty-slice
-// case is a no-op ("", nil). Non-empty migrations still run through txHandler
-// so they cannot race with user sends/assets/settles while reconcile bypasses
-// safeCheck before the wallet is marked synced.
+// sendOffchain migrates deprecated-signer vtxos into one current-signer output.
+// It bypasses safeCheck for unlock migration but still uses txHandler.
 func (w *wallet) sendOffchain(
 	ctx context.Context, toMigrate []clienttypes.VtxoWithTapTree,
 ) (string, error) {

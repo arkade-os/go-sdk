@@ -19,17 +19,13 @@ const (
 
 type WalletOption func(*walletOptions) error
 
-// ApplyWalletOptions applies opts to a new default clientOptions and returns the first error
-// encountered, if any. Exposed for use in external (arksdk_test) test packages.
+// ApplyWalletOptions validates wallet options for external tests.
 func ApplyWalletOptions(opts ...WalletOption) error {
 	_, err := applyWalletOptions(opts...)
 	return err
 }
 
-// WithRefreshDbInterval sets the interval at which the local database is periodically refreshed
-// from the server. Must be at least 30s.
-// Can only be set once. If no WalletOption is passed, refreshDbInterval defaults to zero, which
-// disables periodic refresh entirely.
+// WithRefreshDbInterval enables periodic DB refresh. Must be at least 30s.
 func WithRefreshDbInterval(d time.Duration) WalletOption {
 	return func(o *walletOptions) error {
 		if o.refreshDbInterval != 0 {
@@ -51,8 +47,7 @@ func WithVerbose() WalletOption {
 	}
 }
 
-// WithGapLimit sets the HD wallet discovery gap limit used during startup recovery.
-// Must be greater than zero.
+// WithGapLimit sets the HD startup recovery gap limit.
 func WithGapLimit(limit uint32) WalletOption {
 	return func(o *walletOptions) error {
 		if o.hdGapLimitSet {
@@ -67,9 +62,7 @@ func WithGapLimit(limit uint32) WalletOption {
 	}
 }
 
-// WithMaxMigrationInputs sets the maximum number of deprecated-signer VTXOs
-// consumed by one migration transaction. Must be greater than zero. If unset,
-// it defaults to 50.
+// WithMaxMigrationInputs caps deprecated-signer VTXOs per migration tx.
 func WithMaxMigrationInputs(limit uint32) WalletOption {
 	return func(o *walletOptions) error {
 		if o.maxMigrationInputsSet {
@@ -127,13 +120,7 @@ func WithoutAutoSettle() WalletOption {
 	}
 }
 
-// WithContractHandler registers a custom contract handler that the wallet's contract manager will
-// dispatch to for the given contract type.
-// The type must be non-empty, the handler non-nil, and must not collide with another previously
-// registered custom handler.
-// Collisions with a built-in type (default, boarding) are detected at Unlock time via the
-// underlying contract.WithHandler / contract.NewManager checks.
-// Multiple calls are allowed for different types.
+// WithContractHandler registers a custom handler for one contract type.
 func WithContractHandler(t types.ContractType, h handlers.Handler) WalletOption {
 	return func(o *walletOptions) error {
 		if t == "" {
@@ -179,8 +166,7 @@ type walletOptions struct {
 	customHandlers        map[types.ContractType]handlers.Handler
 }
 
-// newDefaultWalletOptions returns a zero-value walletOptions.
-// A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
+// newDefaultWalletOptions returns defaults; zero refreshDbInterval disables polling.
 func newDefaultWalletOptions() *walletOptions {
 	return &walletOptions{
 		hdGapLimit:         defaultGapLimit,
