@@ -42,36 +42,31 @@ func TestInfoCache(t *testing.T) {
 		require.Nil(t, got, "entry past TTL must be cleared")
 	})
 
-	t.Run("invalidate clears a fresh entry", func(t *testing.T) {
+	t.Run("forceSet stores a fresh entry", func(t *testing.T) {
 		c := newInfoCache(time.Minute)
 		_, epoch := c.get()
 		c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
 		got, _ := c.get()
-		require.NotNil(t, got, "fresh entry must be served before invalidate")
+		require.NotNil(t, got, "fresh entry must be served before forceSet")
 
-		c.Invalidate()
+		forced := &client.Info{SignerPubKey: "fresh"}
+		c.forceSet(forced)
 		got, _ = c.get()
-		require.Nil(t, got, "invalidated entry must be cleared even within TTL")
+		require.Equal(t, forced, got)
 	})
 
-	t.Run("invalidate discards stale in-flight set", func(t *testing.T) {
+	t.Run("forceSet discards stale in-flight set", func(t *testing.T) {
 		c := newInfoCache(time.Minute)
 
 		_, epoch := c.get()
 
-		// Invalidation must reject a response started under the old epoch.
-		c.Invalidate()
+		// forceSet must reject a response started under the old epoch.
+		fresh := &client.Info{SignerPubKey: "fresh"}
+		c.forceSet(fresh)
 		c.set(&client.Info{SignerPubKey: "stale"}, epoch)
 
 		got, _ := c.get()
-		require.Nil(t, got, "stale in-flight response must be discarded")
-
-		_, freshEpoch := c.get()
-		fresh := &client.Info{SignerPubKey: "fresh"}
-		c.set(fresh, freshEpoch)
-
-		got, _ = c.get()
-		require.Equal(t, fresh, got)
+		require.Equal(t, fresh, got, "stale in-flight response must be discarded")
 	})
 
 	t.Run("concurrent get/set does not race", func(t *testing.T) {
@@ -120,7 +115,7 @@ func TestCachingClient(t *testing.T) {
 		require.Equal(t, 1, mock.callCount())
 	})
 
-	t.Run("invalidate forces the next GetInfo to hit the transport", func(t *testing.T) {
+	t.Run("forceSet serves fresh info without another transport call", func(t *testing.T) {
 		cache := newInfoCache(time.Minute)
 		mock := &countingTransport{info: &client.Info{SignerPubKey: "old"}}
 		c := newCachingClient(mock, cache)
@@ -130,13 +125,12 @@ func TestCachingClient(t *testing.T) {
 		require.Equal(t, "old", got.SignerPubKey)
 		require.Equal(t, 1, mock.callCount())
 
-		mock.setInfo(&client.Info{SignerPubKey: "new"})
-		cache.Invalidate()
+		cache.forceSet(&client.Info{SignerPubKey: "new"})
 
 		got, err = c.GetInfo(t.Context())
 		require.NoError(t, err)
-		require.Equal(t, "new", got.SignerPubKey, "invalidate must surface the rotated signer")
-		require.Equal(t, 2, mock.callCount())
+		require.Equal(t, "new", got.SignerPubKey, "forceSet must surface the rotated signer")
+		require.Equal(t, 1, mock.callCount())
 	})
 
 	t.Run("after TTL the next GetInfo hits the transport again", func(t *testing.T) {

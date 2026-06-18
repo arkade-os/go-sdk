@@ -48,13 +48,12 @@ func (c *infoCache) set(resp *client.Info, epoch uint64) {
 	c.lastUpdate = time.Now()
 }
 
-// Invalidate forces the next GetInfo call to hit the transport.
-func (c *infoCache) Invalidate() {
+func (c *infoCache) forceSet(resp *client.Info) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.epoch++
-	c.resp = nil
-	c.lastUpdate = time.Time{}
+	c.resp = resp
+	c.lastUpdate = time.Now()
 }
 
 // cachingClient serves GetInfo from infoCache; other calls are promoted through.

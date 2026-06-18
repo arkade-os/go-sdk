@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
@@ -207,10 +208,15 @@ func sameReceiver(a, b clienttypes.Receiver) bool {
 // sendOffchain migrates deprecated-signer vtxos into one current-signer output.
 // It bypasses safeCheck for unlock migration but still uses txHandler.
 func (w *wallet) sendOffchain(
-	ctx context.Context, toMigrate []clienttypes.VtxoWithTapTree,
+	ctx context.Context,
+	toMigrate []clienttypes.VtxoWithTapTree,
+	info *client.Info,
 ) (string, error) {
 	if len(toMigrate) == 0 {
 		return "", nil
+	}
+	if info == nil {
+		return "", fmt.Errorf("missing server info")
 	}
 
 	if w.txHandler == nil {
@@ -218,7 +224,7 @@ func (w *wallet) sendOffchain(
 	}
 
 	migrate := func() (any, error) {
-		destAddr, err := w.newOffchainAddress(ctx)
+		destAddr, err := w.newOffchainAddress(ctx, contract.WithServerInfo(info))
 		if err != nil {
 			return nil, err
 		}

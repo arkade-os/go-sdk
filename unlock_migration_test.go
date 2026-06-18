@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,13 +49,15 @@ func TestUnlockMigrationGatesPublicOps(t *testing.T) {
 	var migrationDone atomic.Bool
 
 	// Slow mocked migration.
-	w.rotationReconcileFn = func(ctx context.Context) error {
+	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error {
 		close(migrationStarted)
 		<-releaseMigration
 		migrationDone.Store(true)
 		return nil
 	}
-	w.rotationDigestFn = func(ctx context.Context) (string, error) { return "digest", nil }
+	w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
+		return nil, "digest", nil
+	}
 
 	// Match Unlock ordering: migration before setRestored.
 	unlockSeq := make(chan struct{})
@@ -89,13 +92,13 @@ func TestDetectRotationOnUnlockNoRotationFastPath(t *testing.T) {
 	w := newSyncWallet()
 
 	var settleCalls atomic.Int32
-	w.rotationReconcileFn = func(ctx context.Context) error {
+	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error {
 		return nil
 	}
 	digestCalls := 0
-	w.rotationDigestFn = func(ctx context.Context) (string, error) {
+	w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
 		digestCalls++
-		return "seeded", nil
+		return nil, "seeded", nil
 	}
 
 	w.detectAndHandleRotation(context.Background())
@@ -113,11 +116,11 @@ func TestDetectRotationOnUnlockFailureNeverHostage(t *testing.T) {
 
 	const liveDigest = "cur:abc|dep:def"
 	var digestFetched atomic.Bool
-	w.rotationDigestFn = func(ctx context.Context) (string, error) {
+	w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
 		digestFetched.Store(true)
-		return liveDigest, nil
+		return nil, liveDigest, nil
 	}
-	w.rotationReconcileFn = func(ctx context.Context) error {
+	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error {
 		return fmt.Errorf("settle failed: server unavailable")
 	}
 
@@ -140,7 +143,7 @@ func TestDetectRotationOnUnlockFailureNeverHostage(t *testing.T) {
 	require.NotEqual(t, liveDigest, w.lastSignerSetDigest,
 		"a non-empty live digest must differ from the unseeded digest, triggering retry")
 
-	w.rotationReconcileFn = func(ctx context.Context) error { return nil }
+	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error { return nil }
 	w.detectAndHandleRotation(context.Background())
 	require.Equal(t, liveDigest, w.lastSignerSetDigest,
 		"digest advances once migration succeeds, stopping further retries")
@@ -160,8 +163,10 @@ func TestUnlockMigrationRaceClean(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < iters; i++ {
 		w := newSyncWallet()
-		w.rotationReconcileFn = func(ctx context.Context) error { return nil }
-		w.rotationDigestFn = func(ctx context.Context) (string, error) { return "d", nil }
+		w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error { return nil }
+		w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
+			return nil, "d", nil
+		}
 
 		wg.Add(3)
 		go func() {

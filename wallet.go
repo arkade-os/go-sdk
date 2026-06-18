@@ -82,12 +82,10 @@ type wallet struct {
 	// reconcileDeprecatedSigners without requiring a restart.
 	lastSignerSetDigest string
 
-	// rotationDigestFn/rotationReconcileFn are test-only seams for
-	// detectAndHandleRotation. They are nil in production (the real methods run);
-	// internal tests set them to inject failures and assert the digest-advance
-	// ordering without mocking the whole client/contract-manager surface.
-	rotationDigestFn    func(ctx context.Context) (string, error)
-	rotationReconcileFn func(ctx context.Context) error
+	// rotationSignerSetFn/rotationReconcileFn are test-only seams for
+	// detectAndHandleRotation. They are nil in production.
+	rotationSignerSetFn func(ctx context.Context) (*client.Info, string, error)
+	rotationReconcileFn func(ctx context.Context, info *client.Info) error
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -1391,15 +1389,14 @@ func (w *wallet) detectAndHandleRotation(ctx context.Context) {
 	}
 
 	// Advance the digest only after reconcile succeeds, so failures retry.
-	if w.reconcileDetectedRotation(ctx) {
+	if w.reconcileDetectedRotation(ctx, info) {
 		w.lastSignerSetDigest = digest
 	}
 }
 
 func (w *wallet) currentSignerSet(ctx context.Context) (*client.Info, string, error) {
-	if w.rotationDigestFn != nil {
-		digest, err := w.rotationDigestFn(ctx)
-		return nil, digest, err
+	if w.rotationSignerSetFn != nil {
+		return w.rotationSignerSetFn(ctx)
 	}
 	clientSvc := w.Client()
 	if clientSvc == nil {
@@ -1477,19 +1474,14 @@ func signerPubKeyFromHex(pubkey string) (*btcec.PublicKey, error) {
 }
 
 // reconcileDetectedRotation reports whether the signer digest can advance.
-func (w *wallet) reconcileDetectedRotation(ctx context.Context) bool {
-	// Future handler allocations must use fresh server info.
-	if w.contractManager != nil {
-		w.contractManager.InvalidateInfoCache()
-	}
-
+func (w *wallet) reconcileDetectedRotation(ctx context.Context, info *client.Info) bool {
 	reconcile := w.rotationReconcileFn
 	if reconcile == nil {
-		reconcile = func(ctx context.Context) error {
-			return w.reconcileDeprecatedSigners(ctx)
+		reconcile = func(ctx context.Context, info *client.Info) error {
+			return w.reconcileDeprecatedSigners(ctx, info)
 		}
 	}
-	if err := reconcile(ctx); err != nil {
+	if err := reconcile(ctx, info); err != nil {
 		log.WithError(err).Warn("rotation detection: reconciliation failed")
 		return false
 	}

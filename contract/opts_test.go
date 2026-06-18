@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
@@ -225,6 +226,26 @@ func TestWithLabel(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		_, err := applyContractOptions(WithLabel("a"), WithLabel("b"))
 		require.ErrorContains(t, err, "label option is already set")
+	})
+}
+
+func TestWithServerInfo(t *testing.T) {
+	info := &client.Info{SignerPubKey: "abcd"}
+
+	t.Run("valid", func(t *testing.T) {
+		o, err := applyContractOptions(WithServerInfo(info))
+		require.NoError(t, err)
+		require.Equal(t, info, o.serverInfo)
+	})
+
+	t.Run("nil errors", func(t *testing.T) {
+		_, err := applyContractOptions(WithServerInfo(nil))
+		require.ErrorContains(t, err, "server info cannot be nil")
+	})
+
+	t.Run("duplicate errors", func(t *testing.T) {
+		_, err := applyContractOptions(WithServerInfo(info), WithServerInfo(info))
+		require.ErrorContains(t, err, "server info option is already set")
 	})
 }
 

@@ -60,6 +60,10 @@ integrationtest:
 smokehd:
 	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
 
+## keyrotation: runs the signer key rotation smoke test. Optional:
+keyrotation:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRestoreSmoke' ./test/e2e
+
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:
 	$(call require_commit)

@@ -162,8 +162,10 @@ func waitTracked(ctx context.Context, tracked <-chan error) error {
 	}
 }
 
-func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
-	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault)
+func (w *wallet) newOffchainAddress(
+	ctx context.Context, opts ...contract.ContractOption,
+) (string, error) {
+	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault, opts...)
 	if err != nil {
 		return "", err
 	}

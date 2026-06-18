@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -125,8 +126,22 @@ func WithLabel(label string) ContractOption {
 	})
 }
 
+func WithServerInfo(info *client.Info) ContractOption {
+	return contractOptFn(func(o *contractOptions) error {
+		if o.serverInfo != nil {
+			return fmt.Errorf("server info option is already set")
+		}
+		if info == nil {
+			return fmt.Errorf("server info cannot be nil")
+		}
+		o.serverInfo = info
+		return nil
+	})
+}
+
 type contractOptions struct {
-	label string
+	label      string
+	serverInfo *client.Info
 }
 
 func newDefaultContractOption() *contractOptions {

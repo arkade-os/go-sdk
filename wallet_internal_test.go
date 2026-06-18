@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
@@ -40,11 +41,11 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 		digestCalls := 0
 		w := &wallet{
 			lastSignerSetDigest: oldDigest,
-			rotationDigestFn: func(_ context.Context) (string, error) {
+			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
 				digestCalls++
-				return "", fmt.Errorf("transient info failure")
+				return nil, "", fmt.Errorf("transient info failure")
 			},
-			rotationReconcileFn: func(_ context.Context) error {
+			rotationReconcileFn: func(_ context.Context, _ *client.Info) error {
 				t.Fatal("reconcile must not run when signer digest cannot be read")
 				return nil
 			},
@@ -60,10 +61,10 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 		reconcileCalls := 0
 		w := &wallet{
 			lastSignerSetDigest: oldDigest,
-			rotationDigestFn: func(_ context.Context) (string, error) {
-				return newDigest, nil
+			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
+				return nil, newDigest, nil
 			},
-			rotationReconcileFn: func(_ context.Context) error {
+			rotationReconcileFn: func(_ context.Context, _ *client.Info) error {
 				reconcileCalls++
 				return fmt.Errorf("migration failed")
 			},
@@ -73,7 +74,7 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 			"digest must not advance when reconciliation fails")
 		require.Equal(t, 1, reconcileCalls)
 
-		w.rotationReconcileFn = func(_ context.Context) error {
+		w.rotationReconcileFn = func(_ context.Context, _ *client.Info) error {
 			reconcileCalls++
 			return nil
 		}
@@ -87,10 +88,10 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 		reconcileCalls := 0
 		w := &wallet{
 			lastSignerSetDigest: oldDigest,
-			rotationDigestFn: func(_ context.Context) (string, error) {
-				return oldDigest, nil
+			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
+				return nil, oldDigest, nil
 			},
-			rotationReconcileFn: func(_ context.Context) error {
+			rotationReconcileFn: func(_ context.Context, _ *client.Info) error {
 				reconcileCalls++
 				return nil
 			},
@@ -103,13 +104,25 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 	t.Run("all succeed: digest advances", func(t *testing.T) {
 		w := &wallet{
 			lastSignerSetDigest: oldDigest,
-			rotationDigestFn: func(_ context.Context) (string, error) {
-				return newDigest, nil
+			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
+				return nil, newDigest, nil
 			},
-			rotationReconcileFn: func(_ context.Context) error { return nil },
+			rotationReconcileFn: func(_ context.Context, _ *client.Info) error { return nil },
 		}
 		w.detectAndHandleRotation(context.Background())
 		require.Equal(t, newDigest, w.lastSignerSetDigest)
+	})
+
+	t.Run("reconcile receives signer info response", func(t *testing.T) {
+		info := &client.Info{SignerPubKey: "abcd"}
+		w := &wallet{
+			rotationReconcileFn: func(_ context.Context, got *client.Info) error {
+				require.Same(t, info, got)
+				return nil
+			},
+		}
+
+		require.True(t, w.reconcileDetectedRotation(context.Background(), info))
 	})
 }
 

@@ -66,11 +66,6 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	}, nil
 }
 
-// InvalidateInfoCache forces the next built-in handler GetInfo call to refresh.
-func (m *contractManager) InvalidateInfoCache() {
-	m.infoCache.Invalidate()
-}
-
 func (m *contractManager) Registry() Registry { return m.registry }
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
@@ -119,6 +114,10 @@ func (m *contractManager) NewContract(
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if o.serverInfo != nil {
+		m.infoCache.forceSet(o.serverInfo)
+	}
 
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
 		// Single-key identities can derive the same script repeatedly; reuse it.

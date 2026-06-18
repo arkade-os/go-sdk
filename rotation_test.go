@@ -184,7 +184,7 @@ func TestSignerSetDigestStability(t *testing.T) {
 // TestReconcileNoContractManager covers the pre-unlock no-op guard.
 func TestReconcileNoContractManager(t *testing.T) {
 	w := &wallet{}
-	err := w.reconcileDeprecatedSigners(t.Context())
+	err := w.reconcileDeprecatedSigners(t.Context(), nil)
 	require.NoError(t, err)
 }
 
@@ -360,12 +360,12 @@ func TestSendOffchainBypassNoSafeCheck(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotInitialized,
 		"public SendOffChain must remain safeCheck-gated")
 
-	txid, err := w.sendOffchain(context.Background(), nil)
+	txid, err := w.sendOffchain(context.Background(), nil, nil)
 	require.NoError(t, err,
 		"internal sendOffchain must bypass safeCheck (no ErrNotInitialized)")
 	require.Empty(t, txid, "empty migration set is a no-op returning an empty txid")
 
-	txid, err = w.sendOffchain(context.Background(), []clienttypes.VtxoWithTapTree{})
+	txid, err = w.sendOffchain(context.Background(), []clienttypes.VtxoWithTapTree{}, nil)
 	require.NoError(t, err, "empty (non-nil) migration set is also a no-op")
 	require.Empty(t, txid)
 }

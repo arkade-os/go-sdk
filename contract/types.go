@@ -41,10 +41,6 @@ type Manager interface {
 	Clean(ctx context.Context) error
 	// Close releases any resources held by the manager.
 	Close()
-	// InvalidateInfoCache clears the shared GetInfo cache so the next scan or
-	// handler call fetches fresh server info. Used to force a re-read of the
-	// signer set when a live rotation is detected.
-	InvalidateInfoCache()
 }
 
 // Args contains all services and params required to create a new contract manager.
