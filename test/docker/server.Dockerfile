@@ -1,8 +1,6 @@
 # First image used to build the sources
 FROM golang:1.26.4 AS builder
 
-ENV GOTOOLCHAIN=auto
-
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION
