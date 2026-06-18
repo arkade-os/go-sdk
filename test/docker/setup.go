@@ -33,11 +33,10 @@ func setupArkd() error {
 		Timeout: 15 * time.Second,
 	}
 
-	time.Sleep(3 * time.Second)
-
 	fmt.Println("waiting for arkd to be ready...")
-	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
-	status, err := get[statusResp](adminHttpClient, url, "status")
+	status, err := waitForStatus(adminHttpClient, 30, 2*time.Second, func(*statusResp) bool {
+		return true
+	})
 	if err != nil {
 		return err
 	}
@@ -61,7 +60,7 @@ func setupArkd() error {
 	}
 
 	fmt.Println("getting wallet seed...")
-	url = fmt.Sprintf("%s/v1/admin/wallet/seed", adminUrl)
+	url := fmt.Sprintf("%s/v1/admin/wallet/seed", adminUrl)
 	seed, err := get[seedResp](adminHttpClient, url, "seed")
 	if err != nil {
 		return err
@@ -122,21 +121,39 @@ func get[T any](httpClient *http.Client, url, name string) (*T, error) {
 	return &data, nil
 }
 
-func waitUntilReady(httpClient *http.Client) error {
-	ticker := time.NewTicker(2 * time.Second)
+func waitForStatus(
+	httpClient *http.Client, attempts int, interval time.Duration, ready func(*statusResp) bool,
+) (*statusResp, error) {
 	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
-	for range ticker.C {
+	var lastErr error
+	for i := 1; i <= attempts; i++ {
 		status, err := get[statusResp](httpClient, url, "status")
 		if err != nil {
-			return err
+			lastErr = err
+			fmt.Printf("arkd not ready yet (attempt %d/%d): %s\n", i, attempts, err)
+		} else if ready(status) {
+			return status, nil
+		} else {
+			fmt.Printf(
+				"arkd reachable but not ready yet (attempt %d/%d): initialized=%v unlocked=%v synced=%v\n",
+				i, attempts, status.Initialized, status.Unlocked, status.Synced,
+			)
 		}
-
-		if status.Initialized && status.Unlocked && status.Synced {
-			ticker.Stop()
-			break
+		if i < attempts {
+			time.Sleep(interval)
 		}
 	}
-	return nil
+	if lastErr != nil {
+		return nil, fmt.Errorf("arkd did not become ready after %d attempts: %s", attempts, lastErr)
+	}
+	return nil, fmt.Errorf("arkd did not become ready after %d attempts", attempts)
+}
+
+func waitUntilReady(httpClient *http.Client) error {
+	_, err := waitForStatus(httpClient, 30, 2*time.Second, func(s *statusResp) bool {
+		return s.Initialized && s.Unlocked && s.Synced
+	})
+	return err
 }
 
 func refill(httpClient *http.Client) error {
