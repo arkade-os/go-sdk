@@ -30,3 +30,12 @@ jobs:
 
       - name: Run tests
         run: make integrationtest
+
+      - name: Docker logs
+        if: failure()
+        continue-on-error: true
+        run: |
+          docker image ls -a
+          docker ps -a
+          docker compose -f test/docker/docker-compose.yml ps
+          docker compose -f test/docker/docker-compose.yml logs --no-color --timestamps pgnbxplorer nbxplorer arkd-wallet arkd
