@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
-	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
@@ -69,8 +68,7 @@ type Wallet interface {
 		ctx context.Context, assetID string, amount uint64,
 	) (string, error)
 	SendOffChain(
-		ctx context.Context, receivers []clienttypes.Receiver,
-		opts ...clientwallet.SendOption,
+		ctx context.Context, receivers []clienttypes.Receiver, opts ...SendOffChainOption,
 	) (string, error)
 	RegisterIntent(
 		ctx context.Context,
