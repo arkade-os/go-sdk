@@ -14,77 +14,46 @@ import (
 func TestInfoCache(t *testing.T) {
 	t.Run("empty cache returns nil", func(t *testing.T) {
 		c := newInfoCache(time.Minute)
-		got, _ := c.get()
-		require.Nil(t, got)
+		require.Nil(t, c.get())
 	})
 
 	t.Run("set then get returns the stored response", func(t *testing.T) {
 		c := newInfoCache(time.Minute)
 		info := &client.Info{SignerPubKey: "abcd"}
-		_, epoch := c.get()
-		c.set(info, epoch)
+		c.set(info)
 
-		got, _ := c.get()
+		got := c.get()
 		require.NotNil(t, got)
 		require.Equal(t, info, got)
 	})
 
 	t.Run("expired entry is dropped on the next get", func(t *testing.T) {
-		// Tiny TTL keeps the real sleep short.
+		// Tiny TTL so we don't sit in time.Sleep. The cache uses real
+		// time.Now() so a real (short) sleep is the simplest exercise.
 		c := newInfoCache(20 * time.Millisecond)
-		_, epoch := c.get()
-		c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
+		c.set(&client.Info{SignerPubKey: "abcd"})
 
-		got, _ := c.get()
-		require.NotNil(t, got, "fresh entry must still be served")
+		require.NotNil(t, c.get(), "fresh entry must still be served")
 		time.Sleep(40 * time.Millisecond)
-		got, _ = c.get()
-		require.Nil(t, got, "entry past TTL must be cleared")
-	})
-
-	t.Run("forceSet stores a fresh entry", func(t *testing.T) {
-		c := newInfoCache(time.Minute)
-		_, epoch := c.get()
-		c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
-		got, _ := c.get()
-		require.NotNil(t, got, "fresh entry must be served before forceSet")
-
-		forced := &client.Info{SignerPubKey: "fresh"}
-		c.forceSet(forced)
-		got, _ = c.get()
-		require.Equal(t, forced, got)
-	})
-
-	t.Run("forceSet discards stale in-flight set", func(t *testing.T) {
-		c := newInfoCache(time.Minute)
-
-		_, epoch := c.get()
-
-		// forceSet must reject a response started under the old epoch.
-		fresh := &client.Info{SignerPubKey: "fresh"}
-		c.forceSet(fresh)
-		c.set(&client.Info{SignerPubKey: "stale"}, epoch)
-
-		got, _ := c.get()
-		require.Equal(t, fresh, got, "stale in-flight response must be discarded")
+		require.Nil(t, c.get(), "entry past TTL must be cleared")
 	})
 
 	t.Run("concurrent get/set does not race", func(t *testing.T) {
-		// Meaningful with -race; also catches deadlocks.
+		// Run with -race for this to mean anything; the assertion is just
+		// that both goroutines complete without deadlock or panic.
 		c := newInfoCache(time.Minute)
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 1000; i++ {
-				_, epoch := c.get()
-				c.set(&client.Info{SignerPubKey: "abcd"}, epoch)
+				c.set(&client.Info{SignerPubKey: "abcd"})
 			}
 		}()
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 1000; i++ {
-				_, _ = c.get()
+				_ = c.get()
 			}
 		}()
 		wg.Wait()
@@ -103,7 +72,9 @@ func TestCachingClient(t *testing.T) {
 	})
 
 	t.Run("subsequent GetInfo within TTL reuses the cache", func(t *testing.T) {
-		// Regression guard: one shared GetInfo call, not one per handler.
+		// This is the regression guard for the original review feedback:
+		// every handler attached to the manager must observe one shared
+		// GetInfo call, not N (one per handler).
 		mock := &countingTransport{info: &client.Info{SignerPubKey: "abcd"}}
 		c := newCachingClient(mock, newInfoCache(time.Minute))
 
@@ -112,24 +83,6 @@ func TestCachingClient(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "abcd", got.SignerPubKey)
 		}
-		require.Equal(t, 1, mock.callCount())
-	})
-
-	t.Run("forceSet serves fresh info without another transport call", func(t *testing.T) {
-		cache := newInfoCache(time.Minute)
-		mock := &countingTransport{info: &client.Info{SignerPubKey: "old"}}
-		c := newCachingClient(mock, cache)
-
-		got, err := c.GetInfo(t.Context())
-		require.NoError(t, err)
-		require.Equal(t, "old", got.SignerPubKey)
-		require.Equal(t, 1, mock.callCount())
-
-		cache.forceSet(&client.Info{SignerPubKey: "new"})
-
-		got, err = c.GetInfo(t.Context())
-		require.NoError(t, err)
-		require.Equal(t, "new", got.SignerPubKey, "forceSet must surface the rotated signer")
 		require.Equal(t, 1, mock.callCount())
 	})
 
@@ -149,6 +102,8 @@ func TestCachingClient(t *testing.T) {
 	})
 
 	t.Run("transport error is propagated and not cached", func(t *testing.T) {
+		// On error we must not poison the cache — the next call should
+		// retry the transport rather than serving the failure forever.
 		mock := &countingTransport{err: errors.New("transport down")}
 		c := newCachingClient(mock, newInfoCache(time.Minute))
 
@@ -157,6 +112,8 @@ func TestCachingClient(t *testing.T) {
 		require.Nil(t, got)
 		require.Equal(t, 1, mock.callCount())
 
+		// Recover the transport, then verify the cache didn't latch the
+		// previous failure.
 		mock.setInfo(&client.Info{SignerPubKey: "abcd"})
 		got, err = c.GetInfo(t.Context())
 		require.NoError(t, err)
@@ -165,7 +122,9 @@ func TestCachingClient(t *testing.T) {
 	})
 }
 
-// countingTransport only implements GetInfo; other promoted methods would panic.
+// countingTransport is a partial mock for client.TransportClient — only
+// GetInfo is called by these tests, so the rest of the interface is left
+// unimplemented via the embedded nil interface and would panic if invoked.
 type countingTransport struct {
 	client.Client
 	mu    sync.Mutex

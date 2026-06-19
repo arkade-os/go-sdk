@@ -12,51 +12,43 @@ import (
 // the next GetInfo call hits the transport.
 const infoCacheTTL = 5 * time.Minute
 
-// infoCache memoizes GetInfo across handlers attached to one manager.
+// infoCache memoizes the response of client.TransportClient.GetInfo so
+// every handler attached to the same manager shares one cache instead of
+// each owning its own (which would multiply redundant GetInfo calls as
+// new handler kinds — vhtlc, delegate — are added).
 type infoCache struct {
 	mu                   sync.Mutex
 	resp                 *client.Info
 	lastUpdate           time.Time
 	invalidationDuration time.Duration
-	epoch                uint64
 }
 
 func newInfoCache(invalidationDuration time.Duration) *infoCache {
 	return &infoCache{invalidationDuration: invalidationDuration}
 }
 
-func (c *infoCache) get() (*client.Info, uint64) {
+func (c *infoCache) get() *client.Info {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	epoch := c.epoch
 	if c.lastUpdate.IsZero() {
-		return nil, epoch
+		return nil
 	}
 	if time.Since(c.lastUpdate) > c.invalidationDuration {
 		c.resp = nil
 	}
-	return c.resp, epoch
+	return c.resp
 }
 
-func (c *infoCache) set(resp *client.Info, epoch uint64) {
+func (c *infoCache) set(resp *client.Info) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epoch != epoch {
-		return
-	}
 	c.resp = resp
 	c.lastUpdate = time.Now()
 }
 
-func (c *infoCache) forceSet(resp *client.Info) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.epoch++
-	c.resp = resp
-	c.lastUpdate = time.Now()
-}
-
-// cachingClient serves GetInfo from infoCache; other calls are promoted through.
+// cachingClient is a transport-client decorator that intercepts GetInfo
+// and serves it from a shared infoCache. Every other call passes through
+// to the embedded client unchanged via Go's method promotion.
 type cachingClient struct {
 	client.Client
 	cache *infoCache
@@ -67,14 +59,13 @@ func newCachingClient(c client.Client, cache *infoCache) *cachingClient {
 }
 
 func (c *cachingClient) GetInfo(ctx context.Context) (*client.Info, error) {
-	cached, epoch := c.cache.get()
-	if cached != nil {
+	if cached := c.cache.get(); cached != nil {
 		return cached, nil
 	}
 	resp, err := c.Client.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.cache.set(resp, epoch)
+	c.cache.set(resp)
 	return resp, nil
 }
