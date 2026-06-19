@@ -1,8 +1,9 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smoketest bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest integrationtest-swap integrationtest-swap-core integrationtest-wallet integrationtest-tx-exit integrationtest-assets-hd integrationtest-vhtlc integrationtest-stress smoketest bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
 )
+E2E_TEST ?= go test -v -count=1 -race -timeout 20m
 
 COMMIT ?= $(word 2,$(MAKECMDGOALS))
 
@@ -52,6 +53,27 @@ regtestdown:
 
 integrationtest:
 	@go test -v -count=1 -race -timeout 40m ./test/e2e
+
+integrationtest-swap:
+	@go test -v -count=1 -timeout 10m -run '^(TestChainSwapArkToBtc|TestChainSwapBtcToArk|TestSubmarineSwap|TestReverseSwap|TestVHTLCClaimDirect|TestVHTLCClaimWithOutpoint|TestVHTLCClaimOldestVtxo|TestRefundSwap)$$' ./test/e2e
+
+integrationtest-swap-core:
+	@$(E2E_TEST) -run '^(TestChainSwap.*|TestSubmarineSwap|TestReverseSwap|TestMockBoltzAdminConfig|TestCircularSwap|TestRefundSwap)$$' ./test/e2e
+
+integrationtest-wallet:
+	@$(E2E_TEST) -run '^(TestAutoSettle|TestBalance|TestBatchSession|TestTransactionHistory)$$' ./test/e2e
+
+integrationtest-tx-exit:
+	@$(E2E_TEST) -run '^(TestOffchainTx|TestCollaborativeExit|TestUnilateralExit|TestSettleAfterRBFBumpFee)$$' ./test/e2e
+
+integrationtest-assets-hd:
+	@$(E2E_TEST) -run '^(TestAsset.*|TestProveDustAmountAddedByDefault|TestHDWallet.*|TestE2EVtxoPagination|TestCustomContractHandlerRegistered)$$' ./test/e2e
+
+integrationtest-vhtlc:
+	@$(E2E_TEST) -run '^(TestVHTLC.*|TestNonInteractiveClaim)$$' ./test/e2e
+
+integrationtest-stress:
+	@$(E2E_TEST) -run '^(TestConcurrentSwaps)$$' ./test/e2e
 
 ## smoketest: runs long-running e2e smoke tests (skipped in CI). Smoke
 ## test files are gated behind the "smoke" build tag and tests follow the

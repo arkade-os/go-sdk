@@ -11,7 +11,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-func (h *SwapHandler) ensureLocalBTCHTLCContract(
+func (h *SwapHandler) ensureLocalHTLCContract(
 	ctx context.Context,
 	expectedAddress string,
 	serverPubKeyHex string,
@@ -21,12 +21,12 @@ func (h *SwapHandler) ensureLocalBTCHTLCContract(
 		return nil, fmt.Errorf("missing HTLC address")
 	}
 
-	opts, err := newBTCHTLCOpts(serverPubKeyHex, swapTree)
+	opts, err := newHTLCOpts(serverPubKeyHex, swapTree)
 	if err != nil {
 		return nil, err
 	}
 
-	keyRef, err := h.localBTCHTLCKeyRefForAddress(ctx, expectedAddress)
+	keyRef, err := h.localHTLCKeyRefForAddress(ctx, expectedAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (h *SwapHandler) ensureLocalBTCHTLCContract(
 		); err != nil {
 			continue
 		}
-		if err := h.storeLocalBTCHTLCContract(ctx, key, *opts); err != nil {
+		if err := h.storeLocalHTLCContract(ctx, key, *opts); err != nil {
 			return nil, err
 		}
 		k := key
@@ -61,7 +61,7 @@ func (h *SwapHandler) ensureLocalBTCHTLCContract(
 	)
 }
 
-func (h *SwapHandler) localBTCHTLCKeyRefForAddress(
+func (h *SwapHandler) localHTLCKeyRefForAddress(
 	ctx context.Context,
 	expectedAddress string,
 ) (*arkidentity.KeyRef, error) {
@@ -88,7 +88,7 @@ func (h *SwapHandler) localBTCHTLCKeyRefForAddress(
 	return nil, nil
 }
 
-func (h *SwapHandler) storeLocalBTCHTLCContract(
+func (h *SwapHandler) storeLocalHTLCContract(
 	ctx context.Context,
 	keyRef arkidentity.KeyRef,
 	opts htlcHandler.Opts,
@@ -104,7 +104,7 @@ func (h *SwapHandler) storeLocalBTCHTLCContract(
 	return nil
 }
 
-func newBTCHTLCOpts(
+func newHTLCOpts(
 	serverPubKeyHex string,
 	swapTree boltz.SwapTree,
 ) (*htlcHandler.Opts, error) {

@@ -86,7 +86,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		btcLockupAddress = swapResp.ClaimDetails.LockupAddress
 		btcServerPubKey = swapResp.ClaimDetails.ServerPublicKey
 	}
-	htlcKeyRef, err := h.ensureLocalBTCHTLCContract(
+	htlcKeyRef, err := h.ensureLocalHTLCContract(
 		ctx,
 		btcLockupAddress,
 		btcServerPubKey,

@@ -8,10 +8,31 @@ on:
     branches:
       - master
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-e2e-sdk:
-    name: Sdk integration tests
+    name: Sdk integration tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - name: swap-core
+            target: integrationtest-swap-core
+          - name: wallet
+            target: integrationtest-wallet
+          - name: tx-exit
+            target: integrationtest-tx-exit
+          - name: assets-hd
+            target: integrationtest-assets-hd
+          - name: vhtlc
+            target: integrationtest-vhtlc
+          - name: stress
+            target: integrationtest-stress
     steps:
       - uses: actions/checkout@v4
 
@@ -29,4 +50,4 @@ jobs:
         run: make regtest
 
       - name: Run tests
-        run: make integrationtest
+        run: make ${{ matrix.target }}
