@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
@@ -19,9 +20,65 @@ import (
 )
 
 func TestSignerRotationRestoreSmoke(t *testing.T) {
+	alice := setupClient(t, "")
+	preSats, oldSigner, seed := fundSignerRotationWallet(t, alice)
+
+	t.Logf("funded wallet under signer %s", oldSigner)
+	waitForEnter(
+		t,
+		"Rotate arkd now: make a new signer current, keep the old signer deprecated before cutoff, then press Enter",
+	)
+
+	restored := setupClient(t, seed)
+
+	currentSigner := arkdCurrentSigner(t, restored)
+	require.NotEqual(t, oldSigner, currentSigner,
+		"rotation must have changed the active signer (A -> B)")
+
+	requireMigratedToCurrentSigner(t, restored, currentSigner, preSats)
+	requireInactiveContracts(t, restored)
+	requireSpendableMigratedFunds(t, restored, preSats)
+}
+
+func TestSignerRotationRuntimeSmoke(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", arksdk.WithRefreshDbInterval(30*time.Second))
+	preSats, oldSigner, _ := fundSignerRotationWallet(t, alice)
+
+	t.Logf("funded live wallet under signer %s", oldSigner)
+	waitForEnter(
+		t,
+		"Rotate arkd now without restarting Alice: make a new signer current, keep the old signer deprecated before cutoff, then press Enter",
+	)
+
+	currentSigner := arkdCurrentSigner(t, alice)
+	require.NotEqual(t, oldSigner, currentSigner,
+		"rotation must have changed the active signer (A -> B)")
+
+	require.Eventually(t, func() bool {
+		vtxos, _, err := alice.ListVtxos(ctx, arksdk.WithSpendableOnly())
+		if err != nil || len(vtxos) == 0 || totalVtxoAmount(vtxos) != preSats {
+			return false
+		}
+		for _, v := range vtxos {
+			if vtxoSignerKey(t, alice, v) != currentSigner {
+				return false
+			}
+		}
+		return true
+	}, 3*time.Minute, 2*time.Second,
+		"live wallet should migrate after the next periodic refresh")
+
+	requireMigratedToCurrentSigner(t, alice, currentSigner, preSats)
+	requireInactiveContracts(t, alice)
+	requireSpendableMigratedFunds(t, alice, preSats)
+}
+
+func fundSignerRotationWallet(t *testing.T, alice arksdk.Wallet) (uint64, string, string) {
+	t.Helper()
+	ctx := t.Context()
+
 	const fundBtc = 0.001
 	const fundSats = uint64(fundBtc * 1e8)
 	faucetOffchain(t, alice, fundBtc)
@@ -39,37 +96,37 @@ func TestSignerRotationRestoreSmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, seed)
 
-	t.Logf("funded wallet under signer %s", oldSigner)
-	waitForEnter(
-		t,
-		"Rotate arkd now: make a new signer current, keep the old signer deprecated before cutoff, then press Enter",
-	)
+	return preSats, oldSigner, seed
+}
 
-	restored := setupClient(t, seed)
-
-	currentSigner := arkdCurrentSigner(t, restored)
-	require.NotEqual(t, oldSigner, currentSigner,
-		"rotation must have changed the active signer (A -> B)")
-
+func requireMigratedToCurrentSigner(
+	t *testing.T, w arksdk.Wallet, currentSigner string, preSats uint64,
+) {
+	t.Helper()
+	ctx := t.Context()
 	// All surviving spendable vtxos must now commit to KEY B.
-	postVtxos, _, err := restored.ListVtxos(ctx, arksdk.WithSpendableOnly())
+	postVtxos, _, err := w.ListVtxos(ctx, arksdk.WithSpendableOnly())
 	require.NoError(t, err)
-	require.NotEmpty(t, postVtxos, "restored wallet must hold the migrated funds")
+	require.NotEmpty(t, postVtxos, "wallet must hold the migrated funds")
 	for _, v := range postVtxos {
-		require.Equal(t, currentSigner, vtxoSignerKey(t, restored, v),
+		require.Equal(t, currentSigner, vtxoSignerKey(t, w, v),
 			"every migrated vtxo must commit to the current signer KEY B (#822)")
 	}
 
 	require.Equal(t, preSats, totalVtxoAmount(postVtxos),
 		"offchain migration must preserve the sats balance")
 
-	bal, err := restored.Balance(ctx)
+	bal, err := w.Balance(ctx)
 	require.NoError(t, err)
 	require.Equal(t, preSats, bal.OffchainBalance.Total,
 		"offchain sats balance preserved across the migration")
+}
 
-	inactive, err := restored.ContractManager().GetContracts(
-		ctx, contract.WithState(types.ContractStateInactive),
+func requireInactiveContracts(t *testing.T, w arksdk.Wallet) {
+	t.Helper()
+
+	inactive, err := w.ContractManager().GetContracts(
+		t.Context(), contract.WithState(types.ContractStateInactive),
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, inactive,
@@ -77,6 +134,11 @@ func TestSignerRotationRestoreSmoke(t *testing.T) {
 	for _, c := range inactive {
 		require.Equal(t, types.ContractStateInactive, c.State)
 	}
+}
+
+func requireSpendableMigratedFunds(t *testing.T, sender arksdk.Wallet, preSats uint64) {
+	t.Helper()
+	ctx := t.Context()
 
 	bob := setupClient(t, "")
 	bobAddr, err := bob.NewOffchainAddress(ctx)
@@ -86,7 +148,7 @@ func TestSignerRotationRestoreSmoke(t *testing.T) {
 	const sendBtc = uint64(20_000) // a small BTC portion of the consolidated vtxo
 	require.Less(t, sendBtc, preSats, "the BTC spend must be a portion of the balance")
 
-	_, err = restored.SendOffChain(ctx, []clientTypes.Receiver{
+	_, err = sender.SendOffChain(ctx, []clientTypes.Receiver{
 		{
 			To: bobAddr, Amount: sendBtc,
 		},
@@ -98,7 +160,7 @@ func TestSignerRotationRestoreSmoke(t *testing.T) {
 	require.Equal(t, sendBtc, bobBal.OffchainBalance.Total,
 		"recipient must hold exactly the sent BTC portion")
 
-	senderBal, err := restored.Balance(ctx)
+	senderBal, err := sender.Balance(ctx)
 	require.NoError(t, err)
 	require.Equal(t, preSats-sendBtc, senderBal.OffchainBalance.Total,
 		"sender must retain the remaining BTC (offchain send charges no fee)")
