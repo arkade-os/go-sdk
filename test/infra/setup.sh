@@ -13,6 +13,7 @@ now=$(date +"%Y-%m-%d %H:%M:%S")
 status=""
 out=""
 err=""
+arkd_status_response=""
 
 # commands
 compose="docker compose -f $composeFile"
@@ -74,6 +75,29 @@ wait_for_onboard() {
     return 1
 }
 
+wait_for_arkd_wallet_ready() {
+    local response curl_status initialized unlocked synced
+
+    for _ in {1..60}; do
+        response=$(curl -sS --max-time 2 http://127.0.0.1:7071/v1/admin/wallet/status 2>&1)
+        curl_status=$?
+        if [ $curl_status -eq 0 ]; then
+            arkd_status_response="$response"
+            initialized=$(echo "$response" | jq -r '.initialized // false' 2>/dev/null)
+            unlocked=$(echo "$response" | jq -r '.unlocked // false' 2>/dev/null)
+            synced=$(echo "$response" | jq -r '.synced // false' 2>/dev/null)
+            if [ "$initialized" = "true" ] && [ "$unlocked" = "true" ] && [ "$synced" = "true" ]; then
+                return 0
+            fi
+        else
+            arkd_status_response="curl failed with status $curl_status: $response"
+        fi
+        sleep 2
+    done
+
+    return 1
+}
+
 dump_compose_diagnostics() {
     echo "  --- docker compose ps ---"
     $compose ps || true
@@ -114,12 +138,18 @@ fi
 
 # Wait for arkd's admin REST listener to come up (longer than a fixed sleep
 # would reliably wait — arkd-wallet sync can take ~10-15s on a fresh stack).
+arkd_admin_ready=0
 for _ in {1..30}; do
     if docker exec arkd wget -q -O- http://127.0.0.1:7071/v1/admin/wallet/seed >/dev/null 2>&1; then
+        arkd_admin_ready=1
         break
     fi
     sleep 2
 done
+if [ $arkd_admin_ready -ne 1 ]; then
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd
+    exit "  ❌ arkd admin API did not become ready"
+fi
 
 echo "provisioning Arkade server..."
 err=$($arkd wallet create --password $password)
@@ -136,7 +166,13 @@ if [ $? -ne 0 ]; then
 else
     echo "  ✅ unlocked"
 fi
-sleep 1
+
+if ! wait_for_arkd_wallet_ready; then
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd
+    exit "  ❌ arkd wallet did not become ready after unlock (last response: $arkd_status_response)"
+else
+    echo "  ✅ wallet ready"
+fi
 
 addr=$($arkd wallet address)
 if [ $? -ne 0 ] || [ -z "$addr" ]; then
@@ -154,8 +190,15 @@ for i in {1..21}; do
 done
 echo "  ✅ funded onchain with $funded_count BTC"
 
+if ! wait_for_arkd_wallet_ready; then
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd
+    exit "  ❌ arkd wallet did not become ready after funding (last response: $arkd_status_response)"
+else
+    echo "  ✅ wallet synced"
+fi
+
 echo "setting up Solver stack..."
-if ! run_quiet $compose up -d emulator solver; then
+if ! run_quiet $compose up -d --no-recreate emulator solver; then
     dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator solver
     exit "  ❌ failed to start stack (status=$status) (err=$err)"
 else
@@ -188,7 +231,7 @@ else
 fi
 
 echo "setting up Boltz stack..."
-if ! run_quiet $compose up -d boltz mock-boltz boltz-fulmine; then
+if ! run_quiet $compose up -d --no-recreate boltz mock-boltz boltz-fulmine; then
     exit "  ❌ failed to start stack (status=$status) (err=$err)"
 else
     echo "  ✅ stack started"
