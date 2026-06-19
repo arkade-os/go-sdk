@@ -27,19 +27,19 @@ func validateVHTLC(
 ) (*vhtlc.Opts, error) {
 	var (
 		vhtlcAddr                                                                         string
-		receiverKey, senderKey                                                            *btcec.PublicKey
+		vhtlcAddress                                                                      string
+		vhtlcOpts                                                                         *vhtlc.Opts
 		refundLocktime                                                                    arklib.AbsoluteLocktime
 		unilateralClaimDelay, unilateralRefundDelay, unilateralRefundWithoutReceiverDelay arklib.RelativeLocktime
 	)
 
 	if isArkToBtc {
 		vhtlcAddr = swapResp.LockupDetails.LockupAddress
-		boltzReceiverKey, err := parsePubkey(swapResp.LockupDetails.ServerPublicKey)
+		counterpartyReceiverKey, err := parsePubkey(swapResp.LockupDetails.ServerPublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid Boltz claim public key: %w", err)
 		}
 
-		receiverKey = boltzReceiverKey
 		refundLocktime = arklib.AbsoluteLocktime(swapResp.LockupDetails.Timeouts.Refund)
 		unilateralClaimDelay = parseLocktime(
 			uint32(swapResp.LockupDetails.Timeouts.UnilateralClaim),
@@ -50,15 +50,34 @@ func validateVHTLC(
 		unilateralRefundWithoutReceiverDelay = parseLocktime(
 			uint32(swapResp.LockupDetails.Timeouts.UnilateralRefundWithoutReceiver),
 		)
+
+		if localPubkey == nil {
+			keyRef, err := h.localVHTLCKeyForAddress(ctx, vhtlcAddr)
+			if err != nil {
+				return nil, err
+			}
+			localPubkey = keyRef.PubKey
+		}
+
+		vhtlcAddress, _, vhtlcOpts, err = h.buildLocalSenderVHTLC(
+			counterpartyReceiverKey,
+			preimageHashHASH160[:],
+			refundLocktime,
+			unilateralClaimDelay,
+			unilateralRefundDelay,
+			unilateralRefundWithoutReceiverDelay,
+			localPubkey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute VHTLC: %w", err)
+		}
 	} else {
 		vhtlcAddr = swapResp.ClaimDetails.LockupAddress
-		boltzSenderKey, err := parsePubkey(swapResp.ClaimDetails.ServerPublicKey)
+		counterpartySenderKey, err := parsePubkey(swapResp.ClaimDetails.ServerPublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid Boltz claim public key: %w", err)
 		}
 
-		senderKey = boltzSenderKey
-		receiverKey = nil
 		refundLocktime = arklib.AbsoluteLocktime(swapResp.ClaimDetails.Timeouts.Refund)
 		unilateralClaimDelay = parseLocktime(uint32(swapResp.ClaimDetails.Timeouts.UnilateralClaim))
 		unilateralRefundDelay = parseLocktime(
@@ -67,29 +86,27 @@ func validateVHTLC(
 		unilateralRefundWithoutReceiverDelay = parseLocktime(
 			uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefundWithoutReceiver),
 		)
-	}
 
-	if localPubkey == nil {
-		keyRef, err := h.localVHTLCKeyForAddress(ctx, vhtlcAddr)
-		if err != nil {
-			return nil, err
+		if localPubkey == nil {
+			keyRef, err := h.localVHTLCKeyForAddress(ctx, vhtlcAddr)
+			if err != nil {
+				return nil, err
+			}
+			localPubkey = keyRef.PubKey
 		}
-		localPubkey = keyRef.PubKey
-	}
 
-	vhtlcAddress, _, vhtlcOpts, err := h.getVHTLC(
-		ctx,
-		receiverKey,
-		senderKey,
-		preimageHashHASH160[:],
-		refundLocktime,
-		unilateralClaimDelay,
-		unilateralRefundDelay,
-		unilateralRefundWithoutReceiverDelay,
-		localPubkey,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute VHTLC: %w", err)
+		vhtlcAddress, _, vhtlcOpts, err = h.buildLocalReceiverVHTLC(
+			counterpartySenderKey,
+			preimageHashHASH160[:],
+			refundLocktime,
+			unilateralClaimDelay,
+			unilateralRefundDelay,
+			unilateralRefundWithoutReceiverDelay,
+			localPubkey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute VHTLC: %w", err)
+		}
 	}
 
 	if vhtlcAddr != vhtlcAddress {

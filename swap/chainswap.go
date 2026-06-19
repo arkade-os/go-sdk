@@ -13,6 +13,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -425,16 +426,18 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 ) (*ChainSwap, error) {
 	log.Infof("Initiating Ark → BTC chain swap for %d sats to %s", amount, btcDestinationAddress)
 
-	btcClaimKeyRef, err := h.newLocalHTLCKey(ctx)
+	var (
+		arkToBtc                          = true
+		err                               error
+		btcClaimKeyRef, vhtlcRefundKeyRef *identity.KeyRef
+	)
+
+	btcClaimKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		arkToBtc = true
-	)
-
-	vhtlcRefundKeyRef, err := h.newLocalVHTLCKey(ctx)
+	vhtlcRefundKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -473,16 +476,23 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 
 	log.Infof("Created chain swap %s with Boltz", swapResp.Id)
 
-	btcHTLCOpts, err := newHTLCOpts(
+	btcHTLCOpts, err := newBTCHTLCOpts(
 		swapResp.ClaimDetails.ServerPublicKey,
 		swapResp.GetSwapTree(arkToBtc),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid HTLC: %w", err)
 	}
-	if err := h.storeLocalHTLCContract(
-		ctx, *btcClaimKeyRef, *btcHTLCOpts, swapResp.ClaimDetails.LockupAddress,
+	if err := validateBtcLockupAddress(
+		network,
+		swapResp.ClaimDetails.LockupAddress,
+		swapResp.ClaimDetails.ServerPublicKey,
+		btcClaimKeyRef.PubKey,
+		swapResp.GetSwapTree(arkToBtc),
 	); err != nil {
+		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
+	}
+	if err := h.storeLocalBTCHTLCContract(ctx, *btcClaimKeyRef, *btcHTLCOpts); err != nil {
 		return nil, fmt.Errorf("invalid HTLC: %w", err)
 	}
 
@@ -492,18 +502,8 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	if err != nil {
 		return nil, fmt.Errorf("invalid VHTLC: %w", err)
 	}
-	if err := h.storeLocalVHTLCContract(ctx, *vhtlcRefundKeyRef, *vhtlcOpts, ""); err != nil {
+	if err := h.storeLocalVHTLCContract(ctx, *vhtlcRefundKeyRef, *vhtlcOpts); err != nil {
 		return nil, err
-	}
-
-	if err := validateBtcLockupAddress(
-		network,
-		swapResp.ClaimDetails.LockupAddress,
-		swapResp.ClaimDetails.ServerPublicKey,
-		btcClaimKeyRef.PubKey,
-		swapResp.GetSwapTree(arkToBtc),
-	); err != nil {
-		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
 
 	swapRespJson, err := json.Marshal(swapResp)
@@ -592,16 +592,18 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 ) (*ChainSwap, error) {
 	log.Infof("Initiating BTC → Ark chain swap for %d sats", amount)
 
-	btcRefundKeyRef, err := h.newLocalHTLCKey(ctx)
+	var (
+		arkToBtc                          = false
+		err                               error
+		btcRefundKeyRef, vhtlcClaimKeyRef *identity.KeyRef
+	)
+
+	btcRefundKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		arkToBtc = false
-	)
-
-	vhtlcClaimKeyRef, err := h.newLocalVHTLCKey(ctx)
+	vhtlcClaimKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -636,16 +638,23 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	); err != nil {
 		return nil, fmt.Errorf("invalid BTC HTLC refund path: %w", err)
 	}
-	btcHTLCOpts, err := newHTLCOpts(
+	btcHTLCOpts, err := newBTCHTLCOpts(
 		swapResp.LockupDetails.ServerPublicKey,
 		swapResp.GetSwapTree(arkToBtc),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid BTC HTLC: %w", err)
 	}
-	if err := h.storeLocalHTLCContract(
-		ctx, *btcRefundKeyRef, *btcHTLCOpts, swapResp.LockupDetails.LockupAddress,
+	if err := validateBtcLockupAddress(
+		network,
+		swapResp.LockupDetails.LockupAddress,
+		swapResp.LockupDetails.ServerPublicKey,
+		btcRefundKeyRef.PubKey,
+		swapResp.GetSwapTree(arkToBtc),
 	); err != nil {
+		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
+	}
+	if err := h.storeLocalBTCHTLCContract(ctx, *btcRefundKeyRef, *btcHTLCOpts); err != nil {
 		return nil, fmt.Errorf("invalid BTC HTLC: %w", err)
 	}
 
@@ -660,7 +669,7 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	if err != nil {
 		return nil, fmt.Errorf("invalid VHTLC: %w", err)
 	}
-	if err := h.storeLocalVHTLCContract(ctx, *vhtlcClaimKeyRef, *vhtlcOpts, ""); err != nil {
+	if err := h.storeLocalVHTLCContract(ctx, *vhtlcClaimKeyRef, *vhtlcOpts); err != nil {
 		return nil, err
 	}
 
@@ -670,16 +679,6 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		swapResp.LockupDetails.Amount,
 		swapResp.LockupDetails.LockupAddress,
 	)
-
-	if err := validateBtcLockupAddress(
-		network,
-		swapResp.LockupDetails.LockupAddress,
-		swapResp.LockupDetails.ServerPublicKey,
-		btcRefundKeyRef.PubKey,
-		swapResp.GetSwapTree(arkToBtc),
-	); err != nil {
-		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
-	}
 
 	swapRespJson, err := json.Marshal(swapResp)
 	if err != nil {
@@ -795,7 +794,7 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	}
 
 	swapTree := *swapResp.LockupDetails.SwapTree
-	htlcKeyRef, err := h.ensureLocalHTLCContract(
+	htlcKeyRef, err := h.ensureLocalBTCHTLCContract(
 		ctx,
 		swapResp.LockupDetails.LockupAddress,
 		swapResp.LockupDetails.ServerPublicKey,
@@ -855,7 +854,7 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 
 	log.Infof("CLTV timeout reached at block %d (required %d)", currentHeight, requiredHeight)
 
-	boardingAddr, err := h.arkClient.NewBoardingAddress(ctx)
+	boardingAddr, err := h.arkWallet.NewBoardingAddress(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get boarding address: %w", err)
 	}
@@ -994,7 +993,7 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	}
 
 	log.Infof("Calling Settle() to board BTC as VTXO...")
-	settleTxid, err := h.arkClient.Settle(ctx)
+	settleTxid, err := h.arkWallet.Settle(ctx)
 	if err != nil {
 		// Log but don't fail - the BTC is now in the boarding address
 		log.WithError(err).

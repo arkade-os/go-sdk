@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -141,9 +142,31 @@ func WithParams(params any) ContractOption {
 	})
 }
 
+// WithKeyRef creates the contract with a caller-selected wallet key instead of
+// deriving the next key from the contract manager. This is useful when an
+// external protocol needs the wallet pubkey before all contract params are
+// known, then the final contract must be stored with that same key.
+func WithKeyRef(keyRef identity.KeyRef) ContractOption {
+	return contractOptFn(func(o *contractOptions) error {
+		if o.keyRef != nil {
+			return fmt.Errorf("key ref option is already set")
+		}
+		if keyRef.Id == "" {
+			return fmt.Errorf("key ref ID is required")
+		}
+		if keyRef.PubKey == nil {
+			return fmt.Errorf("key ref pubkey is required")
+		}
+		k := keyRef
+		o.keyRef = &k
+		return nil
+	})
+}
+
 type contractOptions struct {
 	label  string
 	params any
+	keyRef *identity.KeyRef
 }
 
 func newDefaultContractOption() *contractOptions {

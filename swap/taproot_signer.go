@@ -10,7 +10,7 @@ import (
 )
 
 func (h *SwapHandler) requireKeyedTaprootSigner() (sdkidentity.KeyedTaprootSigner, error) {
-	signer, ok := h.arkClient.Identity().(sdkidentity.KeyedTaprootSigner)
+	signer, ok := h.arkWallet.Identity().(sdkidentity.KeyedTaprootSigner)
 	if !ok {
 		return nil, fmt.Errorf("wallet identity does not support keyed taproot signing")
 	}

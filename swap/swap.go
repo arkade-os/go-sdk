@@ -18,6 +18,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
@@ -37,7 +38,7 @@ import (
 var ErrorNoVtxosFound = fmt.Errorf("no vtxos found for the given vhtlc opts")
 
 type SwapHandler struct {
-	arkClient      arksdk.Wallet
+	arkWallet      arksdk.Wallet
 	boltzSvc       *boltz.Api
 	explorerClient ExplorerClient
 	timeout        uint32
@@ -76,7 +77,7 @@ func NewSwapHandler(
 		return nil, fmt.Errorf("failed to get config data: %w", err)
 	}
 	return &SwapHandler{
-		arkClient:      arkClient,
+		arkWallet:      arkClient,
 		boltzSvc:       boltzSvc,
 		explorerClient: NewExplorerClient(esploraURL),
 		timeout:        timeout,
@@ -161,9 +162,6 @@ func (h *SwapHandler) GetVHTLCSpendingTx(
 	if err != nil {
 		return "", false, fmt.Errorf("failed to create VHTLC script: %w", err)
 	}
-	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
-		return "", false, err
-	}
 
 	vtxo, pending, err := h.selectClaimableVTXO(ctx, vhtlcScript, outpoint)
 	if err != nil {
@@ -178,7 +176,7 @@ func (h *SwapHandler) GetVHTLCSpendingTx(
 		return tx, true, nil
 	}
 
-	txs, err := h.arkClient.Indexer().GetVirtualTxs(ctx, []string{vtxo.ArkTxid})
+	txs, err := h.arkWallet.Indexer().GetVirtualTxs(ctx, []string{vtxo.ArkTxid})
 	if err != nil {
 		return "", false, fmt.Errorf("failed to get virtual tx: %w", err)
 	}
@@ -210,12 +208,12 @@ func (h *SwapHandler) getPendingVHTLCTx(
 		return "", err
 	}
 
-	signedProof, err := h.arkClient.SignTransaction(ctx, proof)
+	signedProof, err := h.arkWallet.SignTransaction(ctx, proof)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign pending tx proof: %w", err)
 	}
 
-	pendingTxs, err := h.arkClient.Client().GetPendingTx(ctx, signedProof, message)
+	pendingTxs, err := h.arkWallet.Client().GetPendingTx(ctx, signedProof, message)
 	if err != nil {
 		return "", err
 	}
@@ -234,7 +232,7 @@ func (h *SwapHandler) ClaimVHTLC(
 	if err != nil {
 		return "", err
 	}
-	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
+	if err := h.ensureLocalVHTLCContractForSigning(ctx, vhtlcOpts); err != nil {
 		return "", err
 	}
 
@@ -274,7 +272,7 @@ func (h *SwapHandler) ClaimVHTLC(
 	}
 
 	// self send output
-	myAddr, err := h.arkClient.NewOffchainAddress(ctx)
+	myAddr, err := h.arkWallet.NewOffchainAddress(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -333,7 +331,7 @@ func (h *SwapHandler) ClaimVHTLC(
 			return "", err
 		}
 
-		return h.arkClient.SignTransaction(ctx, encoded)
+		return h.arkWallet.SignTransaction(ctx, encoded)
 	}
 
 	signedArkTx, err := signTransaction(arkTx)
@@ -350,7 +348,7 @@ func (h *SwapHandler) ClaimVHTLC(
 		checkpointTxs = append(checkpointTxs, tx)
 	}
 
-	arkTxid, finalArkTx, signedCheckpoints, err := h.arkClient.Client().SubmitTx(
+	arkTxid, finalArkTx, signedCheckpoints, err := h.arkWallet.Client().SubmitTx(
 		ctx, signedArkTx, checkpointTxs,
 	)
 	if err != nil {
@@ -370,7 +368,7 @@ func (h *SwapHandler) ClaimVHTLC(
 		return "", err
 	}
 
-	if err := h.arkClient.Client().FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
+	if err := h.arkWallet.Client().FinalizeTx(ctx, arkTxid, finalCheckpoints); err != nil {
 		return "", err
 	}
 
@@ -385,7 +383,7 @@ func (h *SwapHandler) RefundSwap(
 	if err != nil {
 		return "", err
 	}
-	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
+	if err := h.ensureLocalVHTLCContractForSigning(ctx, vhtlcOpts); err != nil {
 		return "", err
 	}
 
@@ -429,7 +427,7 @@ func (h *SwapHandler) RefundSwap(
 		return "", err
 	}
 
-	offchainAddress, err := h.arkClient.NewOffchainAddress(ctx)
+	offchainAddress, err := h.arkWallet.NewOffchainAddress(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -489,7 +487,7 @@ func (h *SwapHandler) RefundSwap(
 		if err != nil {
 			return "", err
 		}
-		return h.arkClient.SignTransaction(ctx, encoded)
+		return h.arkWallet.SignTransaction(ctx, encoded)
 	}
 
 	// user signing
@@ -560,7 +558,7 @@ func (h *SwapHandler) RefundSwap(
 		return "", fmt.Errorf("failed to encode final refund tx: %s", err)
 	}
 
-	arkTxid, finalRefundTx, serverSignedCheckpoints, err := h.arkClient.Client().SubmitTx(
+	arkTxid, finalRefundTx, serverSignedCheckpoints, err := h.arkWallet.Client().SubmitTx(
 		ctx, signedRefund, []string{unsignedCheckpointTx},
 	)
 	if err != nil {
@@ -604,7 +602,7 @@ func (h *SwapHandler) RefundSwap(
 		return "", fmt.Errorf("failed to encode final checkpoint tx: %s", err)
 	}
 
-	if err := h.arkClient.Client().FinalizeTx(
+	if err := h.arkWallet.Client().FinalizeTx(
 		ctx, arkTxid, []string{finalCheckpointTx},
 	); err != nil {
 		return "", fmt.Errorf("failed to finalize refund tx: %w", err)
@@ -621,9 +619,6 @@ func (h *SwapHandler) SettleVHTLCWithClaimPath(
 	if err := validatePreimage(preimage, vhtlcOpts.PreimageHash); err != nil {
 		return "", err
 	}
-	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
-		return "", err
-	}
 
 	session, err := h.getBatchSessionArgs(ctx, vhtlcOpts, outpoint, nil)
 	if err != nil {
@@ -635,25 +630,25 @@ func (h *SwapHandler) SettleVHTLCWithClaimPath(
 		return "", fmt.Errorf("failed to build claim intent: %w", err)
 	}
 
-	signedProof, err := h.arkClient.SignTransaction(ctx, proof)
+	signedProof, err := h.arkWallet.SignTransaction(ctx, proof)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign intent proof: %w", err)
 	}
 
-	intentID, err := h.arkClient.Client().RegisterIntent(ctx, signedProof, message)
+	intentID, err := h.arkWallet.Client().RegisterIntent(ctx, signedProof, message)
 	if err != nil {
 		return "", fmt.Errorf("failed to register VHTLC claim intent: %w", err)
 	}
 
 	topics := getEventTopics(session.vtxos, session.signerSession.GetPublicKey())
-	eventsCh, cancel, err := h.arkClient.Client().GetEventStream(ctx, topics)
+	eventsCh, cancel, err := h.arkWallet.Client().GetEventStream(ctx, topics)
 	if err != nil {
 		return "", fmt.Errorf("failed to get event stream: %w", err)
 	}
 	defer cancel()
 
 	claimHandler, err := newClaimBatchSessionHandler(
-		h.arkClient,
+		h.arkWallet,
 		intentID,
 		session.vtxos,
 		[]clientTypes.Receiver{{To: session.destinationAddr, Amount: session.totalAmount}},
@@ -680,10 +675,6 @@ func (h *SwapHandler) SettleVHTLCWithClaimPath(
 func (h *SwapHandler) SettleVhtlcWithRefundPath(
 	ctx context.Context, vhtlcOpts vhtlc.Opts, outpoint *clientTypes.Outpoint,
 ) (string, error) {
-	ownerKey, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts)
-	if err != nil {
-		return "", err
-	}
 	session, err := h.getBatchSessionArgs(ctx, vhtlcOpts, outpoint, nil)
 	if err != nil {
 		return "", err
@@ -694,18 +685,18 @@ func (h *SwapHandler) SettleVhtlcWithRefundPath(
 		return "", fmt.Errorf("failed to build refund intent: %w", err)
 	}
 
-	signedProof, err := h.arkClient.SignTransaction(ctx, proof)
+	signedProof, err := h.arkWallet.SignTransaction(ctx, proof)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign intent proof: %w", err)
 	}
 
-	intentID, err := h.arkClient.Client().RegisterIntent(ctx, signedProof, message)
+	intentID, err := h.arkWallet.Client().RegisterIntent(ctx, signedProof, message)
 	if err != nil {
 		return "", fmt.Errorf("failed to register VHTLC refund intent: %w", err)
 	}
 
 	topics := getEventTopics(session.vtxos, session.signerSession.GetPublicKey())
-	eventsCh, cancel, err := h.arkClient.Client().GetEventStream(ctx, topics)
+	eventsCh, cancel, err := h.arkWallet.Client().GetEventStream(ctx, topics)
 	if err != nil {
 		return "", fmt.Errorf("failed to get event stream: %w", err)
 	}
@@ -714,15 +705,14 @@ func (h *SwapHandler) SettleVhtlcWithRefundPath(
 	withReceiver := true
 	withoutReceiver := !withReceiver
 	refundHandler, err := newRefundBatchSessionHandler(
-		h.arkClient,
-		h.arkClient.Client(),
+		h.arkWallet,
+		h.arkWallet.Client(),
 		intentID,
 		session.vtxos,
 		[]clientTypes.Receiver{{To: session.destinationAddr, Amount: session.totalAmount}},
 		withoutReceiver,
 		map[string]*vhtlc.VHTLCScript{session.vtxos[0].Script: session.vhtlcScript},
 		h.config,
-		ownerKey.PubKey,
 		session.signerSession,
 	)
 	if err != nil {
@@ -743,28 +733,25 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 	partialForfeitTx, proof, message string, signerSession tree.SignerSession,
 	outpoint *clientTypes.Outpoint,
 ) (string, error) {
-	if _, err := h.ensureLocalVHTLCContract(ctx, vhtlcOpts); err != nil {
-		return "", err
-	}
 	session, err := h.getBatchSessionArgs(ctx, vhtlcOpts, outpoint, &signerSession)
 	if err != nil {
 		return "", err
 	}
 
-	signedProof, err := h.arkClient.SignTransaction(ctx, proof)
+	signedProof, err := h.arkWallet.SignTransaction(ctx, proof)
 	if err != nil {
 		return "", fmt.Errorf("failed to cosign intent proof: %w", err)
 	}
 
-	intentId, err := h.arkClient.Client().RegisterIntent(ctx, signedProof, message)
+	intentId, err := h.arkWallet.Client().RegisterIntent(ctx, signedProof, message)
 	if err != nil {
 		return "", fmt.Errorf("failed to register intent: %w", err)
 	}
 
 	withReceiver := true
 	handler, err := newCollabRefundBatchSessionHandler(
-		h.arkClient,
-		h.arkClient.Client(),
+		h.arkWallet,
+		h.arkWallet.Client(),
 		intentId,
 		session.vtxos,
 		[]clientTypes.Receiver{{To: session.destinationAddr, Amount: session.totalAmount}},
@@ -780,7 +767,7 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 
 	topics := getEventTopics(session.vtxos, session.signerSession.GetPublicKey())
 
-	eventsCh, cancel, err := h.arkClient.Client().GetEventStream(ctx, topics)
+	eventsCh, cancel, err := h.arkWallet.Client().GetEventStream(ctx, topics)
 	if err != nil {
 		return "", fmt.Errorf("failed to get event stream: %w", err)
 	}
@@ -798,14 +785,18 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 func (h *SwapHandler) submarineSwap(
 	ctx context.Context, invoice string, unilateralRefund func(swap Swap) error,
 ) (*Swap, error) {
+	var (
+		preimageHash []byte
+		refundKeyRef *identity.KeyRef
+		err          error
+	)
+
 	if len(invoice) == 0 {
 		return nil, fmt.Errorf("missing invoice")
 	}
 	if unilateralRefund == nil {
 		return nil, fmt.Errorf("missing callback for unilateral refund")
 	}
-
-	var preimageHash []byte
 
 	// TODO: move to decodeInvoice
 	if IsBolt12Invoice(invoice) {
@@ -822,7 +813,7 @@ func (h *SwapHandler) submarineSwap(
 		preimageHash = hash
 	}
 
-	refundKeyRef, err := h.newLocalVHTLCKey(ctx)
+	refundKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -844,10 +835,8 @@ func (h *SwapHandler) submarineSwap(
 		return nil, fmt.Errorf("invalid claim pubkey: %v", err)
 	}
 
-	vhtlcAddress, _, vhtlcOpts, err := h.getVHTLC(
-		ctx,
+	vhtlcAddress, _, vhtlcOpts, err := h.buildLocalSenderVHTLC(
 		receiverPubkey,
-		nil,
 		preimageHash,
 		arklib.AbsoluteLocktime(swap.TimeoutBlockHeights.RefundLocktime),
 		parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
@@ -858,11 +847,11 @@ func (h *SwapHandler) submarineSwap(
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify vHTLC: %v", err)
 	}
-	if err := h.storeLocalVHTLCContract(ctx, *refundKeyRef, *vhtlcOpts, ""); err != nil {
-		return nil, err
-	}
 	if swap.Address != vhtlcAddress {
 		return nil, fmt.Errorf("boltz is trying to scam us, vHTLCs do not match")
+	}
+	if err := h.storeLocalVHTLCContract(ctx, *refundKeyRef, *vhtlcOpts); err != nil {
+		return nil, err
 	}
 
 	ws := h.boltzSvc.NewWebsocket()
@@ -874,7 +863,7 @@ func (h *SwapHandler) submarineSwap(
 	var txid string
 	for range 3 {
 		// Fund the VHTLC
-		txid, err = h.arkClient.SendOffChain(ctx, receivers)
+		txid, err = h.arkWallet.SendOffChain(ctx, receivers)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "vtxo_already_spent") {
 				continue
@@ -965,11 +954,16 @@ func (h *SwapHandler) submarineSwap(
 func (h *SwapHandler) reverseSwap(
 	ctx context.Context, amount uint64, preimage []byte, postProcess func(swap Swap) error,
 ) (Swap, error) {
-	var preimageHash []byte
+	var (
+		preimageHash []byte
+		claimKeyRef  *identity.KeyRef
+		err          error
+	)
+
 	buf := sha256.Sum256(preimage)
 	preimageHash = input.Ripemd160H(buf[:])
 
-	claimKeyRef, err := h.newLocalVHTLCKey(ctx)
+	claimKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return Swap{}, err
 	}
@@ -1008,9 +1002,7 @@ func (h *SwapHandler) reverseSwap(
 		)
 	}
 
-	vhtlcAddress, _, vhtlcOpts, err := h.getVHTLC(
-		ctx,
-		nil,
+	vhtlcAddress, _, vhtlcOpts, err := h.buildLocalReceiverVHTLC(
 		senderPubkey,
 		gotPreimageHash,
 		arklib.AbsoluteLocktime(swap.TimeoutBlockHeights.RefundLocktime),
@@ -1021,9 +1013,6 @@ func (h *SwapHandler) reverseSwap(
 	)
 	if err != nil {
 		return Swap{}, fmt.Errorf("failed to verify vHTLC: %v", err)
-	}
-	if err := h.storeLocalVHTLCContract(ctx, *claimKeyRef, *vhtlcOpts, ""); err != nil {
-		return Swap{}, err
 	}
 
 	swapDetails := Swap{
@@ -1042,6 +1031,9 @@ func (h *SwapHandler) reverseSwap(
 
 	if swap.LockupAddress != vhtlcAddress {
 		return swapDetails, fmt.Errorf("boltz is trying to scam us, vHTLCs do not match")
+	}
+	if err := h.storeLocalVHTLCContract(ctx, *claimKeyRef, *vhtlcOpts); err != nil {
+		return swapDetails, err
 	}
 
 	inv, err := decodepay.Decodepay(swap.Invoice)
@@ -1084,7 +1076,7 @@ func (h *SwapHandler) getVHTLCFunds(
 		scripts = append(scripts, hex.EncodeToString(outScript))
 	}
 
-	resp, err := h.arkClient.Indexer().GetVtxos(ctx, indexer.WithScripts(scripts))
+	resp, err := h.arkWallet.Indexer().GetVtxos(ctx, indexer.WithScripts(scripts))
 	if err != nil {
 		return nil, err
 	}
@@ -1108,60 +1100,13 @@ func (h *SwapHandler) getPendingVHTLCFunds(
 		scripts = append(scripts, hex.EncodeToString(outScript))
 	}
 
-	resp, err := h.arkClient.Indexer().GetVtxos(
+	resp, err := h.arkWallet.Indexer().GetVtxos(
 		ctx, indexer.WithScripts(scripts), indexer.WithPendingOnly(),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return resp.Vtxos, nil
-}
-
-func (h *SwapHandler) getVHTLC(
-	_ context.Context,
-	receiverPubkey, senderPubkey *btcec.PublicKey, preimageHash []byte,
-	refundLocktime arklib.AbsoluteLocktime,
-	unilateralClaimDelay, unilateralRefundDelay,
-	unilateralRefundWithoutReceiverDelay arklib.RelativeLocktime,
-	localPubkey *btcec.PublicKey,
-) (string, *vhtlc.VHTLCScript, *vhtlc.Opts, error) {
-	receiverPubkeySet := receiverPubkey != nil
-	senderPubkeySet := senderPubkey != nil
-	if receiverPubkeySet == senderPubkeySet {
-		return "", nil, nil, fmt.Errorf("only one of receiver and sender pubkey must be set")
-	}
-	if localPubkey == nil {
-		return "", nil, nil, fmt.Errorf("missing local VHTLC pubkey")
-	}
-	if !receiverPubkeySet {
-		receiverPubkey = localPubkey
-	}
-	if !senderPubkeySet {
-		senderPubkey = localPubkey
-	}
-
-	opts := vhtlc.Opts{
-		Sender:                               senderPubkey,
-		Receiver:                             receiverPubkey,
-		Server:                               h.config.SignerPubKey,
-		PreimageHash:                         preimageHash,
-		RefundLocktime:                       refundLocktime,
-		UnilateralClaimDelay:                 unilateralClaimDelay,
-		UnilateralRefundDelay:                unilateralRefundDelay,
-		UnilateralRefundWithoutReceiverDelay: unilateralRefundWithoutReceiverDelay,
-	}
-
-	vHTLC, err := vhtlc.NewVHTLCScriptFromOpts(opts)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	encodedAddr, err := vHTLC.Address(h.config.Network.Addr)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	return encodedAddr, vHTLC, &opts, nil
 }
 
 func (h *SwapHandler) waitAndClaim(
@@ -1282,13 +1227,13 @@ func (h *SwapHandler) getBatchSessionArgs(
 		return nil, fmt.Errorf("vtxo is pending finalization, call FinalizePendingTxs first")
 	}
 
-	myAddr, err := h.arkClient.NewOffchainAddress(ctx)
+	myAddr, err := h.arkWallet.NewOffchainAddress(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get offchain address: %w", err)
 	}
 
 	if signerSession == nil {
-		ephemeralSignerSession, err := h.arkClient.Identity().NewVtxoTreeSigner(ctx)
+		ephemeralSignerSession, err := h.arkWallet.Identity().NewVtxoTreeSigner(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create ephemeral signer session: %w", err)
 		}
@@ -1391,12 +1336,12 @@ func (h *SwapHandler) finalizePendingVHTLCTxs(
 		return nil, err
 	}
 
-	signedProof, err := h.arkClient.SignTransaction(ctx, proof)
+	signedProof, err := h.arkWallet.SignTransaction(ctx, proof)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign pending tx proof: %w", err)
 	}
 
-	pendingTxs, err := h.arkClient.Client().GetPendingTx(ctx, signedProof, message)
+	pendingTxs, err := h.arkWallet.Client().GetPendingTx(ctx, signedProof, message)
 	if err != nil {
 		return nil, err
 	}
@@ -1412,7 +1357,7 @@ func (h *SwapHandler) finalizePendingVHTLCTxs(
 			finalCheckpoints = append(finalCheckpoints, signedCheckpoint)
 		}
 
-		if err := h.arkClient.Client().FinalizeTx(ctx, tx.Txid, finalCheckpoints); err != nil {
+		if err := h.arkWallet.Client().FinalizeTx(ctx, tx.Txid, finalCheckpoints); err != nil {
 			return nil, fmt.Errorf("failed to finalize tx %s: %w", tx.Txid, err)
 		}
 
@@ -1442,7 +1387,7 @@ func (h *SwapHandler) finalizePendingClaimVHTLCTxs(
 			return "", err
 		}
 
-		return h.arkClient.SignTransaction(ctx, encoded)
+		return h.arkWallet.SignTransaction(ctx, encoded)
 	}
 
 	return h.finalizePendingVHTLCTxs(ctx, []pendingTxIntentInput{{
@@ -1460,7 +1405,7 @@ func (h *SwapHandler) finalizePendingRefundVHTLCTxs(
 	ctx context.Context, vtxo clientTypes.Vtxo, vhtlcScript *vhtlc.VHTLCScript,
 ) ([]string, error) {
 	signCheckpoint := func(checkpoint string) (string, error) {
-		return h.arkClient.SignTransaction(ctx, checkpoint)
+		return h.arkWallet.SignTransaction(ctx, checkpoint)
 	}
 
 	return h.finalizePendingVHTLCTxs(ctx, []pendingTxIntentInput{{

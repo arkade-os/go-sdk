@@ -72,6 +72,33 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "my-label", persisted[0].Label)
 		})
 
+		t.Run("with key ref persisted", func(t *testing.T) {
+			env, mgr, store := newTestManagerWithEnv(t)
+			keyRef, err := env.identity.GetKey(t.Context(), "m/0/7")
+			require.NoError(t, err)
+
+			c, err := mgr.NewContract(
+				t.Context(), types.ContractTypeDefault, contract.WithKeyRef(*keyRef),
+			)
+			require.NoError(t, err)
+			require.Equal(t, "m/0/7", c.Params[ownerKeyIdParam])
+
+			persisted, err := store.GetContractsByScripts(t.Context(), []string{c.Script})
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+			require.Equal(t, "m/0/7", persisted[0].Params[ownerKeyIdParam])
+
+			again, err := mgr.NewContract(
+				t.Context(), types.ContractTypeDefault, contract.WithKeyRef(*keyRef),
+			)
+			require.NoError(t, err)
+			require.Equal(t, c.Script, again.Script)
+
+			persisted, err = store.GetContractsByScripts(t.Context(), []string{c.Script})
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+		})
+
 		t.Run("sequential offchain calls advance the key index", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 

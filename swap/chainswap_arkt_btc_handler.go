@@ -115,7 +115,7 @@ func (h *arkToBtcHandler) handleArkToBtcSwapCreated(
 		},
 	}
 
-	txId, err := h.swapHandler.arkClient.SendOffChain(ctx, receivers)
+	txId, err := h.swapHandler.arkWallet.SendOffChain(ctx, receivers)
 	if err != nil {
 		return fmt.Errorf("failed to fund VHTLC: %w", err)
 	}

@@ -38,7 +38,7 @@ type batchSessionArgs struct {
 
 type batchSessionHandler struct {
 	musig2BatchSessionHandler
-	arkClient arksdk.Wallet
+	arkWallet arksdk.Wallet
 
 	intentId       string
 	vtxos          []clientTypes.VtxoWithTapTree
@@ -93,7 +93,7 @@ func newBatchSessionHandler(
 			SignerSession:   signerSession,
 			TransportClient: transportClient,
 		},
-		arkClient:      arkClient,
+		arkWallet:      arkClient,
 		intentId:       intentId,
 		vtxos:          vtxos,
 		receivers:      receivers,
@@ -237,7 +237,7 @@ func (h *batchSessionHandler) createAndSignForfeits(
 			return nil, err
 		}
 
-		signedForfeitTx, err := h.arkClient.SignTransaction(ctx, forfeitTx)
+		signedForfeitTx, err := h.arkWallet.SignTransaction(ctx, forfeitTx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sign forfeit: %w", err)
 		}
@@ -318,7 +318,6 @@ func (h *claimBatchSessionHandler) OnBatchFinalization(
 type refundBatchSessionHandler struct {
 	batchSessionHandler
 	withReceiver bool
-	publicKey    *btcec.PublicKey
 }
 
 func newRefundBatchSessionHandler(
@@ -330,12 +329,8 @@ func newRefundBatchSessionHandler(
 	withReceiver bool,
 	vhtlcScripts map[string]*vhtlc.VHTLCScript,
 	config clientTypes.Config,
-	publicKey *btcec.PublicKey,
 	signerSession tree.SignerSession,
 ) (*refundBatchSessionHandler, error) {
-	if publicKey == nil {
-		return nil, fmt.Errorf("missing public key")
-	}
 	handler, err := newBatchSessionHandler(
 		arkClient, transportClient, intentId, vtxos, receivers, vhtlcScripts, config, signerSession,
 	)
@@ -346,7 +341,6 @@ func newRefundBatchSessionHandler(
 	return &refundBatchSessionHandler{
 		batchSessionHandler: *handler,
 		withReceiver:        withReceiver,
-		publicKey:           publicKey,
 	}, nil
 }
 
@@ -478,7 +472,7 @@ func (h *collabRefundBatchSessionHandler) OnBatchFinalization(
 		return nil, fmt.Errorf("failed to encode forfeit tx: %w", err)
 	}
 
-	signedForfeitTx, err := h.arkClient.SignTransaction(ctx, encodedForfeitTx)
+	signedForfeitTx, err := h.arkWallet.SignTransaction(ctx, encodedForfeitTx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign forfeit: %w", err)
 	}

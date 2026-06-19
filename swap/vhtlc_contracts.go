@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
-	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -16,91 +16,54 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 )
 
-func (h *SwapHandler) newLocalVHTLCKey(ctx context.Context) (*arkidentity.KeyRef, error) {
-	keyRef, err := h.arkClient.Identity().NewKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("derive local VHTLC key: %w", err)
-	}
-	if keyRef == nil || keyRef.PubKey == nil || keyRef.Id == "" {
-		return nil, fmt.Errorf("derive local VHTLC key: invalid key ref")
-	}
-	return keyRef, nil
-}
-
-func (h *SwapHandler) ensureLocalVHTLCContract(
-	ctx context.Context, opts vhtlc.Opts,
-) (*arkidentity.KeyRef, error) {
-	scriptHex, err := vhtlcScriptHex(opts)
-	if err != nil {
-		return nil, err
-	}
-
-	contracts, err := h.arkClient.ContractManager().GetContracts(
-		ctx, contract.WithScripts([]string{scriptHex}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("lookup VHTLC contract: %w", err)
-	}
-	for _, c := range contracts {
-		if c.Type != types.ContractTypeVHTLC {
-			continue
-		}
-		handler, err := h.arkClient.ContractManager().GetHandler(ctx, c)
-		if err != nil {
-			return nil, fmt.Errorf("get VHTLC handler: %w", err)
-		}
-		return handler.GetKeyRef(c)
-	}
-
-	keyRef, err := h.findLocalVHTLCKey(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("missing local VHTLC contract for script %s: %w", scriptHex, err)
-	}
-	if err := h.storeLocalVHTLCContract(ctx, *keyRef, opts, scriptHex); err != nil {
-		return nil, err
-	}
-	return keyRef, nil
-}
-
 func (h *SwapHandler) storeLocalVHTLCContract(
 	ctx context.Context,
 	keyRef arkidentity.KeyRef,
 	opts vhtlc.Opts,
-	expectedScript string,
 ) error {
-	if expectedScript == "" {
-		var err error
-		expectedScript, err = vhtlcScriptHex(opts)
-		if err != nil {
-			return err
-		}
-	}
-
 	contractOpts, err := optsForLocalVHTLCOwner(opts, keyRef.PubKey)
 	if err != nil {
 		return err
 	}
 
-	handler := vhtlcHandler.NewHandler(h.arkClient.Client(), h.config.Network)
-	built, err := handler.NewContract(ctx, keyRef, &contractOpts)
-	if err != nil {
-		return fmt.Errorf("build local VHTLC contract: %w", err)
-	}
-	if built.Script != expectedScript {
-		return fmt.Errorf(
-			"local VHTLC contract script mismatch: expected %s, got %s",
-			expectedScript,
-			built.Script,
-		)
-	}
-	keyIndex, err := h.arkClient.Identity().GetKeyIndex(ctx, keyRef.Id)
-	if err != nil {
-		return fmt.Errorf("get VHTLC key index: %w", err)
-	}
-	if err := h.arkClient.Store().ContractStore().AddContract(ctx, *built, keyIndex); err != nil {
+	if _, err := h.arkWallet.ContractManager().NewContract(
+		ctx,
+		types.ContractTypeVHTLC,
+		contract.WithKeyRef(keyRef),
+		contract.WithParams(&contractOpts),
+	); err != nil {
 		return fmt.Errorf("store local VHTLC contract: %w", err)
 	}
 	return nil
+}
+
+func (h *SwapHandler) ensureLocalVHTLCContractForSigning(
+	ctx context.Context,
+	opts vhtlc.Opts,
+) error {
+	scriptHex, err := vhtlcScriptHex(opts)
+	if err != nil {
+		return err
+	}
+
+	contracts, err := h.arkWallet.ContractManager().GetContracts(
+		ctx,
+		contract.WithScripts([]string{scriptHex}),
+	)
+	if err != nil {
+		return fmt.Errorf("lookup VHTLC contract: %w", err)
+	}
+	for _, c := range contracts {
+		if c.Type == types.ContractTypeVHTLC {
+			return nil
+		}
+	}
+
+	keyRef, err := h.localVHTLCKeyRefFromOpts(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("missing local VHTLC contract for script %s: %w", scriptHex, err)
+	}
+	return h.storeLocalVHTLCContract(ctx, *keyRef, opts)
 }
 
 func optsForLocalVHTLCOwner(
@@ -121,10 +84,11 @@ func optsForLocalVHTLCOwner(
 	return vhtlc.Opts{}, fmt.Errorf("wallet does not own sender or receiver key")
 }
 
-func (h *SwapHandler) findLocalVHTLCKey(
-	ctx context.Context, opts vhtlc.Opts,
+func (h *SwapHandler) localVHTLCKeyRefFromOpts(
+	ctx context.Context,
+	opts vhtlc.Opts,
 ) (*arkidentity.KeyRef, error) {
-	keys, err := h.arkClient.Identity().ListKeys(ctx)
+	keys, err := h.arkWallet.Identity().ListKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list wallet keys: %w", err)
 	}
@@ -144,7 +108,7 @@ func (h *SwapHandler) findLocalVHTLCKey(
 func (h *SwapHandler) localVHTLCKeyForAddress(
 	ctx context.Context, address string,
 ) (*arkidentity.KeyRef, error) {
-	contracts, err := h.arkClient.ContractManager().GetContracts(
+	contracts, err := h.arkWallet.ContractManager().GetContracts(
 		ctx, contract.WithType(types.ContractTypeVHTLC),
 	)
 	if err != nil {
@@ -154,13 +118,108 @@ func (h *SwapHandler) localVHTLCKeyForAddress(
 		if c.Address != address {
 			continue
 		}
-		handler, err := h.arkClient.ContractManager().GetHandler(ctx, c)
+		handler, err := h.arkWallet.ContractManager().GetHandler(ctx, c)
 		if err != nil {
 			return nil, fmt.Errorf("get VHTLC handler: %w", err)
 		}
 		return handler.GetKeyRef(c)
 	}
 	return nil, fmt.Errorf("no local VHTLC contract for address %s", address)
+}
+
+func samePubKey(a, b *btcec.PublicKey) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return bytes.Equal(schnorr.SerializePubKey(a), schnorr.SerializePubKey(b))
+}
+
+func (h *SwapHandler) buildLocalSenderVHTLC(
+	counterpartyReceiverPubkey *btcec.PublicKey,
+	preimageHash []byte,
+	refundLocktime arklib.AbsoluteLocktime,
+	unilateralClaimDelay, unilateralRefundDelay,
+	unilateralRefundWithoutReceiverDelay arklib.RelativeLocktime,
+	localSenderPubkey *btcec.PublicKey,
+) (string, *vhtlc.VHTLCScript, *vhtlc.Opts, error) {
+	if localSenderPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing local VHTLC sender pubkey")
+	}
+	if counterpartyReceiverPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing counterparty VHTLC receiver pubkey")
+	}
+	return h.buildVHTLC(
+		localSenderPubkey,
+		counterpartyReceiverPubkey,
+		preimageHash,
+		refundLocktime,
+		unilateralClaimDelay,
+		unilateralRefundDelay,
+		unilateralRefundWithoutReceiverDelay,
+	)
+}
+
+func (h *SwapHandler) buildLocalReceiverVHTLC(
+	counterpartySenderPubkey *btcec.PublicKey,
+	preimageHash []byte,
+	refundLocktime arklib.AbsoluteLocktime,
+	unilateralClaimDelay, unilateralRefundDelay,
+	unilateralRefundWithoutReceiverDelay arklib.RelativeLocktime,
+	localReceiverPubkey *btcec.PublicKey,
+) (string, *vhtlc.VHTLCScript, *vhtlc.Opts, error) {
+	if counterpartySenderPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing counterparty VHTLC sender pubkey")
+	}
+	if localReceiverPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing local VHTLC receiver pubkey")
+	}
+	return h.buildVHTLC(
+		counterpartySenderPubkey,
+		localReceiverPubkey,
+		preimageHash,
+		refundLocktime,
+		unilateralClaimDelay,
+		unilateralRefundDelay,
+		unilateralRefundWithoutReceiverDelay,
+	)
+}
+
+func (h *SwapHandler) buildVHTLC(
+	senderPubkey, receiverPubkey *btcec.PublicKey,
+	preimageHash []byte,
+	refundLocktime arklib.AbsoluteLocktime,
+	unilateralClaimDelay, unilateralRefundDelay,
+	unilateralRefundWithoutReceiverDelay arklib.RelativeLocktime,
+) (string, *vhtlc.VHTLCScript, *vhtlc.Opts, error) {
+	if senderPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing VHTLC sender pubkey")
+	}
+	if receiverPubkey == nil {
+		return "", nil, nil, fmt.Errorf("missing VHTLC receiver pubkey")
+	}
+
+	opts := vhtlc.Opts{
+		Sender:                               senderPubkey,
+		Receiver:                             receiverPubkey,
+		Server:                               h.config.SignerPubKey,
+		PreimageHash:                         preimageHash,
+		RefundLocktime:                       refundLocktime,
+		UnilateralClaimDelay:                 unilateralClaimDelay,
+		UnilateralRefundDelay:                unilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: unilateralRefundWithoutReceiverDelay,
+	}
+
+	vHTLC, err := vhtlc.NewVHTLCScriptFromOpts(opts)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	encodedAddr, err := vHTLC.Address(h.config.Network.Addr)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	return encodedAddr, vHTLC, &opts, nil
 }
 
 func vhtlcScriptHex(opts vhtlc.Opts) (string, error) {
@@ -177,11 +236,4 @@ func vhtlcScriptHex(opts vhtlc.Opts) (string, error) {
 		return "", fmt.Errorf("compute VHTLC pkScript: %w", err)
 	}
 	return hex.EncodeToString(pkScript), nil
-}
-
-func samePubKey(a, b *btcec.PublicKey) bool {
-	if a == nil || b == nil {
-		return false
-	}
-	return bytes.Equal(schnorr.SerializePubKey(a), schnorr.SerializePubKey(b))
 }

@@ -127,9 +127,10 @@ func (m *contractManager) NewContract(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Derivable single-key contracts are idempotent: the same key always
-	// produces the same script, so return the existing one.
-	if handler.Derivable() && m.keyProvider.GetType() == identity.SingleKeyIdentity {
+	// Derivable single-key contracts are idempotent when the manager controls
+	// key selection: the same key always produces the same script, so return
+	// the existing one.
+	if o.keyRef == nil && handler.Derivable() && m.keyProvider.GetType() == identity.SingleKeyIdentity {
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
@@ -140,9 +141,20 @@ func (m *contractManager) NewContract(
 		}
 	}
 
-	contract, err := m.deriveContract(ctx, contractType, handler, o.params)
+	contract, err := m.newContract(ctx, contractType, handler, o)
 	if err != nil {
 		return nil, err
+	}
+
+	if o.keyRef != nil {
+		contracts, err := m.store.GetContractsByScripts(ctx, []string{contract.Script})
+		if err != nil {
+			return nil, err
+		}
+		if len(contracts) > 0 {
+			c := contracts[0]
+			return &c, nil
+		}
 	}
 	contract.Label = o.label
 
@@ -162,6 +174,18 @@ func (m *contractManager) NewContract(
 	log.Debugf("%s added new %s contract %s", logPrefix, contractType, contract.Script)
 
 	return contract, nil
+}
+
+func (m *contractManager) newContract(
+	ctx context.Context,
+	contractType types.ContractType,
+	handler handlers.Handler,
+	o *contractOptions,
+) (*types.Contract, error) {
+	if o.keyRef != nil {
+		return handler.NewContract(ctx, *o.keyRef, o.params)
+	}
+	return m.deriveContract(ctx, contractType, handler, o.params)
 }
 
 func (m *contractManager) GetContracts(

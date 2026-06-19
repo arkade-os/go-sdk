@@ -44,11 +44,12 @@
 //
 // [Manager.NewContract](ctx, contractType, opts...):
 //  1. Look up the handler registered for contractType.
-//  2. Ask the store for GetLatestContract(contractType) and resolve the
+//  2. If WithKeyRef is provided, use that caller-selected key. Otherwise,
+//     ask the store for GetLatestContract(contractType) and resolve the
 //     last-used keyId from it (or start at the first key id when the pool
 //     is empty).
-//  3. Advance with keyProvider.NextKeyId, then GetKey to derive the new
-//     KeyRef.
+//  3. Without WithKeyRef, advance with keyProvider.NextKeyId, then GetKey
+//     to derive the new KeyRef.
 //  4. Hand the KeyRef to handler.NewContract — the handler builds the
 //     script, address, and contract-type-specific params.
 //  5. Persist via store.AddContract with the resolved key index.
