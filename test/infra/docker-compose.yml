@@ -140,10 +140,8 @@ services:
 
   mock-boltz:
     build:
-      context: ../../../fulmine
+      context: .
       dockerfile: mockboltz.Dockerfile
-      additional_contexts:
-        go-sdk: ../..
     container_name: mock-boltz
     restart: unless-stopped
     depends_on:
@@ -388,10 +386,8 @@ services:
       - postgres_datadir:/var/lib/postgresql/data
   boltz-fulmine:
     build:
-      context: ../../../fulmine
-      dockerfile: Dockerfile
-      additional_contexts:
-        go-sdk: ../..
+      context: .
+      dockerfile: fulmine.Dockerfile
     restart: unless-stopped
     container_name: boltz-fulmine
     # healthcheck:
