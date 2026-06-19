@@ -1,10 +1,10 @@
-FROM golang:1.26.3 AS builder
+FROM golang:1.26.4 AS builder
 
 ARG EMULATOR_VERSION=master
 
 WORKDIR /app
 
-RUN git clone --branch ${EMULATOR_VERSION} --single-branch https://github.com/ArkLabsHQ/emulator.git
+RUN git clone --branch ${EMULATOR_VERSION} --single-branch https://github.com/arkade-os/emulator.git
 
 WORKDIR /app/emulator
 RUN CGO_ENABLED=0 go build -o /app/bin/emulator ./cmd/emulator.go

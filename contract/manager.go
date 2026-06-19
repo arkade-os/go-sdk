@@ -130,7 +130,8 @@ func (m *contractManager) NewContract(
 	// Derivable single-key contracts are idempotent when the manager controls
 	// key selection: the same key always produces the same script, so return
 	// the existing one.
-	if o.keyRef == nil && handler.Derivable() && m.keyProvider.GetType() == identity.SingleKeyIdentity {
+	if o.keyRef == nil && handler.Derivable() &&
+		m.keyProvider.GetType() == identity.SingleKeyIdentity {
 		contracts, err := m.store.GetContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
