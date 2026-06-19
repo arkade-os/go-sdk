@@ -74,6 +74,18 @@ wait_for_onboard() {
     return 1
 }
 
+dump_compose_diagnostics() {
+    echo "  --- docker compose ps ---"
+    $compose ps || true
+
+    echo "  --- docker compose logs (last 200 lines) ---"
+    if [ "$#" -gt 0 ]; then
+        $compose logs --no-color --tail=200 "$@" || true
+    else
+        $compose logs --no-color --tail=200 || true
+    fi
+}
+
 echo "starting bitcoin stack..."
 if ! run_quiet $compose down -v; then
     exit "  ❌ failed to tear down existing stack (status=$status) (err=$err)"
@@ -144,6 +156,7 @@ echo "  ✅ funded onchain with $funded_count BTC"
 
 echo "setting up Solver stack..."
 if ! run_quiet $compose up -d emulator solver; then
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator solver
     exit "  ❌ failed to start stack (status=$status) (err=$err)"
 else
     echo "  ✅ stack started"
@@ -151,16 +164,25 @@ fi
 
 # Wait for solver's HTTP listener and the preimage plugin to be running.
 solver_ready=0
+last_solver_response=""
 for _ in {1..30}; do
-    response=$(curl -s http://127.0.0.1:7271/v1/plugins)
-    if [ -n "$response" ] && [ "$(echo "$response" | jq -r '.preimage.running // false')" = "true" ]; then
+    response=$(curl -sS --max-time 2 http://127.0.0.1:7271/v1/plugins 2>&1)
+    curl_status=$?
+    if [ $curl_status -eq 0 ]; then
+        last_solver_response="$response"
+    else
+        last_solver_response="curl failed with status $curl_status: $response"
+    fi
+
+    if [ $curl_status -eq 0 ] && [ -n "$response" ] && [ "$(echo "$response" | jq -r '.preimage.running // false' 2>/dev/null)" = "true" ]; then
         solver_ready=1
         break
     fi
     sleep 2
 done
 if [ $solver_ready -ne 1 ]; then
-    exit "  ❌ solver preimage plugin did not become ready (last response: $response)"
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator solver
+    exit "  ❌ solver preimage plugin did not become ready (last response: $last_solver_response)"
 else
     echo "  ✅ solver ready (preimage plugin running)"
 fi

@@ -704,7 +704,7 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		}()
 
 		h.monitorBtcToArkChainSwap(
-			context.Background(),
+			ctx,
 			eventCallback,
 			preimage,
 			btcRefundKeyRef,
