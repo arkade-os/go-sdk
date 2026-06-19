@@ -159,7 +159,6 @@ func (w *wallet) migrateDeprecatedVtxosOffchain(
 	return txid, nil
 }
 
-
 // buildConsolidatedReceiver collapses all migrated BTC and assets into one
 // current-signer receiver. Sats are summed exactly, asset amounts are grouped by
 // asset id, and dustAmount is enforced defensively.
@@ -195,7 +194,6 @@ func buildConsolidatedReceiver(
 
 	return clienttypes.Receiver{To: destAddr, Amount: amount, Assets: assets}
 }
-
 
 // sendMigrationOffchainTx is the pinned-input, safeCheck-free migration send.
 // Call through migrateDeprecatedVtxosOffchain so txHandler still serializes it.
@@ -237,7 +235,6 @@ func (w *wallet) sendMigrationOffchainTx(
 
 	return res.Txid, nil
 }
-
 
 // buildVtxosWithTapTree adds tapscripts for the ToMigrate subset.
 func (w *wallet) buildVtxosWithTapTree(
