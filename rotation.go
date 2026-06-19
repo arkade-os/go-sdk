@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
@@ -24,9 +25,9 @@ func (w *wallet) migrationInputLimit() int {
 }
 
 // reconcileDeprecatedSigners migrates spendable deprecated-signer vtxos to
-// current-signer outputs. Each capped batch is one asset-aware self-send.
-// Successful batches are marked inactive; failed batches stay active for retry.
-// Expired signer contracts are marked inactive as exit-only.
+// current-signer outputs. Each capped chunk is one asset-aware self-send.
+// Successful chunks are marked inactive; failed chunks stay active for retry.
+// Recoverable, subdust, and cutoff-expired funds are left for auto-settlement.
 func (w *wallet) reconcileDeprecatedSigners(ctx context.Context, info *client.Info) error {
 	if w.contractManager == nil {
 		return nil
@@ -63,60 +64,180 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context, info *client.In
 
 	// Classify known signers once, then scan vtxos in one pass.
 	signerMap := buildSignerMap(currentHex, deprecated, time.Now())
-	toMigrateVtxos, expiredScripts := classifyVtxos(spendable, signerByScript, signerMap)
+	toMigrateVtxos := classifyVtxos(
+		spendable, signerByScript, signerMap, w.dustAmount,
+	)
 
-	// Resolve ToMigrate vtxos to the VtxoWithTapTree shape sendOffchain needs.
+	// Resolve ToMigrate vtxos to the shape the migration send needs.
 	toMigrate, err := w.buildVtxosWithTapTree(ctx, toMigrateVtxos)
 	if err != nil {
 		return err
 	}
 
 	// Drain all migration candidates in capped, serialized, current-signer
-	// self-sends. Inactivate only after the batch send succeeds.
+	// self-sends. Inactivate only after the chunk send succeeds.
 	if len(toMigrate) > 0 {
 		maxInputs := w.migrationInputLimit()
-		batches := migrationBatches(toMigrate, maxInputs)
-		if len(batches) > 1 {
+		chunks := migrationChunks(toMigrate, maxInputs)
+		if len(chunks) > 1 {
 			log.Infof(
-				"reconcile: splitting %d deprecated-signer vtxo(s) into %d migration batch(es), max %d input(s) each",
+				"reconcile: splitting %d deprecated-signer vtxo(s) into %d migration chunk(s), max %d input(s) each",
 				len(toMigrate),
-				len(batches),
+				len(chunks),
 				maxInputs,
 			)
 		}
 
-		for i, batch := range batches {
-			txid, err := w.sendOffchain(ctx, batch, info)
+		for i, chunk := range chunks {
+			txid, err := w.migrateDeprecatedVtxosOffchain(ctx, chunk, info)
 			if err != nil {
 				log.WithError(err).Warnf(
-					"reconcile: failed to migrate batch %d/%d (%d vtxo(s)) — left active for retry",
-					i+1, len(batches), len(batch),
+					"reconcile: failed to migrate chunk %d/%d (%d vtxo(s)) — left active for retry",
+					i+1, len(chunks), len(chunk),
 				)
 				return err
 			}
 
 			log.Infof(
-				"reconcile: consolidated batch %d/%d (%d vtxo(s)) offchain into one current-signer output txid=%s",
+				"reconcile: consolidated chunk %d/%d (%d vtxo(s)) offchain into one current-signer output txid=%s",
 				i+1,
-				len(batches),
-				len(batch),
+				len(chunks),
+				len(chunk),
 				txid,
 			)
 
-			// Only flip contracts consumed by the successful batch.
-			migratedScripts := make([]string, 0, len(batch))
-			for _, v := range batch {
+			// Only flip contracts consumed by the successful chunk.
+			migratedScripts := make([]string, 0, len(chunk))
+			for _, v := range chunk {
 				migratedScripts = append(migratedScripts, v.Script)
 			}
 			w.inactivateContracts(ctx, migratedScripts)
 		}
 	}
 
-	// Expired deprecated-signer vtxos are exit-only.
-	w.inactivateContracts(ctx, expiredScripts)
-
 	return nil
 }
+
+// migrateDeprecatedVtxosOffchain migrates deprecated-signer vtxos into one
+// current-signer output. It bypasses safeCheck for unlock migration but still
+// uses txHandler.
+func (w *wallet) migrateDeprecatedVtxosOffchain(
+	ctx context.Context,
+	toMigrate []clienttypes.VtxoWithTapTree,
+	info *client.Info,
+) (string, error) {
+	if len(toMigrate) == 0 {
+		return "", nil
+	}
+	if info == nil {
+		return "", fmt.Errorf("missing server info")
+	}
+
+	if w.txHandler == nil {
+		return "", ErrNotInitialized
+	}
+
+	migrate := func() (any, error) {
+		destAddr, err := w.newOffchainAddress(ctx, contract.WithServerInfo(info))
+		if err != nil {
+			return nil, err
+		}
+
+		receiver := buildConsolidatedReceiver(toMigrate, destAddr, w.dustAmount)
+		return w.sendMigrationOffchainTx(ctx, toMigrate, receiver)
+	}
+
+	rr, err := w.txHandler.handleTx(migrate)
+	if err != nil {
+		return "", err
+	}
+
+	txid, ok := rr.(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected migration send result type %T", rr)
+	}
+	return txid, nil
+}
+
+
+// buildConsolidatedReceiver collapses all migrated BTC and assets into one
+// current-signer receiver. Sats are summed exactly, asset amounts are grouped by
+// asset id, and dustAmount is enforced defensively.
+func buildConsolidatedReceiver(
+	vtxos []clienttypes.VtxoWithTapTree, destAddr string, dustAmount uint64,
+) clienttypes.Receiver {
+	var amount uint64
+	totals := make(map[string]uint64)
+	for _, v := range vtxos {
+		amount += v.Amount
+		for _, a := range v.Assets {
+			totals[a.AssetId] += a.Amount
+		}
+	}
+
+	if amount < dustAmount {
+		amount = dustAmount
+	}
+
+	if len(totals) == 0 {
+		return clienttypes.Receiver{To: destAddr, Amount: amount}
+	}
+
+	ids := make([]string, 0, len(totals))
+	for id := range totals {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids) // deterministic asset ordering on the receiver
+	assets := make([]clienttypes.Asset, 0, len(ids))
+	for _, id := range ids {
+		assets = append(assets, clienttypes.Asset{AssetId: id, Amount: totals[id]})
+	}
+
+	return clienttypes.Receiver{To: destAddr, Amount: amount, Assets: assets}
+}
+
+
+// sendMigrationOffchainTx is the pinned-input, safeCheck-free migration send.
+// Call through migrateDeprecatedVtxosOffchain so txHandler still serializes it.
+func (w *wallet) sendMigrationOffchainTx(
+	ctx context.Context,
+	vtxos []clienttypes.VtxoWithTapTree,
+	receiver clienttypes.Receiver,
+) (string, error) {
+	if len(vtxos) == 0 {
+		return "", nil
+	}
+
+	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Subscribe before submitting so the destination notification is not missed.
+	tracked, cancel := w.notifyTracked(ctx, receiver.To)
+	defer cancel()
+
+	res, err := w.client.SendOffChain(
+		ctx,
+		[]clienttypes.Receiver{receiver},
+		clientwallet.WithVtxos(vtxos),
+		clientwallet.WithKeys(signingKeyRefs),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if err := w.saveSendTransaction(ctx, withMigrationOutput(*res, receiver)); err != nil {
+		return "", err
+	}
+
+	if err := waitTracked(ctx, tracked); err != nil {
+		return "", err
+	}
+
+	return res.Txid, nil
+}
+
 
 // buildVtxosWithTapTree adds tapscripts for the ToMigrate subset.
 func (w *wallet) buildVtxosWithTapTree(
@@ -265,8 +386,8 @@ func signerSetDigest(info *client.Info) string {
 	return strings.Join(parts, "|")
 }
 
-// migrationBatches sorts by sats descending and splits into capped batches.
-func migrationBatches(
+// migrationChunks sorts by sats descending and splits into capped chunks.
+func migrationChunks(
 	candidates []clienttypes.VtxoWithTapTree, maxInputs int,
 ) [][]clienttypes.VtxoWithTapTree {
 	if maxInputs <= 0 {
@@ -283,7 +404,7 @@ func migrationBatches(
 		return nil
 	}
 
-	batches := make(
+	chunks := make(
 		[][]clienttypes.VtxoWithTapTree, 0,
 		(len(sorted)+maxInputs-1)/maxInputs,
 	)
@@ -292,17 +413,18 @@ func migrationBatches(
 		if end > len(sorted) {
 			end = len(sorted)
 		}
-		batches = append(batches, sorted[start:end])
+		chunks = append(chunks, sorted[start:end])
 	}
-	return batches
+	return chunks
 }
 
-// classifyVtxos returns migratable vtxos and expired contract scripts.
+// classifyVtxos returns vtxos safe to migrate immediately via offchain self-send.
 func classifyVtxos(
 	spendable []clienttypes.Vtxo,
 	signerByScript map[string]string,
 	signerMap map[string]signerInfo,
-) (toMigrate []clienttypes.Vtxo, expiredScripts []string) {
+	dustAmount uint64,
+) (toMigrate []clienttypes.Vtxo) {
 	for _, v := range spendable {
 		sHex, ok := signerByScript[v.Script]
 		if !ok {
@@ -319,16 +441,22 @@ func classifyVtxos(
 		switch si.state {
 		case signerActive:
 		case signerToMigrate:
+			if notOffchainMigratable(v, dustAmount) {
+				continue
+			}
 			toMigrate = append(toMigrate, v)
 		case signerExpired:
 			log.Warnf(
-				"reconcile: vtxo %s under expired signer %s is exit-only (past cutoff)",
+				"reconcile: skipping vtxo %s under cutoff-expired signer %s",
 				v.Script, sHex,
 			)
-			expiredScripts = append(expiredScripts, v.Script)
 		}
 	}
-	return toMigrate, expiredScripts
+	return toMigrate
+}
+
+func notOffchainMigratable(v clienttypes.Vtxo, dustAmount uint64) bool {
+	return v.IsRecoverable() || (dustAmount > 0 && v.Amount < dustAmount)
 }
 
 // signerKeysByScript resolves each contract's signer to its x-only hex.

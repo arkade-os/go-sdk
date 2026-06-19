@@ -267,7 +267,7 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 	current := testKey(t)
 	toMigrateA := testKey(t)
 	toMigrateB := testKey(t)
-	expired := testKey(t)
+	cutoffExpired := testKey(t)
 	unknown := testKey(t)
 
 	currentHex := xonlyHexOf(current)
@@ -278,8 +278,8 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 		xonlyHexOf(toMigrateB): {
 			PubKey: xonlyHexOf(toMigrateB), CutoffDate: 0, // no cutoff → toMigrate
 		},
-		xonlyHexOf(expired): {
-			PubKey: xonlyHexOf(expired), CutoffDate: now.Add(-time.Hour).Unix(),
+		xonlyHexOf(cutoffExpired): {
+			PubKey: xonlyHexOf(cutoffExpired), CutoffDate: now.Add(-time.Hour).Unix(),
 		},
 	}
 
@@ -287,21 +287,21 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 		{Script: "active-1", Amount: 100},
 		{Script: "tomigrate-1", Amount: 1000},
 		{Script: "tomigrate-2", Amount: 2000},
-		{Script: "expired-1", Amount: 9000},
+		{Script: "cutoff-expired-1", Amount: 9000},
 		{Script: "unknown-1", Amount: 7}, // signer present but not in current∪deprecated
 		{Script: "orphan-1", Amount: 5},  // no signer mapping → skipped
 	}
 	signerByScript := map[string]string{
-		"active-1":    currentHex,
-		"tomigrate-1": xonlyHexOf(toMigrateA),
-		"tomigrate-2": xonlyHexOf(toMigrateB),
-		"expired-1":   xonlyHexOf(expired),
-		"unknown-1":   xonlyHexOf(unknown),
+		"active-1":         currentHex,
+		"tomigrate-1":      xonlyHexOf(toMigrateA),
+		"tomigrate-2":      xonlyHexOf(toMigrateB),
+		"cutoff-expired-1": xonlyHexOf(cutoffExpired),
+		"unknown-1":        xonlyHexOf(unknown),
 		// "orphan-1" intentionally absent.
 	}
 
 	signerMap := buildSignerMap(currentHex, deprecated, now)
-	toMigrate, expiredScripts := classifyVtxos(spendable, signerByScript, signerMap)
+	toMigrate := classifyVtxos(spendable, signerByScript, signerMap, 330)
 
 	require.Len(t, toMigrate, 2)
 	migrate := map[string]bool{}
@@ -311,61 +311,93 @@ func TestClassifyVtxosSinglePass(t *testing.T) {
 	require.True(t, migrate["tomigrate-1"])
 	require.True(t, migrate["tomigrate-2"])
 	require.False(t, migrate["active-1"], "current-signer vtxo must be excluded")
-	require.False(t, migrate["expired-1"], "expired vtxo must be excluded (exit-only)")
+	require.False(t, migrate["cutoff-expired-1"],
+		"cutoff-expired signer vtxo must be excluded")
 	require.False(t, migrate["unknown-1"], "unknown-signer vtxo must be excluded")
 	require.False(t, migrate["orphan-1"], "unmapped vtxo must be excluded")
-
-	require.Equal(t, []string{"expired-1"}, expiredScripts)
 }
 
-// TestClassifyVtxosExpiredOnly still returns expired scripts with no migration.
-func TestClassifyVtxosExpiredOnly(t *testing.T) {
+func TestClassifyVtxosSkipsCutoffExpiredSignerFunds(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
 	current := testKey(t)
-	expired := testKey(t)
+	cutoffExpired := testKey(t)
 	currentHex := xonlyHexOf(current)
+	cutoffExpiredHex := xonlyHexOf(cutoffExpired)
 	deprecated := map[string]client.DeprecatedSigner{
-		xonlyHexOf(expired): {
-			PubKey: xonlyHexOf(expired), CutoffDate: now.Add(-time.Hour).Unix(),
+		cutoffExpiredHex: {
+			PubKey: cutoffExpiredHex, CutoffDate: now.Add(-time.Hour).Unix(),
 		},
 	}
 	spendable := []clienttypes.Vtxo{
 		{Script: "active-1", Amount: 100},
-		{Script: "expired-1", Amount: 200},
-		{Script: "expired-2", Amount: 300},
+		{Script: "cutoff-expired-1", Amount: 200},
+		{Script: "cutoff-expired-2", Amount: 300},
 	}
 	signerByScript := map[string]string{
-		"active-1":  currentHex,
-		"expired-1": xonlyHexOf(expired),
-		"expired-2": xonlyHexOf(expired),
+		"active-1":         currentHex,
+		"cutoff-expired-1": cutoffExpiredHex,
+		"cutoff-expired-2": cutoffExpiredHex,
 	}
 
-	toMigrate, expiredScripts := classifyVtxos(
-		spendable, signerByScript, buildSignerMap(currentHex, deprecated, now),
+	toMigrate := classifyVtxos(
+		spendable, signerByScript, buildSignerMap(currentHex, deprecated, now), 330,
 	)
 
-	require.Empty(t, toMigrate, "ToMigrate bucket must be empty")
-	require.ElementsMatch(t, []string{"expired-1", "expired-2"}, expiredScripts,
-		"both expired scripts must be collected even with zero ToMigrate vtxos")
+	require.Empty(t, toMigrate, "cutoff-expired signer funds must not self-send")
 }
 
-// --- sendOffchain bypass (no safeCheck) ------------------------------------
+func TestClassifyVtxosSkipsRecoverableAndSubdustFunds(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
 
-// TestSendOffchainBypassNoSafeCheck keeps the internal migration path ungated.
-func TestSendOffchainBypassNoSafeCheck(t *testing.T) {
+	current := testKey(t)
+	deprecatedKey := testKey(t)
+	currentHex := xonlyHexOf(current)
+	deprecatedHex := xonlyHexOf(deprecatedKey)
+	deprecated := map[string]client.DeprecatedSigner{
+		deprecatedHex: {
+			PubKey: deprecatedHex, CutoffDate: now.Add(72 * time.Hour).Unix(),
+		},
+	}
+
+	spendable := []clienttypes.Vtxo{
+		{Script: "normal", Amount: 1000},
+		{Script: "subdust", Amount: 100},
+		{Script: "swept", Amount: 1000, Swept: true},
+		{Script: "recoverable-vtxo", Amount: 1000, ExpiresAt: time.Now().Add(-time.Hour)},
+	}
+	signerByScript := map[string]string{
+		"normal":           deprecatedHex,
+		"subdust":          deprecatedHex,
+		"swept":            deprecatedHex,
+		"recoverable-vtxo": deprecatedHex,
+	}
+
+	toMigrate := classifyVtxos(
+		spendable, signerByScript, buildSignerMap(currentHex, deprecated, now), 330,
+	)
+
+	require.Len(t, toMigrate, 1)
+	require.Equal(t, "normal", toMigrate[0].Script)
+}
+
+// --- migration offchain bypass (no safeCheck) -------------------------------
+
+func TestMigrateDeprecatedVtxosOffchainBypassNoSafeCheck(t *testing.T) {
 	w := &wallet{}
 
 	_, err := w.SendOffChain(context.Background(), nil)
 	require.ErrorIs(t, err, ErrNotInitialized,
 		"public SendOffChain must remain safeCheck-gated")
 
-	txid, err := w.sendOffchain(context.Background(), nil, nil)
+	txid, err := w.migrateDeprecatedVtxosOffchain(context.Background(), nil, nil)
 	require.NoError(t, err,
-		"internal sendOffchain must bypass safeCheck (no ErrNotInitialized)")
+		"internal migration send must bypass safeCheck (no ErrNotInitialized)")
 	require.Empty(t, txid, "empty migration set is a no-op returning an empty txid")
 
-	txid, err = w.sendOffchain(context.Background(), []clienttypes.VtxoWithTapTree{}, nil)
+	txid, err = w.migrateDeprecatedVtxosOffchain(
+		context.Background(), []clienttypes.VtxoWithTapTree{}, nil,
+	)
 	require.NoError(t, err, "empty (non-nil) migration set is also a no-op")
 	require.Empty(t, txid)
 }

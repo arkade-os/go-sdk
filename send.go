@@ -3,10 +3,8 @@ package arksdk
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
-	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
@@ -102,83 +100,6 @@ func (w *wallet) SendOffChain(
 	return txid, nil
 }
 
-// buildConsolidatedReceiver collapses all migrated BTC and assets into one
-// current-signer receiver. Sats are summed exactly, asset amounts are grouped by
-// asset id, and dustAmount is enforced defensively.
-func buildConsolidatedReceiver(
-	vtxos []clienttypes.VtxoWithTapTree, destAddr string, dustAmount uint64,
-) clienttypes.Receiver {
-	var amount uint64
-	totals := make(map[string]uint64)
-	for _, v := range vtxos {
-		amount += v.Amount
-		for _, a := range v.Assets {
-			totals[a.AssetId] += a.Amount
-		}
-	}
-
-	if amount < dustAmount {
-		amount = dustAmount
-	}
-
-	if len(totals) == 0 {
-		return clienttypes.Receiver{To: destAddr, Amount: amount}
-	}
-
-	ids := make([]string, 0, len(totals))
-	for id := range totals {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids) // deterministic asset ordering on the receiver
-	assets := make([]clienttypes.Asset, 0, len(ids))
-	for _, id := range ids {
-		assets = append(assets, clienttypes.Asset{AssetId: id, Amount: totals[id]})
-	}
-
-	return clienttypes.Receiver{To: destAddr, Amount: amount, Assets: assets}
-}
-
-// sendOffchainConsolidated is the pinned-input, safeCheck-free migration send.
-// Call through sendOffchain so txHandler still serializes it.
-func (w *wallet) sendOffchainConsolidated(
-	ctx context.Context,
-	vtxos []clienttypes.VtxoWithTapTree,
-	receiver clienttypes.Receiver,
-) (string, error) {
-	if len(vtxos) == 0 {
-		return "", nil
-	}
-
-	signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, nil)
-	if err != nil {
-		return "", err
-	}
-
-	// Subscribe before submitting so the destination notification is not missed.
-	tracked, cancel := w.notifyTracked(ctx, receiver.To)
-	defer cancel()
-
-	res, err := w.client.SendOffChain(
-		ctx,
-		[]clienttypes.Receiver{receiver},
-		clientwallet.WithVtxos(vtxos),
-		clientwallet.WithKeys(signingKeyRefs),
-	)
-	if err != nil {
-		return "", err
-	}
-
-	if err := w.saveSendTransaction(ctx, withMigrationOutput(*res, receiver)); err != nil {
-		return "", err
-	}
-
-	if err := waitTracked(ctx, tracked); err != nil {
-		return "", err
-	}
-
-	return res.Txid, nil
-}
-
 func withMigrationOutput(
 	res clientwallet.OffchainTxRes, receiver clienttypes.Receiver,
 ) clientwallet.OffchainTxRes {
@@ -203,46 +124,6 @@ func sameReceiver(a, b clienttypes.Receiver) bool {
 		}
 	}
 	return true
-}
-
-// sendOffchain migrates deprecated-signer vtxos into one current-signer output.
-// It bypasses safeCheck for unlock migration but still uses txHandler.
-func (w *wallet) sendOffchain(
-	ctx context.Context,
-	toMigrate []clienttypes.VtxoWithTapTree,
-	info *client.Info,
-) (string, error) {
-	if len(toMigrate) == 0 {
-		return "", nil
-	}
-	if info == nil {
-		return "", fmt.Errorf("missing server info")
-	}
-
-	if w.txHandler == nil {
-		return "", ErrNotInitialized
-	}
-
-	migrate := func() (any, error) {
-		destAddr, err := w.newOffchainAddress(ctx, contract.WithServerInfo(info))
-		if err != nil {
-			return nil, err
-		}
-
-		receiver := buildConsolidatedReceiver(toMigrate, destAddr, w.dustAmount)
-		return w.sendOffchainConsolidated(ctx, toMigrate, receiver)
-	}
-
-	rr, err := w.txHandler.handleTx(migrate)
-	if err != nil {
-		return "", err
-	}
-
-	txid, ok := rr.(string)
-	if !ok {
-		return "", fmt.Errorf("unexpected migration send result type %T", rr)
-	}
-	return txid, nil
 }
 
 func (w *wallet) getSpendableVtxos(

@@ -9,30 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// findAssetAmount returns assetID's receiver amount, or 0 if absent.
-func findAssetAmount(assets []clienttypes.Asset, assetID string) uint64 {
-	for _, a := range assets {
-		if a.AssetId == assetID {
-			return a.Amount
-		}
-	}
-	return 0
-}
-
-func vtxoWith(amount uint64, assets ...clienttypes.Asset) clienttypes.VtxoWithTapTree {
-	return clienttypes.VtxoWithTapTree{
-		Vtxo: clienttypes.Vtxo{Amount: amount, Assets: assets},
-	}
-}
-
-func vtxoWithScript(
-	script string, amount uint64, assets ...clienttypes.Asset,
-) clienttypes.VtxoWithTapTree {
-	return clienttypes.VtxoWithTapTree{
-		Vtxo: clienttypes.Vtxo{Script: script, Amount: amount, Assets: assets},
-	}
-}
-
 // --- buildConsolidatedReceiver ---------------------------------------------
 
 // TestConsolidatedReceiverShape covers sats, assets, sorting, and dust floor.
@@ -45,18 +21,18 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 		}, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
 		require.Equal(t, uint64(3000), r.Amount)
-		require.Nil(t, r.Assets, "a pure-sats batch declares no assets")
+		require.Nil(t, r.Assets, "pure-sats inputs declare no assets")
 	})
 
-	t.Run("nil/empty batch is dust-floored sats receiver", func(t *testing.T) {
+	t.Run("nil/empty input set is dust-floored sats receiver", func(t *testing.T) {
 		r := buildConsolidatedReceiver(nil, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
-		require.Equal(t, dust, r.Amount, "empty batch floors to dust")
+		require.Equal(t, dust, r.Amount, "empty input set floors to dust")
 		require.Nil(t, r.Assets)
 	})
 
 	t.Run("mixed pure-sats + multiple assets => one receiver, all summed", func(t *testing.T) {
-		batch := []clienttypes.VtxoWithTapTree{
+		inputs := []clienttypes.VtxoWithTapTree{
 			vtxoWith(50000), // pure sats
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 500}),
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 300}),
@@ -67,7 +43,7 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 			),
 		}
 
-		r := buildConsolidatedReceiver(batch, "addr1", dust)
+		r := buildConsolidatedReceiver(inputs, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
 		require.Equal(t, uint64(50000+330*4), r.Amount,
 			"consolidated Amount must be the sum of every input's sats")
@@ -140,10 +116,10 @@ func TestWithMigrationOutput(t *testing.T) {
 	})
 }
 
-// --- migration input cap ---------------------------------------------------
+// --- migration input chunks -------------------------------------------------
 
-// TestMigrationInputCapBatchesAllByValue verifies capped, sorted batching.
-func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
+// TestMigrationInputCapChunksAllByValue verifies capped, sorted chunks.
+func TestMigrationInputCapChunksAllByValue(t *testing.T) {
 	const extra = 5
 	total := defaultMaxMigrationInputs + extra
 	all := make([]clienttypes.VtxoWithTapTree, 0, total)
@@ -153,26 +129,26 @@ func TestMigrationInputCapBatchesAllByValue(t *testing.T) {
 		))
 	}
 
-	batches := migrationBatches(all, defaultMaxMigrationInputs)
+	chunks := migrationChunks(all, defaultMaxMigrationInputs)
 
-	expectedBatches := (total + defaultMaxMigrationInputs - 1) / defaultMaxMigrationInputs
-	require.Len(t, batches, expectedBatches, "all inputs are drained across capped batches")
-	require.Len(t, batches[0], defaultMaxMigrationInputs, "first batch is capped")
-	require.Len(t, batches[len(batches)-1], total%defaultMaxMigrationInputs,
-		"last batch carries the remainder")
+	expectedChunks := (total + defaultMaxMigrationInputs - 1) / defaultMaxMigrationInputs
+	require.Len(t, chunks, expectedChunks, "all inputs are drained across capped chunks")
+	require.Len(t, chunks[0], defaultMaxMigrationInputs, "first chunk is capped")
+	require.Len(t, chunks[len(chunks)-1], total%defaultMaxMigrationInputs,
+		"last chunk carries the remainder")
 
-	firstBatchValues := map[uint64]bool{}
-	for _, v := range batches[0] {
-		firstBatchValues[v.Amount] = true
+	firstChunkValues := map[uint64]bool{}
+	for _, v := range chunks[0] {
+		firstChunkValues[v.Amount] = true
 	}
 	for i := extra; i < total; i++ {
-		require.True(t, firstBatchValues[uint64(1000+i)],
-			"high-value vtxo %d must be in the first batch", 1000+i)
+		require.True(t, firstChunkValues[uint64(1000+i)],
+			"high-value vtxo %d must be in the first chunk", 1000+i)
 	}
-	lastBatch := batches[len(batches)-1]
-	for _, v := range lastBatch {
-		require.Less(t, v.Amount, uint64(1000+len(lastBatch)),
-			"only the lowest-value vtxos are in the final batch")
+	lastChunk := chunks[len(chunks)-1]
+	for _, v := range lastChunk {
+		require.Less(t, v.Amount, uint64(1000+len(lastChunk)),
+			"only the lowest-value vtxos are in the final chunk")
 	}
 }
 
@@ -182,35 +158,59 @@ func TestMigrationInputCapUsesConfiguredLimit(t *testing.T) {
 		vtxoWith(10), vtxoWith(50), vtxoWith(20), vtxoWith(40), vtxoWith(30),
 	}
 
-	batches := migrationBatches(all, cap)
+	chunks := migrationChunks(all, cap)
 
-	require.Len(t, batches, 2)
-	require.Len(t, batches[0], cap)
-	require.Len(t, batches[1], 2)
-	require.Equal(t, uint64(50), batches[0][0].Amount)
-	require.Equal(t, uint64(40), batches[0][1].Amount)
-	require.Equal(t, uint64(30), batches[0][2].Amount)
-	require.Equal(t, uint64(20), batches[1][0].Amount)
-	require.Equal(t, uint64(10), batches[1][1].Amount)
+	require.Len(t, chunks, 2)
+	require.Len(t, chunks[0], cap)
+	require.Len(t, chunks[1], 2)
+	require.Equal(t, uint64(50), chunks[0][0].Amount)
+	require.Equal(t, uint64(40), chunks[0][1].Amount)
+	require.Equal(t, uint64(30), chunks[0][2].Amount)
+	require.Equal(t, uint64(20), chunks[1][0].Amount)
+	require.Equal(t, uint64(10), chunks[1][1].Amount)
 }
 
 func TestMigrationInputLimitDefault(t *testing.T) {
 	require.Equal(t, defaultMaxMigrationInputs, (&wallet{}).migrationInputLimit())
 	require.Equal(t, 7, (&wallet{maxMigrationInputs: 7}).migrationInputLimit())
-	require.Len(t, migrationBatches([]clienttypes.VtxoWithTapTree{
+	require.Len(t, migrationChunks([]clienttypes.VtxoWithTapTree{
 		vtxoWith(1),
 	}, 0), 1)
 }
 
-// TestMigrationInputCapNoTruncationUnderCap verifies sub-cap batching.
+// TestMigrationInputCapNoTruncationUnderCap verifies sub-cap chunking.
 func TestMigrationInputCapNoTruncationUnderCap(t *testing.T) {
 	all := []clienttypes.VtxoWithTapTree{
 		vtxoWith(300), vtxoWith(100), vtxoWith(200),
 	}
-	batches := migrationBatches(all, defaultMaxMigrationInputs)
-	require.Len(t, batches, 1, "a sub-cap set migrates in one batch")
-	require.Len(t, batches[0], 3, "a sub-cap set migrates in full")
-	require.Equal(t, uint64(300), batches[0][0].Amount)
-	require.Equal(t, uint64(200), batches[0][1].Amount)
-	require.Equal(t, uint64(100), batches[0][2].Amount)
+	chunks := migrationChunks(all, defaultMaxMigrationInputs)
+	require.Len(t, chunks, 1, "a sub-cap set migrates in one chunk")
+	require.Len(t, chunks[0], 3, "a sub-cap set migrates in full")
+	require.Equal(t, uint64(300), chunks[0][0].Amount)
+	require.Equal(t, uint64(200), chunks[0][1].Amount)
+	require.Equal(t, uint64(100), chunks[0][2].Amount)
+}
+
+// findAssetAmount returns assetID's receiver amount, or 0 if absent.
+func findAssetAmount(assets []clienttypes.Asset, assetID string) uint64 {
+	for _, a := range assets {
+		if a.AssetId == assetID {
+			return a.Amount
+		}
+	}
+	return 0
+}
+
+func vtxoWith(amount uint64, assets ...clienttypes.Asset) clienttypes.VtxoWithTapTree {
+	return clienttypes.VtxoWithTapTree{
+		Vtxo: clienttypes.Vtxo{Amount: amount, Assets: assets},
+	}
+}
+
+func vtxoWithScript(
+	script string, amount uint64, assets ...clienttypes.Asset,
+) clienttypes.VtxoWithTapTree {
+	return clienttypes.VtxoWithTapTree{
+		Vtxo: clienttypes.Vtxo{Script: script, Amount: amount, Assets: assets},
+	}
 }
