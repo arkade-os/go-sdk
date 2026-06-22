@@ -240,7 +240,6 @@ services:
   boltz:
     restart: unless-stopped
     image: boltz/boltz:latest
-    pull_policy: never
     container_name: boltz
     ports:
       - "9000:9000"
