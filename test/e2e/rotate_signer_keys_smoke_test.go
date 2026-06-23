@@ -3,7 +3,6 @@
 package e2e_test
 
 import (
-	"bufio"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -19,25 +18,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSignerRotationRestoreSmoke(t *testing.T) {
-	alice := setupClient(t, "")
-	preSats, oldSigner, seed := fundSignerRotationWallet(t, alice)
+func TestSignerRotationRestartSmoke(t *testing.T) {
+	datadir := t.TempDir()
+	alice := setupClientWithDir(t, datadir, "")
+	preSats, oldSigner, _ := fundSignerRotationWallet(t, alice)
 
 	t.Logf("funded wallet under signer %s", oldSigner)
-	waitForEnter(
+	currentSigner := waitForSignerRotation(
 		t,
-		"Rotate arkd now: make a new signer current, keep the old signer deprecated before cutoff, then press Enter",
+		alice,
+		oldSigner,
+		"Rotate arkd now: make a new signer current, keep the old signer deprecated before cutoff",
 	)
 
-	restored := setupClient(t, seed)
+	alice.Stop()
+	restarted := loadClientWithDir(t, datadir)
 
-	currentSigner := arkdCurrentSigner(t, restored)
-	require.NotEqual(t, oldSigner, currentSigner,
-		"rotation must have changed the active signer (A -> B)")
-
-	requireMigratedToCurrentSigner(t, restored, currentSigner, preSats)
-	requireInactiveContracts(t, restored)
-	requireSpendableMigratedFunds(t, restored, preSats)
+	requireMigratedToCurrentSigner(t, restarted, currentSigner, preSats)
+	requireInactiveContracts(t, restarted)
+	requireSpendableMigratedFunds(t, restarted, preSats)
 }
 
 func TestSignerRotationRuntimeSmoke(t *testing.T) {
@@ -47,14 +46,12 @@ func TestSignerRotationRuntimeSmoke(t *testing.T) {
 	preSats, oldSigner, _ := fundSignerRotationWallet(t, alice)
 
 	t.Logf("funded live wallet under signer %s", oldSigner)
-	waitForEnter(
+	currentSigner := waitForSignerRotation(
 		t,
-		"Rotate arkd now without restarting Alice: make a new signer current, keep the old signer deprecated before cutoff, then press Enter",
+		alice,
+		oldSigner,
+		"Rotate arkd now without restarting Alice: make a new signer current, keep the old signer deprecated before cutoff",
 	)
-
-	currentSigner := arkdCurrentSigner(t, alice)
-	require.NotEqual(t, oldSigner, currentSigner,
-		"rotation must have changed the active signer (A -> B)")
 
 	require.Eventually(t, func() bool {
 		vtxos, _, err := alice.ListVtxos(ctx, arksdk.WithSpendableOnly())
@@ -192,28 +189,79 @@ func vtxoSignerKey(t *testing.T, w arksdk.Wallet, vtxo clientTypes.Vtxo) string 
 	return hex.EncodeToString(schnorr.SerializePubKey(signerKey))
 }
 
-// arkdCurrentSigner returns arkd's current signer as x-only hex.
-func arkdCurrentSigner(t *testing.T, w arksdk.Wallet) string {
-	t.Helper()
-	info, err := w.Client().GetInfo(t.Context())
-	require.NoError(t, err)
-	buf, err := hex.DecodeString(info.SignerPubKey)
-	require.NoError(t, err)
-	// btcec.ParsePubKey accepts both compressed and x-only inputs.
-	key, err := btcec.ParsePubKey(buf)
-	require.NoError(t, err)
-	return hex.EncodeToString(schnorr.SerializePubKey(key))
-}
-
-func waitForEnter(t *testing.T, msg string) {
+func waitForSignerRotation(
+	t *testing.T, w arksdk.Wallet, oldSigner, msg string,
+) string {
 	t.Helper()
 	t.Log(msg)
 	fmt.Fprintln(os.Stderr, msg)
+	t.Log("polling arkd GetInfo every second until active signer changes")
 
-	tty, err := os.Open("/dev/tty")
-	require.NoError(t, err)
-	defer tty.Close()
+	var (
+		currentSigner string
+		lastErr       error
+	)
+	require.Eventually(t, func() bool {
+		currentSigner, lastErr = arkdCurrentSigner(t, w)
+		return lastErr == nil && currentSigner != oldSigner
+	}, 5*time.Minute, time.Second,
+		"rotation must change the active signer (A -> B); last current signer=%s lastErr=%v",
+		currentSigner, lastErr)
 
-	_, err = bufio.NewReader(tty).ReadString('\n')
+	return currentSigner
+}
+
+// arkdCurrentSigner returns arkd's current signer as x-only hex.
+func arkdCurrentSigner(t *testing.T, w arksdk.Wallet) (string, error) {
+	t.Helper()
+	info, err := w.Client().GetInfo(t.Context())
+	if err != nil {
+		return "", err
+	}
+	buf, err := hex.DecodeString(info.SignerPubKey)
+	if err != nil {
+		return "", err
+	}
+	// btcec.ParsePubKey accepts both compressed and x-only inputs.
+	key, err := btcec.ParsePubKey(buf)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(schnorr.SerializePubKey(key)), nil
+}
+
+func setupClientWithDir(t *testing.T, dir, seed string, opts ...arksdk.WalletOption) arksdk.Wallet {
+	t.Helper()
+
+	arkClient, err := arksdk.NewWallet(dir, opts...)
 	require.NoError(t, err)
+
+	err = arkClient.Init(t.Context(), serverUrl, seed, password)
+	require.NoError(t, err)
+
+	unlockClient(t, arkClient)
+	return arkClient
+}
+
+func loadClientWithDir(t *testing.T, dir string, opts ...arksdk.WalletOption) arksdk.Wallet {
+	t.Helper()
+
+	arkClient, err := arksdk.LoadWallet(dir, opts...)
+	require.NoError(t, err)
+
+	unlockClient(t, arkClient)
+	return arkClient
+}
+
+func unlockClient(t *testing.T, arkClient arksdk.Wallet) {
+	t.Helper()
+
+	err := arkClient.Unlock(t.Context(), password)
+	require.NoError(t, err)
+
+	synced := <-arkClient.IsSynced(t.Context())
+	require.Nil(t, synced.Err)
+	require.True(t, synced.Synced)
+
+	t.Cleanup(arkClient.Stop)
 }

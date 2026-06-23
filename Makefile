@@ -1,4 +1,4 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd keyrotation keyrotationrestore keyrotationruntime bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd keyrotation keyrotationrestart keyrotationruntime bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -60,13 +60,9 @@ integrationtest:
 smokehd:
 	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
 
-## keyrotation: runs the signer key rotation smoke tests.
-keyrotation:
-	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotation.*Smoke$$' ./test/e2e
-
-## keyrotationrestore: runs the signer key rotation restore smoke test.
-keyrotationrestore:
-	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRestoreSmoke$$' ./test/e2e
+## keyrotationrestart: runs the signer key rotation restore smoke test.
+keyrotationrestart:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRestartSmoke$$' ./test/e2e
 
 ## keyrotationruntime: runs the signer key rotation runtime smoke test.
 keyrotationruntime:
