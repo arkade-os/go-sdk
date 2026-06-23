@@ -252,6 +252,7 @@ func (w *wallet) ListVtxos(
 	vtxos, cursor, err := w.store.VtxoStore().GetVtxos(ctx, types.GetVtxoFilter{
 		Status:  o.status,
 		AssetID: o.assetID,
+		Script:  o.script,
 		After:   after,
 		Limit:   o.limit,
 	})

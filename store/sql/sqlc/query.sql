@@ -52,7 +52,8 @@ WHERE spent = false AND unrolled = false;
 -- trims the last one and uses its outpoint as the next cursor.
 -- status_filter accepts NULL (no filter), spendable (spent=false AND
 -- unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
--- EXISTS rather than JOIN so the row count stays at VTXO count. The cursor
+-- EXISTS rather than JOIN so the row count stays at VTXO count. script_filter
+-- filters by exact match on the vtxo.script column (NULL = no filter). The cursor
 -- predicate uses SQL row-value comparison which is the canonical
 -- composite-key keyset idiom. CAST wrappers around sqlc.narg are required
 -- so sqlc emits typed nullable Go args instead of interface{}.
@@ -70,6 +71,8 @@ WITH page_keys AS (
             WHERE av.vtxo_txid = vtxo.txid AND av.vtxo_vout = vtxo.vout
                   AND av.asset_id = CAST(sqlc.narg(asset_id) AS TEXT)
         ))
+        AND (CAST(sqlc.narg(script_filter) AS TEXT) IS NULL
+            OR vtxo.script = CAST(sqlc.narg(script_filter) AS TEXT))
         AND (CAST(sqlc.narg(cursor_created_at) AS INTEGER) IS NULL
             OR (vtxo.created_at, vtxo.txid, vtxo.vout) < (
                 CAST(sqlc.narg(cursor_created_at) AS INTEGER),
