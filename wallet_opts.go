@@ -150,23 +150,20 @@ func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 }
 
 type walletOptions struct {
-	refreshDbInterval     time.Duration
-	verbose               bool
-	hdGapLimit            uint32
-	hdGapLimitSet         bool
-	maxMigrationInputs    int
-	maxMigrationInputsSet bool
-	identity              identity.Identity
-	scheduler             scheduler.SchedulerService
-	disableAutoSettle     bool
-	customHandlers        map[types.ContractType]handlers.Handler
+	refreshDbInterval time.Duration
+	verbose           bool
+	hdGapLimit        uint32
+	hdGapLimitSet     bool
+	identity          identity.Identity
+	scheduler         scheduler.SchedulerService
+	disableAutoSettle bool
+	customHandlers    map[types.ContractType]handlers.Handler
 }
 
 // newDefaultWalletOptions returns a zero-value walletOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultWalletOptions() *walletOptions {
 	return &walletOptions{
-		hdGapLimit:         defaultGapLimit,
-		maxMigrationInputs: defaultMaxMigrationInputs,
+		hdGapLimit: defaultGapLimit,
 	}
 }

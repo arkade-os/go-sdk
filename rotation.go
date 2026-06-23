@@ -17,13 +17,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (w *wallet) migrationInputLimit() int {
-	if w.maxMigrationInputs <= 0 {
-		return defaultMaxMigrationInputs
-	}
-	return w.maxMigrationInputs
-}
-
 // reconcileDeprecatedSigners migrates spendable deprecated-signer vtxos to
 // current-signer outputs. Each capped chunk is one asset-aware self-send.
 // Successful chunks are marked inactive; failed chunks stay active for retry.
@@ -77,14 +70,13 @@ func (w *wallet) reconcileDeprecatedSigners(ctx context.Context, info *client.In
 	// Drain all migration candidates in capped, serialized, current-signer
 	// self-sends. Inactivate only after the chunk send succeeds.
 	if len(toMigrate) > 0 {
-		maxInputs := w.migrationInputLimit()
-		chunks := migrationChunks(toMigrate, maxInputs)
+		chunks := migrationChunks(toMigrate, maxTxInputs)
 		if len(chunks) > 1 {
 			log.Infof(
 				"reconcile: splitting %d deprecated-signer vtxo(s) into %d migration chunk(s), max %d input(s) each",
 				len(toMigrate),
 				len(chunks),
-				maxInputs,
+				maxTxInputs,
 			)
 		}
 

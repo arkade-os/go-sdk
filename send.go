@@ -11,6 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const maxTxInputs = 50
+
 func (w *wallet) SendOffChain(
 	ctx context.Context, receivers []clienttypes.Receiver, extraOpts ...SendOffChainOption,
 ) (string, error) {

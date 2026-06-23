@@ -170,14 +170,6 @@ func TestMigrationInputCapUsesConfiguredLimit(t *testing.T) {
 	require.Equal(t, uint64(10), chunks[1][1].Amount)
 }
 
-func TestMigrationInputLimitDefault(t *testing.T) {
-	require.Equal(t, defaultMaxMigrationInputs, (&wallet{}).migrationInputLimit())
-	require.Equal(t, 7, (&wallet{maxMigrationInputs: 7}).migrationInputLimit())
-	require.Len(t, migrationChunks([]clienttypes.VtxoWithTapTree{
-		vtxoWith(1),
-	}, 0), 1)
-}
-
 // TestMigrationInputCapNoTruncationUnderCap verifies sub-cap chunking.
 func TestMigrationInputCapNoTruncationUnderCap(t *testing.T) {
 	all := []clienttypes.VtxoWithTapTree{

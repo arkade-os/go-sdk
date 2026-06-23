@@ -69,13 +69,12 @@ type wallet struct {
 	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
 	stopCtx context.Context
 
-	verbose            bool
-	refreshDbInterval  time.Duration
-	lastUpdate         time.Time
-	hdGapLimit         uint32
-	maxMigrationInputs int
-	network            arklib.Network
-	dustAmount         uint64
+	verbose           bool
+	refreshDbInterval time.Duration
+	lastUpdate        time.Time
+	hdGapLimit        uint32
+	network           arklib.Network
+	dustAmount        uint64
 
 	// lastSignerSetDigest is the server signer-set digest last reconciled
 	// successfully. A change after refreshDb signals a rotation and triggers
@@ -153,20 +152,19 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:             cli,
-		verbose:            o.verbose,
-		store:              db,
-		clientStore:        clientDb,
-		syncMu:             &sync.Mutex{},
-		syncListeners:      newReadyListeners(),
-		syncCh:             make(chan error),
-		dbMu:               &sync.Mutex{},
-		logMu:              &sync.Mutex{},
-		refreshDbInterval:  o.refreshDbInterval,
-		hdGapLimit:         o.hdGapLimit,
-		maxMigrationInputs: o.maxMigrationInputs,
-		scheduler:          o.scheduler,
-		customHandlers:     o.customHandlers,
+		client:            cli,
+		verbose:           o.verbose,
+		store:             db,
+		clientStore:       clientDb,
+		syncMu:            &sync.Mutex{},
+		syncListeners:     newReadyListeners(),
+		syncCh:            make(chan error),
+		dbMu:              &sync.Mutex{},
+		logMu:             &sync.Mutex{},
+		refreshDbInterval: o.refreshDbInterval,
+		hdGapLimit:        o.hdGapLimit,
+		scheduler:         o.scheduler,
+		customHandlers:    o.customHandlers,
 	}, nil
 }
 
@@ -267,21 +265,20 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:             cli,
-		verbose:            o.verbose,
-		store:              db,
-		clientStore:        clientDb,
-		syncMu:             &sync.Mutex{},
-		syncListeners:      newReadyListeners(),
-		syncCh:             make(chan error),
-		dbMu:               &sync.Mutex{},
-		logMu:              &sync.Mutex{},
-		refreshDbInterval:  o.refreshDbInterval,
-		hdGapLimit:         o.hdGapLimit,
-		maxMigrationInputs: o.maxMigrationInputs,
-		scheduler:          o.scheduler,
-		network:            cfgData.Network,
-		customHandlers:     o.customHandlers,
+		client:            cli,
+		verbose:           o.verbose,
+		store:             db,
+		clientStore:       clientDb,
+		syncMu:            &sync.Mutex{},
+		syncListeners:     newReadyListeners(),
+		syncCh:            make(chan error),
+		dbMu:              &sync.Mutex{},
+		logMu:             &sync.Mutex{},
+		refreshDbInterval: o.refreshDbInterval,
+		hdGapLimit:        o.hdGapLimit,
+		scheduler:         o.scheduler,
+		network:           cfgData.Network,
+		customHandlers:    o.customHandlers,
 	}, nil
 }
 
