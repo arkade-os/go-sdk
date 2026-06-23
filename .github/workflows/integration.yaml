@@ -30,3 +30,21 @@ jobs:
 
       - name: Run tests
         run: make integrationtest
+
+      - name: Dump Docker diagnostics
+        if: failure()
+        run: |
+          echo "::group::docker ps"
+          docker ps -a
+          echo "::endgroup::"
+          echo "::group::docker compose ps"
+          docker compose -f test/infra/docker-compose.yml ps || true
+          echo "::endgroup::"
+          echo "::group::docker compose logs"
+          docker compose -f test/infra/docker-compose.yml logs --no-color --tail=300 || true
+          echo "::endgroup::"
+          for container in bitcoin chopsticks electrs lnd cln boltz boltz-fulmine mock-boltz arkd arkd-wallet solver; do
+            echo "::group::docker logs $container"
+            docker logs --tail=200 "$container" || true
+            echo "::endgroup::"
+          done

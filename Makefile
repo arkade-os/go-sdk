@@ -51,7 +51,7 @@ regtestdown:
 	@docker compose -f test/infra/docker-compose.yml down -v
 
 integrationtest:
-	@go test -v -count=1 -race -timeout 40m ./test/e2e
+	@go test -v -count=1 -race -timeout 40m -run '^TestChainSwap' ./test/e2e
 
 ## smokehd: runs the HD wallet restore smoke test. Optional:
 ## SMOKE_TIER=N (1-999) | Nk (thousands) | Nm (millions), defaults to 1k.

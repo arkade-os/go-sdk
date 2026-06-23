@@ -96,15 +96,7 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 }
 
 func (h *Handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
-	serverHex, err := requireParam(c, paramServerKey)
-	if err != nil {
-		return nil, err
-	}
-	pub, err := parseStoredPubKey(serverHex)
-	if err != nil {
-		return nil, fmt.Errorf("htlc contract %s: invalid server key: %w", c.Script, err)
-	}
-	return pub, nil
+	return nil, nil
 }
 
 // GetExitDelay returns nil because BTC HTLC refund uses an absolute CLTV
@@ -153,8 +145,7 @@ func createContract(
 	}
 
 	ownerKeyXOnly := schnorr.SerializePubKey(keyRef.PubKey)
-	if !isHTLCLeafWithKey(claimScript, ownerKeyXOnly) &&
-		!isHTLCLeafWithKey(refundScript, ownerKeyXOnly) {
+	if !isHTLCLeafWithKey(claimScript, ownerKeyXOnly) && !isHTLCLeafWithKey(refundScript, ownerKeyXOnly) {
 		return nil, fmt.Errorf("owner key is not present in HTLC tapscripts")
 	}
 
