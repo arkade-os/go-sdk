@@ -77,6 +77,7 @@ func (w *wallet) Init(
 
 	w.network = network
 	w.dustAmount = info.Dust
+	w.lastSignerSetDigest = signerSetDigest(info)
 
 	return nil
 }
