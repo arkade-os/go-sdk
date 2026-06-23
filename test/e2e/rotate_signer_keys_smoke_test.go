@@ -62,7 +62,13 @@ func TestSignerRotationRestartSmoke(t *testing.T) {
 
 	requireMigratedToCurrentSigner(t, restarted, currentSigner, expected)
 	requireInactiveContracts(t, restarted)
-	requireSpendableMigratedFunds(t, restarted, expected)
+
+	restarted.Stop()
+	restartedAgain := loadClientWithDir(t, datadir)
+
+	requireMigratedToCurrentSigner(t, restartedAgain, currentSigner, expected)
+	requireInactiveContracts(t, restartedAgain)
+	requireSpendableMigratedFunds(t, restartedAgain, expected)
 }
 
 func TestSignerRotationRuntimeSmoke(t *testing.T) {
