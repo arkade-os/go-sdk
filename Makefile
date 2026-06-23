@@ -60,7 +60,7 @@ integrationtest:
 smokehd:
 	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
 
-## keyrotationrestart: runs the signer key rotation restore smoke test.
+## keyrotationrestart: runs the signer key rotation restart smoke test.
 keyrotationrestart:
 	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRestartSmoke$$' ./test/e2e
 
