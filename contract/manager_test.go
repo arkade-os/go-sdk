@@ -52,7 +52,7 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, types.ContractTypeBoarding, c.Type)
 			require.Contains(t, c.Address, "bcrt1p")
 
-			persisted, err := store.GetContractsByType(
+			persisted, err := store.GetActiveContractsByType(
 				t.Context(), types.ContractTypeBoarding,
 			)
 			require.NoError(t, err)

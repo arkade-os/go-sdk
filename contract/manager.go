@@ -132,7 +132,7 @@ func (m *contractManager) NewContract(
 		// A single-key identity reuses the same key for every contract of a given type, so the
 		// derived script is identical across calls. Treat a repeat as idempotent reuse and return
 		// the stored contract.
-		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
 		}
@@ -186,7 +186,7 @@ func (m *contractManager) GetContracts(
 	case len(f.state) > 0:
 		return m.store.GetContractsByState(ctx, f.state)
 	case len(f.contractType) > 0:
-		return m.store.GetContractsByType(ctx, f.contractType)
+		return m.store.GetActiveContractsByType(ctx, f.contractType)
 	default:
 		return m.store.ListContracts(ctx)
 	}
@@ -230,7 +230,7 @@ func (m *contractManager) scanContracts(
 	ctx context.Context, contractType types.ContractType,
 	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
 ) error {
-	contract, err := m.store.GetLatestContract(ctx, contractType)
+	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -337,7 +337,7 @@ func (m *contractManager) newContract(
 	ctx context.Context,
 	contractType types.ContractType, handler handlers.Handler,
 ) (*types.Contract, error) {
-	contract, err := m.store.GetLatestContract(ctx, contractType)
+	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +430,7 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
 		if err != nil {
 			return err
 		}
