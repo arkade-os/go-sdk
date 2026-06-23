@@ -20,6 +20,7 @@ const (
 type GetVtxoFilter struct {
 	Status  VtxoStatusFilter
 	AssetID string  // "" = no asset filter
+	Script  string  // "" = no script filter
 	After   *Cursor // nil = first page
 	Limit   int     // number of VTXOs to return
 }

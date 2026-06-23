@@ -29,6 +29,7 @@ var (
 	)
 	ErrInvalidCursor        = errors.New("cursor is malformed")
 	ErrCursorFilterMismatch = errors.New("cursor was issued under a different filter set")
+	ErrEmptyScript          = errors.New("script must not be empty")
 )
 
 // WithSpendableOnly restricts results to VTXOs with spent = false AND unrolled = false.
@@ -68,6 +69,18 @@ func WithAssetID(id string) ListVtxosOption {
 	}
 }
 
+// WithScript restricts results to VTXOs whose script field exactly matches
+// the given script. An empty string is rejected.
+func WithScript(script string) ListVtxosOption {
+	return func(o *listVtxosOpts) error {
+		if script == "" {
+			return ErrEmptyScript
+		}
+		o.script = script
+		return nil
+	}
+}
+
 // WithLimit sets the maximum number of VTXOs to return in one page.
 // Valid range: [1, 1000]. Default and max are both 1000.
 func WithLimit(n int) ListVtxosOption {
@@ -92,6 +105,7 @@ func WithCursor(c string) ListVtxosOption {
 type listVtxosOpts struct {
 	status  types.VtxoStatusFilter
 	assetID string
+	script  string
 	limit   int
 	cursor  string // empty = first page
 
@@ -121,7 +135,7 @@ type vtxoCursor struct {
 // Two option sets that differ only in pagination params (limit, cursor) yield
 // the same hash. Used to bind a cursor to its filter set.
 func filterHash(o *listVtxosOpts) string {
-	payload := fmt.Sprintf("status=%d&asset=%s", o.status, o.assetID)
+	payload := fmt.Sprintf("status=%d&asset=%s&script=%s", o.status, o.assetID, o.script)
 	sum := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(sum[:8])
 }
