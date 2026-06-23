@@ -140,8 +140,13 @@ func fundSignerRotationWallet(
 	funderSats := expectedSats + funderBalance
 	t.Logf(
 		"signer rotation funding: vtxos=%d btc_only=%d assets=%d vtxo_sats=%d asset_amount=%d sats=%d funder_sats=%d",
-		cfg.VtxoCount, cfg.BtcOnlyVtxoCount(), cfg.AssetCount,
-		satsPerVtxo, assetAmount, expectedSats, funderSats,
+		cfg.VtxoCount,
+		cfg.BtcOnlyVtxoCount(),
+		cfg.AssetCount,
+		satsPerVtxo,
+		assetAmount,
+		expectedSats,
+		funderSats,
 	)
 	faucetOffchain(t, funder, btcFromSats(funderSats))
 
