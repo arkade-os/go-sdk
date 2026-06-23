@@ -43,10 +43,6 @@ func TestWalletOptions(t *testing.T) {
 				opts: []arksdk.WalletOption{arksdk.WithGapLimit(10)},
 			},
 			{
-				name: "WithMaxMigrationInputs",
-				opts: []arksdk.WalletOption{arksdk.WithMaxMigrationInputs(25)},
-			},
-			{
 				name: "WithIdentity",
 				opts: []arksdk.WalletOption{arksdk.WithIdentity(&mockIdentity{})},
 			},
@@ -113,19 +109,6 @@ func TestWalletOptions(t *testing.T) {
 					arksdk.WithGapLimit(12),
 				},
 				wantErrContains: "gap limit already set",
-			},
-			{
-				name:            "WithMaxMigrationInputs zero",
-				opts:            []arksdk.WalletOption{arksdk.WithMaxMigrationInputs(0)},
-				wantErrContains: "max migration inputs must be greater than zero",
-			},
-			{
-				name: "WithMaxMigrationInputs twice",
-				opts: []arksdk.WalletOption{
-					arksdk.WithMaxMigrationInputs(10),
-					arksdk.WithMaxMigrationInputs(12),
-				},
-				wantErrContains: "max migration inputs already set",
 			},
 			{
 				name:            "WitIdentity nil",

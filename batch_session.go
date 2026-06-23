@@ -56,6 +56,8 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 			clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
 		}
 
+		// Subscribe to the change address before submitting so we don't miss
+		// the indexer notification once the server tracks the settled vtxo.
 		tracked, cancel := w.notifyTracked(ctx, changeAddr)
 		defer cancel()
 
@@ -64,11 +66,16 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 			return "", err
 		}
 
+		// Persist within the critical section so the next queued operation
+		// sees the refreshed VTXOs before it runs. A deduping settle returns
+		// this same result without re-running, so it won't save twice.
 		if err := w.saveBatchTransaction(ctx, *res); err != nil {
 			return "", err
 		}
 
 		if len(res.VtxoOutputs) > 0 {
+			// Wait until the indexer has tracked our settled vtxo before releasing
+			// the slot, so the next queued operation can spend it.
 			if err := waitTracked(ctx, tracked); err != nil {
 				return "", err
 			}
@@ -116,6 +123,8 @@ func (w *wallet) CollaborativeExit(
 			clientOpts = append(clientOpts, client.WithRetries(batchSessionOpts.retryNum))
 		}
 
+		// Subscribe to the change address before submitting so we don't miss
+		// the indexer notification once the server tracks any change vtxo.
 		tracked, cancel := w.notifyTracked(ctx, changeAddr)
 		defer cancel()
 
@@ -124,11 +133,15 @@ func (w *wallet) CollaborativeExit(
 			return "", err
 		}
 
+		// Persist within the critical section so the next queued operation
+		// sees the spent VTXOs before it runs.
 		if err := w.saveBatchTransaction(ctx, *res); err != nil {
 			return "", err
 		}
 
 		if len(res.VtxoOutputs) > 0 {
+			// If the exit left change, wait until the indexer has tracked it
+			// before releasing the slot so the next queued operation can spend it.
 			if err := waitTracked(ctx, tracked); err != nil {
 				return "", err
 			}

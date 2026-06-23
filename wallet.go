@@ -697,8 +697,8 @@ func refreshTimeRange(updateTime, lastUpdate time.Time) (before, after int64, ok
 	if lastUpdate.IsZero() {
 		return 0, 0, false
 	}
-	before = updateTime.UnixMilli()
-	after = lastUpdate.UnixMilli()
+	before = updateTime.Unix()
+	after = lastUpdate.Unix()
 	if before <= after {
 		return 0, 0, false
 	}

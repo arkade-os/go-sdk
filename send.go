@@ -18,6 +18,8 @@ func (w *wallet) SendOffChain(
 		return "", err
 	}
 
+	// Synchronize: wait for any in-flight spend to finish, then proceed
+	// with fresh VTXOs.
 	send := func() (any, error) {
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
@@ -76,12 +78,15 @@ func (w *wallet) SendOffChain(
 			return nil, err
 		}
 
-		// Keep the queued operation view current before releasing txHandler.
+		// Persist within the critical section so the next queued operation
+		// sees the spent VTXOs and freshly created change before it runs.
 		if err := w.saveSendTransaction(ctx, *res); err != nil {
 			return nil, err
 		}
 
-		// Wait for tracked change so the next queued op can spend it.
+		// Wait until the server/indexer has tracked our change before releasing
+		// the slot, so the next queued operation can spend it without hitting
+		// VTXO_NOT_FOUND.
 		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
