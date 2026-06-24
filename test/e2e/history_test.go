@@ -12,7 +12,9 @@ import (
 
 func TestTransactionHistory(t *testing.T) {
 	ctx := t.Context()
-	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+	// Make use of a long db refresh interval to avoid that background operation to mess up
+	// with this test
+	alice := setupClient(t, "", arksdk.WithoutAutoSettle(), arksdk.WithRefreshDbInterval(5*time.Minute))
 
 	history, err := alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
@@ -116,7 +118,7 @@ func TestTransactionHistory(t *testing.T) {
 	requireTxEqual(t, settledBoardingTx, history[0], "")
 
 	// alice sends funds to bob
-	bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+	bob := setupClient(t, "", arksdk.WithoutAutoSettle(), arksdk.WithRefreshDbInterval(5*time.Minute))
 	bobTxChan := bob.GetTransactionEventChannel(ctx)
 
 	bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
