@@ -28,8 +28,7 @@ func ApplyWalletOptions(opts ...WalletOption) error {
 
 // WithRefreshDbInterval sets the interval at which the local database is periodically refreshed
 // from the server. Must be at least 30s.
-// Can only be set once. If no WalletOption is passed, refreshDbInterval defaults to zero, which
-// disables periodic refresh entirely.
+// Can only be set once. If not set, refreshDbInterval defaults to 30s.
 func WithRefreshDbInterval(d time.Duration) WalletOption {
 	return func(o *walletOptions) error {
 		if o.refreshDbIntervalSet {
@@ -53,7 +52,8 @@ func WithVerbose() WalletOption {
 }
 
 // WithGapLimit sets the HD wallet discovery gap limit used during startup recovery.
-// Must be greater than zero.
+// Must be at least 20.
+// Can only be set once. If not set, hdGapLimit defaults to 20.
 func WithGapLimit(limit uint32) WalletOption {
 	return func(o *walletOptions) error {
 		if o.hdGapLimitSet {

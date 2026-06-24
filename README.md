@@ -21,9 +21,9 @@ Here's a comprehensive guide on how to use the Arkade Go SDK:
 Both accept one required parameter plus optional wallet options:
 - `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing; loading from an in-memory datadir won't work for obvious reasons).
 - `opts` — optional `WalletOption` values:
-  - `WithRefreshDbInterval(d time.Duration)` — enable periodic background refresh of the local database from the server. Must be at least 30s. Disabled by default (zero value).
+  - `WithRefreshDbInterval(d time.Duration)` — configure periodic background refresh of the local database from the server. Defaults to 30s and must be at least 30s.
   - `WithVerbose()` — enables verbose logging.
-  - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to a reasonable BIP-44-style value.
+  - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to 20 and must be at least 20.
   - `WithIdentity(svc identity.Identity)` — inject a custom key-management implementation. By default the SDK creates an HD identity (BIP86) backed by the persistent datadir; see the `identity` package for the default implementation.
   - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-settle. Defaults to a gocron-backed in-process scheduler.
   - `WithoutAutoSettle()` — disable the background auto-settle loop entirely. By default the wallet schedules a Settle at ~90% of each spendable vtxo's remaining lifetime and re-schedules as fresher vtxos arrive.
