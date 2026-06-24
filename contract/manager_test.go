@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"encoding/hex"
 	"errors"
 	"maps"
 	"slices"
@@ -8,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -49,7 +52,7 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, types.ContractTypeBoarding, c.Type)
 			require.Contains(t, c.Address, "bcrt1p")
 
-			persisted, err := store.GetContractsByType(
+			persisted, err := store.GetActiveContractsByType(
 				t.Context(), types.ContractTypeBoarding,
 			)
 			require.NoError(t, err)
@@ -70,6 +73,35 @@ func TestManagerNewContract(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, persisted, 1)
 			require.Equal(t, "my-label", persisted[0].Label)
+		})
+
+		t.Run("with server params forces cache update", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+
+			first, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.Equal(t, 1, env.transport.callCount())
+
+			rotatedSigner := newTestPubKey(t)
+			rotatedInfo := &client.Info{
+				SignerPubKey:        hex.EncodeToString(rotatedSigner.SerializeCompressed()),
+				UnilateralExitDelay: testUnilateralExitDelay,
+				BoardingExitDelay:   testBoardingExitDelay,
+				CheckpointTapscript: testCheckpointTapscript,
+			}
+			second, err := mgr.NewContract(
+				t.Context(),
+				types.ContractTypeDefault,
+				contract.WithServerParams(rotatedInfo),
+			)
+			require.NoError(t, err)
+			require.Equal(t, 1, env.transport.callCount())
+			require.NotEqual(t, first.Params["signerKey"], second.Params["signerKey"])
+			require.Equal(
+				t,
+				hex.EncodeToString(schnorr.SerializePubKey(rotatedSigner)),
+				second.Params["signerKey"],
+			)
 		})
 
 		t.Run("sequential offchain calls advance the key index", func(t *testing.T) {

@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	minInterval     = 30 * time.Second
-	defaultGapLimit = 20
+	minInterval               = 30 * time.Second
+	defaultGapLimit           = 20
+	defaultMaxMigrationInputs = 50
 )
 
 type WalletOption func(*walletOptions) error
@@ -162,5 +163,7 @@ type walletOptions struct {
 // newDefaultWalletOptions returns a zero-value walletOptions.
 // A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
 func newDefaultWalletOptions() *walletOptions {
-	return &walletOptions{hdGapLimit: defaultGapLimit}
+	return &walletOptions{
+		hdGapLimit: defaultGapLimit,
+	}
 }

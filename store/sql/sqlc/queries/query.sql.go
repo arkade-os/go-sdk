@@ -128,9 +128,8 @@ type GetVtxosParams struct {
 // asset_vtxo_vw to hydrate assets in one round-trip; applying LIMIT to the
 // view directly would cut multi-asset VTXOs mid-way.
 // The caller passes (user_limit + 1) as limit_plus_one. The extra row is
-// only a has-more sentinel; if SQL returns more than user_limit VTXOs, the
-// caller trims the sentinel and uses the last returned VTXO as the next cursor
-// anchor.
+// a has-more sentinel; if SQL returns more than user_limit rows the caller
+// trims the last one and uses its outpoint as the next cursor.
 // status_filter accepts NULL (no filter), spendable (spent=false AND
 // unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
 // EXISTS rather than JOIN so the row count stays at VTXO count. script_filter
@@ -396,6 +395,44 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 	return err
 }
 
+const selectActiveContractsByType = `-- name: SelectActiveContractsByType :many
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
+WHERE type = ?1 AND state = 'active'
+`
+
+func (q *Queries) SelectActiveContractsByType(ctx context.Context, type_ string) ([]Contract, error) {
+	rows, err := q.db.QueryContext(ctx, selectActiveContractsByType, type_)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.Params,
+			&i.KeyIndex,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectAllContracts = `-- name: SelectAllContracts :many
 SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
 `
@@ -607,51 +644,13 @@ func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]C
 	return items, nil
 }
 
-const selectContractsByType = `-- name: SelectContractsByType :many
+const selectLatestActiveContractByType = `-- name: SelectLatestActiveContractByType :one
 SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
-WHERE type = ?1
+WHERE type = ?1 AND state = 'active' ORDER BY key_index DESC LIMIT 1
 `
 
-func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Contract, error) {
-	rows, err := q.db.QueryContext(ctx, selectContractsByType, type_)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Contract
-	for rows.Next() {
-		var i Contract
-		if err := rows.Scan(
-			&i.Script,
-			&i.Type,
-			&i.Label,
-			&i.Address,
-			&i.State,
-			&i.CreatedAt,
-			&i.Params,
-			&i.KeyIndex,
-			&i.Metadata,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const selectLatestContractByType = `-- name: SelectLatestContractByType :one
-SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
-WHERE type = ?1 ORDER BY key_index DESC LIMIT 1
-`
-
-func (q *Queries) SelectLatestContractByType(ctx context.Context, contractType string) (Contract, error) {
-	row := q.db.QueryRowContext(ctx, selectLatestContractByType, contractType)
+func (q *Queries) SelectLatestActiveContractByType(ctx context.Context, contractType string) (Contract, error) {
+	row := q.db.QueryRowContext(ctx, selectLatestActiveContractByType, contractType)
 	var i Contract
 	err := row.Scan(
 		&i.Script,

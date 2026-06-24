@@ -18,10 +18,10 @@ github.com/arkade-os/arkd/api-spec v0.0.0-20260323091657-eeb0baef6937 h1:010LTrh
 github.com/arkade-os/arkd/api-spec v0.0.0-20260323091657-eeb0baef6937/go.mod h1:2+6ix1UGGE22Q/rbab1dycFPPKiTyq0gldKVqVfFPWs=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260429091057-9246f043c4c8 h1:xSPC2XjahDKKMgY1b+Fe3zs16eTkP6BDV6yAKHyjvdc=
 github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260429091057-9246f043c4c8/go.mod h1:gYJkHBV9B9OkSgANCvyST24HTlZ0tSmr1mZSsj+jGAc=
-github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260526145029-4473e23cd6bf h1:tczpb1VlXVBX/YWKz5R0wU7VvZ/1DTVs/cZCMkbr/Fw=
-github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260526145029-4473e23cd6bf/go.mod h1:qrQ3QPXlGpP+hxGcLEh/tJyesgy79Q1EZgdxocEBOwY=
-github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea h1:x9ZwZL+F2b9E0uBZYBVjCLGtlqIE4zahDOY4C89h3X4=
-github.com/arkade-os/arkd/pkg/errors v0.0.0-20260303153651-8615412e4dea/go.mod h1:NYGE+baj57ynbXNwjISJddMDpMqAWOX27dV22xqFm2A=
+github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260622161208-51384c05f48b h1:c2RytK/dkY2iehU6j7vIcKK/4tPTczdrfiGG31NNnik=
+github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260622161208-51384c05f48b/go.mod h1:R4XOL2VpUlIQaPdEg3OksIqYFgyp9yOtSg3TKhwlFrQ=
+github.com/arkade-os/arkd/pkg/errors v0.0.0-20260617121018-268d19d9641c h1:bCR7XZh13/aKfXlISe+FDwQG8UJDo+Gl7s7WqG5mWZ4=
+github.com/arkade-os/arkd/pkg/errors v0.0.0-20260617121018-268d19d9641c/go.mod h1:xEAZzMWZ1f3lI9BXZABwiJ+yTpM1M7+dsVDsl0F6mY4=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=

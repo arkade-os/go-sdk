@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"fmt"
 
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -9,6 +10,8 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
+
+const maxTxInputs = 50
 
 func (w *wallet) SendOffChain(
 	ctx context.Context, receivers []clienttypes.Receiver, extraOpts ...SendOffChainOption,
@@ -86,10 +89,8 @@ func (w *wallet) SendOffChain(
 		// Wait until the server/indexer has tracked our change before releasing
 		// the slot, so the next queued operation can spend it without hitting
 		// VTXO_NOT_FOUND.
-		if tracked != nil {
-			if err := <-tracked; err != nil {
-				return nil, err
-			}
+		if err := waitTracked(ctx, tracked); err != nil {
+			return nil, err
 		}
 		return res.Txid, nil
 	}
@@ -99,7 +100,37 @@ func (w *wallet) SendOffChain(
 		return "", err
 	}
 
-	return rr.(string), nil
+	txid, ok := rr.(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected send result type %T", rr)
+	}
+	return txid, nil
+}
+
+func withMigrationOutput(
+	res clientwallet.OffchainTxRes, receiver clienttypes.Receiver,
+) clientwallet.OffchainTxRes {
+	for _, output := range res.Outputs {
+		if sameReceiver(output, receiver) {
+			return res
+		}
+	}
+
+	res.Outputs = append(res.Outputs, receiver)
+	return res
+}
+
+func sameReceiver(a, b clienttypes.Receiver) bool {
+	if a.To != b.To || a.Amount != b.Amount || len(a.Assets) != len(b.Assets) {
+		return false
+	}
+
+	for i := range a.Assets {
+		if a.Assets[i] != b.Assets[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (w *wallet) getSpendableVtxos(

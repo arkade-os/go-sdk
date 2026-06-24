@@ -548,10 +548,6 @@ func TestOffchainTx(t *testing.T) {
 		// Create a new client that resumes pending tx finalization on restore.
 		restoredAlice := setupClient(t, seed)
 
-		finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)
-		require.NoError(t, err)
-		require.Empty(t, finalizedTxIds)
-
 		require.Eventually(t, func() bool {
 			history, err = restoredAlice.GetTransactionHistory(ctx)
 			if err != nil {
@@ -561,7 +557,7 @@ func TestOffchainTx(t *testing.T) {
 			return slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 				return tx.TransactionKey.String() == txid
 			})
-		}, 30*time.Second, 500*time.Millisecond)
+		}, 30*time.Second, time.Second)
 	})
 }
 

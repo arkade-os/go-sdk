@@ -73,10 +73,10 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 			return "", err
 		}
 
-		// Wait until the indexer has tracked our settled vtxo before releasing
-		// the slot, so the next queued operation can spend it.
 		if len(res.VtxoOutputs) > 0 {
-			if err := <-tracked; err != nil {
+			// Wait until the indexer has tracked our settled vtxo before releasing
+			// the slot, so the next queued operation can spend it.
+			if err := waitTracked(ctx, tracked); err != nil {
 				return "", err
 			}
 		}
@@ -139,10 +139,10 @@ func (w *wallet) CollaborativeExit(
 			return "", err
 		}
 
-		// If the exit left change, wait until the indexer has tracked it
-		// before releasing the slot so the next queued operation can spend it.
 		if len(res.VtxoOutputs) > 0 {
-			if err := <-tracked; err != nil {
+			// If the exit left change, wait until the indexer has tracked it
+			// before releasing the slot so the next queued operation can spend it.
+			if err := waitTracked(ctx, tracked); err != nil {
 				return "", err
 			}
 		}

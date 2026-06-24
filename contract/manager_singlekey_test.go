@@ -71,7 +71,7 @@ func TestManagerSingleKeyReuse(t *testing.T) {
 			require.Equal(t, "first-label", second.Label)
 
 			// Only one contract is actually stored.
-			persisted, err := cstore.GetContractsByType(t.Context(), contractType)
+			persisted, err := cstore.GetActiveContractsByType(t.Context(), contractType)
 			require.NoError(t, err)
 			require.Len(t, persisted, 1)
 		})
