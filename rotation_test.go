@@ -160,7 +160,7 @@ func TestSignerSetDigestStability(t *testing.T) {
 			{PubKey: compressedHex(b)}, {PubKey: compressedHex(a)},
 		},
 	}
-	require.Equal(t, signerSetDigest(info1), signerSetDigest(info2))
+	require.Equal(t, signerSet(info1), signerSet(info2))
 
 	rotated := &client.Info{
 		SignerPubKey: compressedHex(a),
@@ -168,7 +168,7 @@ func TestSignerSetDigestStability(t *testing.T) {
 			{PubKey: compressedHex(current)}, {PubKey: compressedHex(b)},
 		},
 	}
-	require.NotEqual(t, signerSetDigest(info1), signerSetDigest(rotated))
+	require.NotEqual(t, signerSet(info1), signerSet(rotated))
 
 	added := &client.Info{
 		SignerPubKey: compressedHex(current),
@@ -178,14 +178,7 @@ func TestSignerSetDigestStability(t *testing.T) {
 			{PubKey: compressedHex(testKey(t))},
 		},
 	}
-	require.NotEqual(t, signerSetDigest(info1), signerSetDigest(added))
-}
-
-// TestReconcileNoContractManager covers the pre-unlock no-op guard.
-func TestReconcileNoContractManager(t *testing.T) {
-	w := &wallet{}
-	err := w.reconcileDeprecatedSigners(t.Context(), nil)
-	require.NoError(t, err)
+	require.NotEqual(t, signerSet(info1), signerSet(added))
 }
 
 // --- Test doubles -----------------------------------------------------------
@@ -381,27 +374,6 @@ func TestClassifyVtxosSkipsRecoverableAndSubdustFunds(t *testing.T) {
 	require.Equal(t, "normal", toMigrate[0].Script)
 }
 
-// --- migration offchain bypass (no safeCheck) -------------------------------
-
-func TestMigrateDeprecatedVtxosOffchainBypassNoSafeCheck(t *testing.T) {
-	w := &wallet{}
-
-	_, err := w.SendOffChain(context.Background(), nil)
-	require.ErrorIs(t, err, ErrNotInitialized,
-		"public SendOffChain must remain safeCheck-gated")
-
-	txid, err := w.migrateDeprecatedVtxosOffchain(context.Background(), nil, nil)
-	require.NoError(t, err,
-		"internal migration send must bypass safeCheck (no ErrNotInitialized)")
-	require.Empty(t, txid, "empty migration set is a no-op returning an empty txid")
-
-	txid, err = w.migrateDeprecatedVtxosOffchain(
-		context.Background(), []clienttypes.VtxoWithTapTree{}, nil,
-	)
-	require.NoError(t, err, "empty (non-nil) migration set is also a no-op")
-	require.Empty(t, txid)
-}
-
 // --- inactivation after migration ------------------------------------------
 
 // TestInactivateAfterMigrationSuccess covers best-effort inactive updates.
@@ -410,7 +382,7 @@ func TestInactivateAfterMigrationSuccess(t *testing.T) {
 	fcs.failOn["migrate-2"] = true // one flip fails mid-pass
 	w := &wallet{store: &fakeStore{contractStore: fcs}}
 
-	w.inactivateContracts(context.Background(), []string{"migrate-1", "migrate-2", "migrate-3"})
+	w.deactivateContracts(context.Background(), []string{"migrate-1", "migrate-2", "migrate-3"})
 
 	require.ElementsMatch(t,
 		[]string{"migrate-1", "migrate-2", "migrate-3"}, fcs.allCalls,
@@ -427,8 +399,8 @@ func TestInactivateEmptyNoOp(t *testing.T) {
 	fcs := newFakeContractStore()
 	w := &wallet{store: &fakeStore{contractStore: fcs}}
 
-	w.inactivateContracts(context.Background(), nil)
-	w.inactivateContracts(context.Background(), []string{})
+	w.deactivateContracts(context.Background(), nil)
+	w.deactivateContracts(context.Background(), []string{})
 
 	require.Empty(t, fcs.allCalls, "no UpdateContractState call on an empty script set")
 }

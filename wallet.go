@@ -31,7 +31,6 @@ import (
 	cronscheduler "github.com/arkade-os/go-sdk/scheduler/gocron"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
@@ -76,15 +75,14 @@ type wallet struct {
 	network           arklib.Network
 	dustAmount        uint64
 
-	// lastSignerSetDigest is the server signer-set digest last reconciled
-	// successfully. A change after refreshDb signals a rotation and triggers
-	// reconcileDeprecatedSigners without requiring a restart.
-	lastSignerSetDigest string
+	// latestSignerSet is the latest set of signer key + deprecated signers handled by the wallet.
+	// Used to determine if a migration of dunds is requird or not.
+	lastSignerSet string
 
-	// rotationSignerSetFn/rotationReconcileFn are test-only seams for
-	// detectAndHandleRotation. They are nil in production.
-	rotationSignerSetFn func(ctx context.Context) (*client.Info, string, error)
-	rotationReconcileFn func(ctx context.Context, info *client.Info) error
+	// fetchSignerSetFn/migrateFundsAfterSignerRotationFn are test-only seams for
+	// detectAndHandleSignerRotation. They are nil in production.
+	fetchSignerSetFn                  func(ctx context.Context) (*client.Info, string, error)
+	migrateFundsAfterSignerRotationFn func(ctx context.Context, info *client.Info) error
 
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
@@ -1351,138 +1349,9 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 				log.WithError(err).Error("failed to refresh db")
 				continue
 			}
-			w.detectAndHandleRotation(ctx)
+			w.detectAndHandleSignerRotation(ctx)
 		}
 	}
-}
-
-// detectAndHandleRotation moves deprecated-signer vtxos onto current-signer
-// outputs synchronously, before the wallet is marked synced.
-// Pre-rotation deprecated-signer contracts are already persisted: each
-// contract is stored when its address is first handed out, so refreshDb
-// has pulled their vtxos and migration has a consistent view.
-func (w *wallet) detectAndHandleRotation(ctx context.Context) {
-	info, digest, err := w.currentSignerSet(ctx)
-	if err != nil {
-		log.WithError(err).Debug("rotation detection: failed to get server info")
-		return
-	}
-	if digest == w.lastSignerSetDigest {
-		return
-	}
-	log.Infof("rotation detection: signer set changed, reconciling")
-
-	if info != nil {
-		signerPubkey, err := signerPubKeyFromHex(info.SignerPubKey)
-		if err != nil {
-			log.WithError(err).Warn("rotation detection: failed to parse signer pubkey")
-			return
-		}
-		deprecatedSigners := deprecatedSignersForConfig(info, signerPubkey)
-		if err := w.updateConfig(ctx, signerPubkey, deprecatedSigners); err != nil {
-			log.WithError(err).Warn("rotation detection: failed to update config")
-			return
-		}
-	}
-
-	// Advance the digest only after reconcile succeeds, so failures retry.
-	if w.reconcileDetectedRotation(ctx, info) {
-		w.lastSignerSetDigest = digest
-	}
-}
-
-func (w *wallet) currentSignerSet(ctx context.Context) (*client.Info, string, error) {
-	if w.rotationSignerSetFn != nil {
-		return w.rotationSignerSetFn(ctx)
-	}
-	clientSvc := w.Client()
-	if clientSvc == nil {
-		return nil, "", ErrNotInitialized
-	}
-	info, err := clientSvc.GetInfo(ctx)
-	if err != nil {
-		return nil, "", err
-	}
-	return info, signerSetDigest(info), nil
-}
-
-func (w *wallet) updateConfig(
-	ctx context.Context,
-	signerPubkey *btcec.PublicKey,
-	deprecatedSigners []clienttypes.DeprecatedSigner,
-) error {
-	cfgData, err := w.client.GetConfigData(ctx)
-	if err != nil {
-		return err
-	}
-
-	updated := *cfgData
-	updated.SignerPubKey = signerPubkey
-	updated.DeprecatedSigners = deprecatedSigners
-
-	if err := w.clientStore.ConfigStore().AddData(ctx, updated); err != nil {
-		return err
-	}
-
-	*cfgData = updated
-
-	return nil
-}
-
-func deprecatedSignersForConfig(
-	info *client.Info,
-	currentSigner *btcec.PublicKey,
-) []clienttypes.DeprecatedSigner {
-	signers := make([]clienttypes.DeprecatedSigner, 0, len(info.DeprecatedSignerPubKeys))
-	for _, d := range info.DeprecatedSignerPubKeys {
-		pubkey, err := signerPubKeyFromHex(d.PubKey)
-		if err != nil {
-			log.WithError(err).Warnf(
-				"rotation detection: skipping malformed deprecated signer %q",
-				d.PubKey,
-			)
-			continue
-		}
-		if currentSigner != nil && pubkey.IsEqual(currentSigner) {
-			continue
-		}
-
-		var cutoff time.Time
-		if d.CutoffDate > 0 {
-			cutoff = time.Unix(d.CutoffDate, 0)
-		}
-		signers = append(signers, clienttypes.DeprecatedSigner{
-			PubKey:     pubkey,
-			CutoffDate: cutoff,
-		})
-	}
-	return signers
-}
-
-func signerPubKeyFromHex(pubkey string) (*btcec.PublicKey, error) {
-	buf, err := hex.DecodeString(strings.TrimSpace(pubkey))
-	if err != nil {
-		return nil, err
-	}
-	if len(buf) == schnorr.PubKeyBytesLen {
-		return schnorr.ParsePubKey(buf)
-	}
-	return btcec.ParsePubKey(buf)
-}
-
-// reconcileDetectedRotation reports whether the signer digest can advance.
-func (w *wallet) reconcileDetectedRotation(ctx context.Context, info *client.Info) bool {
-	reconcile := w.rotationReconcileFn
-	if reconcile == nil {
-		reconcile = func(ctx context.Context, info *client.Info) error {
-			return w.reconcileDeprecatedSigners(ctx, info)
-		}
-	}
-	if err := reconcile(ctx, info); err != nil {
-		log.WithError(err).Warn("rotation detection: reconciliation failed")
-		return false
-	}
-	return true
 }
 
 func (w *wallet) handleCommitmentTx(

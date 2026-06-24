@@ -77,7 +77,7 @@ func (w *wallet) Init(
 
 	w.network = network
 	w.dustAmount = info.Dust
-	w.lastSignerSetDigest = signerSetDigest(info)
+	w.lastSignerSet = signerSet(info)
 
 	return nil
 }
@@ -162,12 +162,15 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		// the user aware of this so he can proceed with a manual finalization
 		if _, err := w.finalizePendingTxs(ctx, nil); err != nil {
 			log.WithError(err).Warn("failed to finalize pending txs")
+		} else {
+			// TODO: drop me and handle wait in finalizePendingTxs
+			time.Sleep(time.Second)
 		}
 
 		err := w.refreshDb(ctx)
 		if err == nil {
 			w.scheduleNextSettlement()
-			w.detectAndHandleRotation(ctx)
+			w.detectAndHandleSignerRotation(ctx)
 		}
 		w.syncCh <- err
 		close(w.syncCh)

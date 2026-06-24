@@ -229,23 +229,23 @@ func TestWithLabel(t *testing.T) {
 	})
 }
 
-func TestWithServerInfo(t *testing.T) {
+func TestWithServerParams(t *testing.T) {
 	info := &client.Info{SignerPubKey: "abcd"}
 
 	t.Run("valid", func(t *testing.T) {
-		o, err := applyContractOptions(WithServerInfo(info))
+		o, err := applyContractOptions(WithServerParams(info))
 		require.NoError(t, err)
-		require.Equal(t, info, o.serverInfo)
+		require.Equal(t, info, o.serverParams)
 	})
 
 	t.Run("nil errors", func(t *testing.T) {
-		_, err := applyContractOptions(WithServerInfo(nil))
-		require.ErrorContains(t, err, "server info cannot be nil")
+		_, err := applyContractOptions(WithServerParams(nil))
+		require.ErrorContains(t, err, "server params cannot be nil")
 	})
 
 	t.Run("duplicate errors", func(t *testing.T) {
-		_, err := applyContractOptions(WithServerInfo(info), WithServerInfo(info))
-		require.ErrorContains(t, err, "server info option is already set")
+		_, err := applyContractOptions(WithServerParams(info), WithServerParams(info))
+		require.ErrorContains(t, err, "server params option is already set")
 	})
 }
 

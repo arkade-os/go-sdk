@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,21 +50,18 @@ func TestUnlockMigrationGatesPublicOps(t *testing.T) {
 	releaseMigration := make(chan struct{})
 	var migrationDone atomic.Bool
 
-	// Slow mocked migration.
-	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error {
+	// Slow mocked migration. Seed "old" so the live "digest" set looks rotated.
+	withMockedServices(w, "old", "digest", func(ctx context.Context, _ *client.Info) error {
 		close(migrationStarted)
 		<-releaseMigration
 		migrationDone.Store(true)
 		return nil
-	}
-	w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
-		return nil, "digest", nil
-	}
+	})
 
 	// Match Unlock ordering: migration before setRestored.
 	unlockSeq := make(chan struct{})
 	go func() {
-		w.detectAndHandleRotation(context.Background())
+		w.detectAndHandleSignerRotation(context.Background())
 		w.setRestored(nil)
 		close(unlockSeq)
 	}()
@@ -83,70 +82,8 @@ func TestUnlockMigrationGatesPublicOps(t *testing.T) {
 		"syncCh/setRestored must fire only AFTER the migration attempt finished")
 	require.NoError(t, w.syncGate(),
 		"public gated op must succeed once the wallet is synced")
-	require.Equal(t, "digest", w.lastSignerSetDigest,
+	require.Equal(t, "digest", w.lastSignerSet,
 		"digest seeded on successful migration")
-}
-
-// TestDetectRotationOnUnlockNoRotationFastPath covers the no-migration path.
-func TestDetectRotationOnUnlockNoRotationFastPath(t *testing.T) {
-	w := newSyncWallet()
-
-	var settleCalls atomic.Int32
-	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error {
-		return nil
-	}
-	digestCalls := 0
-	w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
-		digestCalls++
-		return nil, "seeded", nil
-	}
-
-	w.detectAndHandleRotation(context.Background())
-
-	require.Equal(t, int32(0), settleCalls.Load(),
-		"no settle may be performed on the no-rotation fast path")
-	require.Equal(t, 1, digestCalls, "digest is seeded once on success")
-	require.Equal(t, "seeded", w.lastSignerSetDigest)
-}
-
-// TestDetectRotationOnUnlockFailureNeverHostage keeps unlock usable on failure.
-func TestDetectRotationOnUnlockFailureNeverHostage(t *testing.T) {
-	w := newSyncWallet()
-	w.lastSignerSetDigest = ""
-
-	const liveDigest = "cur:abc|dep:def"
-	var digestFetched atomic.Bool
-	w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
-		digestFetched.Store(true)
-		return nil, liveDigest, nil
-	}
-	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error {
-		return fmt.Errorf("settle failed: server unavailable")
-	}
-
-	done := make(chan struct{})
-	go func() {
-		w.detectAndHandleRotation(context.Background())
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("detectAndHandleRotation blocked on a migration failure (hostage)")
-	}
-
-	require.True(t, digestFetched.Load(),
-		"digest fetch must run before reconciliation")
-	require.Equal(t, "", w.lastSignerSetDigest,
-		"digest must stay empty on failure so the periodic tick retries the migration")
-
-	require.NotEqual(t, liveDigest, w.lastSignerSetDigest,
-		"a non-empty live digest must differ from the unseeded digest, triggering retry")
-
-	w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error { return nil }
-	w.detectAndHandleRotation(context.Background())
-	require.Equal(t, liveDigest, w.lastSignerSetDigest,
-		"digest advances once migration succeeds, stopping further retries")
 }
 
 // TestPublicSettleStillSafeChecked keeps public Settle safeCheck-gated.
@@ -163,15 +100,14 @@ func TestUnlockMigrationRaceClean(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < iters; i++ {
 		w := newSyncWallet()
-		w.rotationReconcileFn = func(ctx context.Context, _ *client.Info) error { return nil }
-		w.rotationSignerSetFn = func(ctx context.Context) (*client.Info, string, error) {
-			return nil, "d", nil
-		}
+		withMockedServices(
+			w, "old", "d", func(ctx context.Context, _ *client.Info) error { return nil },
+		)
 
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			w.detectAndHandleRotation(context.Background())
+			w.detectAndHandleSignerRotation(context.Background())
 			w.setRestored(nil)
 		}()
 		go func() {
@@ -184,4 +120,54 @@ func TestUnlockMigrationRaceClean(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// validSignerKeyHex is the secp256k1 generator point: a parseable compressed
+// pubkey used wherever rotation unit tests need a non-nil, on-curve signer.
+const validSignerKeyHex = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+// mockWallet stubs the single clientwallet.Wallet method updateConfig touches.
+// All other methods panic if called, which is fine: these tests never reach them.
+type mockWallet struct {
+	clientwallet.Wallet
+	cfg *clienttypes.Config
+}
+
+func (f *mockWallet) GetConfigData(context.Context) (*clienttypes.Config, error) {
+	return f.cfg, nil
+}
+
+// mockConfigStore stubs clienttypes.ConfigStore; AddData is a no-op.
+type mockConfigStore struct {
+	clienttypes.ConfigStore
+}
+
+func (f *mockConfigStore) AddData(context.Context, clienttypes.Config) error { return nil }
+
+// mockClientStore exposes only the ConfigStore that updateConfig persists into.
+type mockClientStore struct {
+	clienttypes.Store
+	configStore clienttypes.ConfigStore
+}
+
+func (s *mockClientStore) ConfigStore() clienttypes.ConfigStore { return s.configStore }
+
+// withMockedServices wires the minimal dependencies detectAndHandleSignerRotation
+// needs to run the full detect -> updateConfig -> migrate path under test: a
+// non-nil server params, a stub client/clientStore for updateConfig, the seeded
+// last signer set, and the mocked migration seam.
+func withMockedServices(
+	w *wallet, lastSet, liveSet string, migrate func(context.Context, *client.Info) error,
+) {
+	info := &client.Info{
+		SignerPubKey:            validSignerKeyHex,
+		DeprecatedSignerPubKeys: []client.DeprecatedSigner{{PubKey: validSignerKeyHex}},
+	}
+	w.lastSignerSet = lastSet
+	w.client = &mockWallet{cfg: &clienttypes.Config{}}
+	w.clientStore = &mockClientStore{configStore: &mockConfigStore{}}
+	w.fetchSignerSetFn = func(context.Context) (*client.Info, string, error) {
+		return info, liveSet, nil
+	}
+	w.migrateFundsAfterSignerRotationFn = migrate
 }

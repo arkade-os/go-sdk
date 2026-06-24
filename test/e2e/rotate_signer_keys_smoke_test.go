@@ -15,6 +15,7 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,33 +36,15 @@ const (
 	signerRotationSpendSats = uint64(1_000)
 )
 
-// ANSI color codes used to make this test's log output stand out.
-const (
-	colorBlue  = "\033[94m"
-	colorReset = "\033[0m"
-)
-
-// logBlue is a blue-colored variant of t.Log.
-func logBlue(t *testing.T, args ...any) {
-	t.Helper()
-	t.Log(colorBlue + fmt.Sprint(args...) + colorReset)
-}
-
-// logBluef is a blue-colored variant of t.Logf.
-func logBluef(t *testing.T, format string, args ...any) {
-	t.Helper()
-	t.Logf(colorBlue+format+colorReset, args...)
-}
-
 type signerRotationExpected struct {
-	Sats          uint64
-	AssetBalances map[string]uint64
-	VtxoCount     int
+	sats          uint64
+	assetBalances map[string]uint64
+	vtxoCount     int
 }
 
 type signerRotationFundingConfig struct {
-	VtxoCount  int
-	AssetCount int
+	vtxoCount  int
+	assetCount int
 }
 
 func TestSignerRotationRestartSmoke(t *testing.T) {
@@ -70,7 +53,7 @@ func TestSignerRotationRestartSmoke(t *testing.T) {
 	expected, oldSigner := fundSignerRotationWallet(t, alice)
 
 	logBluef(t, "funded live wallet under signer %s", oldSigner)
-	logBluef(t, "number of vtxos before migration: %d\n", expected.VtxoCount)
+	logBluef(t, "number of vtxos before migration: %d\n", expected.vtxoCount)
 
 	currentSigner := waitForSignerRotation(
 		t,
@@ -100,7 +83,7 @@ func TestSignerRotationRuntimeSmoke(t *testing.T) {
 	expected, oldSigner := fundSignerRotationWallet(t, alice)
 
 	logBluef(t, "funded live wallet under signer %s", oldSigner)
-	logBluef(t, "number of vtxos before migration: %d\n", expected.VtxoCount)
+	logBluef(t, "number of vtxos before migration: %d\n", expected.vtxoCount)
 
 	currentSigner := waitForSignerRotation(
 		t,
@@ -111,10 +94,10 @@ func TestSignerRotationRuntimeSmoke(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		vtxos, _, err := alice.ListVtxos(ctx, arksdk.WithSpendableOnly())
-		if err != nil || len(vtxos) == 0 || totalVtxoAmount(vtxos) != expected.Sats {
+		if err != nil || len(vtxos) == 0 || totalVtxoAmount(vtxos) != expected.sats {
 			return false
 		}
-		if !assetBalancesEqual(assetBalancesFromVtxos(vtxos), expected.AssetBalances) {
+		if !assetBalancesEqual(assetBalancesFromVtxos(vtxos), expected.assetBalances) {
 			return false
 		}
 		for _, v := range vtxos {
@@ -136,12 +119,12 @@ func btcFromSats(sats uint64) float64 {
 }
 
 func (c signerRotationFundingConfig) BtcOnlyVtxoCount() int {
-	return c.VtxoCount - c.AssetCount
+	return c.vtxoCount - c.assetCount
 }
 
 func (c signerRotationFundingConfig) ExpectedSats() uint64 {
 	return uint64(c.BtcOnlyVtxoCount())*satsPerVtxo +
-		uint64(c.AssetCount)*satsPerAssetVtxo
+		uint64(c.assetCount)*satsPerAssetVtxo
 }
 
 func fundSignerRotationWallet(
@@ -151,10 +134,10 @@ func fundSignerRotationWallet(
 	ctx := t.Context()
 
 	cfg := signerRotationFundingConfig{
-		VtxoCount:  aliceVtxoCount,
-		AssetCount: aliceAssetCount,
+		vtxoCount:  aliceVtxoCount,
+		assetCount: aliceAssetCount,
 	}
-	require.LessOrEqual(t, cfg.AssetCount, cfg.VtxoCount,
+	require.LessOrEqual(t, cfg.assetCount, cfg.vtxoCount,
 		"asset VTXO count must not exceed total VTXO count")
 	expectedSats := cfg.ExpectedSats()
 	require.Greater(t, expectedSats, signerRotationSpendSats,
@@ -165,9 +148,9 @@ func fundSignerRotationWallet(
 	logBluef(
 		t,
 		"signer rotation funding: vtxos=%d btc_only=%d assets=%d vtxo_sats=%d asset_amount=%d sats=%d funder_sats=%d",
-		cfg.VtxoCount,
+		cfg.vtxoCount,
 		cfg.BtcOnlyVtxoCount(),
-		cfg.AssetCount,
+		cfg.assetCount,
 		satsPerVtxo,
 		assetAmount,
 		expectedSats,
@@ -176,8 +159,8 @@ func fundSignerRotationWallet(
 	faucetOffchain(t, funder, btcFromSats(funderSats))
 
 	expected := signerRotationExpected{
-		AssetBalances: make(map[string]uint64, cfg.AssetCount),
-		VtxoCount:     cfg.VtxoCount,
+		assetBalances: make(map[string]uint64, cfg.assetCount),
+		vtxoCount:     cfg.vtxoCount,
 	}
 
 	for i := 0; i < cfg.BtcOnlyVtxoCount(); i++ {
@@ -189,10 +172,10 @@ func fundSignerRotationWallet(
 			To:     addr,
 			Amount: satsPerVtxo,
 		}})
-		expected.Sats += satsPerVtxo
+		expected.sats += satsPerVtxo
 	}
 
-	for i := 0; i < cfg.AssetCount; i++ {
+	for i := 0; i < cfg.assetCount; i++ {
 		_, assetIDs, err := funder.IssueAsset(ctx, assetAmount, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, assetIDs, 1)
@@ -213,8 +196,8 @@ func fundSignerRotationWallet(
 			}},
 		}})
 
-		expected.Sats += satsPerAssetVtxo
-		expected.AssetBalances[assetID] = assetAmount
+		expected.sats += satsPerAssetVtxo
+		expected.assetBalances[assetID] = assetAmount
 	}
 
 	preVtxos := requireSpendableFunding(t, alice, expected)
@@ -225,6 +208,8 @@ func fundSignerRotationWallet(
 		require.Equal(t, oldSigner, vtxoSignerKey(t, alice, vtxo),
 			"every pre-rotation funding vtxo must commit to the same old signer")
 	}
+
+	log.SetLevel(log.DebugLevel)
 
 	return expected, oldSigner
 }
@@ -237,8 +222,8 @@ func ensureFundsAreMigrated(
 ) {
 	t.Helper()
 	ctx := t.Context()
-	initialBalance := expected.Sats
-	initialAssetBalances := expected.AssetBalances
+	initialBalance := expected.sats
+	initialAssetBalances := expected.assetBalances
 
 	// All spendable vtxos must now commit to the new signer key.
 	vtxos, _, err := w.ListVtxos(ctx, arksdk.WithSpendableOnly(), arksdk.WithLimit(1000))
@@ -299,7 +284,7 @@ func ensureFundsAreSpendableAfterMigration(
 ) {
 	t.Helper()
 	ctx := t.Context()
-	initialBalance := expected.Sats
+	initialBalance := expected.sats
 
 	bob := setupClient(t, "")
 	bobAddr, err := bob.NewOffchainAddress(ctx)
@@ -353,18 +338,18 @@ func requireSpendableFunding(
 		if err != nil {
 			return false
 		}
-		return len(vtxos) == expected.VtxoCount &&
-			totalVtxoAmount(vtxos) == expected.Sats &&
-			assetBalancesEqual(assetBalancesFromVtxos(vtxos), expected.AssetBalances)
+		return len(vtxos) == expected.vtxoCount &&
+			totalVtxoAmount(vtxos) == expected.sats &&
+			assetBalancesEqual(assetBalancesFromVtxos(vtxos), expected.assetBalances)
 	}, 30*time.Second, 500*time.Millisecond,
 		"wallet should hold %d spendable pre-rotation vtxos with sats=%d assets=%v",
-		expected.VtxoCount, expected.Sats, expected.AssetBalances)
+		expected.vtxoCount, expected.sats, expected.assetBalances)
 
 	vtxos, _, err := w.ListVtxos(t.Context(), arksdk.WithSpendableOnly())
 	require.NoError(t, err)
-	require.Len(t, vtxos, expected.VtxoCount)
-	require.Equal(t, expected.Sats, totalVtxoAmount(vtxos))
-	require.Equal(t, expected.AssetBalances, assetBalancesFromVtxos(vtxos))
+	require.Len(t, vtxos, expected.vtxoCount)
+	require.Equal(t, expected.sats, totalVtxoAmount(vtxos))
+	require.Equal(t, expected.assetBalances, assetBalancesFromVtxos(vtxos))
 	return vtxos
 }
 
@@ -482,4 +467,22 @@ func unlockClient(t *testing.T, arkClient arksdk.Wallet) {
 	require.True(t, synced.Synced)
 
 	t.Cleanup(arkClient.Stop)
+}
+
+// ANSI color codes used to make this test's log output stand out.
+const (
+	colorBlue  = "\033[94m"
+	colorReset = "\033[0m"
+)
+
+// logBlue is a blue-colored variant of t.Log.
+func logBlue(t *testing.T, args ...any) {
+	t.Helper()
+	t.Log(colorBlue + fmt.Sprint(args...) + colorReset)
+}
+
+// logBluef is a blue-colored variant of t.Logf.
+func logBluef(t *testing.T, format string, args ...any) {
+	t.Helper()
+	t.Logf(colorBlue+format+colorReset, args...)
 }

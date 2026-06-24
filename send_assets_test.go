@@ -12,11 +12,11 @@ import (
 // --- buildConsolidatedReceiver ---------------------------------------------
 
 // TestConsolidatedReceiverShape covers sats, assets, sorting, and dust floor.
-func TestConsolidatedReceiverShape(t *testing.T) {
+func TestBuildReceiverForMigration(t *testing.T) {
 	const dust = uint64(330)
 
 	t.Run("pure sats: exact sum, no assets", func(t *testing.T) {
-		r := buildConsolidatedReceiver([]clienttypes.VtxoWithTapTree{
+		r := buildReceiverForMigration([]clienttypes.VtxoWithTapTree{
 			vtxoWith(1000), vtxoWith(2000),
 		}, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
@@ -25,7 +25,7 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 	})
 
 	t.Run("nil/empty input set is dust-floored sats receiver", func(t *testing.T) {
-		r := buildConsolidatedReceiver(nil, "addr1", dust)
+		r := buildReceiverForMigration(nil, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
 		require.Equal(t, dust, r.Amount, "empty input set floors to dust")
 		require.Nil(t, r.Assets)
@@ -43,7 +43,7 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 			),
 		}
 
-		r := buildConsolidatedReceiver(inputs, "addr1", dust)
+		r := buildReceiverForMigration(inputs, "addr1", dust)
 		require.Equal(t, "addr1", r.To)
 		require.Equal(t, uint64(50000+330*4), r.Amount,
 			"consolidated Amount must be the sum of every input's sats")
@@ -60,7 +60,7 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 	})
 
 	t.Run("multi-asset single vtxo: all its assets declared on one receiver", func(t *testing.T) {
-		r := buildConsolidatedReceiver([]clienttypes.VtxoWithTapTree{
+		r := buildReceiverForMigration([]clienttypes.VtxoWithTapTree{
 			vtxoWith(330,
 				clienttypes.Asset{AssetId: "bbb", Amount: 200},
 				clienttypes.Asset{AssetId: "aaa", Amount: 100},
@@ -73,7 +73,7 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 	})
 
 	t.Run("asset carrier sats are summed, never dropped to a flat dust", func(t *testing.T) {
-		r := buildConsolidatedReceiver([]clienttypes.VtxoWithTapTree{
+		r := buildReceiverForMigration([]clienttypes.VtxoWithTapTree{
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 500}),
 			vtxoWith(330, clienttypes.Asset{AssetId: "aaa", Amount: 300}),
 		}, "addr1", dust)
@@ -84,7 +84,7 @@ func TestConsolidatedReceiverShape(t *testing.T) {
 	})
 
 	t.Run("sub-dust total floored to dust", func(t *testing.T) {
-		r := buildConsolidatedReceiver([]clienttypes.VtxoWithTapTree{
+		r := buildReceiverForMigration([]clienttypes.VtxoWithTapTree{
 			vtxoWith(0, clienttypes.Asset{AssetId: "aaa", Amount: 5}),
 		}, "addr1", dust)
 		require.Equal(t, dust, r.Amount, "sub-dust total must be floored to dust")

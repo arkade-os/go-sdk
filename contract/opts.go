@@ -126,22 +126,22 @@ func WithLabel(label string) ContractOption {
 	})
 }
 
-func WithServerInfo(info *client.Info) ContractOption {
+func WithServerParams(serverParams *client.Info) ContractOption {
 	return contractOptFn(func(o *contractOptions) error {
-		if o.serverInfo != nil {
-			return fmt.Errorf("server info option is already set")
+		if o.serverParams != nil {
+			return fmt.Errorf("server params option is already set")
 		}
-		if info == nil {
-			return fmt.Errorf("server info cannot be nil")
+		if serverParams == nil {
+			return fmt.Errorf("server params cannot be nil")
 		}
-		o.serverInfo = info
+		o.serverParams = serverParams
 		return nil
 	})
 }
 
 type contractOptions struct {
-	label      string
-	serverInfo *client.Info
+	label        string
+	serverParams *client.Info
 }
 
 func newDefaultContractOption() *contractOptions {

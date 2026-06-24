@@ -56,12 +56,12 @@ func NewHandler(
 func (h *defaultHandler) NewContract(
 	ctx context.Context, keyRef identity.KeyRef,
 ) (*types.Contract, error) {
-	info, err := h.getInfo(ctx)
+	serverParams, err := h.getInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get server info: %w", err)
+		return nil, fmt.Errorf("failed to get server params: %w", err)
 	}
 
-	buf, err := hex.DecodeString(info.SignerPubKey)
+	buf, err := hex.DecodeString(serverParams.SignerPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
 	}
@@ -70,9 +70,9 @@ func (h *defaultHandler) NewContract(
 		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
 	}
 
-	delay := info.UnilateralExitDelay
+	delay := serverParams.UnilateralExitDelay
 	if h.isOnchain {
-		delay = info.BoardingExitDelay
+		delay = serverParams.BoardingExitDelay
 	}
 	exitDelay := arklib.RelativeLocktime{
 		Type:  arklib.LocktimeTypeSecond,
@@ -127,7 +127,7 @@ func (h *defaultHandler) NewContract(
 	contractType := types.ContractTypeBoarding
 	if !h.isOnchain {
 		contractType = types.ContractTypeDefault
-		params[checkpointExitPathParam] = info.CheckpointTapscript
+		params[checkpointExitPathParam] = serverParams.CheckpointTapscript
 	}
 
 	return &types.Contract{

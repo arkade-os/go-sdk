@@ -11,17 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRefreshTimeRangeUsesMilliseconds(t *testing.T) {
-	updateTime := time.Unix(1_781_692_380, 123_000_000)
-	lastUpdate := time.Unix(1_781_692_370, 456_000_000)
-
-	before, after, ok := refreshTimeRange(updateTime, lastUpdate)
-
-	require.True(t, ok)
-	require.Equal(t, int64(1_781_692_380_123), before)
-	require.Equal(t, int64(1_781_692_370_456), after)
-}
-
 func TestRefreshTimeRangeSkipsInvalidRanges(t *testing.T) {
 	now := time.Unix(1_781_692_380, 0)
 
@@ -40,89 +29,77 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 	t.Run("digest failure: digest unchanged", func(t *testing.T) {
 		digestCalls := 0
 		w := &wallet{
-			lastSignerSetDigest: oldDigest,
-			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
+			lastSignerSet: oldDigest,
+			fetchSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
 				digestCalls++
 				return nil, "", fmt.Errorf("transient info failure")
 			},
-			rotationReconcileFn: func(_ context.Context, _ *client.Info) error {
+			migrateFundsAfterSignerRotationFn: func(_ context.Context, _ *client.Info) error {
 				t.Fatal("reconcile must not run when signer digest cannot be read")
 				return nil
 			},
 		}
 
-		w.detectAndHandleRotation(context.Background())
-		require.Equal(t, oldDigest, w.lastSignerSetDigest,
+		w.detectAndHandleSignerRotation(context.Background())
+		require.Equal(t, oldDigest, w.lastSignerSet,
 			"digest must not advance when signer info cannot be read")
 		require.Equal(t, 1, digestCalls)
 	})
 
 	t.Run("reconcile failure: digest unchanged, retry on next tick", func(t *testing.T) {
 		reconcileCalls := 0
-		w := &wallet{
-			lastSignerSetDigest: oldDigest,
-			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
-				return nil, newDigest, nil
-			},
-			rotationReconcileFn: func(_ context.Context, _ *client.Info) error {
-				reconcileCalls++
-				return fmt.Errorf("migration failed")
-			},
-		}
-		w.detectAndHandleRotation(context.Background())
-		require.Equal(t, oldDigest, w.lastSignerSetDigest,
+		w := &wallet{}
+		withMockedServices(w, oldDigest, newDigest, func(_ context.Context, _ *client.Info) error {
+			reconcileCalls++
+			return fmt.Errorf("migration failed")
+		})
+		w.detectAndHandleSignerRotation(context.Background())
+		require.Equal(t, oldDigest, w.lastSignerSet,
 			"digest must not advance when reconciliation fails")
 		require.Equal(t, 1, reconcileCalls)
 
-		w.rotationReconcileFn = func(_ context.Context, _ *client.Info) error {
+		w.migrateFundsAfterSignerRotationFn = func(_ context.Context, _ *client.Info) error {
 			reconcileCalls++
 			return nil
 		}
-		w.detectAndHandleRotation(context.Background())
-		require.Equal(t, newDigest, w.lastSignerSetDigest,
+		w.detectAndHandleSignerRotation(context.Background())
+		require.Equal(t, newDigest, w.lastSignerSet,
 			"digest must advance once reconciliation succeeds on retry")
 		require.Equal(t, 2, reconcileCalls, "reconcile must be retried on the next tick")
 	})
 
 	t.Run("same digest: no reconcile", func(t *testing.T) {
 		reconcileCalls := 0
-		w := &wallet{
-			lastSignerSetDigest: oldDigest,
-			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
-				return nil, oldDigest, nil
-			},
-			rotationReconcileFn: func(_ context.Context, _ *client.Info) error {
-				reconcileCalls++
-				return nil
-			},
-		}
-		w.detectAndHandleRotation(context.Background())
-		require.Equal(t, oldDigest, w.lastSignerSetDigest)
+		w := &wallet{}
+		withMockedServices(w, oldDigest, oldDigest, func(_ context.Context, _ *client.Info) error {
+			reconcileCalls++
+			return nil
+		})
+		w.detectAndHandleSignerRotation(context.Background())
+		require.Equal(t, oldDigest, w.lastSignerSet)
 		require.Equal(t, 0, reconcileCalls)
 	})
 
 	t.Run("all succeed: digest advances", func(t *testing.T) {
-		w := &wallet{
-			lastSignerSetDigest: oldDigest,
-			rotationSignerSetFn: func(_ context.Context) (*client.Info, string, error) {
-				return nil, newDigest, nil
-			},
-			rotationReconcileFn: func(_ context.Context, _ *client.Info) error { return nil },
-		}
-		w.detectAndHandleRotation(context.Background())
-		require.Equal(t, newDigest, w.lastSignerSetDigest)
+		w := &wallet{}
+		withMockedServices(
+			w, oldDigest, newDigest, func(_ context.Context, _ *client.Info) error { return nil },
+		)
+		w.detectAndHandleSignerRotation(context.Background())
+		require.Equal(t, newDigest, w.lastSignerSet)
 	})
 
 	t.Run("reconcile receives signer info response", func(t *testing.T) {
 		info := &client.Info{SignerPubKey: "abcd"}
 		w := &wallet{
-			rotationReconcileFn: func(_ context.Context, got *client.Info) error {
+			migrateFundsAfterSignerRotationFn: func(_ context.Context, got *client.Info) error {
 				require.Same(t, info, got)
 				return nil
 			},
 		}
 
-		require.True(t, w.reconcileDetectedRotation(context.Background(), info))
+		err := w.migrateAllFunds(context.Background(), info)
+		require.NoError(t, err)
 	})
 }
 

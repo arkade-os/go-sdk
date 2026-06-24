@@ -75,7 +75,7 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "my-label", persisted[0].Label)
 		})
 
-		t.Run("with server info forces cache update", func(t *testing.T) {
+		t.Run("with server params forces cache update", func(t *testing.T) {
 			env, mgr, _ := newTestManagerWithEnv(t)
 
 			first, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
@@ -92,7 +92,7 @@ func TestManagerNewContract(t *testing.T) {
 			second, err := mgr.NewContract(
 				t.Context(),
 				types.ContractTypeDefault,
-				contract.WithServerInfo(rotatedInfo),
+				contract.WithServerParams(rotatedInfo),
 			)
 			require.NoError(t, err)
 			require.Equal(t, 1, env.transport.callCount())

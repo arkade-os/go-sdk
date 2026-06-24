@@ -43,7 +43,7 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	}
 
 	// Wrap the transport client once with a shared GetInfo cache so all
-	// built-in handlers reuse the same cached server info. Custom handlers
+	// built-in handlers reuse the same cached server params. Custom handlers
 	// supplied via WithHandler are constructed outside the manager and own
 	// their own client wiring.
 	cache := newInfoCache(infoCacheTTL)
@@ -123,9 +123,9 @@ func (m *contractManager) NewContract(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if o.serverInfo != nil {
-		// Force a cache update if the caller provided a server info.
-		m.infoCache.set(o.serverInfo)
+	if o.serverParams != nil {
+		// Force a cache update if the caller provided a server params.
+		m.infoCache.set(o.serverParams)
 	}
 
 	if m.keyProvider.GetType() == identity.SingleKeyIdentity {
