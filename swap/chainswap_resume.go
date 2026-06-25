@@ -129,6 +129,7 @@ func (h *SwapHandler) ResumeChainSwap(
 
 	log.Infof("Resuming chain swap %s (%s→%s)", swap.Id, params.From, params.To)
 
+	monitorCtx := chainSwapMonitorContext(ctx)
 	if arkToBtc {
 		if params.UserBtcAddress == "" {
 			return nil, fmt.Errorf(
@@ -145,7 +146,7 @@ func (h *SwapHandler) ResumeChainSwap(
 			}()
 
 			h.monitorAndClaimArkToBtcSwap(
-				ctx,
+				monitorCtx,
 				params.Network,
 				params.EventCallback,
 				params.UnilateralRefundCB,
@@ -168,7 +169,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		}()
 
 		h.monitorBtcToArkChainSwap(
-			ctx,
+			monitorCtx,
 			params.EventCallback,
 			preimage,
 			htlcKeyRef,

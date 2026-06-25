@@ -525,6 +525,7 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)
 	}
 
+	monitorCtx := chainSwapMonitorContext(ctx)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -533,7 +534,7 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		}()
 
 		h.monitorAndClaimArkToBtcSwap(
-			ctx,
+			monitorCtx,
 			network,
 			eventCallback,
 			unilateralRefundCallback,
@@ -696,6 +697,7 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 
 	log.Debugf("Cached swap response for swap %s (used during active monitoring)", swapResp.Id)
 
+	monitorCtx := chainSwapMonitorContext(ctx)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -704,7 +706,7 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		}()
 
 		h.monitorBtcToArkChainSwap(
-			ctx,
+			monitorCtx,
 			eventCallback,
 			preimage,
 			btcRefundKeyRef,
@@ -960,7 +962,9 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 		txStatus, err := h.explorerClient.GetTransactionStatus(claimTxid)
 		if err != nil {
 			log.WithError(err).Warnf("Failed to get transaction status, will retry")
-			time.Sleep(pollInterval)
+			if err := waitForRefundPollInterval(ctx, pollInterval); err != nil {
+				return "", fmt.Errorf("refund confirmation polling cancelled: %w", err)
+			}
 			continue
 		}
 
@@ -978,7 +982,9 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 			"Waiting for refund transaction confirmation... (elapsed: %v)",
 			time.Since(startTime),
 		)
-		time.Sleep(pollInterval)
+		if err := waitForRefundPollInterval(ctx, pollInterval); err != nil {
+			return "", fmt.Errorf("refund confirmation polling cancelled: %w", err)
+		}
 	}
 
 	if !confirmed {
@@ -1006,6 +1012,18 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	log.Infof("BTC successfully refunded and boarded as VTXO!")
 
 	return claimTxid, nil
+}
+
+func waitForRefundPollInterval(ctx context.Context, interval time.Duration) error {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func genPreimageInfo() (preimage []byte, preimageHashSHA256, preimageHashHASH160 []byte, err error) {

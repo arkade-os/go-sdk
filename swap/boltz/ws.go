@@ -226,6 +226,9 @@ func (boltz *Websocket) Unsubscribe(swapId string) {
 
 func (boltz *Websocket) Close() error {
 	boltz.closed = true
+	if boltz.conn == nil {
+		return nil
+	}
 	return boltz.conn.Close()
 }
 

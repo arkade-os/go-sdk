@@ -338,7 +338,18 @@ func combineTapscripts(signedPackets []*psbt.Packet) (*psbt.Packet, error) {
 	for i := range finalCheckpoint.Inputs {
 		scriptSigs := make([]*psbt.TaprootScriptSpendSig, len(signedPackets))
 		for j, signedCheckpointPsbt := range signedPackets {
+			if i >= len(signedCheckpointPsbt.Inputs) {
+				return nil, fmt.Errorf("missing input %d for packet %d", i, j)
+			}
+
 			boltzIn := signedCheckpointPsbt.Inputs[i]
+			if len(boltzIn.TaprootScriptSpendSig) == 0 {
+				return nil, fmt.Errorf(
+					"missing tapscript signature for packet %d input %d",
+					j,
+					i,
+				)
+			}
 			scriptSigs[j] = boltzIn.TaprootScriptSpendSig[0]
 		}
 		finalCheckpoint.Inputs[i].TaprootScriptSpendSig = scriptSigs
@@ -380,7 +391,7 @@ func decodeInvoice(invoice string) (uint64, []byte, error) {
 
 func parsePubkey(pubkey string) (*btcec.PublicKey, error) {
 	if len(pubkey) <= 0 {
-		return nil, nil
+		return nil, errors.New("empty public key")
 	}
 
 	dec, err := hex.DecodeString(pubkey)
