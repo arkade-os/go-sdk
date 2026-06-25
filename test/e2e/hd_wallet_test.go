@@ -143,13 +143,13 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 	ctx := t.Context()
 
-	const gapLimit = uint32(5)
+	const gapLimit = uint32(20)
 
 	aliceClientHD := setupClient(t, "", sdk.WithGapLimit(gapLimit))
 	bobClientHD := setupClient(t, "")
 
-	addresses := make([]string, 0, 11)
-	for range 11 {
+	addresses := make([]string, 0, 31)
+	for range 31 {
 		addr, err := aliceClientHD.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		addresses = append(addresses, addr)
@@ -173,7 +173,7 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 	aliceClientHD = nil
 
 	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
-		To:     addresses[10],
+		To:     addresses[30],
 		Amount: 16_000,
 	}})
 	require.NoError(t, err)

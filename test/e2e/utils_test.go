@@ -84,14 +84,14 @@ func faucetOffchain(
 
 	note := generateNote(t, uint64(amount*1e8))
 
-	aliceVtxoCh := client.GetVtxoEventChannel(ctx)
+	clientVtxoCh := client.GetVtxoEventChannel(ctx)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	var vtxo clientTypes.Vtxo
 	go func() {
 		defer wg.Done()
-		for event := range aliceVtxoCh {
+		for event := range clientVtxoCh {
 			if len(event.Vtxos) == 0 || event.Type != types.VtxosAdded {
 				continue
 			}

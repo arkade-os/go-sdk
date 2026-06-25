@@ -27,6 +27,7 @@ type contractManager struct {
 	network     arklib.Network
 	registry    Registry
 	mu          sync.RWMutex
+	infoCache   *infoCache
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
@@ -44,10 +45,11 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	}
 
 	// Wrap the transport client once with a shared GetInfo cache so all
-	// built-in handlers reuse the same cached server info. Custom handlers
+	// built-in handlers reuse the same cached server params. Custom handlers
 	// supplied via WithHandler are constructed outside the manager and own
 	// their own client wiring.
-	cachedClient := newCachingClient(args.Client, newInfoCache(infoCacheTTL))
+	cache := newInfoCache(infoCacheTTL)
+	cachedClient := newCachingClient(args.Client, cache)
 	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
@@ -66,6 +68,7 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		network:     args.Network,
 		registry:    reg,
 		mu:          sync.RWMutex{},
+		infoCache:   cache,
 	}, nil
 }
 
@@ -127,12 +130,17 @@ func (m *contractManager) NewContract(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if o.serverParams != nil {
+		// Force a cache update if the caller provided a server params.
+		m.infoCache.set(o.serverParams)
+	}
+
 	// Derivable single-key contracts are idempotent when the manager controls
 	// key selection: the same key always produces the same script, so return
 	// the existing one.
 	if o.keyRef == nil && handler.Derivable() &&
 		m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
 		if err != nil {
 			return nil, err
 		}
@@ -208,7 +216,7 @@ func (m *contractManager) GetContracts(
 	case len(f.state) > 0:
 		return m.store.GetContractsByState(ctx, f.state)
 	case len(f.contractType) > 0:
-		return m.store.GetContractsByType(ctx, f.contractType)
+		return m.store.GetActiveContractsByType(ctx, f.contractType)
 	default:
 		return m.store.ListContracts(ctx)
 	}
@@ -252,7 +260,7 @@ func (m *contractManager) scanContracts(
 	ctx context.Context, contractType types.ContractType,
 	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
 ) error {
-	contract, err := m.store.GetLatestContract(ctx, contractType)
+	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -359,7 +367,7 @@ func (m *contractManager) deriveContract(
 	ctx context.Context,
 	contractType types.ContractType, handler handlers.Handler, params any,
 ) (*types.Contract, error) {
-	contract, err := m.store.GetLatestContract(ctx, contractType)
+	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +463,7 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		if !handler.Derivable() {
 			continue
 		}
-		contracts, err := m.store.GetContractsByType(ctx, contractType)
+		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
 		if err != nil {
 			return err
 		}

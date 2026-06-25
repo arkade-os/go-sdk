@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -163,8 +164,22 @@ func WithKeyRef(keyRef identity.KeyRef) ContractOption {
 	})
 }
 
+func WithServerParams(serverParams *client.Info) ContractOption {
+	return contractOptFn(func(o *contractOptions) error {
+		if o.serverParams != nil {
+			return fmt.Errorf("server params option is already set")
+		}
+		if serverParams == nil {
+			return fmt.Errorf("server params cannot be nil")
+		}
+		o.serverParams = serverParams
+		return nil
+	})
+}
+
 type contractOptions struct {
-	label  string
+	label        string
+	serverParams *client.Info
 	params any
 	keyRef *identity.KeyRef
 }

@@ -40,7 +40,7 @@ func TestWalletOptions(t *testing.T) {
 			},
 			{
 				name: "WithGapLimit",
-				opts: []arksdk.WalletOption{arksdk.WithGapLimit(10)},
+				opts: []arksdk.WalletOption{arksdk.WithGapLimit(30)},
 			},
 			{
 				name: "WithIdentity",
@@ -100,13 +100,13 @@ func TestWalletOptions(t *testing.T) {
 			{
 				name:            "WithGapLimit zero",
 				opts:            []arksdk.WalletOption{arksdk.WithGapLimit(0)},
-				wantErrContains: "gap limit must be greater than zero",
+				wantErrContains: "gap limit must be at least",
 			},
 			{
 				name: "WithGapLimit twice",
 				opts: []arksdk.WalletOption{
-					arksdk.WithGapLimit(10),
-					arksdk.WithGapLimit(12),
+					arksdk.WithGapLimit(30),
+					arksdk.WithGapLimit(32),
 				},
 				wantErrContains: "gap limit already set",
 			},

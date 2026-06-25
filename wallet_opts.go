@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	minInterval     = 30 * time.Second
-	defaultGapLimit = 20
+	minDbRefreshInterval      = 30 * time.Second
+	minGapLimit               = 20
+	defaultMaxMigrationInputs = 50
 )
 
 type WalletOption func(*walletOptions) error
@@ -27,17 +28,17 @@ func ApplyWalletOptions(opts ...WalletOption) error {
 
 // WithRefreshDbInterval sets the interval at which the local database is periodically refreshed
 // from the server. Must be at least 30s.
-// Can only be set once. If no WalletOption is passed, refreshDbInterval defaults to zero, which
-// disables periodic refresh entirely.
+// Can only be set once. If not set, refreshDbInterval defaults to 30s.
 func WithRefreshDbInterval(d time.Duration) WalletOption {
 	return func(o *walletOptions) error {
-		if o.refreshDbInterval != 0 {
+		if o.refreshDbIntervalSet {
 			return fmt.Errorf("refresh db interval already set")
 		}
-		if d < minInterval {
-			return fmt.Errorf("refresh db interval must be at least %s", minInterval)
+		if d < minDbRefreshInterval {
+			return fmt.Errorf("refresh db interval must be at least %s", minDbRefreshInterval)
 		}
 		o.refreshDbInterval = d
+		o.refreshDbIntervalSet = true
 		return nil
 	}
 }
@@ -51,14 +52,15 @@ func WithVerbose() WalletOption {
 }
 
 // WithGapLimit sets the HD wallet discovery gap limit used during startup recovery.
-// Must be greater than zero.
+// Must be at least 20.
+// Can only be set once. If not set, hdGapLimit defaults to 20.
 func WithGapLimit(limit uint32) WalletOption {
 	return func(o *walletOptions) error {
 		if o.hdGapLimitSet {
 			return fmt.Errorf("gap limit already set")
 		}
-		if limit == 0 {
-			return fmt.Errorf("gap limit must be greater than zero")
+		if limit < minGapLimit {
+			return fmt.Errorf("gap limit must be at least %d", minGapLimit)
 		}
 		o.hdGapLimit = limit
 		o.hdGapLimitSet = true
@@ -149,18 +151,22 @@ func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 }
 
 type walletOptions struct {
-	refreshDbInterval time.Duration
-	verbose           bool
-	hdGapLimit        uint32
-	hdGapLimitSet     bool
-	identity          identity.Identity
-	scheduler         scheduler.SchedulerService
-	disableAutoSettle bool
-	customHandlers    map[types.ContractType]handlers.Handler
+	refreshDbIntervalSet bool
+	refreshDbInterval    time.Duration
+	verbose              bool
+	hdGapLimit           uint32
+	hdGapLimitSet        bool
+	identity             identity.Identity
+	scheduler            scheduler.SchedulerService
+	disableAutoSettle    bool
+	customHandlers       map[types.ContractType]handlers.Handler
 }
 
-// newDefaultWalletOptions returns a zero-value walletOptions.
-// A zero refreshDbInterval disables periodic DB refresh (periodicRefreshDb exits early).
+// newDefaultWalletOptions returns a zero-value walletOptions with default hdGapLimit (20) and
+// refreshDbInterval (30s). These values cannot be zero-ed.
 func newDefaultWalletOptions() *walletOptions {
-	return &walletOptions{hdGapLimit: defaultGapLimit}
+	return &walletOptions{
+		hdGapLimit:        minGapLimit,
+		refreshDbInterval: minDbRefreshInterval,
+	}
 }

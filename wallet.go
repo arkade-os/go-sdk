@@ -75,6 +75,15 @@ type wallet struct {
 	network           arklib.Network
 	dustAmount        uint64
 
+	// latestSignerSet is the latest set of signer key + deprecated signers handled by the wallet.
+	// Used to determine if a migration of dunds is requird or not.
+	lastSignerSet string
+
+	// fetchSignerSetFn/migrateFundsAfterSignerRotationFn are test-only seams for
+	// detectAndHandleSignerRotation. They are nil in production.
+	fetchSignerSetFn                  func(ctx context.Context) (*client.Info, string, error)
+	migrateFundsAfterSignerRotationFn func(ctx context.Context, info *client.Info) error
+
 	utxoBroadcaster *broadcaster[types.UtxoEvent]
 	vtxoBroadcaster *broadcaster[types.VtxoEvent]
 	txBroadcaster   *broadcaster[types.TransactionEvent]
@@ -546,12 +555,8 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 			scripts = append(scripts, contract.Script)
 		}
 		opts := []indexer.GetVtxosOption{indexer.WithScripts(scripts)}
-		if !w.lastUpdate.IsZero() {
-			updateUnix := updateTime.Unix()
-			lastUpdateUnix := w.lastUpdate.Unix()
-			if updateUnix > lastUpdateUnix {
-				opts = append(opts, indexer.WithTimeRange(updateUnix, lastUpdateUnix))
-			}
+		if before, after, ok := refreshTimeRange(updateTime, w.lastUpdate); ok {
+			opts = append(opts, indexer.WithTimeRange(before, after))
 		}
 
 		res, err := w.Indexer().GetVtxos(ctx, opts...)
@@ -688,6 +693,18 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 	w.lastUpdate = updateTime
 
 	return nil
+}
+
+func refreshTimeRange(updateTime, lastUpdate time.Time) (before, after int64, ok bool) {
+	if lastUpdate.IsZero() {
+		return 0, 0, false
+	}
+	before = updateTime.Unix()
+	after = lastUpdate.Unix()
+	if before <= after {
+		return 0, 0, false
+	}
+	return before, after, true
 }
 
 func (w *wallet) refreshTxDb(ctx context.Context, newTxs []clienttypes.Transaction) error {
@@ -1339,6 +1356,7 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 				log.WithError(err).Error("failed to refresh db")
 				continue
 			}
+			w.detectAndHandleSignerRotation(ctx)
 		}
 	}
 }
