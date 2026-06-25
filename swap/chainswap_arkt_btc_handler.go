@@ -77,19 +77,14 @@ func (h *arkToBtcHandler) HandleUserLocked(ctx context.Context, update boltz.Swa
 }
 
 func (h *arkToBtcHandler) HandleServerLockedMempool(
-	_ context.Context,
-	_ boltz.SwapUpdate,
+	ctx context.Context,
+	update boltz.SwapUpdate,
 ) error {
-	log.Infof(
-		"Boltz BTC lockup for swap %s detected in mempool, waiting for confirmation",
-		h.chainSwapState.SwapID,
-	)
-
-	return nil
+	return h.handleArkToBtcServerLocked(ctx, update)
 }
 
 func (h *arkToBtcHandler) HandleServerLocked(ctx context.Context, update boltz.SwapUpdate) error {
-	return h.handleArkToBtcServerLocked(ctx, update)
+	return nil
 }
 
 func (h *arkToBtcHandler) HandleSwapExpired(ctx context.Context, update boltz.SwapUpdate) error {

@@ -229,10 +229,10 @@ type ChainSwapEventHandler interface {
 	// HandleUserLocked handles user lockup confirmation
 	HandleUserLocked(ctx context.Context, update boltz.SwapUpdate) error
 
-	// HandleServerLockedMempool handles server lockup observed in mempool.
+	// HandleServerLockedMempool handles server lockup (ready to claim)
 	HandleServerLockedMempool(ctx context.Context, update boltz.SwapUpdate) error
 
-	// HandleServerLocked handles confirmed server lockup.
+	// HandleServerLocked handles server lockup (ready to claim)
 	HandleServerLocked(ctx context.Context, update boltz.SwapUpdate) error
 
 	HandleSwapExpired(ctx context.Context, update boltz.SwapUpdate) error
