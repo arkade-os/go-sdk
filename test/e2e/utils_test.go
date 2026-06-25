@@ -27,6 +27,7 @@ const (
 	serverUrl         = "127.0.0.1:7070"
 	explorerUrl       = "http://127.0.0.1:3000"
 	mockBoltzAdminURL = "http://127.0.0.1:9101"
+	settleTimeout     = 90 * time.Second
 )
 
 func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {

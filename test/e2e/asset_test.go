@@ -20,8 +20,8 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	const transferAmount = 1_200
 
 	ctx := t.Context()
-	alice := setupClient(t, "")
-	bob := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
+	bob := setupClient(t, "", sdk.WithoutAutoSettle())
 	aliceTxStream := alice.GetTransactionEventChannel(ctx)
 	bobTxStream := bob.GetTransactionEventChannel(ctx)
 
@@ -123,10 +123,9 @@ func TestAssetTransferAndRenew(t *testing.T) {
 }
 
 func TestProveDustAmountAddedByDefault(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
-	alice := setupClient(t, "")
-	bob := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
+	bob := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	faucetOffchain(t, alice, 0.002)
 
@@ -163,7 +162,7 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 func TestAssetIssuance(t *testing.T) {
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -190,7 +189,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with new control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -224,7 +223,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with existing control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -278,7 +277,7 @@ func TestAssetIssuance(t *testing.T) {
 // TestAssetReissuance makes issue an asset with a control asset and then reissue it.
 func TestAssetReissuance(t *testing.T) {
 	ctx := t.Context()
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	faucetOffchain(t, alice, 0.01)
 
@@ -345,7 +344,7 @@ func TestAssetReissuance(t *testing.T) {
 
 func TestAssetBurn(t *testing.T) {
 	ctx := t.Context()
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	faucetOffchain(t, alice, 0.01)
 
