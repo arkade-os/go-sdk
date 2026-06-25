@@ -75,6 +75,66 @@ wait_for_onboard() {
     return 1
 }
 
+provision_boltz_fulmine() {
+    echo "provisioning Fulmine used by Boltz..."
+    # Wait for boltz-fulmine REST API to be reachable
+    for _ in {1..30}; do
+        if curl -s "$fulmineBoltzUrl/wallet/status" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+    done
+
+    seedResponse=$(curl -s $fulmineBoltzUrl/wallet/genseed)
+    mnemonic=$(echo "$seedResponse" | jq -r '.mnemonic // empty')
+    seed=$(echo "$seedResponse" | jq -r '.hex // empty')
+    if [ $? -ne 0 ] || { [ -z "$mnemonic" ] && [ -z "$seed" ]; }; then
+        exit "  ❌ failed to generate seed (response=$seedResponse)"
+    fi
+
+    if [ -n "$mnemonic" ]; then
+        createPayload="{\"mnemonic\": \"$mnemonic\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}"
+    else
+        createPayload="{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}"
+    fi
+
+    err=$(curl -s -X POST $fulmineBoltzUrl/wallet/create -H 'Content-Type: application/json' \
+        -d "$createPayload")
+    if [ $? -ne 0 ]; then
+        exit "  ❌ failed to initialize (status=$status) (err=$err)"
+    else
+        echo "  ✅ initialized"
+    fi
+    sleep 1
+
+    err=$(curl -s -X POST $fulmineBoltzUrl/wallet/unlock -H 'Content-Type: application/json' \
+        -d "{\"password\": \"$password\"}")
+    if [ $? -ne 0 ]; then
+        exit "  ❌ failed to unlock (status=$status) (err=$err)"
+    else
+        echo "  ✅ unlocked"
+    fi
+    sleep 1
+
+    addr=$(wait_for_onboard $fulmineBoltzUrl)
+    if [ $? -ne 0 ] || [ -z "$addr" ]; then
+        exit "  ❌ failed to get boarding address (status=$status) (err=$err)"
+    fi
+
+    err=$(nigiri faucet $addr 1)
+    if [ $? -ne 0 ]; then
+        exit "  ❌ failed to fund boarding address (addr=$addr) (status=$status) (err=$err)"
+    fi
+    sleep 5
+
+    err=$(curl -s --max-time 20 $fulmineBoltzUrl/settle)
+    if [ $? -ne 0 ]; then
+        exit "  ❌ failed to settle (status=$status) (err=$err)"
+    else
+        echo "  ✅ funded offchain with 1 BTC"
+    fi
+}
+
 wait_for_arkd_wallet_ready() {
     local response curl_status initialized unlocked synced
 
@@ -238,62 +298,6 @@ else
 fi
 sleep 5
 
-echo "provisioning Fulmine used by Boltz..."
-# Wait for boltz-fulmine REST API to be reachable
-for _ in {1..30}; do
-    if curl -s "$fulmineBoltzUrl/wallet/status" >/dev/null 2>&1; then
-        break
-    fi
-    sleep 2
-done
-seedResponse=$(curl -s $fulmineBoltzUrl/wallet/genseed)
-mnemonic=$(echo "$seedResponse" | jq -r '.mnemonic // empty')
-seed=$(echo "$seedResponse" | jq -r '.hex // empty')
-if [ $? -ne 0 ] || { [ -z "$mnemonic" ] && [ -z "$seed" ]; }; then
-    exit "  ❌ failed to generate seed (response=$seedResponse)"
-fi
-
-if [ -n "$mnemonic" ]; then
-    createPayload="{\"mnemonic\": \"$mnemonic\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}"
-else
-    createPayload="{\"private_key\": \"$seed\", \"password\": \"$password\", \"server_url\": \"$arkdUrl\"}"
-fi
-
-err=$(curl -s -X POST $fulmineBoltzUrl/wallet/create -H 'Content-Type: application/json' \
-    -d "$createPayload")
-if [ $? -ne 0 ]; then
-    exit "  ❌ failed to initialize (status=$status) (err=$err)"
-else
-    echo "  ✅ initialized"
-fi
-sleep 1
-
-err=$(curl -s -X POST $fulmineBoltzUrl/wallet/unlock -H 'Content-Type: application/json' \
-    -d "{\"password\": \"$password\"}")
-if [ $? -ne 0 ]; then
-    exit "  ❌ failed to unlock (status=$status) (err=$err)"
-else
-    echo "  ✅ unlocked"
-fi
-sleep 1
-
-addr=$(wait_for_onboard $fulmineBoltzUrl)
-if [ $? -ne 0 ] || [ -z "$addr" ]; then
-    exit "  ❌ failed to get boarding address (status=$status) (err=$err)"
-fi
-err=$(nigiri faucet $addr 1)
-if [ $? -ne 0 ]; then
-    exit "  ❌ failed to fund boarding address (addr=$addr) (status=$status) (err=$err)"
-fi
-sleep 5
-
-err=$(curl -s $fulmineBoltzUrl/settle)
-if [ $? -ne 0 ]; then
-    exit "  ❌ failed to settle (status=$status) (err=$err)"
-else
-    echo "  ✅ funded offchain with 1 BTC"
-fi
-
 echo "provisioning LN..."
 lndPubkey=$($lndClient getinfo | jq -r .identity_pubkey)
 lndBoltzPubkey=$($lndBoltz getinfo | jq -r .identity_pubkey)
@@ -421,5 +425,6 @@ else
 fi
 
 run_quiet docker restart boltz
+provision_boltz_fulmine
 
 echo "✅ setup complete"

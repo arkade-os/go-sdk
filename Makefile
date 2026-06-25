@@ -1,10 +1,11 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc regtest regtestswap regtestdown integrationtest integrationtest-swap smokehd bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
 )
 
 COMMIT ?= $(word 2,$(MAKECMDGOALS))
+SWAP_TESTS ?= ^(TestChainSwap.*|TestSubmarineSwap|TestReverseSwap|TestMockBoltzAdminConfig|TestCircularSwap|TestConcurrentSwaps|TestRefundSwap|TestVHTLC.*|TestNonInteractiveClaim)$$
 
 ifneq ($(words $(MAKECMDGOALS)),1)
 $(eval $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS)):;@:)
@@ -43,15 +44,29 @@ sqlc:
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
 
 regtest:
-	@echo "Starting full regtest (with solver, emulator, boltz)..."
+	@echo "Starting short-expiry regtest (with solver, emulator, boltz)..."
 	@bash test/infra/setup.sh
+
+regtestswap:
+	@echo "Starting swap regtest (long VTXO expiry)..."
+	@ARKD_LOG_LEVEL=6 \
+	ARKD_VTXO_TREE_EXPIRY=512 \
+	ARKD_PUBLIC_UNILATERAL_EXIT_DELAY=512 \
+	ARKD_UNILATERAL_EXIT_DELAY=512 \
+	ARKD_BOARDING_EXIT_DELAY=2048 \
+	ARKD_CHECKPOINT_EXIT_DELAY=512 \
+	ARKD_SESSION_DURATION=30 \
+	bash test/infra/setup.sh
 
 regtestdown:
 	@echo "Stopping regtest..."
 	@docker compose -f test/infra/docker-compose.yml down -v
 
 integrationtest:
-	@go test -v -count=1 -race -timeout 40m ./test/e2e
+	@go test -v -count=1 -race -skip '$(SWAP_TESTS)' -timeout 40m ./test/e2e
+
+integrationtest-swap:
+	@go test -v -count=1 -race -run '$(SWAP_TESTS)' -timeout 40m ./test/e2e
 
 ## smokehd: runs the HD wallet restore smoke test. Optional:
 ## SMOKE_TIER=N (1-999) | Nk (thousands) | Nm (millions), defaults to 1k.
