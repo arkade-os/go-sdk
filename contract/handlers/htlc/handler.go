@@ -145,7 +145,8 @@ func createContract(
 	}
 
 	ownerKeyXOnly := schnorr.SerializePubKey(keyRef.PubKey)
-	if !isHTLCLeafWithKey(claimScript, ownerKeyXOnly) && !isHTLCLeafWithKey(refundScript, ownerKeyXOnly) {
+	if !isHTLCLeafWithKey(claimScript, ownerKeyXOnly) &&
+		!isHTLCLeafWithKey(refundScript, ownerKeyXOnly) {
 		return nil, fmt.Errorf("owner key is not present in HTLC tapscripts")
 	}
 
