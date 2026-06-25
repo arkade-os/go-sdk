@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1345,7 +1346,9 @@ func TestConcurrentSwaps(t *testing.T) {
 			postProcess := func(s swap.Swap) error { return nil }
 			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
 			defer cancel()
-			reverseSwap, err := handler.GetInvoice(ctx, invoiceAmount, postProcess)
+			reverseSwap, err := createReverseSwapWithRetry(
+				t, ctx, handler, invoiceAmount, postProcess,
+			)
 			if err != nil {
 				errs.add(err)
 				return
@@ -1358,7 +1361,9 @@ func TestConcurrentSwaps(t *testing.T) {
 			postProcess := func(s swap.Swap) error { return nil }
 			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
 			defer cancel()
-			reverseSwap, err := handler.GetInvoice(ctx, invoiceAmount, postProcess)
+			reverseSwap, err := createReverseSwapWithRetry(
+				t, ctx, handler, invoiceAmount, postProcess,
+			)
 			if err != nil {
 				errs.add(err)
 				return
@@ -1374,6 +1379,58 @@ func TestConcurrentSwaps(t *testing.T) {
 		}
 		t.Logf("Both concurrent reverse swaps succeeded")
 	})
+}
+
+func createReverseSwapWithRetry(
+	t *testing.T,
+	ctx context.Context,
+	handler *swap.SwapHandler,
+	amount uint64,
+	postProcess func(swap.Swap) error,
+) (swap.Swap, error) {
+	t.Helper()
+
+	const attempts = 5
+
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		reverseSwap, err := handler.GetInvoice(ctx, amount, postProcess)
+		if err == nil {
+			return reverseSwap, nil
+		}
+
+		lastErr = err
+		if !isBoltzSerializationAbort(err) || attempt == attempts-1 {
+			return swap.Swap{}, err
+		}
+
+		backoff := time.Duration(attempt+1) * 400 * time.Millisecond
+		t.Logf(
+			"retrying reverse swap create after Boltz serialization abort (attempt %d/%d): %v",
+			attempt+1,
+			attempts,
+			err,
+		)
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return swap.Swap{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return swap.Swap{}, lastErr
+}
+
+func isBoltzSerializationAbort(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "could not serialize access") ||
+		strings.Contains(msg, "read/write dependencies among transactions")
 }
 
 // TestRefundSwap tests the cooperative refund path for an underfunded submarine swap.
