@@ -49,7 +49,11 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 	// Send from the node wallet and mine one block to confirm — mirrors the
 	// `regtest.mjs faucet --confirm` behavior (the arkade-regtest stack does not
 	// auto-mine on every faucet call).
-	_, err := bitcoinCli(t, "sendtoaddress", address, fmt.Sprintf("%.8f", amount))
+	//
+	// Target the node's "default" wallet explicitly: the base stack's bootstrap
+	// loads a "default" wallet, and tests like rbf_test.go load a second wallet,
+	// after which a bare wallet RPC is ambiguous ("Multiple wallets are loaded").
+	_, err := bitcoinCli(t, "-rpcwallet=default", "sendtoaddress", address, fmt.Sprintf("%.8f", amount))
 	require.NoError(t, err)
 	generateBlocks(t, 1)
 }
@@ -177,7 +181,10 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 }
 
 func generateBlocks(t *testing.T, n int) {
-	_, err := bitcoinCli(t, "-generate", fmt.Sprintf("%d", n))
+	// `-generate` derives a coinbase address from a loaded wallet; pin it to the
+	// node's "default" wallet so it stays unambiguous when a test (e.g. rbf_test.go)
+	// has a second wallet loaded.
+	_, err := bitcoinCli(t, "-rpcwallet=default", "-generate", fmt.Sprintf("%d", n))
 	require.NoError(t, err)
 }
 

@@ -38,7 +38,15 @@ services:
             - ARKD_VTXO_TREE_EXPIRY=20
             - ARKD_PUBLIC_UNILATERAL_EXIT_DELAY=10
             - ARKD_UNILATERAL_EXIT_DELAY=10
-            - ARKD_BOARDING_EXIT_DELAY=30
+            # Block-denominated (< 512). arkd's boarding-input pre-check converts
+            # this to wall-clock seconds at ark-lib's SECONDS_PER_BLOCK = 1, so the
+            # value is effectively the number of *seconds* a boarding UTXO stays
+            # settle-able after it confirms. 30 was tuned for nigiri; the slower
+            # mempool-based base stack needs a wider window for fund -> detect ->
+            # settle to finish in time (otherwise arkd rejects the input as
+            # "expired" and the SDK reports the UTXO as spendable, not locked).
+            # 480 stays < 512 (block type) and no test exits/expires boarding.
+            - ARKD_BOARDING_EXIT_DELAY=480
             - ARKD_CHECKPOINT_EXIT_DELAY=10
             - ARKD_WALLET_ADDR=arkd-wallet:6060
             - ARKD_ESPLORA_URL=http://mempool_web/api
