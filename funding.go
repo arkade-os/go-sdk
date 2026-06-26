@@ -127,8 +127,45 @@ func (w *wallet) NotifyIncomingFunds(
 	return w.client.NotifyIncomingFunds(ctx, addr)
 }
 
-func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
-	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault)
+// notifyTracked subscribes to incoming funds at addr in the background and
+// returns a channel that fires once the indexer reports a vtxo there (or
+// errors), together with a cancel func to release the subscription if the
+// caller ends up not waiting on it (e.g. the op produced no output to addr).
+//
+// Operations start this before submitting a tx and wait on it before releasing
+// the txHandler slot, so the next queued operation can spend the resulting
+// vtxo without the server rejecting it with VTXO_NOT_FOUND while the indexer is
+// still catching up. The subscription is started before submission so the
+// notification can't be missed.
+func (w *wallet) notifyTracked(
+	ctx context.Context, addr string,
+) (<-chan error, context.CancelFunc) {
+	subCtx, cancel := context.WithCancel(ctx)
+	ch := make(chan error, 1)
+	go func() {
+		_, err := w.client.NotifyIncomingFunds(subCtx, addr)
+		ch <- err
+	}()
+	return ch, cancel
+}
+
+func waitTracked(ctx context.Context, tracked <-chan error) error {
+	if tracked == nil {
+		return nil
+	}
+
+	select {
+	case err := <-tracked:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (w *wallet) newOffchainAddress(
+	ctx context.Context, opts ...contract.ContractOption,
+) (string, error) {
+	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault, opts...)
 	if err != nil {
 		return "", err
 	}
@@ -230,6 +267,7 @@ func (w *wallet) ListVtxos(
 	vtxos, cursor, err := w.store.VtxoStore().GetVtxos(ctx, types.GetVtxoFilter{
 		Status:  o.status,
 		AssetID: o.assetID,
+		Script:  o.script,
 		After:   after,
 		Limit:   o.limit,
 	})

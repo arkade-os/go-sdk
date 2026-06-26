@@ -1,4 +1,4 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd keyrotation keyrotationrestart keyrotationruntime bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -59,6 +59,14 @@ integrationtest:
 ## SMOKE_TIER=N (1-999) | Nk (thousands) | Nm (millions), defaults to 1k.
 smokehd:
 	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
+
+## keyrotationrestart: runs the signer key rotation restart smoke test.
+keyrotationrestart:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRestartSmoke$$' ./test/e2e
+
+## keyrotationruntime: runs the signer key rotation runtime smoke test.
+keyrotationruntime:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRuntimeSmoke$$' ./test/e2e
 
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:

@@ -13,17 +13,17 @@ jobs:
     name: Sdk integration tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.26.3'
+          go-version: '1.26.4'
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -41,6 +41,17 @@ jobs:
 
       - name: Run tests
         run: make integrationtest
+
+      - name: Docker logs
+        if: failure()
+        continue-on-error: true
+        run: |
+          docker image ls -a
+          docker ps -a
+          docker compose -f test/docker/docker-compose.yml ps
+          docker compose -f test/docker/docker-compose.yml logs --no-color --timestamps arkd-wallet arkd
+          docker logs --timestamps --tail 200 nbxplorer || true
+          docker logs --timestamps --tail 100 bitcoin || true
 
       - name: Tear down arkade-regtest base stack
         if: always()

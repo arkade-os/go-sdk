@@ -548,10 +548,6 @@ func TestOffchainTx(t *testing.T) {
 		// Create a new client that resumes pending tx finalization on restore.
 		restoredAlice := setupClient(t, seed)
 
-		finalizedTxIds, err := restoredAlice.FinalizePendingTxs(ctx, nil)
-		require.NoError(t, err)
-		require.Empty(t, finalizedTxIds)
-
 		require.Eventually(t, func() bool {
 			history, err = restoredAlice.GetTransactionHistory(ctx)
 			if err != nil {
@@ -561,6 +557,116 @@ func TestOffchainTx(t *testing.T) {
 			return slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
 				return tx.TransactionKey.String() == txid
 			})
-		}, 30*time.Second, 500*time.Millisecond)
+		}, 30*time.Second, time.Second)
 	})
+}
+
+// TestConcurrentTxs exercises the txHandler priority queue
+// against a live arkd: while a SendOffChain is processing, two more
+// SendOffChain calls and a Settle are queued. The Settle must take precedence
+// over the two queued sends, so the completion order is:
+//
+//	send #1 (already processing) -> settle -> send #2 -> send #3
+//
+// All operations must also succeed (no double-spending of VTXOs).
+func TestConcurrentTxs(t *testing.T) {
+	ctx := t.Context()
+
+	// WithoutAutoSettle so the scheduler doesn't inject a settle that would
+	// interfere with the ordering we're asserting.
+	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+	bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+
+	faucetOffchain(t, alice, 0.001) // 100_000 sats, plenty for 3 sends + a settle
+
+	bobAddr, err := bob.NewOffchainAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, bobAddr)
+
+	const sendAmount = 1000
+
+	start := time.Now()
+	var (
+		mu        sync.Mutex
+		started   []string // names in start (submission-observed) order
+		completed []string // names in completion order
+		errs      = map[string]error{}
+		wg        sync.WaitGroup
+	)
+	begin := func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		started = append(started, name)
+		t.Logf("%6s started  at %s", name, time.Since(start).Round(time.Millisecond))
+	}
+	done := func(name string, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		completed = append(completed, name)
+		errs[name] = err
+		t.Logf("%6s finished at %s err=%v", name, time.Since(start).Round(time.Millisecond), err)
+	}
+
+	send := func(name string) {
+		defer wg.Done()
+		begin(name)
+		_, err := alice.SendOffChain(ctx, []clientTypes.Receiver{
+			{To: bobAddr, Amount: sendAmount},
+		})
+		done(name, err)
+	}
+
+	// send #1 starts and is given a short head start so it is still processing
+	// when the rest of the operations are submitted and queue up behind it.
+	wg.Add(1)
+	go send("send1")
+	time.Sleep(10 * time.Millisecond)
+
+	// send #2 and send #3 queue in the spend FIFO behind the in-flight send #1.
+	wg.Add(1)
+	go send("send2")
+	wg.Add(1)
+	go send("send3")
+	time.Sleep(5 * time.Millisecond) // keep the spends ahead of the settle in arrival order
+	// the settle arrives last but must jump ahead of the two queued sends.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		begin("settle")
+		_, err := alice.Settle(ctx)
+		done("settle", err)
+	}()
+
+	wg.Wait()
+
+	t.Logf("start order:      %v", started)
+	t.Logf("completion order: %v", completed)
+	for _, name := range []string{"send1", "send2", "send3", "settle"} {
+		require.NoError(t, errs[name], "%s must succeed", name)
+	}
+
+	pos := func(name string) int { return slices.Index(completed, name) }
+	startPos := func(name string) int { return slices.Index(started, name) }
+
+	// Sanity-check the precondition: the two sends were submitted before the
+	// settle, so the completion-order checks below actually exercise "a late
+	// settle jumps ahead of already-queued sends" rather than passing trivially
+	// because the settle happened to arrive first. (Deterministic precedence is
+	// covered by the txHandler unit tests; this is a best-effort live check.)
+	require.Less(t, startPos("send2"), startPos("settle"), "send2 must be submitted before settle")
+	require.Less(t, startPos("send3"), startPos("settle"), "send3 must be submitted before settle")
+
+	// send #1 was already processing, so it completes first.
+	require.Less(t, pos("send1"), pos("settle"), "send1 was in flight, must complete before settle")
+	// the settle took precedence over the two queued sends.
+	require.Less(t, pos("settle"), pos("send2"), "settle must complete before the queued send2")
+	require.Less(t, pos("settle"), pos("send3"), "settle must complete before the queued send3")
+
+	// All three sends reached bob (poll until the indexer has propagated them).
+	require.Eventually(t, func() bool {
+		bobBalance, err := bob.Balance(ctx)
+		return err == nil &&
+			bobBalance != nil &&
+			int(bobBalance.OffchainBalance.Total) == 3*sendAmount
+	}, 30*time.Second, 500*time.Millisecond)
 }

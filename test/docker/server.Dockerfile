@@ -1,5 +1,8 @@
 # First image used to build the sources
-FROM golang:1.26.3 AS builder
+FROM golang:1.26.4 AS builder
+
+# arkd master may require a newer Go than the image ships; let go download it.
+ENV GOTOOLCHAIN=auto
 
 ARG TARGETOS
 ARG TARGETARCH

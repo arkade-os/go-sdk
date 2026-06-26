@@ -16,6 +16,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const HeaderVersion = "go-sdk/0.10.1"
+
 var (
 	defaultExplorerUrl = map[string]string{
 		arklib.Bitcoin.Name:          "https://mempool.space/api",
@@ -34,7 +36,7 @@ func (w *wallet) Init(
 		return ErrNotInitialized
 	}
 
-	transportClient, err := grpcclient.NewClient(serverUrl)
+	transportClient, err := grpcclient.NewClient(serverUrl, HeaderVersion)
 	if err != nil {
 		return err
 	}
@@ -75,6 +77,7 @@ func (w *wallet) Init(
 
 	w.network = network
 	w.dustAmount = info.Dust
+	w.lastSignerSet = signerSet(info)
 
 	return nil
 }
@@ -134,6 +137,8 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
+	w.stopCtx = bgCtx
+	w.txHandler = newTxHandler()
 
 	w.bgWg.Go(func() {
 		w.Explorer().Start()
@@ -157,11 +162,15 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		// the user aware of this so he can proceed with a manual finalization
 		if _, err := w.finalizePendingTxs(ctx, nil); err != nil {
 			log.WithError(err).Warn("failed to finalize pending txs")
+		} else {
+			// TODO: drop me and handle wait in finalizePendingTxs
+			time.Sleep(time.Second)
 		}
 
 		err := w.refreshDb(ctx)
 		if err == nil {
 			w.scheduleNextSettlement()
+			w.detectAndHandleSignerRotation(ctx)
 		}
 		w.syncCh <- err
 		close(w.syncCh)
@@ -185,9 +194,16 @@ func (w *wallet) Lock(ctx context.Context) error {
 		w.scheduler.Stop()
 	}
 
+	// Abort any queued tx operations before tearing down shared state, so a
+	// waiter can't resume and run against a nil contractManager / stopCtx.
+	if w.txHandler != nil {
+		w.txHandler.stop()
+	}
+
 	if w.stopFn != nil {
 		w.stopFn()
 	}
+	w.stopCtx = nil
 
 	if w.contractManager != nil {
 		w.contractManager.Close()
