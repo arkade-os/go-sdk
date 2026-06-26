@@ -30,7 +30,11 @@ jobs:
       - run: go mod tidy
 
       - name: Start arkade-regtest base stack
-        run: node regtest/regtest.mjs start --env regtest/.env.regtest
+        # Profile + auto-miner config come from the repo-root .env.regtest, which
+        # regtest.mjs auto-discovers as ../.env.regtest (REGTEST_PROFILES=base,
+        # AUTOMINE_INTERVAL=0). The SDK's own arkd/arkd-wallet are built on top by
+        # `make regtest`, so only the base layer is started here.
+        run: node regtest/regtest.mjs start
 
       - name: Run regtest environment
         run: make regtest
@@ -40,4 +44,4 @@ jobs:
 
       - name: Tear down arkade-regtest base stack
         if: always()
-        run: node regtest/regtest.mjs clean --env regtest/.env.regtest
+        run: node regtest/regtest.mjs clean

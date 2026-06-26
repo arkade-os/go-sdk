@@ -1,59 +1,16 @@
+# Bitcoin Core, nbxplorer, Fulcrum and the mempool/Esplora explorer all come from
+# the arkade-regtest base stack (compose project `arkade-regtest`, started with
+# `node regtest/regtest.mjs start`). This compose only adds the SDK's own arkd and
+# arkd-wallet — built from source — and reaches the base stack's `nbxplorer`,
+# `bitcoin` and `mempool_web` containers by name over the shared
+# `arkade-regtest_default` network (see the `networks` block below).
 services:
-    pgnbxplorer:
-        restart: unless-stopped
-        image: postgres:16
-        container_name: pgnbxplorer
-        ports:
-            - 5432:5432
-        environment:
-            - POSTGRES_HOST_AUTH_METHOD=trust
-        volumes:
-            - type: tmpfs
-              target: /var/lib/postgresql/data
-        healthcheck:
-            test:
-                [
-                    "CMD-SHELL",
-                    "pg_isready -U postgres -d nbxplorer -h 127.0.0.1 -p 5432",
-                ]
-            interval: 2s
-            timeout: 2s
-            retries: 30
-    nbxplorer:
-        restart: unless-stopped
-        container_name: nbxplorer
-        ports:
-            - 32838:32838
-        image: nicolasdorier/nbxplorer:2.6.7
-        environment:
-            - NBXPLORER_NETWORK=regtest
-            - NBXPLORER_CHAINS=btc
-            - NBXPLORER_BTCRPCURL=http://bitcoin:18443
-            - NBXPLORER_BTCNODEENDPOINT=bitcoin:18444
-            - NBXPLORER_BTCRPCUSER=admin1
-            - NBXPLORER_BTCRPCPASSWORD=123
-            - NBXPLORER_VERBOSE=1
-            - NBXPLORER_BIND=0.0.0.0:32838
-            - NBXPLORER_TRIMEVENTS=10000
-            - NBXPLORER_SIGNALFILESDIR=/datadir
-            - NBXPLORER_POSTGRES=User ID=postgres;Host=pgnbxplorer;Port=5432;Application Name=nbxplorer;MaxPoolSize=20;Database=nbxplorer
-            - NBXPLORER_EXPOSERPC=1
-            - NBXPLORER_NOAUTH=1
-        volumes:
-            - type: tmpfs
-              target: /datadir
-        depends_on:
-            pgnbxplorer:
-                condition: service_healthy
-
     arkd-wallet:
         restart: unless-stopped
         build:
             context: .
             dockerfile: wallet.Dockerfile
         container_name: arkd-wallet
-        depends_on:
-            - nbxplorer
         ports:
             - "6060:6060"
         environment:

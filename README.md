@@ -495,14 +495,18 @@ See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sd
 
 ### Testing
 
-Run integration tests. First start the [arkade-regtest](https://github.com/ArkLabsHQ/arkade-regtest)
-base stack (Bitcoin Core + Fulcrum + mempool), which provides the `bitcoin` and
-`mempool_web` containers and the `arkade-regtest` Docker network that the SDK's
-own arkd compose (`test/docker/docker-compose.yml`) layers on top of:
+Run integration tests. The regtest harness is the [arkade-regtest](https://github.com/ArkLabsHQ/arkade-regtest)
+submodule (vendored at `regtest/`); init it once with `git submodule update --init`.
+First start arkade-regtest's **base** layer (Bitcoin Core + nbxplorer + Fulcrum +
+mempool), which provides the `bitcoin`, `nbxplorer` and `mempool_web` containers and
+the `arkade-regtest` Docker network that the SDK's own arkd compose
+(`test/docker/docker-compose.yml`) layers on top of. The repo-root `.env.regtest`
+(auto-discovered by `regtest.mjs`) pins it to the `base` profile and disables the
+background auto-miner, so the bare `start` command brings up only the base layer:
 
 ```sh
-node regtest/regtest.mjs start   # start the in-house regtest stack (Node >= 18)
-make regtest                     # build + start arkd/arkd-wallet/nbxplorer on the arkade-regtest network
+node regtest/regtest.mjs start   # start the arkade-regtest base layer (Node >= 18)
+make regtest                     # build + start the SDK's arkd/arkd-wallet on the arkade-regtest network
 make integrationtest
 make regtestdown                 # stop the SDK arkd compose
 node regtest/regtest.mjs clean   # tear down the arkade-regtest stack
