@@ -3,8 +3,6 @@ package swap
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/input"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -442,7 +439,13 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		return nil, err
 	}
 
-	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo()
+	preimageSigner, err := h.requirePreimageSigner()
+	if err != nil {
+		return nil, err
+	}
+	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo(
+		ctx, preimageSigner, *vhtlcRefundKeyRef, //TOOD derivated based on refund key due to compatibility with .NET sdk
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate preimage: %w", err)
 	}
@@ -609,7 +612,13 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		return nil, err
 	}
 
-	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo()
+	preimageSigner, err := h.requirePreimageSigner()
+	if err != nil {
+		return nil, err
+	}
+	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo(
+		ctx, preimageSigner, *vhtlcClaimKeyRef,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate preimage: %w", err)
 	}
@@ -1024,20 +1033,6 @@ func waitForRefundPollInterval(ctx context.Context, interval time.Duration) erro
 	case <-timer.C:
 		return nil
 	}
-}
-
-func genPreimageInfo() (preimage []byte, preimageHashSHA256, preimageHashHASH160 []byte, err error) {
-	preimage = make([]byte, 32)
-
-	if _, err = rand.Read(preimage); err != nil {
-		err = fmt.Errorf("failed to generate preimage: %w", err)
-		return
-	}
-
-	sha := sha256.Sum256(preimage)
-	preimageHashSHA256 = sha[:]
-	preimageHashHASH160 = input.Ripemd160H(preimageHashSHA256)
-	return
 }
 
 // networkNameToParams converts arklib network name to chaincfg.Params

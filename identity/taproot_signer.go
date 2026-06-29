@@ -19,6 +19,11 @@ type KeyedTaprootSigner interface {
 	) (MuSig2Session, error)
 }
 
+// KeyedPreimageSigner signs deterministic swap-preimage derivation messages.
+type KeyedPreimageSigner interface {
+	SignSchnorrBIP340(ctx context.Context, keyID string, msg [32]byte) (*schnorr.Signature, error)
+}
+
 type MuSig2Session interface {
 	Keys() []*btcec.PublicKey
 	GenerateNonce() ([66]byte, error)
@@ -36,6 +41,23 @@ func (s *service) SignSchnorr(
 	keyID string,
 	msg [32]byte,
 ) (*schnorr.Signature, error) {
+	return s.signSchnorr(keyID, msg)
+}
+
+func (s *service) SignSchnorrBIP340(
+	_ context.Context,
+	keyID string,
+	msg [32]byte,
+) (*schnorr.Signature, error) {
+	var auxRand [32]byte
+	return s.signSchnorr(keyID, msg, schnorr.CustomNonce(auxRand))
+}
+
+func (s *service) signSchnorr(
+	keyID string,
+	msg [32]byte,
+	opts ...schnorr.SignOption,
+) (*schnorr.Signature, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -50,7 +72,7 @@ func (s *service) SignSchnorr(
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key %q: %w", keyID, err)
 	}
-	return schnorr.Sign(privKey, msg[:])
+	return schnorr.Sign(privKey, msg[:], opts...)
 }
 
 func (s *service) NewMuSig2Session(

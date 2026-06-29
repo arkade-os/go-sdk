@@ -17,6 +17,14 @@ func (h *SwapHandler) requireKeyedTaprootSigner() (sdkidentity.KeyedTaprootSigne
 	return signer, nil
 }
 
+func (h *SwapHandler) requirePreimageSigner() (sdkidentity.KeyedPreimageSigner, error) {
+	signer, ok := h.arkWallet.Identity().(sdkidentity.KeyedPreimageSigner)
+	if !ok {
+		return nil, fmt.Errorf("wallet identity does not support deterministic preimage signing")
+	}
+	return signer, nil
+}
+
 func (h *SwapHandler) newMuSig2Session(
 	ctx context.Context,
 	keyID string,

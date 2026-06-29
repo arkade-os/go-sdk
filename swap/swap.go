@@ -3,8 +3,6 @@ package swap
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,7 +27,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/ccoveille/go-safecast"
-	"github.com/lightningnetwork/lnd/input"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 
 	log "github.com/sirupsen/logrus"
@@ -132,12 +129,7 @@ func (h *SwapHandler) PayOffer(
 func (h *SwapHandler) GetInvoice(
 	ctx context.Context, amount uint64, postProcess func(swap Swap) error,
 ) (Swap, error) {
-	preimage := make([]byte, 32)
-	if _, err := rand.Read(preimage); err != nil {
-		return Swap{}, fmt.Errorf("failed to generate preimage: %w", err)
-	}
-
-	return h.reverseSwap(ctx, amount, preimage, postProcess)
+	return h.reverseSwap(ctx, amount, postProcess)
 }
 
 func (h *SwapHandler) GetVHTLCFunds(
@@ -952,20 +944,28 @@ func (h *SwapHandler) submarineSwap(
 }
 
 func (h *SwapHandler) reverseSwap(
-	ctx context.Context, amount uint64, preimage []byte, postProcess func(swap Swap) error,
+	ctx context.Context, amount uint64, postProcess func(swap Swap) error,
 ) (Swap, error) {
 	var (
-		preimageHash []byte
-		claimKeyRef  *identity.KeyRef
-		err          error
+		preimage, preimageHashSHA256, preimageHashHASH160 []byte
+		claimKeyRef                                       *identity.KeyRef
+		err                                               error
 	)
-
-	buf := sha256.Sum256(preimage)
-	preimageHash = input.Ripemd160H(buf[:])
 
 	claimKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
 	if err != nil {
 		return Swap{}, err
+	}
+
+	preimageSigner, err := h.requirePreimageSigner()
+	if err != nil {
+		return Swap{}, err
+	}
+	preimage, preimageHashSHA256, preimageHashHASH160, err = genPreimageInfo(
+		ctx, preimageSigner, *claimKeyRef,
+	)
+	if err != nil {
+		return Swap{}, fmt.Errorf("failed to generate preimage: %w", err)
 	}
 
 	swap, err := h.boltzSvc.CreateReverseSwap(boltz.CreateReverseSwapRequest{
@@ -973,7 +973,7 @@ func (h *SwapHandler) reverseSwap(
 		To:             boltz.CurrencyArk,
 		InvoiceAmount:  amount,
 		ClaimPublicKey: hex.EncodeToString(claimKeyRef.PubKey.SerializeCompressed()),
-		PreimageHash:   hex.EncodeToString(buf[:]),
+		PreimageHash:   hex.EncodeToString(preimageHashSHA256),
 	})
 	if err != nil {
 		return Swap{}, fmt.Errorf("failed to make reverse submarine swap: %v", err)
@@ -991,9 +991,10 @@ func (h *SwapHandler) reverseSwap(
 		return Swap{}, fmt.Errorf("failed to decode invoice: %v", err)
 	}
 
-	if !bytes.Equal(preimageHash, gotPreimageHash) {
+	if !bytes.Equal(preimageHashHASH160, gotPreimageHash) {
 		return Swap{}, fmt.Errorf(
-			"invalid preimage hash: expected %x, got %x", preimageHash, gotPreimageHash,
+			"invalid preimage hash: expected %x, got %x",
+			preimageHashHASH160, gotPreimageHash,
 		)
 	}
 	if invoiceAmount != amount {
@@ -1018,7 +1019,7 @@ func (h *SwapHandler) reverseSwap(
 	swapDetails := Swap{
 		Id:           swap.Id,
 		Invoice:      swap.Invoice,
-		PreimageHash: preimageHash,
+		PreimageHash: preimageHashHASH160,
 		TimeoutInfo:  swap.TimeoutBlockHeights,
 		Timestamp:    time.Now().Unix(),
 		Status:       SwapPending,
