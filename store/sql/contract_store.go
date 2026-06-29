@@ -104,6 +104,20 @@ func (v *contractStore) GetContractsByState(
 	return contracts, nil
 }
 
+func (v *contractStore) GetActiveContractsByType(
+	ctx context.Context, contractType types.ContractType,
+) ([]types.Contract, error) {
+	rows, err := v.querier.SelectActiveContractsByType(ctx, string(contractType))
+	if err != nil {
+		return nil, err
+	}
+	contracts := make([]types.Contract, 0, len(rows))
+	for _, row := range rows {
+		contracts = append(contracts, toContract(row))
+	}
+	return contracts, nil
+}
+
 func (v *contractStore) GetContractsByType(
 	ctx context.Context, contractType types.ContractType,
 ) ([]types.Contract, error) {
@@ -116,6 +130,21 @@ func (v *contractStore) GetContractsByType(
 		contracts = append(contracts, toContract(row))
 	}
 	return contracts, nil
+}
+
+func (v *contractStore) GetLatestActiveContract(
+	ctx context.Context, contractType types.ContractType,
+) (*types.Contract, error) {
+	row, err := v.querier.SelectLatestActiveContractByType(ctx, string(contractType))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	contract := toContract(row)
+
+	return &contract, nil
 }
 
 func (v *contractStore) GetLatestContract(

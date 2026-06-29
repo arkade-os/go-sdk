@@ -21,9 +21,9 @@ Here's a comprehensive guide on how to use the Arkade Go SDK:
 Both accept one required parameter plus optional wallet options:
 - `datadir` — path to the directory where wallet and transaction data are persisted. Pass `""` to use in-memory storage (useful for testing; loading from an in-memory datadir won't work for obvious reasons).
 - `opts` — optional `WalletOption` values:
-  - `WithRefreshDbInterval(d time.Duration)` — enable periodic background refresh of the local database from the server. Must be at least 30s. Disabled by default (zero value).
+  - `WithRefreshDbInterval(d time.Duration)` — configure periodic background refresh of the local database from the server. Defaults to 30s and must be at least 30s.
   - `WithVerbose()` — enables verbose logging.
-  - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to a reasonable BIP-44-style value.
+  - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to 20 and must be at least 20.
   - `WithIdentity(svc identity.Identity)` — inject a custom key-management implementation. By default the SDK creates an HD identity (BIP86) backed by the persistent datadir; see the `identity` package for the default implementation.
   - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-settle. Defaults to a gocron-backed in-process scheduler.
   - `WithoutAutoSettle()` — disable the background auto-settle loop entirely. By default the wallet schedules a Settle at ~90% of each spendable vtxo's remaining lifetime and re-schedules as fresher vtxos arrive.
@@ -383,6 +383,38 @@ if err != nil {
 log.Infof("Redeemed with tx: %s", txid)
 ```
 
+#### Custom Contract Handlers
+
+The contract manager ships with built-in handlers for the default (offchain) and boarding contract types. You can teach it additional contract types by registering your own `handlers.Handler` at wallet construction.
+
+⚠️ Custom handlers must produce scripts/signing data that your wallet identity can actually sign.
+Registering an invalid handler can lead to contracts that are not spendable.
+
+```go
+import "github.com/arkade-os/go-sdk/contract/handlers"
+
+// myHandler implements contract/handlers.Handler. The key method is
+// NewContract, which derives the script, address, and params for a given key.
+// See contract/handlers/default for a reference implementation.
+var myHandler handlers.Handler = NewCustomHandler(...)
+
+wallet, err := arksdk.NewWallet(
+    datadir, arksdk.WithContractHandler("custom", myHandler),
+)
+```
+
+Once registered, create and look up contracts of the custom type through the usual manager API:
+
+```go
+mgr := wallet.ContractManager()
+
+// Discover the registered types (built-ins plus your custom ones).
+supported := mgr.Registry().SupportedTypes() // [boarding custom default]
+
+// Create a contract using your handler.
+c, err := mgr.NewContract(ctx, "custom")
+```
+
 ### 5. Additional Wallet Methods
 
 The `Wallet` interface exposes a number of utility methods beyond the basic
@@ -432,6 +464,8 @@ These return the underlying services so callers can drive lower-level flows dire
 - `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
 - `WithdrawFromAllExpiredBoardings(ctx, to string) (string, error)` - withdraw expired boarding amounts onchain.
 - `WhenNextSettlement() time.Time` - inspect the next auto-settle firing time. Returns the zero value when auto-settle is disabled or nothing is scheduled.
+
+> **Concurrency:** spend (`SendOffChain`, `IssueAsset`, `ReissueAsset`, `BurnAsset`) and batch (`Settle`, `CollaborativeExit`) operations on the same wallet are internally serialized, so they can be called concurrently without double-spending VTXOs. A pending `Settle`/`CollaborativeExit` takes precedence over queued spends, and concurrent `Settle` calls de-duplicate into a single settlement. Each call returns only once the server has tracked its result, so a following operation can safely spend the change. `CollaborativeExit` returns `ErrSettleInProgress` if a batch is already in flight.
 
 #### State, signing, and notifications
 

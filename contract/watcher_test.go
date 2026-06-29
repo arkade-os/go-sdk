@@ -190,9 +190,7 @@ type watcherMockManager struct {
 	getContractsErr error
 }
 
-func (m *watcherMockManager) GetSupportedContractTypes(_ context.Context) []types.ContractType {
-	return nil
-}
+func (m *watcherMockManager) Registry() contract.Registry                     { return nil }
 func (m *watcherMockManager) ScanContracts(_ context.Context, _ uint32) error { return nil }
 func (m *watcherMockManager) NewContract(
 	_ context.Context, _ types.ContractType, _ ...contract.ContractOption,

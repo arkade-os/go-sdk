@@ -1,12 +1,21 @@
 package arksdk_test
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
+
+var nilHandler *mockHandler
 
 func TestWalletOptions(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
@@ -31,7 +40,7 @@ func TestWalletOptions(t *testing.T) {
 			},
 			{
 				name: "WithGapLimit",
-				opts: []arksdk.WalletOption{arksdk.WithGapLimit(10)},
+				opts: []arksdk.WalletOption{arksdk.WithGapLimit(30)},
 			},
 			{
 				name: "WithIdentity",
@@ -40,6 +49,19 @@ func TestWalletOptions(t *testing.T) {
 			{
 				name: "WithScheduler",
 				opts: []arksdk.WalletOption{arksdk.WithScheduler(&testScheduler{})},
+			},
+			{
+				name: "WitContractHandler (one)",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandler("custom", &mockHandler{typ: "custom"}),
+				},
+			},
+			{
+				name: "WitContractHandler (many)",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandler("custom-1", &mockHandler{typ: "custom-1"}),
+					arksdk.WithContractHandler("custom-2", &mockHandler{typ: "custom-2"}),
+				},
 			},
 		}
 
@@ -78,13 +100,13 @@ func TestWalletOptions(t *testing.T) {
 			{
 				name:            "WithGapLimit zero",
 				opts:            []arksdk.WalletOption{arksdk.WithGapLimit(0)},
-				wantErrContains: "gap limit must be greater than zero",
+				wantErrContains: "gap limit must be at least",
 			},
 			{
 				name: "WithGapLimit twice",
 				opts: []arksdk.WalletOption{
-					arksdk.WithGapLimit(10),
-					arksdk.WithGapLimit(12),
+					arksdk.WithGapLimit(30),
+					arksdk.WithGapLimit(32),
 				},
 				wantErrContains: "gap limit already set",
 			},
@@ -132,6 +154,35 @@ func TestWalletOptions(t *testing.T) {
 				},
 				wantErrContains: "cannot set scheduler when auto-settle is disabled",
 			},
+			{
+				name: "WithContractHandler empty type",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandler("", &mockHandler{typ: "x"}),
+				},
+				wantErrContains: "missing contract type",
+			},
+			{
+				name: "WithContractHandler nil handler",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandler("test", nil),
+				},
+				wantErrContains: "nil handler",
+			},
+			{
+				name: "WithContractHandler typed-nil handler",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandler("custom", nilHandler),
+				},
+				wantErrContains: "nil concrete handler",
+			},
+			{
+				name: "WithContractHandler duplicate handler",
+				opts: []arksdk.WalletOption{
+					arksdk.WithContractHandler("custom", &mockHandler{typ: "custom"}),
+					arksdk.WithContractHandler("custom", &mockHandler{typ: "custom"}),
+				},
+				wantErrContains: "duplicate handler",
+			},
 		}
 
 		for _, f := range fixtures {
@@ -141,4 +192,35 @@ func TestWalletOptions(t *testing.T) {
 			})
 		}
 	})
+}
+
+// mockHandler is a minimal handlers.Handler used only by the
+// WithContractHandler tests. It implements the full interface with
+// zero-value stubs since these tests never invoke the methods.
+type mockHandler struct{ typ types.ContractType }
+
+func (h *mockHandler) NewContract(
+	_ context.Context, k identity.KeyRef,
+) (*types.Contract, error) {
+	s := sha256.Sum256([]byte(string(h.typ) + ":" + k.Id))
+	return &types.Contract{
+		Type:   h.typ,
+		Script: hex.EncodeToString(s[:]),
+		State:  types.ContractStateActive,
+	}, nil
+}
+func (h *mockHandler) GetKeyRefs(types.Contract) (map[string]string, error) {
+	return nil, nil
+}
+func (h *mockHandler) GetKeyRef(types.Contract) (*identity.KeyRef, error) {
+	return nil, nil
+}
+func (h *mockHandler) GetSignerKey(types.Contract) (*btcec.PublicKey, error) {
+	return nil, nil
+}
+func (h *mockHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, error) {
+	return nil, nil
+}
+func (h *mockHandler) GetTapscripts(types.Contract) ([]string, error) {
+	return nil, nil
 }

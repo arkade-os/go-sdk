@@ -123,9 +123,7 @@ type fixContractManager struct {
 	contracts []sdktypes.Contract
 }
 
-func (m *fixContractManager) GetSupportedContractTypes(_ context.Context) []sdktypes.ContractType {
-	return nil
-}
+func (m *fixContractManager) Registry() contract.Registry                     { return nil }
 func (m *fixContractManager) ScanContracts(_ context.Context, _ uint32) error { return nil }
 func (m *fixContractManager) NewContract(
 	_ context.Context, _ sdktypes.ContractType, _ ...contract.ContractOption,

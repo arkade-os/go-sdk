@@ -33,11 +33,8 @@ func setupArkd() error {
 		Timeout: 15 * time.Second,
 	}
 
-	time.Sleep(3 * time.Second)
-
 	fmt.Println("waiting for arkd to be ready...")
-	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
-	status, err := get[statusResp](adminHttpClient, url, "status")
+	status, err := waitForStatus(adminHttpClient, time.Minute)
 	if err != nil {
 		return err
 	}
@@ -61,7 +58,7 @@ func setupArkd() error {
 	}
 
 	fmt.Println("getting wallet seed...")
-	url = fmt.Sprintf("%s/v1/admin/wallet/seed", adminUrl)
+	url := fmt.Sprintf("%s/v1/admin/wallet/seed", adminUrl)
 	seed, err := get[seedResp](adminHttpClient, url, "seed")
 	if err != nil {
 		return err
@@ -124,6 +121,8 @@ func get[T any](httpClient *http.Client, url, name string) (*T, error) {
 
 func waitUntilReady(httpClient *http.Client) error {
 	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
 	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
 	for range ticker.C {
 		status, err := get[statusResp](httpClient, url, "status")
@@ -132,11 +131,27 @@ func waitUntilReady(httpClient *http.Client) error {
 		}
 
 		if status.Initialized && status.Unlocked && status.Synced {
-			ticker.Stop()
 			break
 		}
 	}
 	return nil
+}
+
+func waitForStatus(httpClient *http.Client, timeout time.Duration) (*statusResp, error) {
+	deadline := time.Now().Add(timeout)
+	url := fmt.Sprintf("%s/v1/admin/wallet/status", adminUrl)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		status, err := get[statusResp](httpClient, url, "status")
+		if err == nil {
+			return status, nil
+		}
+		lastErr = err
+		time.Sleep(time.Second)
+	}
+
+	return nil, fmt.Errorf("arkd admin not ready after %s: %w", timeout, lastErr)
 }
 
 func refill(httpClient *http.Client) error {

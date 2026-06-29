@@ -92,14 +92,16 @@ WITH page_keys AS (
             WHERE av.vtxo_txid = vtxo.txid AND av.vtxo_vout = vtxo.vout
                   AND av.asset_id = CAST(?2 AS TEXT)
         ))
-        AND (CAST(?3 AS INTEGER) IS NULL
+        AND (CAST(?3 AS TEXT) IS NULL
+            OR vtxo.script = CAST(?3 AS TEXT))
+        AND (CAST(?4 AS INTEGER) IS NULL
             OR (vtxo.created_at, vtxo.txid, vtxo.vout) < (
-                CAST(?3 AS INTEGER),
-                CAST(?4 AS TEXT),
-                CAST(?5 AS INTEGER)
+                CAST(?4 AS INTEGER),
+                CAST(?5 AS TEXT),
+                CAST(?6 AS INTEGER)
             ))
     ORDER BY created_at DESC, txid DESC, vout DESC
-    LIMIT ?6
+    LIMIT ?7
 )
 SELECT v.txid, v.vout, v.script, v.amount, v.commitment_txids, v.spent_by, v.spent, v.expires_at, v.created_at, v.preconfirmed, v.swept, v.settled_by, v.unrolled, v.ark_txid, v.asset_id, v.asset_amount
 FROM asset_vtxo_vw v
@@ -110,6 +112,7 @@ ORDER BY pk.created_at DESC, pk.txid DESC, pk.vout DESC
 type GetVtxosParams struct {
 	StatusFilter    sql.NullString
 	AssetID         sql.NullString
+	ScriptFilter    sql.NullString
 	CursorCreatedAt sql.NullInt64
 	CursorTxid      sql.NullString
 	CursorVout      sql.NullInt64
@@ -125,12 +128,12 @@ type GetVtxosParams struct {
 // asset_vtxo_vw to hydrate assets in one round-trip; applying LIMIT to the
 // view directly would cut multi-asset VTXOs mid-way.
 // The caller passes (user_limit + 1) as limit_plus_one. The extra row is
-// only a has-more sentinel; if SQL returns more than user_limit VTXOs, the
-// caller trims the sentinel and uses the last returned VTXO as the next cursor
-// anchor.
+// a has-more sentinel; if SQL returns more than user_limit rows the caller
+// trims the last one and uses its outpoint as the next cursor.
 // status_filter accepts NULL (no filter), spendable (spent=false AND
 // unrolled=false), or spent (spent=true OR unrolled=true). asset_id uses
-// EXISTS rather than JOIN so the row count stays at VTXO count. The cursor
+// EXISTS rather than JOIN so the row count stays at VTXO count. script_filter
+// filters by exact match on the vtxo.script column (NULL = no filter). The cursor
 // predicate uses SQL row-value comparison which is the canonical
 // composite-key keyset idiom. CAST wrappers around sqlc.narg are required
 // so sqlc emits typed nullable Go args instead of interface{}.
@@ -141,6 +144,7 @@ func (q *Queries) GetVtxos(ctx context.Context, arg GetVtxosParams) ([]AssetVtxo
 	rows, err := q.db.QueryContext(ctx, getVtxos,
 		arg.StatusFilter,
 		arg.AssetID,
+		arg.ScriptFilter,
 		arg.CursorCreatedAt,
 		arg.CursorTxid,
 		arg.CursorVout,
@@ -391,6 +395,44 @@ func (q *Queries) ReplaceTx(ctx context.Context, arg ReplaceTxParams) error {
 	return err
 }
 
+const selectActiveContractsByType = `-- name: SelectActiveContractsByType :many
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
+WHERE type = ?1 AND state = 'active'
+`
+
+func (q *Queries) SelectActiveContractsByType(ctx context.Context, type_ string) ([]Contract, error) {
+	rows, err := q.db.QueryContext(ctx, selectActiveContractsByType, type_)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Contract
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.Script,
+			&i.Type,
+			&i.Label,
+			&i.Address,
+			&i.State,
+			&i.CreatedAt,
+			&i.Params,
+			&i.KeyIndex,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectAllContracts = `-- name: SelectAllContracts :many
 SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
 `
@@ -638,6 +680,28 @@ func (q *Queries) SelectContractsByType(ctx context.Context, type_ string) ([]Co
 		return nil, err
 	}
 	return items, nil
+}
+
+const selectLatestActiveContractByType = `-- name: SelectLatestActiveContractByType :one
+SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
+WHERE type = ?1 AND state = 'active' ORDER BY key_index DESC LIMIT 1
+`
+
+func (q *Queries) SelectLatestActiveContractByType(ctx context.Context, contractType string) (Contract, error) {
+	row := q.db.QueryRowContext(ctx, selectLatestActiveContractByType, contractType)
+	var i Contract
+	err := row.Scan(
+		&i.Script,
+		&i.Type,
+		&i.Label,
+		&i.Address,
+		&i.State,
+		&i.CreatedAt,
+		&i.Params,
+		&i.KeyIndex,
+		&i.Metadata,
+	)
+	return i, err
 }
 
 const selectLatestContractByType = `-- name: SelectLatestContractByType :one
