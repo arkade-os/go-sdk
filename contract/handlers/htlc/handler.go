@@ -15,6 +15,7 @@ import (
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 )
@@ -216,12 +217,14 @@ func prepareOwnedOpts(
 		opts.ClaimKey = keyRef.PubKey
 		claimKeyID = keyRef.Id
 	} else if sameKey(opts.ClaimKey, keyRef.PubKey) {
+		opts.ClaimKey = keyRef.PubKey
 		claimKeyID = keyRef.Id
 	}
 	if opts.RefundKey == nil {
 		opts.RefundKey = keyRef.PubKey
 		refundKeyID = keyRef.Id
 	} else if sameKey(opts.RefundKey, keyRef.PubKey) {
+		opts.RefundKey = keyRef.PubKey
 		refundKeyID = keyRef.Id
 	}
 
@@ -325,5 +328,5 @@ func sameKey(a, b *btcec.PublicKey) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return bytes.Equal(a.SerializeCompressed(), b.SerializeCompressed())
+	return bytes.Equal(schnorr.SerializePubKey(a), schnorr.SerializePubKey(b))
 }

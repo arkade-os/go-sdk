@@ -52,7 +52,8 @@ func NewHTLCScriptFromOpts(opts Opts, walletKey *btcec.PublicKey) (*HTLCScript, 
 	if opts.ClaimKey == nil {
 		opts.ClaimKey = walletKey
 		walletClaims = true
-	} else if sameKey(walletKey, opts.ClaimKey) {
+	} else if sameScriptKey(walletKey, opts.ClaimKey) {
+		opts.ClaimKey = walletKey
 		walletClaims = true
 	}
 
@@ -60,7 +61,8 @@ func NewHTLCScriptFromOpts(opts Opts, walletKey *btcec.PublicKey) (*HTLCScript, 
 	if opts.RefundKey == nil {
 		opts.RefundKey = walletKey
 		walletRefunds = true
-	} else if sameKey(walletKey, opts.RefundKey) {
+	} else if sameScriptKey(walletKey, opts.RefundKey) {
+		opts.RefundKey = walletKey
 		walletRefunds = true
 	}
 
@@ -168,9 +170,9 @@ func refundLeafScript(
 		Script()
 }
 
-func sameKey(a, b *btcec.PublicKey) bool {
+func sameScriptKey(a, b *btcec.PublicKey) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return bytes.Equal(a.SerializeCompressed(), b.SerializeCompressed())
+	return bytes.Equal(schnorr.SerializePubKey(a), schnorr.SerializePubKey(b))
 }

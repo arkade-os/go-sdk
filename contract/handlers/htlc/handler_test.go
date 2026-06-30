@@ -141,6 +141,30 @@ func TestHTLCHandlerPreservesOwnerKeyParity(t *testing.T) {
 	require.Equal(t, hex.EncodeToString(expectedScript), c.Script)
 }
 
+func TestHTLCHandlerMatchesWalletRoleByScriptKey(t *testing.T) {
+	h := NewHandler(testNetwork)
+	keyRef := identity.KeyRef{Id: "m/0/1", PubKey: newTestOddPubKey(t)}
+	opts := newTestOpts(t, newTestPubKey(t))
+
+	xOnlyClaimKey, err := schnorr.ParsePubKey(schnorr.SerializePubKey(keyRef.PubKey))
+	require.NoError(t, err)
+	require.NotEqual(t, keyRef.PubKey.SerializeCompressed(), xOnlyClaimKey.SerializeCompressed())
+	opts.ClaimKey = xOnlyClaimKey
+
+	c, err := h.NewContract(t.Context(), keyRef, opts)
+	require.NoError(t, err)
+	require.Equal(t, keyRef.Id, c.Params[paramClaimKeyID])
+	require.Equal(
+		t,
+		hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
+		c.Params[paramClaimKey],
+	)
+
+	ref, err := h.GetKeyRef(*c)
+	require.NoError(t, err)
+	require.Equal(t, keyRef.PubKey.SerializeCompressed(), ref.PubKey.SerializeCompressed())
+}
+
 func TestHTLCHandlerRejectsXOnlyStoredKeys(t *testing.T) {
 	h := NewHandler(testNetwork)
 	keyRef := newTestKeyRef(t)
