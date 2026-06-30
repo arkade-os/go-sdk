@@ -162,7 +162,10 @@ func createContract(
 	}
 
 	btcNetwork := utils.ToBitcoinNetwork(network)
-	address, err := btcutil.NewAddressTaproot(htlcScript.TaprootKey.SerializeCompressed()[1:], &btcNetwork)
+	address, err := btcutil.NewAddressTaproot(
+		htlcScript.TaprootKey.SerializeCompressed()[1:],
+		&btcNetwork,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTLC address: %w", err)
 	}
@@ -259,7 +262,11 @@ func OptsFromContract(c types.Contract) (htlc.Opts, error) {
 	}
 	refundLocktime, err := strconv.ParseUint(refundLocktimeStr, 10, 32)
 	if err != nil {
-		return htlc.Opts{}, fmt.Errorf("htlc contract %s: invalid refund locktime: %w", c.Script, err)
+		return htlc.Opts{}, fmt.Errorf(
+			"htlc contract %s: invalid refund locktime: %w",
+			c.Script,
+			err,
+		)
 	}
 
 	return htlc.Opts{

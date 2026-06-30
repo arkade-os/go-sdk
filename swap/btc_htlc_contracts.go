@@ -161,7 +161,12 @@ func validateHTLCOptsMatchSwapTree(opts htlc.Opts, swapTree boltz.SwapTree) erro
 	if got := hex.EncodeToString(claimScript); !strings.EqualFold(got, swapTree.ClaimLeaf.Output) {
 		return fmt.Errorf("rebuilt HTLC claim leaf mismatch")
 	}
-	if got := hex.EncodeToString(refundScript); !strings.EqualFold(got, swapTree.RefundLeaf.Output) {
+	if got := hex.EncodeToString(
+		refundScript,
+	); !strings.EqualFold(
+		got,
+		swapTree.RefundLeaf.Output,
+	) {
 		return fmt.Errorf("rebuilt HTLC refund leaf mismatch")
 	}
 

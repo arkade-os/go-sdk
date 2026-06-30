@@ -444,7 +444,9 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		return nil, err
 	}
 	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo(
-		ctx, preimageSigner, *vhtlcRefundKeyRef, //TOOD derivated based on refund key due to compatibility with .NET sdk
+		ctx,
+		preimageSigner,
+		*vhtlcRefundKeyRef, //TOOD derivated based on refund key due to compatibility with .NET sdk
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate preimage: %w", err)

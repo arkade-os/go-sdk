@@ -156,7 +156,10 @@ func claimLeafScript(preimageHash []byte, claimKey *btcec.PublicKey) ([]byte, er
 		Script()
 }
 
-func refundLeafScript(refundKey *btcec.PublicKey, refundLocktime arklib.AbsoluteLocktime) ([]byte, error) {
+func refundLeafScript(
+	refundKey *btcec.PublicKey,
+	refundLocktime arklib.AbsoluteLocktime,
+) ([]byte, error) {
 	return txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(refundKey)).
 		AddOp(txscript.OP_CHECKSIGVERIFY).

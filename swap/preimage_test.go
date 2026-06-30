@@ -104,27 +104,30 @@ func TestGenPreimageMatchesDotnetVectors(t *testing.T) {
 
 					for _, vector := range vectors {
 						vector := vector
-						t.Run(fmt.Sprintf("derivation%d", vector.DerivationIndex), func(t *testing.T) {
-							payload, err := buildPreimageMessagePayload(
-								keyRef.PubKey, vector.DerivationIndex,
-							)
-							require.NoError(t, err)
-							require.Equal(
-								t,
-								vector.ExpectedPreimageMessage,
-								hex.EncodeToString(payload),
-							)
+						t.Run(
+							fmt.Sprintf("derivation%d", vector.DerivationIndex),
+							func(t *testing.T) {
+								payload, err := buildPreimageMessagePayload(
+									keyRef.PubKey, vector.DerivationIndex,
+								)
+								require.NoError(t, err)
+								require.Equal(
+									t,
+									vector.ExpectedPreimageMessage,
+									hex.EncodeToString(payload),
+								)
 
-							preimage, err := genPreimage(
-								ctx, signer, *keyRef, vector.DerivationIndex,
-							)
-							require.NoError(t, err)
-							require.Equal(
-								t,
-								vector.ExpectedPreimage,
-								hex.EncodeToString(preimage),
-							)
-						})
+								preimage, err := genPreimage(
+									ctx, signer, *keyRef, vector.DerivationIndex,
+								)
+								require.NoError(t, err)
+								require.Equal(
+									t,
+									vector.ExpectedPreimage,
+									hex.EncodeToString(preimage),
+								)
+							},
+						)
 					}
 				})
 			}

@@ -159,7 +159,11 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 	}
 	checkpointExitPath, err := hex.DecodeString(checkpointExitPathStr)
 	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid checkpoint exit path hex: %w", c.Script, err)
+		return nil, fmt.Errorf(
+			"vhtlc contract %s: invalid checkpoint exit path hex: %w",
+			c.Script,
+			err,
+		)
 	}
 
 	opts, err := OptsFromContract(c)
@@ -253,12 +257,14 @@ func createContract(
 		paramReceiver: hex.EncodeToString(
 			opts.Receiver.SerializeCompressed(),
 		),
-		paramServer:                     hex.EncodeToString(opts.Server.SerializeCompressed()),
-		paramPreimageHash:               hex.EncodeToString(opts.PreimageHash),
-		paramRefundLocktime:             strconv.FormatUint(uint64(opts.RefundLocktime), 10),
-		paramClaimDelay:                 formatRelativeLocktime(opts.UnilateralClaimDelay),
-		paramRefundDelay:                formatRelativeLocktime(opts.UnilateralRefundDelay),
-		paramRefundWithoutReceiverDelay: formatRelativeLocktime(opts.UnilateralRefundWithoutReceiverDelay),
+		paramServer:         hex.EncodeToString(opts.Server.SerializeCompressed()),
+		paramPreimageHash:   hex.EncodeToString(opts.PreimageHash),
+		paramRefundLocktime: strconv.FormatUint(uint64(opts.RefundLocktime), 10),
+		paramClaimDelay:     formatRelativeLocktime(opts.UnilateralClaimDelay),
+		paramRefundDelay:    formatRelativeLocktime(opts.UnilateralRefundDelay),
+		paramRefundWithoutReceiverDelay: formatRelativeLocktime(
+			opts.UnilateralRefundWithoutReceiverDelay,
+		),
 	}
 	role, err := ownerRole(opts, ownerKeyRef.PubKey)
 	if err != nil {
@@ -472,7 +478,9 @@ func parseCompressedParam(c types.Contract, key string) (*btcec.PublicKey, error
 	if buf[0] != 0x02 && buf[0] != 0x03 {
 		return nil, fmt.Errorf(
 			"vhtlc contract %s: invalid %s: expected compressed key prefix 0x02 or 0x03, got 0x%02x",
-			c.Script, key, buf[0],
+			c.Script,
+			key,
+			buf[0],
 		)
 	}
 	pub, err := btcec.ParsePubKey(buf)
