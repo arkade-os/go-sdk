@@ -31,7 +31,7 @@ import (
 // TestVHTLCClaimDirect tests the basic VHTLC claim path via SwapHandler.ClaimVHTLC.
 // Adapted from fulmine TestVHTLC.
 // Flow:
-//  1. Create VHTLC opts with sender=receiver (self-claim scenario)
+//  1. Create VHTLC opts where the wallet owns the receiver/claim key
 //  2. Fund the VHTLC by sending offchain
 //  3. Claim with preimage via SwapHandler.ClaimVHTLC
 //  4. Verify claim returns a valid txid
@@ -48,12 +48,12 @@ func TestVHTLCClaimDirect(t *testing.T) {
 
 	preimage, preimageHash := generatePreimage(t)
 
-	// sender = receiver = alice (self-claim test)
-	pubKey := privKey.PubKey()
 	// Use a future block height for refund locktime (not needed for claim)
 	refundLocktime := uint32(time.Now().Unix() + 86400)
 
-	opts := makeVhtlcOpts(t, pubKey, pubKey, cfg.SignerPubKey, preimageHash, refundLocktime)
+	opts := makeClaimVhtlcOpts(
+		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
+	)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestVHTLCClaimDirect(t *testing.T) {
 // TestVHTLCClaimSettlement tests the VHTLC claim via batch settlement
 // (SettleVHTLCWithClaimPath). Adapted from fulmine TestClaimVhtlcSettlement.
 // Flow:
-//  1. Create VHTLC with sender=receiver
+//  1. Create VHTLC where the wallet owns the receiver/claim key
 //  2. Fund the VHTLC
 //  3. Wait for VTXO to become recoverable (settle to force into next round)
 //  4. Claim via SettleVHTLCWithClaimPath (batch session)
@@ -105,10 +105,11 @@ func TestVHTLCClaimSettlement(t *testing.T) {
 
 	preimage, preimageHash := generatePreimage(t)
 
-	pubKey := privKey.PubKey()
 	refundLocktime := uint32(time.Now().Unix() + 86400)
 
-	opts := makeVhtlcOpts(t, pubKey, pubKey, cfg.SignerPubKey, preimageHash, refundLocktime)
+	opts := makeClaimVhtlcOpts(
+		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
+	)
 	registerVHTLCContract(t, alice, opts)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
@@ -141,7 +142,7 @@ func TestVHTLCClaimSettlement(t *testing.T) {
 	balanceAfter, err := alice.Balance(ctx)
 	require.NoError(t, err)
 	require.Equal(t, balanceBefore.OffchainBalance.Total, balanceAfter.OffchainBalance.Total,
-		"offchain balance should be preserved after self-claim settlement")
+		"offchain balance should be preserved after claim settlement")
 }
 
 // TestVHTLCRefundSettlement tests the VHTLC refund path via batch settlement
@@ -549,10 +550,11 @@ func TestVHTLCClaimWithOutpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	preimage, preimageHash := generatePreimage(t)
-	pubKey := privKey.PubKey()
 	refundLocktime := uint32(time.Now().Unix() + 86400)
 
-	opts := makeVhtlcOpts(t, pubKey, pubKey, cfg.SignerPubKey, preimageHash, refundLocktime)
+	opts := makeClaimVhtlcOpts(
+		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
+	)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	require.NoError(t, err)
@@ -621,10 +623,11 @@ func TestVHTLCClaimOldestVtxo(t *testing.T) {
 	require.NoError(t, err)
 
 	preimage, preimageHash := generatePreimage(t)
-	pubKey := privKey.PubKey()
 	refundLocktime := uint32(time.Now().Unix() + 86400)
 
-	opts := makeVhtlcOpts(t, pubKey, pubKey, cfg.SignerPubKey, preimageHash, refundLocktime)
+	opts := makeClaimVhtlcOpts(
+		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
+	)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	require.NoError(t, err)
@@ -667,7 +670,6 @@ func TestVHTLCClaimOldestVtxo(t *testing.T) {
 }
 
 // makeVhtlcOpts constructs vhtlc.Opts for a test scenario.
-// Sender and receiver are the same key for simplicity in basic tests.
 // serverPubKey is obtained from the server configuration.
 func makeVhtlcOpts(
 	t *testing.T,
@@ -695,6 +697,24 @@ func makeVhtlcOpts(
 			Value: 1024,
 		},
 	}
+}
+
+// makeClaimVhtlcOpts constructs a VHTLC where the wallet owns the receiver
+// key and the sender key belongs to a counterparty.
+func makeClaimVhtlcOpts(
+	t *testing.T,
+	receiver, server *btcec.PublicKey,
+	preimageHash []byte,
+	refundLocktime uint32,
+) vhtlc.Opts {
+	t.Helper()
+
+	senderPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return makeVhtlcOpts(
+		t, senderPrivKey.PubKey(), receiver, server, preimageHash, refundLocktime,
+	)
 }
 
 // registerVHTLCContract registers a VHTLC in the wallet's contract manager
