@@ -7,10 +7,10 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -32,7 +32,7 @@ func TestHTLCHandlerNewContract(t *testing.T) {
 	require.NotEmpty(t, got.Address)
 	require.False(t, got.CreatedAt.IsZero())
 
-	expectedScript := expectedHTLCOutputScript(t, opts.Server, keyRef.PubKey, opts)
+	expectedScript := expectedHTLCOutputScript(t, keyRef.PubKey, opts)
 	require.Equal(t, hex.EncodeToString(expectedScript), got.Script)
 
 	addr, err := btcutil.DecodeAddress(got.Address, &chaincfg.RegressionNetParams)
@@ -40,17 +40,18 @@ func TestHTLCHandlerNewContract(t *testing.T) {
 	addrScript, err := txscript.PayToAddrScript(addr)
 	require.NoError(t, err)
 	require.Equal(t, got.Script, hex.EncodeToString(addrScript))
-	require.Equal(t, keyRef.Id, got.Params[paramOwnerKeyID])
 	require.Equal(
 		t,
 		hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
-		got.Params[paramOwnerKey],
+		got.Params[paramClaimKey],
 	)
 	require.Equal(
 		t,
-		hex.EncodeToString(opts.Server.SerializeCompressed()),
+		hex.EncodeToString(opts.ServerKey.SerializeCompressed()),
 		got.Params[paramServerKey],
 	)
+	require.Equal(t, keyRef.Id, got.Params[paramClaimKeyID])
+	require.NotContains(t, got.Params, paramRefundKeyID)
 }
 
 func TestHTLCHandlerGetters(t *testing.T) {
@@ -71,7 +72,7 @@ func TestHTLCHandlerGetters(t *testing.T) {
 
 	signerKey, err := h.GetSignerKey(*c)
 	require.NoError(t, err)
-	require.Equal(t, opts.Server.SerializeCompressed(), signerKey.SerializeCompressed())
+	require.Nil(t, signerKey)
 
 	delay, err := h.GetExitDelay(*c)
 	require.NoError(t, err)
@@ -79,7 +80,47 @@ func TestHTLCHandlerGetters(t *testing.T) {
 
 	tapscripts, err := h.GetTapscripts(*c)
 	require.NoError(t, err)
-	require.Equal(t, []string{opts.ClaimLeaf.Output, opts.RefundLeaf.Output}, tapscripts)
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(*opts, keyRef.PubKey)
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		hex.EncodeToString(htlcScript.ClaimScript),
+		hex.EncodeToString(htlcScript.RefundScript),
+	}, tapscripts)
+}
+
+func TestHTLCHandlerFillsWalletRole(t *testing.T) {
+	h := NewHandler(testNetwork)
+	keyRef := newTestKeyRef(t)
+
+	t.Run("wallet is claimer", func(t *testing.T) {
+		opts := newTestOpts(t, newTestPubKey(t))
+		opts.ClaimKey = nil
+
+		c, err := h.NewContract(t.Context(), keyRef, opts)
+		require.NoError(t, err)
+		require.Equal(t, keyRef.Id, c.Params[paramClaimKeyID])
+		require.NotContains(t, c.Params, paramRefundKeyID)
+		require.Equal(
+			t,
+			hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
+			c.Params[paramClaimKey],
+		)
+	})
+
+	t.Run("wallet is refunder", func(t *testing.T) {
+		opts := newTestOpts(t, newTestPubKey(t))
+		opts.RefundKey = nil
+
+		c, err := h.NewContract(t.Context(), keyRef, opts)
+		require.NoError(t, err)
+		require.Equal(t, keyRef.Id, c.Params[paramRefundKeyID])
+		require.NotContains(t, c.Params, paramClaimKeyID)
+		require.Equal(
+			t,
+			hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
+			c.Params[paramRefundKey],
+		)
+	})
 }
 
 func TestHTLCHandlerPreservesOwnerKeyParity(t *testing.T) {
@@ -94,8 +135,8 @@ func TestHTLCHandlerPreservesOwnerKeyParity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, keyRef.PubKey.SerializeCompressed(), ref.PubKey.SerializeCompressed())
 
-	expectedScript := expectedHTLCOutputScript(t, opts.Server, keyRef.PubKey, opts)
-	restoredScript := expectedHTLCOutputScript(t, opts.Server, ref.PubKey, opts)
+	expectedScript := expectedHTLCOutputScript(t, keyRef.PubKey, opts)
+	restoredScript := expectedHTLCOutputScript(t, ref.PubKey, opts)
 	require.Equal(t, expectedScript, restoredScript)
 	require.Equal(t, hex.EncodeToString(expectedScript), c.Script)
 }
@@ -107,17 +148,16 @@ func TestHTLCHandlerRejectsXOnlyStoredKeys(t *testing.T) {
 	c, err := h.NewContract(t.Context(), keyRef, opts)
 	require.NoError(t, err)
 
-	c.Params[paramOwnerKey] = hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey))
+	c.Params[paramClaimKey] = hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey))
 	ref, err := h.GetKeyRef(*c)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "expected compressed key length")
 	require.Nil(t, ref)
 
-	c.Params[paramOwnerKey] = hex.EncodeToString(keyRef.PubKey.SerializeCompressed())
-	c.Params[paramServerKey] = hex.EncodeToString(schnorr.SerializePubKey(opts.Server))
+	c.Params[paramClaimKey] = hex.EncodeToString(keyRef.PubKey.SerializeCompressed())
+	c.Params[paramServerKey] = hex.EncodeToString(schnorr.SerializePubKey(opts.ServerKey))
 	signer, err := h.GetSignerKey(*c)
-	require.Error(t, err)
-	require.ErrorContains(t, err, "expected compressed key length")
+	require.NoError(t, err)
 	require.Nil(t, signer)
 }
 
@@ -128,13 +168,13 @@ func TestHTLCHandlerNewContractInvalid(t *testing.T) {
 	t.Run("nil params", func(t *testing.T) {
 		got, err := h.NewContract(t.Context(), keyRef, nil)
 		require.Error(t, err)
-		require.ErrorContains(t, err, "requires *htlcHandler.Opts")
+		require.ErrorContains(t, err, "requires *htlc.Opts")
 		require.Nil(t, got)
 	})
 
 	t.Run("missing server", func(t *testing.T) {
 		opts := newTestOpts(t, keyRef.PubKey)
-		opts.Server = nil
+		opts.ServerKey = nil
 
 		got, err := h.NewContract(t.Context(), keyRef, opts)
 		require.Error(t, err)
@@ -147,44 +187,56 @@ func TestHTLCHandlerNewContractInvalid(t *testing.T) {
 
 		got, err := h.NewContract(t.Context(), keyRef, opts)
 		require.Error(t, err)
-		require.ErrorContains(t, err, "owner key is not present")
+		require.ErrorContains(t, err, "wallet key is not present")
+		require.Nil(t, got)
+	})
+
+	t.Run("missing counterparty key", func(t *testing.T) {
+		opts := newTestOpts(t, keyRef.PubKey)
+		opts.ClaimKey = nil
+		opts.RefundKey = nil
+
+		got, err := h.NewContract(t.Context(), keyRef, opts)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "missing counterparty HTLC key")
+		require.Nil(t, got)
+	})
+
+	t.Run("missing refund locktime", func(t *testing.T) {
+		opts := newTestOpts(t, keyRef.PubKey)
+		opts.RefundLocktime = 0
+
+		got, err := h.NewContract(t.Context(), keyRef, opts)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "missing refund locktime")
 		require.Nil(t, got)
 	})
 }
 
 func expectedHTLCOutputScript(
-	t *testing.T, serverKey, ownerKey *btcec.PublicKey, opts *Opts,
+	t *testing.T, ownerKey *btcec.PublicKey, opts *Opts,
 ) []byte {
 	t.Helper()
-	claimScript, err := hex.DecodeString(opts.ClaimLeaf.Output)
-	require.NoError(t, err)
-	refundScript, err := hex.DecodeString(opts.RefundLeaf.Output)
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(*opts, ownerKey)
 	require.NoError(t, err)
 
-	aggregateKey, _, _, err := musig2.AggregateKeys(
-		[]*btcec.PublicKey{serverKey, ownerKey},
-		false,
-	)
-	require.NoError(t, err)
-	claimHash := tapLeafHash(claimScript)
-	refundHash := tapLeafHash(refundScript)
-	root := merkleRoot(claimHash[:], refundHash[:])
-	taprootKey := txscript.ComputeTaprootOutputKey(aggregateKey.FinalKey, root)
-	outputScript, err := txscript.PayToTaprootScript(taprootKey)
+	outputScript, err := txscript.PayToTaprootScript(htlcScript.TaprootKey)
 	require.NoError(t, err)
 	return outputScript
 }
 
 func newTestOpts(t *testing.T, ownerKey *btcec.PublicKey) *Opts {
 	t.Helper()
+	preimageHash := make([]byte, htlc.Hash160Len)
+	_, err := rand.Read(preimageHash)
+	require.NoError(t, err)
+
 	return &Opts{
-		Server: newTestPubKey(t),
-		ClaimLeaf: Leaf{
-			Output: hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
-		},
-		RefundLeaf: Leaf{
-			Output: hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
-		},
+		ServerKey:      newTestPubKey(t),
+		ClaimKey:       ownerKey,
+		RefundKey:      newTestPubKey(t),
+		PreimageHash:   preimageHash,
+		RefundLocktime: arklib.AbsoluteLocktime(760),
 	}
 }
 
@@ -208,36 +260,4 @@ func newTestOddPubKey(t *testing.T) *btcec.PublicKey {
 			return pub
 		}
 	}
-}
-
-func newTestClaimLeafScript(t *testing.T, claimKey *btcec.PublicKey) []byte {
-	t.Helper()
-	preimageHash := make([]byte, 20)
-	_, err := rand.Read(preimageHash)
-	require.NoError(t, err)
-
-	scriptBytes, err := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_SIZE).
-		AddData([]byte{0x20}).
-		AddOp(txscript.OP_EQUALVERIFY).
-		AddOp(txscript.OP_HASH160).
-		AddData(preimageHash).
-		AddOp(txscript.OP_EQUALVERIFY).
-		AddData(schnorr.SerializePubKey(claimKey)).
-		AddOp(txscript.OP_CHECKSIG).
-		Script()
-	require.NoError(t, err)
-	return scriptBytes
-}
-
-func newTestRefundLeafScript(t *testing.T, refundKey *btcec.PublicKey) []byte {
-	t.Helper()
-	scriptBytes, err := txscript.NewScriptBuilder().
-		AddData(schnorr.SerializePubKey(refundKey)).
-		AddOp(txscript.OP_CHECKSIGVERIFY).
-		AddData([]byte{0xf8, 0x02}).
-		AddOp(txscript.OP_CHECKLOCKTIMEVERIFY).
-		Script()
-	require.NoError(t, err)
-	return scriptBytes
 }

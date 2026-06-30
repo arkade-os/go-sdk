@@ -13,7 +13,6 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
@@ -70,6 +69,28 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 			require.Nil(t, got)
 		})
 
+		t.Run("missing checkpoint exit path", func(t *testing.T) {
+			h := NewHandler(&mockInfoClient{
+				info: &client.Info{CheckpointTapscript: ""},
+			}, testNetwork)
+
+			got, err := h.NewContract(t.Context(), keyRef, newTestVHTLCContractOpts(t))
+			require.Error(t, err)
+			require.ErrorContains(t, err, "missing checkpoint exit path")
+			require.Nil(t, got)
+		})
+
+		t.Run("invalid checkpoint exit path hex", func(t *testing.T) {
+			h := NewHandler(&mockInfoClient{
+				info: &client.Info{CheckpointTapscript: "nothex"},
+			}, testNetwork)
+
+			got, err := h.NewContract(t.Context(), keyRef, newTestVHTLCContractOpts(t))
+			require.Error(t, err)
+			require.ErrorContains(t, err, "invalid checkpoint exit path hex")
+			require.Nil(t, got)
+		})
+
 		cases := []struct {
 			name          string
 			mutate        func(*vhtlc.Opts)
@@ -81,12 +102,12 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 					o.Sender = nil
 					o.Receiver = nil
 				},
-				expectedError: "requires exactly one of sender or receiver",
+				expectedError: "requires sender or receiver",
 			},
 			{
-				name:          "sender and receiver both set",
+				name:          "sender and receiver both set but wallet owns neither",
 				mutate:        func(o *vhtlc.Opts) { o.Sender = newTestPubKey(t) },
-				expectedError: "requires exactly one of sender or receiver",
+				expectedError: "wallet key must match VHTLC sender or receiver",
 			},
 			{
 				name:          "missing server",
@@ -121,8 +142,8 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 				name: "invalid non-interactive claim",
 				mutate: func(o *vhtlc.Opts) {
 					o.NonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
-						ReceiverPkScript:   []byte{0x51},
-						IntrospectorPubKey: newTestPubKey(t),
+						ReceiverPkScript: []byte{0x51},
+						EmulatorPubKey:   newTestPubKey(t),
 					}
 				},
 				expectedError: "receiver pkScript must be 34 bytes",
@@ -143,7 +164,7 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 }
 
 func TestVHTLCHandlerGetKeyRef(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
+	t.Run("valid sender key", func(t *testing.T) {
 		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
 
 		ref, err := h.GetKeyRef(c)
@@ -157,60 +178,83 @@ func TestVHTLCHandlerGetKeyRef(t *testing.T) {
 		)
 	})
 
-	t.Run("valid legacy x-only owner key", func(t *testing.T) {
-		h, keyRef, _, c := newVHTLCContract(t, newTestVHTLCContractOpts(t))
-		c.Params[paramOwnerKey] = hex.EncodeToString(schnorr.SerializePubKey(keyRef.PubKey))
+	t.Run("valid receiver key", func(t *testing.T) {
+		h := newTestVHTLCHandler(t)
+		opts := newTestVHTLCOpts(t)
+		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Receiver}
+		built, err := h.NewContract(t.Context(), keyRef, opts)
+		require.NoError(t, err)
 
-		ref, err := h.GetKeyRef(c)
+		ref, err := h.GetKeyRef(*built)
 		require.NoError(t, err)
 		require.NotNil(t, ref)
 		require.Equal(t, keyRef.Id, ref.Id)
 		require.Equal(
 			t,
-			schnorr.SerializePubKey(keyRef.PubKey),
-			schnorr.SerializePubKey(ref.PubKey),
+			keyRef.PubKey.SerializeCompressed(),
+			ref.PubKey.SerializeCompressed(),
 		)
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		h := newTestVHTLCHandler(t)
-		cases := []invalidCase{
-			{name: "no params", params: nil, expectedError: "no params"},
+		cases := []struct {
+			name          string
+			nilParams     bool
+			mutate        func(t *testing.T, p map[string]string)
+			expectedError string
+		}{
+			{name: "no params", nilParams: true, expectedError: "no params"},
 			{
-				name:          "missing ownerKeyId",
-				params:        map[string]string{paramOwnerKey: "abcd"},
-				expectedError: "missing param",
-			},
-			{
-				name:          "empty ownerKeyId",
-				params:        map[string]string{paramOwnerKeyID: "", paramOwnerKey: "abcd"},
-				expectedError: "missing param",
-			},
-			{
-				name:          "missing owner key",
-				params:        map[string]string{paramOwnerKeyID: "m/0/0"},
-				expectedError: "missing param",
-			},
-			{
-				name:          "invalid owner key hex",
-				params:        map[string]string{paramOwnerKeyID: "m/0/0", paramOwnerKey: "nothex"},
-				expectedError: "invalid owner key hex",
-			},
-			{
-				name: "invalid owner key",
-				params: map[string]string{
-					paramOwnerKeyID: "m/0/0",
-					paramOwnerKey:   hex.EncodeToString([]byte{0x00, 0x01}),
+				name: "missing wallet key id",
+				mutate: func(_ *testing.T, p map[string]string) {
+					delete(p, paramSenderKeyID)
+					delete(p, paramReceiverKeyID)
 				},
-				expectedError: "invalid owner key",
+				expectedError: "missing wallet key ID",
+			},
+			{
+				name: "both wallet key ids",
+				mutate: func(_ *testing.T, p map[string]string) {
+					p[paramReceiverKeyID] = "m/0/1"
+				},
+				expectedError: "expected exactly one",
+			},
+			{
+				name: "missing sender key",
+				mutate: func(_ *testing.T, p map[string]string) {
+					delete(p, paramSender)
+				},
+				expectedError: "missing param",
+			},
+			{
+				name: "invalid sender key hex",
+				mutate: func(_ *testing.T, p map[string]string) {
+					p[paramSender] = "nothex"
+				},
+				expectedError: "invalid sender hex",
+			},
+			{
+				name: "invalid receiver key",
+				mutate: func(_ *testing.T, p map[string]string) {
+					delete(p, paramSenderKeyID)
+					p[paramReceiverKeyID] = "m/0/1"
+					p[paramReceiver] = hex.EncodeToString([]byte{0x00, 0x01})
+				},
+				expectedError: "invalid receiver",
 			},
 		}
 
-		for _, c := range cases {
-			t.Run(c.name, func(t *testing.T) {
-				ref, err := h.GetKeyRef(types.Contract{Script: "broken", Params: c.params})
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				var params map[string]string
+				if !tc.nilParams {
+					params = newVHTLCParams(t)
+					tc.mutate(t, params)
+				}
+				ref, err := h.GetKeyRef(types.Contract{Script: "broken", Params: params})
 				require.Error(t, err)
-				require.ErrorContains(t, err, c.expectedError)
+				require.ErrorContains(t, err, tc.expectedError)
 				require.Nil(t, ref)
 			})
 		}
@@ -232,7 +276,6 @@ func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 		h := newTestVHTLCHandler(t)
 		opts := newTestVHTLCOpts(t)
 		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Sender}
-		opts.Sender = nil
 
 		built, err := h.NewContract(t.Context(), keyRef, opts)
 		require.NoError(t, err)
@@ -248,7 +291,6 @@ func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 		h := newTestVHTLCHandler(t)
 		opts := newTestVHTLCOpts(t)
 		keyRef := identity.KeyRef{Id: "m/0/0", PubKey: opts.Receiver}
-		opts.Receiver = nil
 
 		built, err := h.NewContract(t.Context(), keyRef, opts)
 		require.NoError(t, err)
@@ -262,23 +304,54 @@ func TestVHTLCHandlerGetKeyRefs(t *testing.T) {
 
 	t.Run("invalid", func(t *testing.T) {
 		h := newTestVHTLCHandler(t)
-		cases := []invalidCase{
-			{name: "no params", params: nil, expectedError: "no params"},
+		cases := []struct {
+			name          string
+			nilParams     bool
+			mutate        func(t *testing.T, p map[string]string)
+			expectedError string
+		}{
+			{name: "no params", nilParams: true, expectedError: "no params"},
 			{
-				name: "invalid owner key",
-				params: map[string]string{
-					paramOwnerKeyID: "m/0/0",
-					paramOwnerKey:   hex.EncodeToString([]byte{0x00, 0x01}),
+				name: "missing wallet key id",
+				mutate: func(_ *testing.T, p map[string]string) {
+					delete(p, paramSenderKeyID)
+					delete(p, paramReceiverKeyID)
 				},
-				expectedError: "invalid owner key",
+				expectedError: "missing wallet key ID",
+			},
+			{
+				name: "invalid sender key",
+				mutate: func(_ *testing.T, p map[string]string) {
+					p[paramSender] = hex.EncodeToString([]byte{0x00, 0x01})
+				},
+				expectedError: "invalid sender",
+			},
+			{
+				name: "missing checkpoint exit path",
+				mutate: func(_ *testing.T, p map[string]string) {
+					delete(p, paramCheckpointExitPath)
+				},
+				expectedError: "missing param",
+			},
+			{
+				name: "invalid checkpoint exit path hex",
+				mutate: func(_ *testing.T, p map[string]string) {
+					p[paramCheckpointExitPath] = "nothex"
+				},
+				expectedError: "invalid checkpoint exit path hex",
 			},
 		}
 
-		for _, c := range cases {
-			t.Run(c.name, func(t *testing.T) {
-				refs, err := h.GetKeyRefs(types.Contract{Script: "broken", Params: c.params})
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				var params map[string]string
+				if !tc.nilParams {
+					params = newVHTLCParams(t)
+					tc.mutate(t, params)
+				}
+				refs, err := h.GetKeyRefs(types.Contract{Script: "broken", Params: params})
 				require.Error(t, err)
-				require.ErrorContains(t, err, c.expectedError)
+				require.ErrorContains(t, err, tc.expectedError)
 				require.Nil(t, refs)
 			})
 		}
@@ -319,7 +392,7 @@ func TestVHTLCHandlerGetSignerKey(t *testing.T) {
 			{name: "no params", params: nil, expectedError: "no params"},
 			{
 				name:          "missing server key",
-				params:        map[string]string{paramOwnerKeyID: "m/0/0"},
+				params:        map[string]string{paramSenderKeyID: "m/0/0"},
 				expectedError: "missing param",
 			},
 			{
@@ -368,32 +441,16 @@ func TestVHTLCHandlerGetExitDelay(t *testing.T) {
 		cases := []invalidCase{
 			{name: "no params", params: nil, expectedError: "no params"},
 			{
-				name:          "missing delay type",
-				params:        map[string]string{paramOwnerKeyID: "m/0/0"},
+				name:          "missing delay",
+				params:        map[string]string{paramSenderKeyID: "m/0/0"},
 				expectedError: "missing param",
 			},
 			{
-				name: "missing delay value",
+				name: "invalid delay",
 				params: map[string]string{
-					paramRefundWithoutReceiverDelayType: "second",
+					paramRefundWithoutReceiverDelay: "notanumber",
 				},
-				expectedError: "missing param",
-			},
-			{
-				name: "invalid delay value",
-				params: map[string]string{
-					paramRefundWithoutReceiverDelayType:  "second",
-					paramRefundWithoutReceiverDelayValue: "notanumber",
-				},
-				expectedError: "invalid",
-			},
-			{
-				name: "unknown delay type",
-				params: map[string]string{
-					paramRefundWithoutReceiverDelayType:  "unknown",
-					paramRefundWithoutReceiverDelayValue: "1024",
-				},
-				expectedError: "unknown locktime type",
+				expectedError: "invalid refundWithoutReceiverDelay",
 			},
 		}
 
@@ -538,81 +595,46 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 				expectedError: "refund locktime must be greater than 0",
 			},
 			{
-				name: "missing claim delay type",
+				name: "missing claim delay",
 				mutate: func(_ *testing.T, p map[string]string) {
-					delete(p, paramClaimDelayType)
+					delete(p, paramClaimDelay)
 				},
 				expectedError: "missing param",
 			},
 			{
-				name: "missing claim delay value",
+				name: "invalid claim delay",
 				mutate: func(_ *testing.T, p map[string]string) {
-					delete(p, paramClaimDelayValue)
+					p[paramClaimDelay] = "notanumber"
+				},
+				expectedError: "invalid claimDelay",
+			},
+			{
+				name: "missing refund delay",
+				mutate: func(_ *testing.T, p map[string]string) {
+					delete(p, paramRefundDelay)
 				},
 				expectedError: "missing param",
 			},
 			{
-				name: "invalid claim delay value",
+				name: "invalid refund delay",
 				mutate: func(_ *testing.T, p map[string]string) {
-					p[paramClaimDelayValue] = "notanumber"
+					p[paramRefundDelay] = "notanumber"
 				},
-				expectedError: "invalid claimDelayValue",
+				expectedError: "invalid refundDelay",
 			},
 			{
-				name: "unknown claim delay type",
+				name: "missing refund without receiver delay",
 				mutate: func(_ *testing.T, p map[string]string) {
-					p[paramClaimDelayType] = "unknown"
-				},
-				expectedError: "unknown locktime type",
-			},
-			{
-				name: "missing refund delay type",
-				mutate: func(_ *testing.T, p map[string]string) {
-					delete(p, paramRefundDelayType)
+					delete(p, paramRefundWithoutReceiverDelay)
 				},
 				expectedError: "missing param",
 			},
 			{
-				name: "invalid refund delay value",
+				name: "invalid refund without receiver delay",
 				mutate: func(_ *testing.T, p map[string]string) {
-					p[paramRefundDelayValue] = "notanumber"
+					p[paramRefundWithoutReceiverDelay] = "notanumber"
 				},
-				expectedError: "invalid refundDelayValue",
-			},
-			{
-				name: "unknown refund delay type",
-				mutate: func(_ *testing.T, p map[string]string) {
-					p[paramRefundDelayType] = "unknown"
-				},
-				expectedError: "unknown locktime type",
-			},
-			{
-				name: "missing refund without receiver delay type",
-				mutate: func(_ *testing.T, p map[string]string) {
-					delete(p, paramRefundWithoutReceiverDelayType)
-				},
-				expectedError: "missing param",
-			},
-			{
-				name: "missing refund without receiver delay value",
-				mutate: func(_ *testing.T, p map[string]string) {
-					delete(p, paramRefundWithoutReceiverDelayValue)
-				},
-				expectedError: "missing param",
-			},
-			{
-				name: "invalid refund without receiver delay value",
-				mutate: func(_ *testing.T, p map[string]string) {
-					p[paramRefundWithoutReceiverDelayValue] = "notanumber"
-				},
-				expectedError: "invalid refundWithoutReceiverDelayValue",
-			},
-			{
-				name: "unknown refund without receiver delay type",
-				mutate: func(_ *testing.T, p map[string]string) {
-					p[paramRefundWithoutReceiverDelayType] = "unknown"
-				},
-				expectedError: "unknown locktime type",
+				expectedError: "invalid refundWithoutReceiverDelay",
 			},
 			{
 				name: "invalid NIC receiver pkScript hex",
@@ -622,28 +644,28 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 				expectedError: "invalid NIC receiver pkScript",
 			},
 			{
-				name: "missing NIC introspector key",
+				name: "missing NIC emulator key",
 				mutate: func(t *testing.T, p map[string]string) {
 					p[paramNICReceiverPkScript] = hex.EncodeToString(newTestP2TRPkScript(t))
-					delete(p, paramNICIntrospectorPubKey)
+					delete(p, paramNICEmulatorPubKey)
 				},
 				expectedError: "missing param",
 			},
 			{
-				name: "invalid NIC introspector key hex",
+				name: "invalid NIC emulator key hex",
 				mutate: func(t *testing.T, p map[string]string) {
 					p[paramNICReceiverPkScript] = hex.EncodeToString(newTestP2TRPkScript(t))
-					p[paramNICIntrospectorPubKey] = "nothex"
+					p[paramNICEmulatorPubKey] = "nothex"
 				},
-				expectedError: "invalid nicIntrospectorPubKey hex",
+				expectedError: "invalid nicEmulatorPubKey hex",
 			},
 			{
-				name: "invalid NIC introspector key",
+				name: "invalid NIC emulator key",
 				mutate: func(t *testing.T, p map[string]string) {
 					p[paramNICReceiverPkScript] = hex.EncodeToString(newTestP2TRPkScript(t))
-					p[paramNICIntrospectorPubKey] = hex.EncodeToString([]byte{0x00, 0x01})
+					p[paramNICEmulatorPubKey] = hex.EncodeToString([]byte{0x00, 0x01})
 				},
-				expectedError: "invalid nicIntrospectorPubKey",
+				expectedError: "invalid nicEmulatorPubKey",
 			},
 		}
 
@@ -732,8 +754,8 @@ func newTestVHTLCOptsWithNIC(t *testing.T) *vhtlc.Opts {
 	t.Helper()
 	opts := newTestVHTLCOpts(t)
 	opts.NonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
-		ReceiverPkScript:   newTestP2TRPkScript(t),
-		IntrospectorPubKey: newTestPubKey(t),
+		ReceiverPkScript: newTestP2TRPkScript(t),
+		EmulatorPubKey:   newTestPubKey(t),
 	}
 	return opts
 }
@@ -780,12 +802,16 @@ func assertVHTLCContract(
 	t.Helper()
 	expected, err := prepareOwnedOpts(*opts, keyRef)
 	require.NoError(t, err)
-	require.Equal(t, keyRef.Id, c.Params[paramOwnerKeyID])
-	require.Equal(
-		t,
-		hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
-		c.Params[paramOwnerKey],
-	)
+	role, err := ownerRole(expected, keyRef.PubKey)
+	require.NoError(t, err)
+	switch role {
+	case paramSender:
+		require.Equal(t, keyRef.Id, c.Params[paramSenderKeyID])
+		require.NotContains(t, c.Params, paramReceiverKeyID)
+	case paramReceiver:
+		require.Equal(t, keyRef.Id, c.Params[paramReceiverKeyID])
+		require.NotContains(t, c.Params, paramSenderKeyID)
+	}
 	require.Equal(
 		t,
 		hex.EncodeToString(expected.Sender.SerializeCompressed()),
@@ -800,6 +826,21 @@ func assertVHTLCContract(
 		t,
 		hex.EncodeToString(opts.Server.SerializeCompressed()),
 		c.Params[paramServer],
+	)
+	require.Equal(
+		t,
+		formatRelativeLocktime(expected.UnilateralClaimDelay),
+		c.Params[paramClaimDelay],
+	)
+	require.Equal(
+		t,
+		formatRelativeLocktime(expected.UnilateralRefundDelay),
+		c.Params[paramRefundDelay],
+	)
+	require.Equal(
+		t,
+		formatRelativeLocktime(expected.UnilateralRefundWithoutReceiverDelay),
+		c.Params[paramRefundWithoutReceiverDelay],
 	)
 	require.Contains(t, c.Address, testNetwork.Addr)
 }

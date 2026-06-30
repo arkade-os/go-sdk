@@ -13,11 +13,11 @@ import (
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	htlcHandler "github.com/arkade-os/go-sdk/contract/handlers/htlc"
 	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
+	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 )
@@ -47,6 +47,7 @@ type handlerInterfaceContractCase struct {
 	expectType      types.ContractType
 	expectDerivable bool
 	expectExitDelay bool
+	expectSignerKey bool
 }
 
 func TestHandlerInterfaceContract(t *testing.T) {
@@ -57,6 +58,7 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			expectType:      types.ContractTypeDefault,
 			expectDerivable: true,
 			expectExitDelay: true,
+			expectSignerKey: true,
 		},
 		{
 			name:            onchainMode,
@@ -64,6 +66,7 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			expectType:      types.ContractTypeBoarding,
 			expectDerivable: true,
 			expectExitDelay: true,
+			expectSignerKey: true,
 		},
 		{
 			name:    htlcMode,
@@ -93,6 +96,7 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			expectType:      types.ContractTypeVHTLC,
 			expectDerivable: false,
 			expectExitDelay: true,
+			expectSignerKey: true,
 		},
 	}
 
@@ -128,7 +132,11 @@ func TestHandlerInterfaceContract(t *testing.T) {
 
 			signer, err := h.GetSignerKey(c)
 			require.NoError(t, err)
-			require.NotNil(t, signer)
+			if tc.expectSignerKey {
+				require.NotNil(t, signer)
+			} else {
+				require.Nil(t, signer)
+			}
 
 			delay, err := h.GetExitDelay(c)
 			require.NoError(t, err)
@@ -214,45 +222,15 @@ func newTestVHTLCOpts(t *testing.T) *vhtlc.Opts {
 
 func newTestHTLCOpts(t *testing.T, ownerKey *btcec.PublicKey) *htlcHandler.Opts {
 	t.Helper()
-	return &htlcHandler.Opts{
-		Server: newTestPubKey(t),
-		ClaimLeaf: htlcHandler.Leaf{
-			Output: hex.EncodeToString(newTestClaimLeafScript(t, ownerKey)),
-		},
-		RefundLeaf: htlcHandler.Leaf{
-			Output: hex.EncodeToString(newTestRefundLeafScript(t, newTestPubKey(t))),
-		},
-	}
-}
-
-func newTestClaimLeafScript(t *testing.T, claimKey *btcec.PublicKey) []byte {
-	t.Helper()
-	preimageHash := make([]byte, 20)
+	preimageHash := make([]byte, htlc.Hash160Len)
 	_, err := rand.Read(preimageHash)
 	require.NoError(t, err)
 
-	scriptBytes, err := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_SIZE).
-		AddData([]byte{0x20}).
-		AddOp(txscript.OP_EQUALVERIFY).
-		AddOp(txscript.OP_HASH160).
-		AddData(preimageHash).
-		AddOp(txscript.OP_EQUALVERIFY).
-		AddData(schnorr.SerializePubKey(claimKey)).
-		AddOp(txscript.OP_CHECKSIG).
-		Script()
-	require.NoError(t, err)
-	return scriptBytes
-}
-
-func newTestRefundLeafScript(t *testing.T, refundKey *btcec.PublicKey) []byte {
-	t.Helper()
-	scriptBytes, err := txscript.NewScriptBuilder().
-		AddData(schnorr.SerializePubKey(refundKey)).
-		AddOp(txscript.OP_CHECKSIGVERIFY).
-		AddData([]byte{0xf8, 0x02}).
-		AddOp(txscript.OP_CHECKLOCKTIMEVERIFY).
-		Script()
-	require.NoError(t, err)
-	return scriptBytes
+	return &htlcHandler.Opts{
+		ServerKey:      newTestPubKey(t),
+		ClaimKey:       ownerKey,
+		RefundKey:      newTestPubKey(t),
+		PreimageHash:   preimageHash,
+		RefundLocktime: arklib.AbsoluteLocktime(760),
+	}
 }

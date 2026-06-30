@@ -2,13 +2,17 @@ package swap
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"strings"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
-	htlcHandler "github.com/arkade-os/go-sdk/contract/handlers/htlc"
+	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 )
 
 func (h *SwapHandler) ensureLocalHTLCContract(
@@ -91,7 +95,7 @@ func (h *SwapHandler) localHTLCKeyRefForAddress(
 func (h *SwapHandler) storeLocalHTLCContract(
 	ctx context.Context,
 	keyRef arkidentity.KeyRef,
-	opts htlcHandler.Opts,
+	opts htlc.Opts,
 ) error {
 	if _, err := h.arkWallet.ContractManager().NewContract(
 		ctx,
@@ -107,7 +111,7 @@ func (h *SwapHandler) storeLocalHTLCContract(
 func newHTLCOpts(
 	serverPubKeyHex string,
 	swapTree boltz.SwapTree,
-) (*htlcHandler.Opts, error) {
+) (*htlc.Opts, error) {
 	if err := validateSwapTree(swapTree); err != nil {
 		return nil, fmt.Errorf("invalid HTLC swap tree: %w", err)
 	}
@@ -117,13 +121,49 @@ func newHTLCOpts(
 		return nil, fmt.Errorf("invalid HTLC server pubkey: %w", err)
 	}
 
-	return &htlcHandler.Opts{
-		Server: serverPubKey,
-		ClaimLeaf: htlcHandler.Leaf{
-			Output: swapTree.ClaimLeaf.Output,
-		},
-		RefundLeaf: htlcHandler.Leaf{
-			Output: swapTree.RefundLeaf.Output,
-		},
-	}, nil
+	claimComponents, err := validateClaimLeafScript(swapTree.ClaimLeaf.Output)
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTLC claim leaf: %w", err)
+	}
+	claimKey, err := schnorr.ParsePubKey(claimComponents.ClaimPubKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTLC claim pubkey: %w", err)
+	}
+
+	refundComponents, err := ValidateRefundLeafScript(swapTree.RefundLeaf.Output)
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTLC refund leaf: %w", err)
+	}
+	refundKey, err := schnorr.ParsePubKey(refundComponents.RefundPubKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("invalid HTLC refund pubkey: %w", err)
+	}
+
+	opts := &htlc.Opts{
+		ServerKey:      serverPubKey,
+		ClaimKey:       claimKey,
+		RefundKey:      refundKey,
+		PreimageHash:   append([]byte(nil), claimComponents.PreimageHash[:]...),
+		RefundLocktime: arklib.AbsoluteLocktime(refundComponents.Timeout),
+	}
+	if err := validateHTLCOptsMatchSwapTree(*opts, swapTree); err != nil {
+		return nil, err
+	}
+
+	return opts, nil
+}
+
+func validateHTLCOptsMatchSwapTree(opts htlc.Opts, swapTree boltz.SwapTree) error {
+	claimScript, refundScript, err := htlc.NewHTLCLeafScriptsFromOpts(opts)
+	if err != nil {
+		return fmt.Errorf("rebuild HTLC leaves from opts: %w", err)
+	}
+	if got := hex.EncodeToString(claimScript); !strings.EqualFold(got, swapTree.ClaimLeaf.Output) {
+		return fmt.Errorf("rebuilt HTLC claim leaf mismatch")
+	}
+	if got := hex.EncodeToString(refundScript); !strings.EqualFold(got, swapTree.RefundLeaf.Output) {
+		return fmt.Errorf("rebuilt HTLC refund leaf mismatch")
+	}
+
+	return nil
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 )
 
@@ -21,16 +20,11 @@ func (h *SwapHandler) storeLocalVHTLCContract(
 	keyRef arkidentity.KeyRef,
 	opts vhtlc.Opts,
 ) error {
-	contractOpts, err := optsForLocalVHTLCOwner(opts, keyRef.PubKey)
-	if err != nil {
-		return err
-	}
-
 	if _, err := h.arkWallet.ContractManager().NewContract(
 		ctx,
 		types.ContractTypeVHTLC,
 		contract.WithKeyRef(keyRef),
-		contract.WithParams(&contractOpts),
+		contract.WithParams(&opts),
 	); err != nil {
 		return fmt.Errorf("store local VHTLC contract: %w", err)
 	}
@@ -64,24 +58,6 @@ func (h *SwapHandler) ensureLocalVHTLCContractForSigning(
 		return fmt.Errorf("missing local VHTLC contract for script %s: %w", scriptHex, err)
 	}
 	return h.storeLocalVHTLCContract(ctx, *keyRef, opts)
-}
-
-func optsForLocalVHTLCOwner(
-	opts vhtlc.Opts,
-	owner *btcec.PublicKey,
-) (vhtlc.Opts, error) {
-	if owner == nil {
-		return vhtlc.Opts{}, fmt.Errorf("missing local VHTLC owner key")
-	}
-	if samePubKey(owner, opts.Sender) {
-		opts.Sender = nil
-		return opts, nil
-	}
-	if samePubKey(owner, opts.Receiver) {
-		opts.Receiver = nil
-		return opts, nil
-	}
-	return vhtlc.Opts{}, fmt.Errorf("wallet does not own sender or receiver key")
 }
 
 func (h *SwapHandler) localVHTLCKeyRefFromOpts(
@@ -131,7 +107,7 @@ func samePubKey(a, b *btcec.PublicKey) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return bytes.Equal(schnorr.SerializePubKey(a), schnorr.SerializePubKey(b))
+	return bytes.Equal(a.SerializeCompressed(), b.SerializeCompressed())
 }
 
 func (h *SwapHandler) buildLocalSenderVHTLC(

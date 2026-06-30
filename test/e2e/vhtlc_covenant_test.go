@@ -54,7 +54,7 @@ func TestNonInteractiveClaim(t *testing.T) {
 	receiverPkScript, err := txscript.PayToTaprootScript(receiverPriv.PubKey())
 	require.NoError(t, err)
 
-	// Fetch solver + introspector pubkeys from bancod
+	// Fetch solver + emulator pubkeys from bancod
 	solverPub, introPub := fetchSolverPubKeysHTTP(t)
 
 	// Generate preimage
@@ -90,8 +90,8 @@ func TestNonInteractiveClaim(t *testing.T) {
 			Value: 1024,
 		},
 		NonInteractiveClaim: &vhtlc.NonInteractiveClaimOpts{
-			ReceiverPkScript:   receiverPkScript,
-			IntrospectorPubKey: introPub,
+			ReceiverPkScript: receiverPkScript,
+			EmulatorPubKey:   introPub,
 		},
 	}
 
@@ -149,15 +149,15 @@ func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	var result struct {
-		SolverPubKey       string `json:"solver_pub_key"`
-		IntrospectorPubKey string `json:"emulator_pub_key"`
+		SolverPubKey   string `json:"solver_pub_key"`
+		EmulatorPubKey string `json:"emulator_pub_key"`
 	}
 	require.NoError(t, json.Unmarshal(body, &result))
 	solverRaw, err := hex.DecodeString(result.SolverPubKey)
 	require.NoError(t, err)
 	solver, err := btcec.ParsePubKey(solverRaw)
 	require.NoError(t, err)
-	introRaw, err := hex.DecodeString(result.IntrospectorPubKey)
+	introRaw, err := hex.DecodeString(result.EmulatorPubKey)
 	require.NoError(t, err)
 	intro, err := btcec.ParsePubKey(introRaw)
 	require.NoError(t, err)

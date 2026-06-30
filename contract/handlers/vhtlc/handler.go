@@ -13,36 +13,28 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
+	sdkutils "github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 )
 
 // Param keys stored in Contract.Params.
 const (
-	paramOwnerKeyID                      = "ownerKeyId"
-	paramOwnerKey                        = "ownerKey"
-	paramSender                          = "sender"
-	paramReceiver                        = "receiver"
-	paramServer                          = "server"
-	paramPreimageHash                    = "preimageHash"
-	paramRefundLocktime                  = "refundLocktime"
-	paramClaimDelayType                  = "claimDelayType"
-	paramClaimDelayValue                 = "claimDelayValue"
-	paramRefundDelayType                 = "refundDelayType"
-	paramRefundDelayValue                = "refundDelayValue"
-	paramRefundWithoutReceiverDelayType  = "refundWithoutReceiverDelayType"
-	paramRefundWithoutReceiverDelayValue = "refundWithoutReceiverDelayValue"
-	paramNICReceiverPkScript             = "nicReceiverPkScript"
-	paramNICIntrospectorPubKey           = "nicIntrospectorPubKey"
-	paramCheckpointExitPath              = "checkpointExitPath"
-)
-
-const (
-	locktimeTagBlock  = "block"
-	locktimeTagSecond = "second"
+	paramSenderKeyID                = "senderKeyId"
+	paramReceiverKeyID              = "receiverKeyId"
+	paramSender                     = "sender"
+	paramReceiver                   = "receiver"
+	paramServer                     = "server"
+	paramPreimageHash               = "preimageHash"
+	paramRefundLocktime             = "refundLocktime"
+	paramClaimDelay                 = "claimDelay"
+	paramRefundDelay                = "refundDelay"
+	paramRefundWithoutReceiverDelay = "refundWithoutReceiverDelay"
+	paramNICReceiverPkScript        = "nicReceiverPkScript"
+	paramNICEmulatorPubKey          = "nicEmulatorPubKey"
+	paramCheckpointExitPath         = "checkpointExitPath"
 )
 
 // Handler is a stateless contract handler for VHTLC scripts.
@@ -68,8 +60,9 @@ func NewHandler(c client.Client, network arklib.Network) *Handler {
 func (h *Handler) Derivable() bool { return false }
 
 // NewContract builds a VHTLC contract from the caller-provided key and params.
-// params must be *vhtlc.Opts with exactly one of Sender or Receiver set. The
-// missing side is populated with keyRef.PubKey, making keyRef the stored owner.
+// params must be *vhtlc.Opts. If one of Sender or Receiver is missing, the
+// missing side is populated with keyRef.PubKey. If both are present, keyRef
+// must match one of them so the handler can persist the wallet role.
 func (h *Handler) NewContract(
 	ctx context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
@@ -87,19 +80,69 @@ func (h *Handler) NewContract(
 	if err != nil {
 		return nil, err
 	}
+	if checkpointExitPath == "" {
+		return nil, fmt.Errorf("missing checkpoint exit path")
+	}
+	checkpointExitPathBytes, err := hex.DecodeString(checkpointExitPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid checkpoint exit path hex: %w", err)
+	}
+	exitPath := &script.CSVMultisigClosure{}
+	valid, err := exitPath.Decode(checkpointExitPathBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode checkpoint exit path: %w", err)
+	}
+	if !valid {
+		return nil, fmt.Errorf("invalid checkpoint exit path")
+	}
+
 	return createContract(opts, keyRef, h.network, checkpointExitPath)
 }
 
 func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
-	keyID, err := requireParam(c, paramOwnerKeyID)
+	optionalParam := func(c types.Contract, key string) (string, bool, error) {
+		if c.Params == nil {
+			return "", false, fmt.Errorf("vhtlc contract %s: no params", c.Script)
+		}
+		v, ok := c.Params[key]
+		if !ok || v == "" {
+			return "", false, nil
+		}
+		return v, true, nil
+	}
+
+	senderKeyID, hasSenderKeyID, err := optionalParam(c, paramSenderKeyID)
 	if err != nil {
 		return nil, err
 	}
-	pub, err := parseOwnerKey(c)
+	receiverKeyID, hasReceiverKeyID, err := optionalParam(c, paramReceiverKeyID)
 	if err != nil {
 		return nil, err
 	}
-	return &identity.KeyRef{Id: keyID, PubKey: pub}, nil
+	if hasSenderKeyID == hasReceiverKeyID {
+		if hasSenderKeyID {
+			return nil, fmt.Errorf(
+				"vhtlc contract %s: expected exactly one of %q or %q",
+				c.Script, paramSenderKeyID, paramReceiverKeyID,
+			)
+		}
+		return nil, fmt.Errorf(
+			"vhtlc contract %s: missing wallet key ID: expected %q or %q",
+			c.Script, paramSenderKeyID, paramReceiverKeyID,
+		)
+	}
+	if hasSenderKeyID {
+		pub, err := parseCompressedParam(c, paramSender)
+		if err != nil {
+			return nil, err
+		}
+		return &identity.KeyRef{Id: senderKeyID, PubKey: pub}, nil
+	}
+	pub, err := parseCompressedParam(c, paramReceiver)
+	if err != nil {
+		return nil, err
+	}
+	return &identity.KeyRef{Id: receiverKeyID, PubKey: pub}, nil
 }
 
 func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
@@ -110,9 +153,13 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 
 	keys := map[string]string{c.Script: keyRef.Id}
 
-	checkpointExitPath, err := h.getCheckpointExitPath(c)
+	checkpointExitPathStr, err := requireParam(c, paramCheckpointExitPath)
 	if err != nil {
 		return nil, err
+	}
+	checkpointExitPath, err := hex.DecodeString(checkpointExitPathStr)
+	if err != nil {
+		return nil, fmt.Errorf("vhtlc contract %s: invalid checkpoint exit path hex: %w", c.Script, err)
 	}
 
 	opts, err := OptsFromContract(c)
@@ -154,9 +201,7 @@ func (h *Handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
 // refundWithoutReceiverDelay. This is always safe regardless of
 // whether the wallet is the sender or receiver.
 func (h *Handler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
-	delay, err := parseRelativeLocktime(
-		c, paramRefundWithoutReceiverDelayType, paramRefundWithoutReceiverDelayValue,
-	)
+	delay, err := parseRelativeLocktime(c, paramRefundWithoutReceiverDelay)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +224,7 @@ func (h *Handler) GetTapscripts(c types.Contract) ([]string, error) {
 var _ handlers.Handler = (*Handler)(nil)
 
 // createContract builds a VHTLC contract entry. ownerKeyRef is the wallet's
-// identity key — stored so GetKeyRef can return it for signing.
+// identity key and must be either the sender or receiver key.
 func createContract(
 	opts vhtlc.Opts,
 	ownerKeyRef identity.KeyRef,
@@ -204,40 +249,34 @@ func createContract(
 	}
 
 	params := map[string]string{
-		paramOwnerKeyID: ownerKeyRef.Id,
-		paramOwnerKey:   hex.EncodeToString(ownerKeyRef.PubKey.SerializeCompressed()),
-		paramSender:     hex.EncodeToString(opts.Sender.SerializeCompressed()),
+		paramSender: hex.EncodeToString(opts.Sender.SerializeCompressed()),
 		paramReceiver: hex.EncodeToString(
 			opts.Receiver.SerializeCompressed(),
 		),
-		paramServer:         hex.EncodeToString(opts.Server.SerializeCompressed()),
-		paramPreimageHash:   hex.EncodeToString(opts.PreimageHash),
-		paramRefundLocktime: strconv.FormatUint(uint64(opts.RefundLocktime), 10),
-		paramClaimDelayType: locktimeTypeName(opts.UnilateralClaimDelay.Type),
-		paramClaimDelayValue: strconv.FormatUint(
-			uint64(opts.UnilateralClaimDelay.Value),
-			10,
-		),
-		paramRefundDelayType: locktimeTypeName(opts.UnilateralRefundDelay.Type),
-		paramRefundDelayValue: strconv.FormatUint(
-			uint64(opts.UnilateralRefundDelay.Value),
-			10,
-		),
-		paramRefundWithoutReceiverDelayType: locktimeTypeName(
-			opts.UnilateralRefundWithoutReceiverDelay.Type,
-		),
-		paramRefundWithoutReceiverDelayValue: strconv.FormatUint(
-			uint64(opts.UnilateralRefundWithoutReceiverDelay.Value),
-			10,
-		),
+		paramServer:                     hex.EncodeToString(opts.Server.SerializeCompressed()),
+		paramPreimageHash:               hex.EncodeToString(opts.PreimageHash),
+		paramRefundLocktime:             strconv.FormatUint(uint64(opts.RefundLocktime), 10),
+		paramClaimDelay:                 formatRelativeLocktime(opts.UnilateralClaimDelay),
+		paramRefundDelay:                formatRelativeLocktime(opts.UnilateralRefundDelay),
+		paramRefundWithoutReceiverDelay: formatRelativeLocktime(opts.UnilateralRefundWithoutReceiverDelay),
+	}
+	role, err := ownerRole(opts, ownerKeyRef.PubKey)
+	if err != nil {
+		return nil, err
+	}
+	switch role {
+	case paramSender:
+		params[paramSenderKeyID] = ownerKeyRef.Id
+	case paramReceiver:
+		params[paramReceiverKeyID] = ownerKeyRef.Id
 	}
 
 	if opts.NonInteractiveClaim != nil {
 		params[paramNICReceiverPkScript] = hex.EncodeToString(
 			opts.NonInteractiveClaim.ReceiverPkScript,
 		)
-		params[paramNICIntrospectorPubKey] = hex.EncodeToString(
-			opts.NonInteractiveClaim.IntrospectorPubKey.SerializeCompressed(),
+		params[paramNICEmulatorPubKey] = hex.EncodeToString(
+			opts.NonInteractiveClaim.EmulatorPubKey.SerializeCompressed(),
 		)
 	}
 	params[paramCheckpointExitPath] = checkpointExitPath
@@ -290,17 +329,15 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 			err,
 		)
 	}
-	claimDelay, err := parseRelativeLocktime(c, paramClaimDelayType, paramClaimDelayValue)
+	claimDelay, err := parseRelativeLocktime(c, paramClaimDelay)
 	if err != nil {
 		return vhtlc.Opts{}, err
 	}
-	refundDelay, err := parseRelativeLocktime(c, paramRefundDelayType, paramRefundDelayValue)
+	refundDelay, err := parseRelativeLocktime(c, paramRefundDelay)
 	if err != nil {
 		return vhtlc.Opts{}, err
 	}
-	refundWithoutReceiverDelay, err := parseRelativeLocktime(
-		c, paramRefundWithoutReceiverDelayType, paramRefundWithoutReceiverDelayValue,
-	)
+	refundWithoutReceiverDelay, err := parseRelativeLocktime(c, paramRefundWithoutReceiverDelay)
 	if err != nil {
 		return vhtlc.Opts{}, err
 	}
@@ -326,13 +363,13 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 				err,
 			)
 		}
-		introspector, err := parseCompressedParam(c, paramNICIntrospectorPubKey)
+		emulator, err := parseCompressedParam(c, paramNICEmulatorPubKey)
 		if err != nil {
 			return vhtlc.Opts{}, err
 		}
 		opts.NonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
-			ReceiverPkScript:   recv,
-			IntrospectorPubKey: introspector,
+			ReceiverPkScript: recv,
+			EmulatorPubKey:   emulator,
 		}
 	}
 
@@ -350,19 +387,6 @@ func (h *Handler) resolveCheckpointExitPath(ctx context.Context) (string, error)
 		return "", fmt.Errorf("failed to get server info: %w", err)
 	}
 	return info.CheckpointTapscript, nil
-}
-
-func (h *Handler) getCheckpointExitPath(c types.Contract) ([]byte, error) {
-	checkpointExitPath, err := requireParam(c, paramCheckpointExitPath)
-	if err != nil {
-		return nil, err
-	}
-
-	buf, err := hex.DecodeString(checkpointExitPath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid checkpoint exit path hex: %w", err)
-	}
-	return buf, nil
 }
 
 func addCheckpointKeyRef(
@@ -397,9 +421,8 @@ func closureContainsKey(closure script.Closure, pubkey *btcec.PublicKey) bool {
 		return false
 	}
 
-	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
 	for _, candidate := range closurePubKeys(closure) {
-		if bytes.Equal(schnorr.SerializePubKey(candidate), xOnlyPubkey) {
+		if samePubKey(candidate, pubkey) {
 			return true
 		}
 	}
@@ -439,6 +462,19 @@ func parseCompressedParam(c types.Contract, key string) (*btcec.PublicKey, error
 	if err != nil {
 		return nil, fmt.Errorf("vhtlc contract %s: invalid %s hex: %w", c.Script, key, err)
 	}
+	const compressedPubKeyLen = 33
+	if len(buf) != compressedPubKeyLen {
+		return nil, fmt.Errorf(
+			"vhtlc contract %s: invalid %s: expected compressed key length %d, got %d",
+			c.Script, key, compressedPubKeyLen, len(buf),
+		)
+	}
+	if buf[0] != 0x02 && buf[0] != 0x03 {
+		return nil, fmt.Errorf(
+			"vhtlc contract %s: invalid %s: expected compressed key prefix 0x02 or 0x03, got 0x%02x",
+			c.Script, key, buf[0],
+		)
+	}
 	pub, err := btcec.ParsePubKey(buf)
 	if err != nil {
 		return nil, fmt.Errorf("vhtlc contract %s: invalid %s: %w", c.Script, key, err)
@@ -446,100 +482,73 @@ func parseCompressedParam(c types.Contract, key string) (*btcec.PublicKey, error
 	return pub, nil
 }
 
-func parseOwnerKey(c types.Contract) (*btcec.PublicKey, error) {
-	raw, err := requireParam(c, paramOwnerKey)
-	if err != nil {
-		return nil, err
-	}
-	buf, err := hex.DecodeString(raw)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid owner key hex: %w", c.Script, err)
-	}
-
-	switch len(buf) {
-	case schnorr.PubKeyBytesLen:
-		pub, err := schnorr.ParsePubKey(buf)
-		if err != nil {
-			return nil, fmt.Errorf("vhtlc contract %s: invalid owner key: %w", c.Script, err)
-		}
-		return pub, nil
-	case btcec.PubKeyBytesLenCompressed:
-		pub, err := btcec.ParsePubKey(buf)
-		if err != nil {
-			return nil, fmt.Errorf("vhtlc contract %s: invalid owner key: %w", c.Script, err)
-		}
-		return pub, nil
-	default:
-		return nil, fmt.Errorf(
-			"vhtlc contract %s: invalid owner key: expected 32-byte x-only or 33-byte compressed key, got %d bytes",
-			c.Script,
-			len(buf),
-		)
-	}
-}
-
 func prepareOwnedOpts(opts vhtlc.Opts, keyRef identity.KeyRef) (vhtlc.Opts, error) {
 	if keyRef.Id == "" {
-		return vhtlc.Opts{}, fmt.Errorf("missing owner key ID")
+		return vhtlc.Opts{}, fmt.Errorf("missing wallet key ID")
 	}
 	if keyRef.PubKey == nil {
-		return vhtlc.Opts{}, fmt.Errorf("missing owner pubkey")
+		return vhtlc.Opts{}, fmt.Errorf("missing wallet pubkey")
 	}
 
 	hasSender := opts.Sender != nil
 	hasReceiver := opts.Receiver != nil
-	if hasSender == hasReceiver {
+	if !hasSender && !hasReceiver {
 		return vhtlc.Opts{}, fmt.Errorf(
-			"vhtlc handler requires exactly one of sender or receiver pubkey",
+			"vhtlc handler requires sender or receiver pubkey",
 		)
 	}
 
-	if hasSender {
+	if hasSender && !hasReceiver {
 		opts.Receiver = keyRef.PubKey
-	} else {
+		return opts, nil
+	}
+	if !hasSender && hasReceiver {
 		opts.Sender = keyRef.PubKey
+		return opts, nil
+	}
+
+	if _, err := ownerRole(opts, keyRef.PubKey); err != nil {
+		return vhtlc.Opts{}, err
 	}
 	return opts, nil
 }
 
-func parseRelativeLocktime(
-	c types.Contract, typeKey, valueKey string,
-) (arklib.RelativeLocktime, error) {
-	typeStr, err := requireParam(c, typeKey)
-	if err != nil {
-		return arklib.RelativeLocktime{}, err
+func ownerRole(opts vhtlc.Opts, owner *btcec.PublicKey) (string, error) {
+	matchesSender := samePubKey(owner, opts.Sender)
+	matchesReceiver := samePubKey(owner, opts.Receiver)
+	if matchesSender == matchesReceiver {
+		if matchesSender {
+			return "", fmt.Errorf("wallet key matches both VHTLC sender and receiver")
+		}
+		return "", fmt.Errorf("wallet key must match VHTLC sender or receiver")
 	}
-	valueStr, err := requireParam(c, valueKey)
-	if err != nil {
-		return arklib.RelativeLocktime{}, err
+	if matchesSender {
+		return paramSender, nil
 	}
-	value, err := strconv.ParseUint(valueStr, 10, 32)
-	if err != nil {
-		return arklib.RelativeLocktime{}, fmt.Errorf(
-			"vhtlc contract %s: invalid %s: %w", c.Script, valueKey, err,
-		)
-	}
-	var locktimeType arklib.RelativeLocktimeType
-	switch typeStr {
-	case locktimeTagBlock:
-		locktimeType = arklib.LocktimeTypeBlock
-	case locktimeTagSecond:
-		locktimeType = arklib.LocktimeTypeSecond
-	default:
-		return arklib.RelativeLocktime{}, fmt.Errorf(
-			"vhtlc contract %s: unknown locktime type %q for %s", c.Script, typeStr, typeKey,
-		)
-	}
-	return arklib.RelativeLocktime{Type: locktimeType, Value: uint32(value)}, nil
+	return paramReceiver, nil
 }
 
-func locktimeTypeName(t arklib.RelativeLocktimeType) string {
-	switch t {
-	case arklib.LocktimeTypeBlock:
-		return locktimeTagBlock
-	case arklib.LocktimeTypeSecond:
-		return locktimeTagSecond
-	default:
-		return ""
+func samePubKey(a, b *btcec.PublicKey) bool {
+	if a == nil || b == nil {
+		return false
 	}
+	return bytes.Equal(a.SerializeCompressed(), b.SerializeCompressed())
+}
+
+func parseRelativeLocktime(c types.Contract, key string) (arklib.RelativeLocktime, error) {
+	valueStr, err := requireParam(c, key)
+	if err != nil {
+		return arklib.RelativeLocktime{}, err
+	}
+	delay, err := sdkutils.ParseDelay(valueStr)
+	if err != nil {
+		return arklib.RelativeLocktime{}, fmt.Errorf(
+			"vhtlc contract %s: invalid %s: %w", c.Script, key, err,
+		)
+	}
+	return *delay, nil
+}
+
+func formatRelativeLocktime(delay arklib.RelativeLocktime) string {
+	return strconv.FormatUint(uint64(delay.Value), 10)
 }

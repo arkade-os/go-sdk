@@ -15,15 +15,15 @@ const p2trPkScriptLen = 34
 // on a VHTLC. When set, NewVHTLCScriptFromOpts appends a ConditionMultisigClosure
 // that lets a solver bot claim the VHTLC on the receiver's behalf
 // by revealing the preimage. The solver does not need any signature from the
-// receiver — it satisfies the introspector-tweaked multisig via the
+// receiver — it satisfies the emulator-tweaked multisig via the
 // EnforcePayTo arkade script.
 // Thus, the receiver knows that the output script of the claim is going to its wallet
 type NonInteractiveClaimOpts struct {
 	// ReceiverPkScript is the 34-byte P2TR pkScript of the VHTLC receiver.
 	ReceiverPkScript []byte
-	// IntrospectorPubKey is the solver's introspector signing key (compressed).
+	// EmulatorPubKey is the solver's emulator signing key (compressed).
 	// it will be tweaked with the non interactive claim arkade script.
-	IntrospectorPubKey *btcec.PublicKey
+	EmulatorPubKey *btcec.PublicKey
 }
 
 func (o NonInteractiveClaimOpts) validate() error {
@@ -35,8 +35,8 @@ func (o NonInteractiveClaimOpts) validate() error {
 	if o.ReceiverPkScript[0] != txscript.OP_1 || o.ReceiverPkScript[1] != txscript.OP_DATA_32 {
 		return fmt.Errorf("non-interactive claim: receiver pkScript is not P2TR")
 	}
-	if o.IntrospectorPubKey == nil {
-		return fmt.Errorf("non-interactive claim: introspector pubkey must not be nil")
+	if o.EmulatorPubKey == nil {
+		return fmt.Errorf("non-interactive claim: emulator pubkey must not be nil")
 	}
 	return nil
 }
@@ -65,14 +65,14 @@ func enforcePayTo(receiverPkScript []byte) ([]byte, error) {
 	return b.Script()
 }
 
-// introspectorTweakedKey returns the introspector pubkey tweaked by the
+// emulatorTweakedKey returns the emulator pubkey tweaked by the
 // arkade script hash. It is the second pubkey in the non-interactive claim
 // multisig.
-func introspectorTweakedKey(
-	arkadeScript []byte, introspectorPubKey *btcec.PublicKey,
+func emulatorTweakedKey(
+	arkadeScript []byte, emulatorPubKey *btcec.PublicKey,
 ) *btcec.PublicKey {
 	return arkade.ComputeArkadeScriptPublicKey(
-		introspectorPubKey, arkade.ArkadeScriptHash(arkadeScript),
+		emulatorPubKey, arkade.ArkadeScriptHash(arkadeScript),
 	)
 }
 
@@ -87,7 +87,7 @@ func nonInteractiveClaimClosure(
 	if err != nil {
 		return nil, err
 	}
-	tweaked := introspectorTweakedKey(enforcement, opts.IntrospectorPubKey)
+	tweaked := emulatorTweakedKey(enforcement, opts.EmulatorPubKey)
 	return &script.ConditionMultisigClosure{
 		MultisigClosure: script.MultisigClosure{
 			PubKeys: []*btcec.PublicKey{serverPubKey, tweaked},

@@ -5,46 +5,31 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
+	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 )
 
 const (
-	paramOwnerKeyID       = "ownerKeyId"
-	paramOwnerKey         = "ownerKey"
-	paramServerKey        = "serverKey"
-	paramClaimLeafScript  = "claimLeafScript"
-	paramRefundLeafScript = "refundLeafScript"
-
-	supportedLeafVersion = uint8(txscript.BaseLeafVersion)
+	paramClaimKeyID     = "claimKeyId"
+	paramRefundKeyID    = "refundKeyId"
+	paramClaimKey       = "claimKey"
+	paramRefundKey      = "refundKey"
+	paramServerKey      = "serverKey"
+	paramPreimageHash   = "preimageHash"
+	paramRefundLocktime = "refundLocktime"
 )
 
-// Leaf identifies one Boltz BTC HTLC tapscript leaf.
-type Leaf struct {
-	Output string
-}
-
-// Opts are the parameters needed to create a BTC HTLC lockup contract.
-// Server is the Boltz/server MuSig key. The wallet-owned key is supplied by
-// the contract manager as keyRef and must appear in either the claim or refund
-// leaf script.
-type Opts struct {
-	Server     *btcec.PublicKey
-	ClaimLeaf  Leaf
-	RefundLeaf Leaf
-}
+type Opts = htlc.Opts
 
 // Handler creates Bitcoin HTLC lockup contracts for chain swaps.
 type Handler struct {
@@ -62,28 +47,59 @@ func (h *Handler) Derivable() bool { return false }
 func (h *Handler) NewContract(
 	_ context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
-	p, ok := params.(*Opts)
+	p, ok := params.(*htlc.Opts)
 	if !ok || p == nil {
-		return nil, fmt.Errorf("htlc handler requires *htlcHandler.Opts, got %T", params)
+		return nil, fmt.Errorf("htlc handler requires *htlc.Opts, got %T", params)
 	}
 
 	return createContract(*p, keyRef, h.network)
 }
 
 func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
-	keyID, err := requireParam(c, paramOwnerKeyID)
+	optionalParam := func(c types.Contract, name string) (string, bool, error) {
+		if c.Params == nil {
+			return "", false, fmt.Errorf("htlc contract %s: no params", c.Script)
+		}
+		v, ok := c.Params[name]
+		if !ok || v == "" {
+			return "", false, nil
+		}
+		return v, true, nil
+	}
+
+	claimKeyID, hasClaimKeyID, err := optionalParam(c, paramClaimKeyID)
 	if err != nil {
 		return nil, err
 	}
-	pubHex, err := requireParam(c, paramOwnerKey)
+	refundKeyID, hasRefundKeyID, err := optionalParam(c, paramRefundKeyID)
 	if err != nil {
 		return nil, err
 	}
-	pub, err := parseStoredPubKey(pubHex)
-	if err != nil {
-		return nil, fmt.Errorf("htlc contract %s: invalid owner key: %w", c.Script, err)
+	if hasClaimKeyID == hasRefundKeyID {
+		if hasClaimKeyID {
+			return nil, fmt.Errorf(
+				"htlc contract %s: expected exactly one of %q or %q",
+				c.Script, paramClaimKeyID, paramRefundKeyID,
+			)
+		}
+		return nil, fmt.Errorf(
+			"htlc contract %s: missing wallet key ID: expected %q or %q",
+			c.Script, paramClaimKeyID, paramRefundKeyID,
+		)
 	}
-	return &identity.KeyRef{Id: keyID, PubKey: pub}, nil
+
+	if hasClaimKeyID {
+		pub, err := parseCompressedParam(c, paramClaimKey)
+		if err != nil {
+			return nil, err
+		}
+		return &identity.KeyRef{Id: claimKeyID, PubKey: pub}, nil
+	}
+	pub, err := parseCompressedParam(c, paramRefundKey)
+	if err != nil {
+		return nil, err
+	}
+	return &identity.KeyRef{Id: refundKeyID, PubKey: pub}, nil
 }
 
 func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
@@ -95,102 +111,79 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 	return map[string]string{c.Script: keyRef.Id}, nil
 }
 
-func (h *Handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
-	pubHex, err := requireParam(c, paramServerKey)
-	if err != nil {
-		return nil, err
-	}
-	pub, err := parseStoredPubKey(pubHex)
-	if err != nil {
-		return nil, fmt.Errorf("htlc contract %s: invalid server key: %w", c.Script, err)
-	}
-	return pub, nil
+func (h *Handler) GetSignerKey(types.Contract) (*btcec.PublicKey, error) {
+	return nil, nil
 }
 
-// GetExitDelay returns nil because BTC HTLC refund uses an absolute CLTV
-// encoded in the refund leaf, not an Ark relative exit delay.
+// GetExitDelay returns nil because BTC HTLC has no Ark relative exit delay.
+// Its refund timeout is an absolute CLTV stored in RefundLocktime.
 func (h *Handler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, error) {
 	return nil, nil
 }
 
 func (h *Handler) GetTapscripts(c types.Contract) ([]string, error) {
-	claimScript, err := parseLeafFromContract(c, paramClaimLeafScript)
+	keyRef, err := h.GetKeyRef(c)
 	if err != nil {
 		return nil, err
 	}
-	refundScript, err := parseLeafFromContract(c, paramRefundLeafScript)
+	opts, err := OptsFromContract(c)
 	if err != nil {
 		return nil, err
 	}
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(opts, keyRef.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("htlc contract %s: rebuild script: %w", c.Script, err)
+	}
+
 	return []string{
-		hex.EncodeToString(claimScript),
-		hex.EncodeToString(refundScript),
+		hex.EncodeToString(htlcScript.ClaimScript),
+		hex.EncodeToString(htlcScript.RefundScript),
 	}, nil
 }
 
 func createContract(
-	p Opts,
+	p htlc.Opts,
 	keyRef identity.KeyRef,
 	network arklib.Network,
 ) (*types.Contract, error) {
-	if keyRef.Id == "" {
-		return nil, fmt.Errorf("missing owner key ID")
-	}
-	if keyRef.PubKey == nil {
-		return nil, fmt.Errorf("missing owner key")
-	}
-	if p.Server == nil {
-		return nil, fmt.Errorf("missing server key")
-	}
-
-	claimScript, err := parseLeaf(p.ClaimLeaf, "claim")
-	if err != nil {
-		return nil, err
-	}
-	refundScript, err := parseLeaf(p.RefundLeaf, "refund")
+	opts, claimKeyID, refundKeyID, err := prepareOwnedOpts(p, keyRef)
 	if err != nil {
 		return nil, err
 	}
 
-	ownerKeyXOnly := schnorr.SerializePubKey(keyRef.PubKey)
-	if !isHTLCLeafWithKey(claimScript, ownerKeyXOnly) &&
-		!isHTLCLeafWithKey(refundScript, ownerKeyXOnly) {
-		return nil, fmt.Errorf("owner key is not present in HTLC tapscripts")
-	}
-
-	aggregateKey, _, _, err := musig2.AggregateKeys(
-		[]*btcec.PublicKey{p.Server, keyRef.PubKey},
-		false,
-	)
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(opts, keyRef.PubKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to aggregate HTLC keys: %w", err)
+		return nil, err
 	}
 
-	claimLeafHash := tapLeafHash(claimScript)
-	refundLeafHash := tapLeafHash(refundScript)
-	merkleRoot := merkleRoot(claimLeafHash[:], refundLeafHash[:])
-	taprootKey := txscript.ComputeTaprootOutputKey(aggregateKey.FinalKey, merkleRoot)
-
-	outputScript, err := txscript.PayToTaprootScript(taprootKey)
+	outputScript, err := txscript.PayToTaprootScript(htlcScript.TaprootKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTLC output script: %w", err)
 	}
 
 	btcNetwork := utils.ToBitcoinNetwork(network)
-	address, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(taprootKey), &btcNetwork)
+	address, err := btcutil.NewAddressTaproot(htlcScript.TaprootKey.SerializeCompressed()[1:], &btcNetwork)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTLC address: %w", err)
 	}
 
+	params := map[string]string{
+		paramClaimKey:       hex.EncodeToString(opts.ClaimKey.SerializeCompressed()),
+		paramRefundKey:      hex.EncodeToString(opts.RefundKey.SerializeCompressed()),
+		paramServerKey:      hex.EncodeToString(opts.ServerKey.SerializeCompressed()),
+		paramPreimageHash:   hex.EncodeToString(opts.PreimageHash),
+		paramRefundLocktime: strconv.FormatUint(uint64(opts.RefundLocktime), 10),
+	}
+	if claimKeyID != "" {
+		params[paramClaimKeyID] = claimKeyID
+	}
+	if refundKeyID != "" {
+		params[paramRefundKeyID] = refundKeyID
+	}
+
 	return &types.Contract{
-		Type: types.ContractTypeHTLC,
-		Params: map[string]string{
-			paramOwnerKeyID:       keyRef.Id,
-			paramOwnerKey:         hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
-			paramServerKey:        hex.EncodeToString(p.Server.SerializeCompressed()),
-			paramClaimLeafScript:  hex.EncodeToString(claimScript),
-			paramRefundLeafScript: hex.EncodeToString(refundScript),
-		},
+		Type:      types.ContractTypeHTLC,
+		Params:    params,
 		Script:    hex.EncodeToString(outputScript),
 		Address:   address.EncodeAddress(),
 		State:     types.ContractStateActive,
@@ -198,35 +191,84 @@ func createContract(
 	}, nil
 }
 
-func parseLeaf(leaf Leaf, name string) ([]byte, error) {
-	if leaf.Output == "" {
-		return nil, fmt.Errorf("%s leaf script is empty", name)
+func prepareOwnedOpts(
+	opts htlc.Opts,
+	keyRef identity.KeyRef,
+) (htlc.Opts, string, string, error) {
+	if keyRef.Id == "" {
+		return htlc.Opts{}, "", "", fmt.Errorf("missing wallet key ID")
 	}
-	script, err := hex.DecodeString(leaf.Output)
-	if err != nil {
-		return nil, fmt.Errorf("%s leaf script is not valid hex: %w", name, err)
+	if keyRef.PubKey == nil {
+		return htlc.Opts{}, "", "", fmt.Errorf("missing wallet pubkey")
 	}
-	if len(script) == 0 {
-		return nil, fmt.Errorf("%s leaf script is empty", name)
+	if opts.ClaimKey == nil && opts.RefundKey == nil {
+		return htlc.Opts{}, "", "", fmt.Errorf("missing counterparty HTLC key")
 	}
-	return script, nil
+	if opts.RefundLocktime == 0 {
+		return htlc.Opts{}, "", "", fmt.Errorf("missing refund locktime")
+	}
+
+	var claimKeyID, refundKeyID string
+	if opts.ClaimKey == nil {
+		opts.ClaimKey = keyRef.PubKey
+		claimKeyID = keyRef.Id
+	} else if sameKey(opts.ClaimKey, keyRef.PubKey) {
+		claimKeyID = keyRef.Id
+	}
+	if opts.RefundKey == nil {
+		opts.RefundKey = keyRef.PubKey
+		refundKeyID = keyRef.Id
+	} else if sameKey(opts.RefundKey, keyRef.PubKey) {
+		refundKeyID = keyRef.Id
+	}
+
+	switch {
+	case claimKeyID != "" && refundKeyID != "":
+		return htlc.Opts{}, "", "", fmt.Errorf("wallet key matches both HTLC roles")
+	case claimKeyID == "" && refundKeyID == "":
+		return htlc.Opts{}, "", "", fmt.Errorf("wallet key is not present in HTLC opts")
+	}
+
+	return opts, claimKeyID, refundKeyID, nil
 }
 
-func parseLeafFromContract(
-	c types.Contract, scriptParam string,
-) ([]byte, error) {
-	scriptHex, err := requireParam(c, scriptParam)
+func OptsFromContract(c types.Contract) (htlc.Opts, error) {
+	serverKey, err := parseCompressedParam(c, paramServerKey)
 	if err != nil {
-		return nil, err
+		return htlc.Opts{}, err
 	}
-	script, err := hex.DecodeString(scriptHex)
+	claimKey, err := parseCompressedParam(c, paramClaimKey)
 	if err != nil {
-		return nil, fmt.Errorf("htlc contract %s: invalid leaf script hex: %w", c.Script, err)
+		return htlc.Opts{}, err
 	}
-	if len(script) == 0 {
-		return nil, fmt.Errorf("htlc contract %s: empty leaf script", c.Script)
+	refundKey, err := parseCompressedParam(c, paramRefundKey)
+	if err != nil {
+		return htlc.Opts{}, err
 	}
-	return script, nil
+	preimageHashHex, err := requireParam(c, paramPreimageHash)
+	if err != nil {
+		return htlc.Opts{}, err
+	}
+	preimageHash, err := hex.DecodeString(preimageHashHex)
+	if err != nil {
+		return htlc.Opts{}, fmt.Errorf("htlc contract %s: invalid preimage hash: %w", c.Script, err)
+	}
+	refundLocktimeStr, err := requireParam(c, paramRefundLocktime)
+	if err != nil {
+		return htlc.Opts{}, err
+	}
+	refundLocktime, err := strconv.ParseUint(refundLocktimeStr, 10, 32)
+	if err != nil {
+		return htlc.Opts{}, fmt.Errorf("htlc contract %s: invalid refund locktime: %w", c.Script, err)
+	}
+
+	return htlc.Opts{
+		ServerKey:      serverKey,
+		ClaimKey:       claimKey,
+		RefundKey:      refundKey,
+		PreimageHash:   preimageHash,
+		RefundLocktime: arklib.AbsoluteLocktime(refundLocktime),
+	}, nil
 }
 
 func requireParam(c types.Contract, name string) (string, error) {
@@ -241,6 +283,18 @@ func requireParam(c types.Contract, name string) (string, error) {
 		return "", fmt.Errorf("htlc contract %s has empty %s", c.Script, name)
 	}
 	return value, nil
+}
+
+func parseCompressedParam(c types.Contract, name string) (*btcec.PublicKey, error) {
+	pubHex, err := requireParam(c, name)
+	if err != nil {
+		return nil, err
+	}
+	pub, err := parseStoredPubKey(pubHex)
+	if err != nil {
+		return nil, fmt.Errorf("htlc contract %s: invalid %s: %w", c.Script, name, err)
+	}
+	return pub, nil
 }
 
 func parseStoredPubKey(pubHex string) (*btcec.PublicKey, error) {
@@ -260,68 +314,9 @@ func parseStoredPubKey(pubHex string) (*btcec.PublicKey, error) {
 	return btcec.ParsePubKey(buf)
 }
 
-func merkleRoot(left, right []byte) []byte {
-	if bytes.Compare(left, right) > 0 {
-		left, right = right, left
-	}
-
-	branch := append(append([]byte{}, left...), right...)
-	return chainhash.TaggedHash(chainhash.TagTapBranch, branch)[:]
-}
-
-func tapLeafHash(script []byte) [32]byte {
-	var b bytes.Buffer
-	b.WriteByte(supportedLeafVersion)
-	_ = wire.WriteVarInt(&b, 0, uint64(len(script)))
-	b.Write(script)
-	sum := chainhash.TaggedHash(chainhash.TagTapLeaf, b.Bytes())
-
-	return *sum
-}
-
-func isHTLCLeafWithKey(script, xOnlyPub []byte) bool {
-	return isHTLCClaimLeafWithKey(script, xOnlyPub) || isHTLCRefundLeafWithKey(script, xOnlyPub)
-}
-
-func isHTLCClaimLeafWithKey(script, xOnlyPub []byte) bool {
-	if len(xOnlyPub) != schnorr.PubKeyBytesLen {
+func sameKey(a, b *btcec.PublicKey) bool {
+	if a == nil || b == nil {
 		return false
 	}
-	const claimLeafLen = 61
-	if len(script) != claimLeafLen {
-		return false
-	}
-	const preimageLen = 32
-	return script[0] == txscript.OP_SIZE &&
-		script[1] == txscript.OP_DATA_1 &&
-		script[2] == preimageLen &&
-		script[3] == txscript.OP_EQUALVERIFY &&
-		script[4] == txscript.OP_HASH160 &&
-		script[5] == txscript.OP_DATA_20 &&
-		script[26] == txscript.OP_EQUALVERIFY &&
-		script[27] == txscript.OP_DATA_32 &&
-		bytes.Equal(script[28:60], xOnlyPub) &&
-		script[60] == txscript.OP_CHECKSIG
-}
-
-func isHTLCRefundLeafWithKey(script, xOnlyPub []byte) bool {
-	if len(xOnlyPub) != schnorr.PubKeyBytesLen {
-		return false
-	}
-	const minRefundLeafLen = 38
-	if len(script) < minRefundLeafLen ||
-		script[0] != txscript.OP_DATA_32 ||
-		!bytes.Equal(script[1:33], xOnlyPub) ||
-		script[33] != txscript.OP_CHECKSIGVERIFY {
-		return false
-	}
-
-	timeoutLen := int(script[34])
-	if timeoutLen < 1 || timeoutLen > 4 {
-		return false
-	}
-	if len(script) != 36+timeoutLen {
-		return false
-	}
-	return script[35+timeoutLen] == txscript.OP_CHECKLOCKTIMEVERIFY
+	return bytes.Equal(a.SerializeCompressed(), b.SerializeCompressed())
 }
