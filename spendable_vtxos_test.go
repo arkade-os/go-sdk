@@ -175,110 +175,104 @@ func makeTestContract(script string) sdktypes.Contract {
 	}
 }
 
-// TestGetSpendableVtxos_AllHaveContracts is the normal case: every vtxo has a
-// matching contract, so all vtxos appear in the result with tapscripts.
-func TestGetSpendableVtxos_AllHaveContracts(t *testing.T) {
+// TestGetSpendableVtxos covers how getSpendableVtxos joins vtxos to their
+// contracts: only vtxos with a matching, still-spendable contract survive, and
+// their tapscripts come from the contract's handler.
+func TestGetSpendableVtxos(t *testing.T) {
 	t.Parallel()
 
-	vtxos := []clientTypes.Vtxo{
-		makeTestVtxo("script-a"),
-		makeTestVtxo("script-b"),
-	}
-	contracts := []sdktypes.Contract{
-		makeTestContract("script-a"),
-		makeTestContract("script-b"),
-	}
+	// Normal case: every vtxo has a matching contract, so all appear with tapscripts.
+	t.Run("all have contracts", func(t *testing.T) {
+		t.Parallel()
+		vtxos := []clientTypes.Vtxo{
+			makeTestVtxo("script-a"),
+			makeTestVtxo("script-b"),
+		}
+		contracts := []sdktypes.Contract{
+			makeTestContract("script-a"),
+			makeTestContract("script-b"),
+		}
 
-	a := newArkClientForTest(vtxos, contracts)
-	result, err := a.getSpendableVtxos(context.Background(), false)
+		a := newArkClientForTest(vtxos, contracts)
+		result, err := a.getSpendableVtxos(context.Background(), false)
 
-	require.NoError(t, err)
-	require.Len(t, result, 2)
-	scripts := []string{result[0].Script, result[1].Script}
-	require.Contains(t, scripts, "script-a")
-	require.Contains(t, scripts, "script-b")
-}
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		scripts := []string{result[0].Script, result[1].Script}
+		require.Contains(t, scripts, "script-a")
+		require.Contains(t, scripts, "script-b")
+	})
 
-// TestGetSpendableVtxos_NoContracts verifies that vtxos with no matching
-// contract are silently skipped, producing an empty result.
-func TestGetSpendableVtxos_NoContracts(t *testing.T) {
-	t.Parallel()
+	// Vtxos with no matching contract are silently skipped.
+	t.Run("no contracts", func(t *testing.T) {
+		t.Parallel()
+		vtxos := []clientTypes.Vtxo{
+			makeTestVtxo("boarding-script-1"),
+			makeTestVtxo("boarding-script-2"),
+		}
 
-	vtxos := []clientTypes.Vtxo{
-		makeTestVtxo("boarding-script-1"),
-		makeTestVtxo("boarding-script-2"),
-	}
+		a := newArkClientForTest(vtxos, nil)
+		result, err := a.getSpendableVtxos(context.Background(), false)
 
-	a := newArkClientForTest(vtxos, nil)
-	result, err := a.getSpendableVtxos(context.Background(), false)
+		require.NoError(t, err)
+		require.Empty(t, result, "vtxos without a contract should be skipped")
+	})
 
-	require.NoError(t, err)
-	require.Empty(t, result, "vtxos without a contract should be skipped")
-}
+	// Only vtxos with a matching contract appear; unmatched ones are dropped.
+	t.Run("mixed contracts", func(t *testing.T) {
+		t.Parallel()
+		vtxos := []clientTypes.Vtxo{
+			makeTestVtxo("has-contract"),
+			makeTestVtxo("no-contract"),
+		}
+		contracts := []sdktypes.Contract{
+			makeTestContract("has-contract"),
+		}
 
-// TestGetSpendableVtxos_MixedContracts verifies that only vtxos with a
-// matching contract appear in the output; unmatched vtxos are silently dropped.
-func TestGetSpendableVtxos_MixedContracts(t *testing.T) {
-	t.Parallel()
+		a := newArkClientForTest(vtxos, contracts)
+		result, err := a.getSpendableVtxos(context.Background(), false)
 
-	vtxos := []clientTypes.Vtxo{
-		makeTestVtxo("has-contract"),
-		makeTestVtxo("no-contract"),
-	}
-	contracts := []sdktypes.Contract{
-		makeTestContract("has-contract"),
-	}
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		require.Equal(t, "has-contract", result[0].Script)
+	})
 
-	a := newArkClientForTest(vtxos, contracts)
-	result, err := a.getSpendableVtxos(context.Background(), false)
+	// An empty vtxo store produces an empty result without error.
+	t.Run("empty store", func(t *testing.T) {
+		t.Parallel()
+		a := newArkClientForTest(nil, nil)
+		result, err := a.getSpendableVtxos(context.Background(), false)
 
-	require.NoError(t, err)
-	require.Len(t, result, 1)
-	require.Equal(t, "has-contract", result[0].Script)
-}
+		require.NoError(t, err)
+		require.Empty(t, result)
+	})
 
-// TestGetSpendableVtxos_Empty verifies that an empty vtxo store produces empty
-// results without error.
-func TestGetSpendableVtxos_Empty(t *testing.T) {
-	t.Parallel()
+	// Unrolled vtxos are always excluded, even when a matching contract exists.
+	t.Run("unrolled vtxos skipped", func(t *testing.T) {
+		t.Parallel()
+		v := makeTestVtxo("unrolled-script")
+		v.Unrolled = true
+		contracts := []sdktypes.Contract{makeTestContract("unrolled-script")}
 
-	a := newArkClientForTest(nil, nil)
-	result, err := a.getSpendableVtxos(context.Background(), false)
+		a := newArkClientForTest([]clientTypes.Vtxo{v}, contracts)
+		result, err := a.getSpendableVtxos(context.Background(), false)
 
-	require.NoError(t, err)
-	require.Empty(t, result)
-}
+		require.NoError(t, err)
+		require.Empty(t, result)
+	})
 
-// TestGetSpendableVtxos_UnrolledVtxosSkipped verifies that unrolled vtxos are
-// always excluded, even when a matching contract exists.
-func TestGetSpendableVtxos_UnrolledVtxosSkipped(t *testing.T) {
-	t.Parallel()
+	// Tapscripts on each VtxoWithTapTree come from the contract's handler, not the vtxo.
+	t.Run("tapscripts from contract", func(t *testing.T) {
+		t.Parallel()
+		vtxos := []clientTypes.Vtxo{makeTestVtxo("known-script")}
+		c := makeTestContract("known-script")
+		c.Params["tapscripts"] = `["aa","bb","cc"]`
 
-	v := makeTestVtxo("unrolled-script")
-	v.Unrolled = true
-	contracts := []sdktypes.Contract{makeTestContract("unrolled-script")}
+		a := newArkClientForTest(vtxos, []sdktypes.Contract{c})
+		result, err := a.getSpendableVtxos(context.Background(), false)
 
-	a := newArkClientForTest([]clientTypes.Vtxo{v}, contracts)
-	result, err := a.getSpendableVtxos(context.Background(), false)
-
-	require.NoError(t, err)
-	require.Empty(t, result)
-}
-
-// TestGetSpendableVtxos_TapscriptsFromContract verifies that the Tapscripts on
-// each VtxoWithTapTree come from the matching contract's handler, not from the
-// vtxo itself.
-func TestGetSpendableVtxos_TapscriptsFromContract(t *testing.T) {
-	t.Parallel()
-
-	vtxos := []clientTypes.Vtxo{makeTestVtxo("known-script")}
-	c := makeTestContract("known-script")
-	c.Params["tapscripts"] = `["aa","bb","cc"]`
-
-	a := newArkClientForTest(vtxos, []sdktypes.Contract{c})
-	result, err := a.getSpendableVtxos(context.Background(), false)
-
-	require.NoError(t, err)
-	require.Len(t, result, 1)
-	require.Equal(t, []string{"aa", "bb", "cc"}, result[0].Tapscripts)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		require.Equal(t, []string{"aa", "bb", "cc"}, result[0].Tapscripts)
+	})
 }

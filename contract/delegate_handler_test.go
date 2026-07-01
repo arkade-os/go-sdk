@@ -59,131 +59,172 @@ func TestDelegateHandler_DeriveContract(t *testing.T) {
 	delegatePriv := testDelegateKey(t)
 	ctx := context.Background()
 
-	c, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
-	require.NoError(t, err)
-	require.NotNil(t, c)
+	t.Run("derives a valid contract", func(t *testing.T) {
+		t.Parallel()
+		c, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
+		require.NoError(t, err)
+		require.NotNil(t, c)
 
-	require.Equal(t, sdktypes.ContractTypeDelegate, c.Type)
-	require.Equal(t, "test-key", c.Params[contract.ParamKeyID])
-	require.Equal(t,
-		hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()),
-		c.Params[contract.ParamDelegateKey],
-	)
+		require.Equal(t, sdktypes.ContractTypeDelegate, c.Type)
+		require.Equal(t, "test-key", c.Params[contract.ParamKeyID])
+		require.Equal(t,
+			hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()),
+			c.Params[contract.ParamDelegateKey],
+		)
 
-	// Exactly 3 tapscripts: exit, forfeit, delegate.
-	tapscripts, err := h.GetTapscripts(*c)
-	require.NoError(t, err)
-	require.Len(t, tapscripts, 3)
+		// Exactly 3 tapscripts: exit, forfeit, delegate.
+		tapscripts, err := h.GetTapscripts(*c)
+		require.NoError(t, err)
+		require.Len(t, tapscripts, 3)
 
-	// Signer key and exit delay are stored in params.
-	require.Equal(t,
-		hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerKey)),
-		c.Params[contract.ParamSignerKey],
-	)
-	require.Equal(t, "block:144", c.Params[contract.ParamExitDelay])
+		// Signer key and exit delay are stored in params.
+		require.Equal(t,
+			hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerKey)),
+			c.Params[contract.ParamSignerKey],
+		)
+		require.Equal(t, "block:144", c.Params[contract.ParamExitDelay])
 
-	// Address matches manual derivation.
-	vtxoScript := &script.TapscriptsVtxoScript{
-		Closures: []script.Closure{
-			&script.CSVMultisigClosure{
-				MultisigClosure: script.MultisigClosure{
-					PubKeys: []*btcec.PublicKey{key.PubKey},
+		// Address matches manual derivation.
+		vtxoScript := &script.TapscriptsVtxoScript{
+			Closures: []script.Closure{
+				&script.CSVMultisigClosure{
+					MultisigClosure: script.MultisigClosure{
+						PubKeys: []*btcec.PublicKey{key.PubKey},
+					},
+					Locktime: cfg.ExitDelay,
 				},
-				Locktime: cfg.ExitDelay,
+				&script.MultisigClosure{
+					PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerKey},
+				},
+				&script.MultisigClosure{
+					PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerKey},
+				},
 			},
-			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerKey},
-			},
-			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerKey},
-			},
-		},
-	}
-	refTapKey, _, err := vtxoScript.TapTree()
-	require.NoError(t, err)
+		}
+		refTapKey, _, err := vtxoScript.TapTree()
+		require.NoError(t, err)
 
-	refAddr := &arklib.Address{
-		HRP:        cfg.Network.Addr,
-		Signer:     cfg.SignerKey,
-		VtxoTapKey: refTapKey,
-	}
-	refEncoded, err := refAddr.EncodeV0()
-	require.NoError(t, err)
-	require.Equal(t, refEncoded, c.Address)
+		refAddr := &arklib.Address{
+			HRP:        cfg.Network.Addr,
+			Signer:     cfg.SignerKey,
+			VtxoTapKey: refTapKey,
+		}
+		refEncoded, err := refAddr.EncodeV0()
+		require.NoError(t, err)
+		require.Equal(t, refEncoded, c.Address)
 
-	refPkScript, err := txscript.PayToTaprootScript(refTapKey)
-	require.NoError(t, err)
-	require.Equal(t, hex.EncodeToString(refPkScript), c.Script)
-}
+		refPkScript, err := txscript.PayToTaprootScript(refTapKey)
+		require.NoError(t, err)
+		require.Equal(t, hex.EncodeToString(refPkScript), c.Script)
+	})
 
-func TestDelegateHandler_DeterministicOutput(t *testing.T) {
-	t.Parallel()
+	t.Run("deterministic output", func(t *testing.T) {
+		t.Parallel()
+		c1, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
+		require.NoError(t, err)
+		c2, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
+		require.NoError(t, err)
 
-	h := &contract.DelegateHandler{}
-	key := testKey(t)
-	cfg := testCfg(t)
-	delegatePriv := testDelegateKey(t)
-	ctx := context.Background()
+		require.Equal(t, c1.Script, c2.Script)
+		require.Equal(t, c1.Address, c2.Address)
 
-	c1, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
-	require.NoError(t, err)
-	c2, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
-	require.NoError(t, err)
+		ts1, err := h.GetTapscripts(*c1)
+		require.NoError(t, err)
+		ts2, err := h.GetTapscripts(*c2)
+		require.NoError(t, err)
+		require.Equal(t, ts1, ts2)
+	})
 
-	require.Equal(t, c1.Script, c2.Script)
-	require.Equal(t, c1.Address, c2.Address)
+	t.Run("different delegate yields different script", func(t *testing.T) {
+		t.Parallel()
+		c1, err := h.DeriveContract(ctx, key, cfg, testDelegateKey(t).PubKey())
+		require.NoError(t, err)
+		c2, err := h.DeriveContract(ctx, key, cfg, testDelegateKey(t).PubKey())
+		require.NoError(t, err)
 
-	ts1, err := h.GetTapscripts(*c1)
-	require.NoError(t, err)
-	ts2, err := h.GetTapscripts(*c2)
-	require.NoError(t, err)
-	require.Equal(t, ts1, ts2)
-}
+		require.NotEqual(t, c1.Script, c2.Script)
+		require.NotEqual(t, c1.Address, c2.Address)
+	})
 
-func TestDelegateHandler_DifferentDelegateDifferentScript(t *testing.T) {
-	t.Parallel()
-
-	h := &contract.DelegateHandler{}
-	key := testKey(t)
-	cfg := testCfg(t)
-	ctx := context.Background()
-
-	c1, err := h.DeriveContract(ctx, key, cfg, testDelegateKey(t).PubKey())
-	require.NoError(t, err)
-	c2, err := h.DeriveContract(ctx, key, cfg, testDelegateKey(t).PubKey())
-	require.NoError(t, err)
-
-	require.NotEqual(t, c1.Script, c2.Script)
-	require.NotEqual(t, c1.Address, c2.Address)
-}
-
-func TestDelegateHandler_DeriveContract_Validation(t *testing.T) {
-	t.Parallel()
-
-	h := &contract.DelegateHandler{}
-	key := testKey(t)
-	cfg := testCfg(t)
-	ctx := context.Background()
-
-	t.Run("nil delegate key returns error", func(t *testing.T) {
+	t.Run("rejects nil delegate key", func(t *testing.T) {
 		t.Parallel()
 		_, err := h.DeriveContract(ctx, key, cfg, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "nil")
 	})
 
-	t.Run("delegate key same as owner returns error", func(t *testing.T) {
+	t.Run("rejects delegate key equal to owner", func(t *testing.T) {
 		t.Parallel()
 		_, err := h.DeriveContract(ctx, key, cfg, key.PubKey)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "owner")
 	})
 
-	t.Run("delegate key same as signer returns error", func(t *testing.T) {
+	t.Run("rejects delegate key equal to signer", func(t *testing.T) {
 		t.Parallel()
 		_, err := h.DeriveContract(ctx, key, cfg, cfg.SignerKey)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer")
+	})
+
+	t.Run("closure ordering places forfeit before delegate", func(t *testing.T) {
+		t.Parallel()
+		// Mirror the closure layout used by DeriveContract so that ForfeitClosures()
+		// behaviour is verified against the exact structure the handler produces.
+		// ForfeitClosures() matches every *MultisigClosure in Closures order; downstream
+		// code that builds forfeit transactions uses forfeitClosures[0]. If the 3-of-3
+		// delegate closure were placed before the 2-of-2 forfeit closure the server could
+		// not produce a valid forfeit signature without the delegate key.
+		vtxoScript := &script.TapscriptsVtxoScript{
+			Closures: []script.Closure{
+				// [0] exit — CSVMultisigClosure; excluded from ForfeitClosures
+				&script.CSVMultisigClosure{
+					MultisigClosure: script.MultisigClosure{
+						PubKeys: []*btcec.PublicKey{key.PubKey},
+					},
+					Locktime: cfg.ExitDelay,
+				},
+				// [1] forfeit — 2-of-2; must be forfeitClosures[0]
+				&script.MultisigClosure{
+					PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerKey},
+				},
+				// [2] delegate — 3-of-3; must be forfeitClosures[1]
+				&script.MultisigClosure{
+					PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerKey},
+				},
+			},
+		}
+
+		forfeits := vtxoScript.ForfeitClosures()
+		require.Len(t, forfeits, 2)
+
+		forfeit, ok := forfeits[0].(*script.MultisigClosure)
+		require.True(t, ok, "forfeitClosures[0] must be *MultisigClosure")
+		require.Len(t, forfeit.PubKeys, 2, "forfeitClosures[0] must be 2-of-2 (owner+server)")
+
+		delegate, ok := forfeits[1].(*script.MultisigClosure)
+		require.True(t, ok, "forfeitClosures[1] must be *MultisigClosure")
+		require.Len(
+			t,
+			delegate.PubKeys,
+			3,
+			"forfeitClosures[1] must be 3-of-3 (owner+delegate+server)",
+		)
+
+		// Verify DeriveContract produces a contract whose tap key matches this layout,
+		// proving the handler uses this exact closure order.
+		c, err := h.DeriveContract(ctx, key, cfg, delegatePriv.PubKey())
+		require.NoError(t, err)
+
+		refTapKey, _, err := vtxoScript.TapTree()
+		require.NoError(t, err)
+		refAddr := &arklib.Address{
+			HRP: cfg.Network.Addr, Signer: cfg.SignerKey, VtxoTapKey: refTapKey,
+		}
+		refEncoded, err := refAddr.EncodeV0()
+		require.NoError(t, err)
+		require.Equal(t, refEncoded, c.Address,
+			"DeriveContract address must match the expected closure ordering")
 	})
 }
 
@@ -512,66 +553,4 @@ func TestDelegateHandler_GetSpendablePaths(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "3 tapscripts")
 	})
-}
-
-func TestDelegateHandler_ClosureOrdering(t *testing.T) {
-	t.Parallel()
-
-	key := testKey(t)
-	cfg := testCfg(t)
-	delegatePriv := testDelegateKey(t)
-
-	// Mirror the closure layout used by DeriveContract so that ForfeitClosures()
-	// behaviour is verified against the exact structure the handler produces.
-	// ForfeitClosures() matches every *MultisigClosure in Closures order; downstream
-	// code that builds forfeit transactions uses forfeitClosures[0]. If the 3-of-3
-	// delegate closure were placed before the 2-of-2 forfeit closure the server could
-	// not produce a valid forfeit signature without the delegate key.
-	vtxoScript := &script.TapscriptsVtxoScript{
-		Closures: []script.Closure{
-			// [0] exit — CSVMultisigClosure; excluded from ForfeitClosures
-			&script.CSVMultisigClosure{
-				MultisigClosure: script.MultisigClosure{
-					PubKeys: []*btcec.PublicKey{key.PubKey},
-				},
-				Locktime: cfg.ExitDelay,
-			},
-			// [1] forfeit — 2-of-2; must be forfeitClosures[0]
-			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, cfg.SignerKey},
-			},
-			// [2] delegate — 3-of-3; must be forfeitClosures[1]
-			&script.MultisigClosure{
-				PubKeys: []*btcec.PublicKey{key.PubKey, delegatePriv.PubKey(), cfg.SignerKey},
-			},
-		},
-	}
-
-	forfeits := vtxoScript.ForfeitClosures()
-	require.Len(t, forfeits, 2)
-
-	forfeit, ok := forfeits[0].(*script.MultisigClosure)
-	require.True(t, ok, "forfeitClosures[0] must be *MultisigClosure")
-	require.Len(t, forfeit.PubKeys, 2, "forfeitClosures[0] must be 2-of-2 (owner+server)")
-
-	delegate, ok := forfeits[1].(*script.MultisigClosure)
-	require.True(t, ok, "forfeitClosures[1] must be *MultisigClosure")
-	require.Len(t, delegate.PubKeys, 3, "forfeitClosures[1] must be 3-of-3 (owner+delegate+server)")
-
-	// Verify DeriveContract produces a contract whose tap key matches this layout,
-	// proving the handler uses this exact closure order.
-	c, err := (&contract.DelegateHandler{}).DeriveContract(
-		context.Background(), key, cfg, delegatePriv.PubKey(),
-	)
-	require.NoError(t, err)
-
-	refTapKey, _, err := vtxoScript.TapTree()
-	require.NoError(t, err)
-	refAddr := &arklib.Address{
-		HRP: cfg.Network.Addr, Signer: cfg.SignerKey, VtxoTapKey: refTapKey,
-	}
-	refEncoded, err := refAddr.EncodeV0()
-	require.NoError(t, err)
-	require.Equal(t, refEncoded, c.Address,
-		"DeriveContract address must match the expected closure ordering")
 }

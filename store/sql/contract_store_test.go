@@ -182,66 +182,44 @@ func TestContractStore_Clean(t *testing.T) {
 	require.Empty(t, contracts)
 }
 
-func TestContractStore_JSONRoundTrip_Params(t *testing.T) {
+func TestContractStore_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	store := sqlstore.NewContractStore(newTestDB(t))
 	ctx := context.Background()
 
-	c := newTestContract("params_script")
-	c.Params = map[string]string{"ownerKeyId": "abc123", "extra": "value"}
-	require.NoError(t, store.AddContract(ctx, c, 0))
+	// roundTrip stores c and returns the copy read back by script. Each case uses
+	// a distinct script, so they can share one store without interfering.
+	roundTrip := func(t *testing.T, c types.Contract) types.Contract {
+		t.Helper()
+		require.NoError(t, store.AddContract(ctx, c, 0))
+		got, err := store.GetContractsByScripts(ctx, []string{c.Script})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		return got[0]
+	}
 
-	got, err := store.GetContractsByScripts(ctx, []string{c.Script})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, c.Params, got[0].Params)
-}
+	t.Run("params", func(t *testing.T) {
+		c := newTestContract("params_script")
+		c.Params = map[string]string{"ownerKeyId": "abc123", "extra": "value"}
+		require.Equal(t, c.Params, roundTrip(t, c).Params)
+	})
 
-func TestContractStore_JSONRoundTrip_Tapscripts(t *testing.T) {
-	t.Parallel()
+	t.Run("tapscripts", func(t *testing.T) {
+		c := newTestContract("tap_script")
+		c.Params["tapscripts"] = `["deadbeef","cafebabe","f00d"]`
+		require.Equal(t, c.Params["tapscripts"], roundTrip(t, c).Params["tapscripts"])
+	})
 
-	store := sqlstore.NewContractStore(newTestDB(t))
-	ctx := context.Background()
+	t.Run("metadata", func(t *testing.T) {
+		c := newTestContract("meta_script")
+		c.Metadata = map[string]string{"version": "1", "tag": "test"}
+		require.Equal(t, c.Metadata, roundTrip(t, c).Metadata)
+	})
 
-	c := newTestContract("tap_script")
-	c.Params["tapscripts"] = `["deadbeef","cafebabe","f00d"]`
-	require.NoError(t, store.AddContract(ctx, c, 0))
-
-	got, err := store.GetContractsByScripts(ctx, []string{c.Script})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, c.Params["tapscripts"], got[0].Params["tapscripts"])
-}
-
-func TestContractStore_JSONRoundTrip_Metadata(t *testing.T) {
-	t.Parallel()
-
-	store := sqlstore.NewContractStore(newTestDB(t))
-	ctx := context.Background()
-
-	c := newTestContract("meta_script")
-	c.Metadata = map[string]string{"version": "1", "tag": "test"}
-	require.NoError(t, store.AddContract(ctx, c, 0))
-
-	got, err := store.GetContractsByScripts(ctx, []string{c.Script})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, c.Metadata, got[0].Metadata)
-}
-
-func TestContractStore_ExitDelayRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	store := sqlstore.NewContractStore(newTestDB(t))
-	ctx := context.Background()
-
-	c := newTestContract("delay_script")
-	c.Params["exitDelay"] = "512"
-	require.NoError(t, store.AddContract(ctx, c, 0))
-
-	got, err := store.GetContractsByScripts(ctx, []string{c.Script})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, "512", got[0].Params["exitDelay"])
+	t.Run("exit delay", func(t *testing.T) {
+		c := newTestContract("delay_script")
+		c.Params["exitDelay"] = "512"
+		require.Equal(t, "512", roundTrip(t, c).Params["exitDelay"])
+	})
 }
