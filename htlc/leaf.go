@@ -69,7 +69,11 @@ func ParseClaimLeafScript(leafScript []byte) (*ClaimLeafComponents, error) {
 		return nil, err
 	}
 
-	if err := expectOpcode(&tokenizer, txscript.OP_EQUALVERIFY, "second OP_EQUALVERIFY"); err != nil {
+	if err := expectOpcode(
+		&tokenizer,
+		txscript.OP_EQUALVERIFY,
+		"second OP_EQUALVERIFY",
+	); err != nil {
 		return nil, err
 	}
 
