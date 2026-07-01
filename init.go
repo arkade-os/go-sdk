@@ -124,7 +124,10 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		return fmt.Errorf("failed to init contract manager: %w", err)
 	}
 
+	w.cmMu.Lock()
 	w.contractManager = mgr
+	w.watcher = contract.NewWatcher(w.Explorer(), mgr, w.network)
+	w.cmMu.Unlock()
 	w.resetSyncStateForUnlock()
 	w.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
 	w.vtxoBroadcaster = newBroadcaster[types.VtxoEvent]()
@@ -148,8 +151,15 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 		ctx := bgCtx
 
+		mgr := w.contractMgr()
+		if mgr == nil {
+			w.syncCh <- nil
+			close(w.syncCh)
+			return
+		}
+
 		// Look for missing contracts to track: the wallet restores at every unlock.
-		if err := w.contractManager.ScanContracts(ctx, w.hdGapLimit); err != nil {
+		if err := mgr.ScanContracts(ctx, w.hdGapLimit); err != nil {
 			w.syncCh <- err
 			close(w.syncCh)
 			return
@@ -175,8 +185,18 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		w.syncCh <- err
 		close(w.syncCh)
 
+		w.cmMu.RLock()
+		watcher := w.watcher
+		w.cmMu.RUnlock()
+
 		w.bgWg.Go(func() { w.listenForArkTxs(ctx) })
-		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network) })
+		if watcher != nil {
+			if err := watcher.Start(ctx); err != nil {
+				log.WithError(err).Error("failed to start contract watcher")
+			} else {
+				w.bgWg.Go(func() { w.listenForOnchainTxs(ctx) })
+			}
+		}
 		w.bgWg.Go(func() { w.listenDbEvents(ctx) })
 		w.bgWg.Go(func() { w.periodicRefreshDb(ctx) })
 	})
@@ -205,10 +225,16 @@ func (w *wallet) Lock(ctx context.Context) error {
 	}
 	w.stopCtx = nil
 
+	w.cmMu.Lock()
+	if w.watcher != nil {
+		w.watcher.Stop()
+		w.watcher = nil
+	}
 	if w.contractManager != nil {
 		w.contractManager.Close()
 		w.contractManager = nil
 	}
+	w.cmMu.Unlock()
 
 	w.syncMu.Lock()
 	w.syncDone = false

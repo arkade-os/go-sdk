@@ -3,6 +3,9 @@ package contract_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
@@ -79,6 +82,32 @@ func newTestPubKey(t *testing.T) *btcec.PublicKey {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	return priv.PubKey()
+}
+
+// newDelegateKeyServer starts an httptest server that serves key as the
+// {"pubkey":"<hex-compressed>"} body the delegate handler expects, and returns
+// a counter incremented on every request so tests can assert cache behavior.
+func newDelegateKeyServer(t *testing.T, key *btcec.PublicKey) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		// nolint:errcheck
+		fmt.Fprintf(w, `{"pubkey":%q}`, hex.EncodeToString(key.SerializeCompressed()))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &hits
+}
+
+// newUnavailableDelegateServer starts an httptest server that always responds
+// 500, so tests can exercise the delegate-key fetch failure path.
+func newUnavailableDelegateServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 // mockTransportClient is a minimal stub for client.TransportClient. The default

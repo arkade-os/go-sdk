@@ -7,6 +7,7 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	"github.com/arkade-os/go-sdk/contract/handlers"
@@ -20,12 +21,22 @@ const logPrefix = "contract manager:"
 type contractManager struct {
 	store       types.ContractStore
 	keyProvider keyProvider
+	client      client.Client
 	indexer     offchainDataProvider
 	explorer    onchainDataProvider
 	network     arklib.Network
 	registry    Registry
 	mu          sync.RWMutex
 	infoCache   *infoCache
+	// delegateEnabled is true when a delegate URL was configured. The delegate
+	// handler is always registered so existing delegate contracts stay
+	// resolvable via GetHandler, but deriving new ones and scanning for them is
+	// gated on this since both need the externally fetched delegate key.
+	delegateEnabled bool
+
+	cbMu   sync.RWMutex
+	cbs    map[int]func(types.Contract)
+	cbNext int
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
@@ -48,27 +59,59 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	// their own client wiring.
 	cache := newInfoCache(infoCacheTTL)
 	cachedClient := newCachingClient(args.Client, cache)
+	// The delegate handler is always registered so stored delegate contracts
+	// remain resolvable (its read-only methods need no URL); an empty URL just
+	// means new delegate contracts cannot be derived — see NewContract.
 	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+		types.ContractTypeDelegate: NewDelegateHandler(cachedClient, args.Network, o.delegateURL),
 	}
 	reg, err := newRegistry(builtins, o.customHandlers)
 	if err != nil {
 		return nil, err
 	}
 	return &contractManager{
-		store:       args.Store,
-		keyProvider: args.KeyProvider,
-		indexer:     args.Indexer,
-		explorer:    args.Explorer,
-		network:     args.Network,
-		registry:    reg,
-		mu:          sync.RWMutex{},
-		infoCache:   cache,
+		store:           args.Store,
+		keyProvider:     args.KeyProvider,
+		client:          cachedClient,
+		indexer:         args.Indexer,
+		explorer:        args.Explorer,
+		network:         args.Network,
+		registry:        reg,
+		mu:              sync.RWMutex{},
+		infoCache:       cache,
+		delegateEnabled: o.delegateURL != "",
+		cbs:             make(map[int]func(types.Contract)),
 	}, nil
 }
 
 func (m *contractManager) Registry() Registry { return m.registry }
+
+func (m *contractManager) OnContractEvent(cb func(types.Contract)) func() {
+	m.cbMu.Lock()
+	id := m.cbNext
+	m.cbNext++
+	m.cbs[id] = cb
+	m.cbMu.Unlock()
+	return func() {
+		m.cbMu.Lock()
+		delete(m.cbs, id)
+		m.cbMu.Unlock()
+	}
+}
+
+func (m *contractManager) emit(c types.Contract) {
+	m.cbMu.RLock()
+	cbs := make([]func(types.Contract), 0, len(m.cbs))
+	for _, cb := range m.cbs {
+		cbs = append(cbs, cb)
+	}
+	m.cbMu.RUnlock()
+	for _, cb := range cbs {
+		cb(c)
+	}
+}
 
 func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) error {
 	m.mu.Lock()
@@ -83,6 +126,11 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	}
 
 	for _, contractType := range m.registry.SupportedTypes() {
+		if contractType == types.ContractTypeDelegate && !m.delegateEnabled {
+			// Delegate derivation needs an externally fetched key; with no URL
+			// configured there is nothing to scan for.
+			continue
+		}
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
@@ -121,7 +169,6 @@ func (m *contractManager) NewContract(
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if o.serverParams != nil {
 		// Force a cache update if the caller provided a server params.
@@ -134,35 +181,44 @@ func (m *contractManager) NewContract(
 		// the stored contract.
 		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
 		if err != nil {
+			m.mu.Unlock()
 			return nil, err
 		}
 		if len(contracts) > 0 {
 			contract := contracts[0]
+			m.mu.Unlock()
 			return &contract, nil
 		}
 	}
 
 	contract, err := m.newContract(ctx, contractType, handler)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	contract.Label = o.label
 
 	keyRef, err := handler.GetKeyRef(*contract)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
 	}
 
 	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
 	}
 
 	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("failed to store contract: %w", err)
 	}
 
 	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
+	m.mu.Unlock()
+
+	m.emit(*contract)
 
 	return contract, nil
 }
@@ -426,6 +482,11 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 	var offchain, boarding []pending
 
 	for _, contractType := range m.registry.SupportedTypes() {
+		if contractType == types.ContractTypeDelegate && !m.delegateEnabled {
+			// Delegate derivation needs an externally fetched key; with no URL
+			// configured there is nothing to scan for.
+			continue
+		}
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err

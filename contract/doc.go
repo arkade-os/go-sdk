@@ -20,8 +20,8 @@
 //
 //   - Store is the persistence layer (types.ContractStore, backed by KV
 //     or SQL). Contracts are keyed by Script, with secondary access by
-//     type/state/scripts. types.ContractStore.GetLatestContract(type)
-//     resolves the latest stored contract for a given type by key index,
+//     type/state/scripts. types.ContractStore.GetLatestActiveContract(type)
+//     resolves the latest active contract for a given type by key index,
 //     which the manager uses to find the next free derivation index
 //     without scanning the entire row set.
 //
@@ -42,9 +42,9 @@
 //
 // [Manager.NewContract](ctx, contractType, opts...):
 //  1. Look up the handler registered for contractType.
-//  2. Ask the store for GetLatestContract(contractType) and resolve the
-//     last-used keyId from it (or start at the first key id when the pool
-//     is empty).
+//  2. Ask the store for GetLatestActiveContract(contractType) and resolve
+//     the last-used keyId from it (or start at the first key id when the
+//     pool is empty).
 //  3. Advance with keyProvider.NextKeyId, then GetKey to derive the new
 //     KeyRef.
 //  4. Hand the KeyRef to handler.NewContract — the handler builds the
