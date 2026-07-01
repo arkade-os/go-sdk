@@ -12,6 +12,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	"github.com/arkade-os/go-sdk/htlc"
 	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -524,7 +525,7 @@ func canSignTapscriptLeaf(leafScript, xOnlyPub []byte) bool {
 	if err == nil {
 		return closureContainsKey(closure, xOnlyPub)
 	}
-	return isHTLCLeafWithKey(leafScript, xOnlyPub)
+	return htlc.LeafContainsScriptKey(leafScript, xOnlyPub)
 }
 
 func closureContainsKey(closure script.Closure, xOnlyPub []byte) bool {
@@ -549,54 +550,6 @@ func closureContainsKey(closure script.Closure, xOnlyPub []byte) bool {
 	default:
 		return false
 	}
-}
-
-func isHTLCLeafWithKey(leafScript, xOnlyPub []byte) bool {
-	return isHTLCClaimLeafWithKey(leafScript, xOnlyPub) ||
-		isHTLCRefundLeafWithKey(leafScript, xOnlyPub)
-}
-
-func isHTLCClaimLeafWithKey(leafScript, xOnlyPub []byte) bool {
-	if len(xOnlyPub) != schnorr.PubKeyBytesLen {
-		return false
-	}
-	const claimLeafLen = 61
-	if len(leafScript) != claimLeafLen {
-		return false
-	}
-	const preimageLen = 32
-	return leafScript[0] == txscript.OP_SIZE &&
-		leafScript[1] == txscript.OP_DATA_1 &&
-		leafScript[2] == preimageLen &&
-		leafScript[3] == txscript.OP_EQUALVERIFY &&
-		leafScript[4] == txscript.OP_HASH160 &&
-		leafScript[5] == txscript.OP_DATA_20 &&
-		leafScript[26] == txscript.OP_EQUALVERIFY &&
-		leafScript[27] == txscript.OP_DATA_32 &&
-		bytes.Equal(leafScript[28:60], xOnlyPub) &&
-		leafScript[60] == txscript.OP_CHECKSIG
-}
-
-func isHTLCRefundLeafWithKey(leafScript, xOnlyPub []byte) bool {
-	if len(xOnlyPub) != schnorr.PubKeyBytesLen {
-		return false
-	}
-	const minRefundLeafLen = 38
-	if len(leafScript) < minRefundLeafLen ||
-		leafScript[0] != txscript.OP_DATA_32 ||
-		!bytes.Equal(leafScript[1:33], xOnlyPub) ||
-		leafScript[33] != txscript.OP_CHECKSIGVERIFY {
-		return false
-	}
-
-	timeoutLen := int(leafScript[34])
-	if timeoutLen < 1 || timeoutLen > 4 {
-		return false
-	}
-	if len(leafScript) != 36+timeoutLen {
-		return false
-	}
-	return leafScript[35+timeoutLen] == txscript.OP_CHECKLOCKTIMEVERIFY
 }
 
 func (s *service) signTaprootKeySpend(

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -119,17 +120,12 @@ func validateVHTLC(
 	return vhtlcOpts, nil
 }
 
-// HTLCComponents contains the parsed components from a Boltz HTLC script
-type HTLCComponents struct {
-	PreimageHash [20]byte // HASH160 of the preimage (20 bytes)
-	ClaimPubKey  [32]byte // X-only public key for claim (32 bytes)
-}
+// HTLCComponents contains the parsed components from a Boltz HTLC claim leaf.
+type HTLCComponents = htlc.ClaimLeafComponents
 
-// RefundHTLCComponents contains the parsed components from a Boltz HTLC refund leaf script
-type RefundHTLCComponents struct {
-	RefundPubKey [32]byte // X-only public key for refund (32 bytes)
-	Timeout      uint32   // CSV timeout in blocks
-}
+// RefundHTLCComponents contains the parsed components from a Boltz HTLC refund
+// leaf.
+type RefundHTLCComponents = htlc.RefundLeafComponents
 
 // validateClaimLeafScript parses and validates a Boltz HTLC claim leaf script.
 // The expected structure follows Boltz's HTLC format:
@@ -149,165 +145,7 @@ type RefundHTLCComponents struct {
 //	-> preimageHash: 608bc8a727928e8aa18c7a2489c003deb47ff083
 //	-> claimPubKey: 7599756afc49ebf5a6f3ac5848ef0afe934edd7b669bca02029acf10cc7f83ac
 func validateClaimLeafScript(outputHex string) (*HTLCComponents, error) {
-	scriptBytes, err := hex.DecodeString(outputHex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode claim leaf output hex: %w", err)
-	}
-
-	components, err := parseHTLCScriptManually(scriptBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return components, nil
-}
-
-// script components (opcodes, push operations, fixed-length data).
-type scriptParser struct {
-	buf *bytes.Reader
-}
-
-// newScriptParser creates a new scriptParser for the given script bytes.
-func newScriptParser(script []byte) *scriptParser {
-	return &scriptParser{buf: bytes.NewReader(script)}
-}
-
-// expectOpcode reads a byte and verifies it matches the expected opcode.
-// Returns an error if reading fails or the byte doesn't match.
-func (p *scriptParser) expectOpcode(expected byte, name string) error {
-	got, err := p.buf.ReadByte()
-	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", name, err)
-	}
-	if got != expected {
-		return fmt.Errorf("expected %s (0x%x), got 0x%x", name, expected, got)
-	}
-	return nil
-}
-
-// expectPush reads a byte and verifies it matches the expected push length.
-// Returns an error if reading fails or the push length doesn't match.
-func (p *scriptParser) expectPush(expectedLen byte, name string) error {
-	got, err := p.buf.ReadByte()
-	if err != nil {
-		return fmt.Errorf("failed to read push length for %s: %w", name, err)
-	}
-	if got != expectedLen {
-		return fmt.Errorf("expected push length 0x%x for %s, got 0x%x", expectedLen, name, got)
-	}
-	return nil
-}
-
-// readFixedBytes reads exactly n bytes and returns them.
-// Returns an error if reading fails or fewer than n bytes are available.
-func (p *scriptParser) readFixedBytes(n int, name string) ([]byte, error) {
-	data := make([]byte, n)
-	read, err := p.buf.Read(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", name, err)
-	}
-	if read != n {
-		return nil, fmt.Errorf("expected %d bytes for %s, got %d", n, name, read)
-	}
-	return data, nil
-}
-
-// expectNoMoreBytes verifies that no bytes remain in the buffer.
-// Returns an error if extra bytes are present.
-func (p *scriptParser) expectNoMoreBytes() error {
-	if p.buf.Len() != 0 {
-		return fmt.Errorf(
-			"unexpected extra bytes at end of script: %d bytes remaining",
-			p.buf.Len(),
-		)
-	}
-	return nil
-}
-
-// parseHTLCScriptManually manually parses the HTLC script byte by byte
-// to extract preimage hash and claim pubkey with full validation.
-func parseHTLCScriptManually(script []byte) (*HTLCComponents, error) {
-	if len(script) < 57 {
-		// Minimum: 1 (OP_SIZE) + 2 (push 0x20) + 1 (OP_EQUALVERIFY) + 1 (OP_HASH160) + 21 (push 20 bytes) + 1 (OP_EQUALVERIFY) + 33 (push 32 bytes) + 1 (OP_CHECKSIG) = 61 bytes
-		// But actual encoding might be slightly shorter, let's check minimum reasonable size
-		return nil, fmt.Errorf("script too short: expected at least 57 bytes, got %d", len(script))
-	}
-
-	p := newScriptParser(script)
-
-	// Read OP_SIZE (0x82)
-	if err := p.expectOpcode(txscript.OP_SIZE, "OP_SIZE"); err != nil {
-		return nil, err
-	}
-
-	// Read push of 0x20 (1 byte indicating 32)
-	if err := p.expectPush(0x01, "preimage size length"); err != nil {
-		return nil, err
-	}
-
-	preimageSize, err := p.readFixedBytes(1, "preimage size")
-	if err != nil {
-		return nil, err
-	}
-	if preimageSize[0] != 0x20 {
-		return nil, fmt.Errorf("expected preimage size 0x20 (32 bytes), got 0x%x", preimageSize[0])
-	}
-
-	// Read OP_EQUALVERIFY (0x88)
-	if err := p.expectOpcode(txscript.OP_EQUALVERIFY, "OP_EQUALVERIFY"); err != nil {
-		return nil, err
-	}
-
-	// Read OP_HASH160 (0xa9)
-	if err := p.expectOpcode(txscript.OP_HASH160, "OP_HASH160"); err != nil {
-		return nil, err
-	}
-
-	// Read push of 20 bytes (preimage hash)
-	if err := p.expectPush(0x14, "preimage hash"); err != nil {
-		return nil, err
-	}
-
-	preimageHashBytes, err := p.readFixedBytes(20, "preimage hash")
-	if err != nil {
-		return nil, err
-	}
-
-	// Read second OP_EQUALVERIFY (0x88)
-	if err := p.expectOpcode(txscript.OP_EQUALVERIFY, "second OP_EQUALVERIFY"); err != nil {
-		return nil, err
-	}
-
-	// Read push of 32 bytes (claim pubkey)
-	if err := p.expectPush(0x20, "claim pubkey"); err != nil {
-		return nil, err
-	}
-
-	claimPubKeyBytes, err := p.readFixedBytes(32, "claim pubkey")
-	if err != nil {
-		return nil, err
-	}
-
-	// Read OP_CHECKSIG (0xac)
-	if err := p.expectOpcode(txscript.OP_CHECKSIG, "OP_CHECKSIG"); err != nil {
-		return nil, err
-	}
-
-	// Verify no extra bytes
-	if err := p.expectNoMoreBytes(); err != nil {
-		return nil, err
-	}
-
-	var preimageHash [20]byte
-	copy(preimageHash[:], preimageHashBytes)
-
-	var claimPubKey [32]byte
-	copy(claimPubKey[:], claimPubKeyBytes)
-
-	return &HTLCComponents{
-		PreimageHash: preimageHash,
-		ClaimPubKey:  claimPubKey,
-	}, nil
+	return htlc.ParseClaimLeafScriptHex(outputHex)
 }
 
 // validateBtcClaimOrRefundPossible validates the Bitcoin HTLC (swap tree) parameters for a chain swap.
@@ -420,87 +258,7 @@ func validateClaimPath(
 //	-> refundPubKey: 7599756afc49ebf5a6f3ac5848ef0afe934edd7b669bca02029acf10cc7f83ac
 //	-> timeout: 760 blocks (0x02f8 little-endian)
 func ValidateRefundLeafScript(outputHex string) (*RefundHTLCComponents, error) {
-	scriptBytes, err := hex.DecodeString(outputHex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode refund leaf output hex: %w", err)
-	}
-
-	components, err := parseRefundHTLCScriptManually(scriptBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return components, nil
-}
-
-// parseRefundHTLCScriptManually manually parses the refund HTLC script byte by byte
-// to extract refund pubkey and timeout with full validation.
-func parseRefundHTLCScriptManually(script []byte) (*RefundHTLCComponents, error) {
-	// Minimum: 1 (push 32) + 32 (pubkey) + 1 (OP_CHECKSIGVERIFY) + 1 (push len) + 2 (timeout) + 1 (OP_CLTV) = 38 bytes
-	if len(script) < 38 {
-		return nil, fmt.Errorf(
-			"refund script too short: expected at least 38 bytes, got %d",
-			len(script),
-		)
-	}
-
-	p := newScriptParser(script)
-
-	// Read push of 32 bytes (refund pubkey)
-	if err := p.expectPush(0x20, "refund pubkey"); err != nil {
-		return nil, err
-	}
-
-	refundPubKeyBytes, err := p.readFixedBytes(32, "refund pubkey")
-	if err != nil {
-		return nil, err
-	}
-
-	// Read OP_CHECKSIGVERIFY (0xad)
-	if err := p.expectOpcode(txscript.OP_CHECKSIGVERIFY, "OP_CHECKSIGVERIFY"); err != nil {
-		return nil, err
-	}
-
-	// Read push length for timeout (typically 2-3 bytes)
-	pushLen, err := p.buf.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read push length for timeout: %w", err)
-	}
-	if pushLen < 0x01 || pushLen > 0x04 {
-		return nil, fmt.Errorf("expected timeout push length 1-4 bytes, got 0x%x", pushLen)
-	}
-
-	// Read timeout bytes (little-endian)
-	timeoutBytes, err := p.readFixedBytes(int(pushLen), "timeout")
-	if err != nil {
-		return nil, err
-	}
-
-	// Decode little-endian timeout
-	var timeout uint32
-	for i := 0; i < len(timeoutBytes); i++ {
-		timeout |= uint32(timeoutBytes[i]) << (8 * i)
-	}
-
-	// Read OP_CHECKLOCKTIMEVERIFY (0xb1) - Boltz uses absolute timelock, not relative
-	if err := p.expectOpcode(
-		txscript.OP_CHECKLOCKTIMEVERIFY, "OP_CHECKLOCKTIMEVERIFY",
-	); err != nil {
-		return nil, err
-	}
-
-	// Verify no extra bytes
-	if err := p.expectNoMoreBytes(); err != nil {
-		return nil, err
-	}
-
-	var refundPubKey [32]byte
-	copy(refundPubKey[:], refundPubKeyBytes)
-
-	return &RefundHTLCComponents{
-		RefundPubKey: refundPubKey,
-		Timeout:      timeout,
-	}, nil
+	return htlc.ParseRefundLeafScriptHex(outputHex)
 }
 
 // validateRefundPath validates the Bitcoin HTLC refund path for a chain swap.
