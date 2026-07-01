@@ -231,17 +231,7 @@ func (f *fakeContractStore) GetActiveContractsByType(
 ) ([]types.Contract, error) {
 	return nil, nil
 }
-func (f *fakeContractStore) GetContractsByType(
-	context.Context, types.ContractType,
-) ([]types.Contract, error) {
-	return nil, nil
-}
 func (f *fakeContractStore) GetLatestActiveContract(
-	context.Context, types.ContractType,
-) (*types.Contract, error) {
-	return nil, nil
-}
-func (f *fakeContractStore) GetLatestContract(
 	context.Context, types.ContractType,
 ) (*types.Contract, error) {
 	return nil, nil

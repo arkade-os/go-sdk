@@ -213,11 +213,6 @@ func (m *watcherMockManager) GetHandler(
 ) (handlers.Handler, error) {
 	return &mockContractHandler{}, nil
 }
-func (m *watcherMockManager) NewDelegate(
-	_ context.Context, _ *btcec.PublicKey,
-) (*types.Contract, error) {
-	return nil, nil
-}
 func (m *watcherMockManager) Clean(_ context.Context) error { return nil }
 func (m *watcherMockManager) Close()                        {}
 func (m *watcherMockManager) OnContractEvent(cb func(types.Contract)) func() {

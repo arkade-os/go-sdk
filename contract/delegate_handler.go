@@ -10,6 +10,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/types"
@@ -55,9 +56,28 @@ type PathSelection struct {
 //	[0] exit:     CSVMultisigClosure{[owner], UnilateralExitDelay}
 //	[1] forfeit:  MultisigClosure{[owner, server]}
 //	[2] delegate: MultisigClosure{[owner, delegate, server]}
-type DelegateHandler struct{}
+type DelegateHandler struct {
+	client  client.Client
+	network arklib.Network
+	url     string
+	cache   *delegateInfoCache
+}
 
 var _ handlers.Handler = (*DelegateHandler)(nil)
+
+// NewDelegateHandler builds a delegate handler that derives contracts through
+// the standard NewContract path. Server params come from the shared transport
+// client; the delegate public key is resolved from url and memoized.
+func NewDelegateHandler(
+	client client.Client, network arklib.Network, url string,
+) *DelegateHandler {
+	return &DelegateHandler{
+		client:  client,
+		network: network,
+		url:     url,
+		cache:   newDelegateInfoCache(delegateInfoCacheTTL),
+	}
+}
 
 // DeriveContract derives the delegate VTXO contract. Only an offchain contract is
 // produced; no boarding or onchain facets are derived for delegate contracts.
@@ -150,13 +170,58 @@ func (h *DelegateHandler) DeriveContract(
 	}, nil
 }
 
-// NewContract returns an error: delegate contracts require a delegate key.
-// Use Manager.NewDelegate instead.
+// NewContract derives a delegate contract for keyRef. Server params come from
+// the shared transport client; the delegate public key is resolved from the
+// configured URL and memoized in the handler's cache.
 func (h *DelegateHandler) NewContract(
-	_ context.Context,
-	_ identity.KeyRef,
+	ctx context.Context,
+	keyRef identity.KeyRef,
 ) (*types.Contract, error) {
-	return nil, fmt.Errorf("delegate contracts require a delegate key: use Manager.NewDelegate")
+	if h.url == "" {
+		return nil, fmt.Errorf("delegate url not configured: cannot derive delegate contracts")
+	}
+
+	info, err := h.client.GetInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server params: %w", err)
+	}
+
+	buf, err := hex.DecodeString(info.SignerPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
+	}
+	signerKey, err := btcec.ParsePubKey(buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
+	}
+
+	delay := info.UnilateralExitDelay
+	exitDelay := arklib.RelativeLocktime{
+		Type:  arklib.LocktimeTypeSecond,
+		Value: uint32(delay),
+	}
+	if delay < 512 {
+		exitDelay = arklib.RelativeLocktime{
+			Type:  arklib.LocktimeTypeBlock,
+			Value: uint32(delay),
+		}
+	}
+
+	delegateKey := h.cache.get()
+	if delegateKey == nil {
+		delegateKey, err = fetchDelegateKey(ctx, h.url)
+		if err != nil {
+			return nil, err
+		}
+		h.cache.set(delegateKey)
+	}
+
+	cfg := DelegateConfig{
+		SignerKey: signerKey,
+		Network:   h.network,
+		ExitDelay: exitDelay,
+	}
+	return h.DeriveContract(ctx, keyRef, cfg, delegateKey)
 }
 
 func (h *DelegateHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {

@@ -3,10 +3,16 @@ package contract_test
 import (
 	"context"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	sdktypes "github.com/arkade-os/go-sdk/types"
@@ -178,6 +184,149 @@ func TestDelegateHandler_DeriveContract_Validation(t *testing.T) {
 		_, err := h.DeriveContract(ctx, key, cfg, cfg.SignerKey)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer")
+	})
+}
+
+func TestDelegateHandler_NewContract(t *testing.T) {
+	t.Parallel()
+
+	signer := newTestPubKey(t)
+	info := &client.Info{
+		SignerPubKey:        hex.EncodeToString(signer.SerializeCompressed()),
+		UnilateralExitDelay: testUnilateralExitDelay,
+	}
+
+	t.Run("derives contract and memoizes delegate key", func(t *testing.T) {
+		t.Parallel()
+		delegatePriv := testDelegateKey(t)
+		srv, hits := newDelegateKeyServer(t, delegatePriv.PubKey())
+		h := contract.NewDelegateHandler(
+			&mockTransportClient{info: info}, testNetwork, srv.URL,
+		)
+		key := testKey(t)
+
+		c, err := h.NewContract(context.Background(), key)
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Equal(t, sdktypes.ContractTypeDelegate, c.Type)
+		require.NotEmpty(t, c.Address)
+		require.NotEmpty(t, c.Script)
+		for _, p := range []string{
+			contract.ParamKeyID, contract.ParamOwnerKey, contract.ParamSignerKey,
+			contract.ParamDelegateKey, contract.ParamTapscripts, contract.ParamExitDelay,
+		} {
+			require.Contains(t, c.Params, p)
+		}
+		require.Equal(t,
+			hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()),
+			c.Params[contract.ParamDelegateKey],
+		)
+		require.Equal(t, int32(1), hits.Load())
+
+		// Second derivation reuses the cached delegate key: no extra HTTP request.
+		c2, err := h.NewContract(context.Background(), key)
+		require.NoError(t, err)
+		require.Equal(t, c.Script, c2.Script)
+		require.Equal(t, int32(1), hits.Load())
+	})
+
+	t.Run("server params error is propagated", func(t *testing.T) {
+		t.Parallel()
+		srv, _ := newDelegateKeyServer(t, testDelegateKey(t).PubKey())
+		h := contract.NewDelegateHandler(
+			&mockTransportClient{infoErr: errors.New("transport down")},
+			testNetwork, srv.URL,
+		)
+		_, err := h.NewContract(context.Background(), testKey(t))
+		require.ErrorContains(t, err, "transport down")
+	})
+
+	t.Run("non-200 response errors", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		t.Cleanup(srv.Close)
+		h := contract.NewDelegateHandler(
+			&mockTransportClient{info: info}, testNetwork, srv.URL,
+		)
+		_, err := h.NewContract(context.Background(), testKey(t))
+		require.Error(t, err)
+	})
+
+	t.Run("malformed body errors", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			// nolint:errcheck
+			fmt.Fprint(w, "not-json")
+		}))
+		t.Cleanup(srv.Close)
+		h := contract.NewDelegateHandler(
+			&mockTransportClient{info: info}, testNetwork, srv.URL,
+		)
+		_, err := h.NewContract(context.Background(), testKey(t))
+		require.Error(t, err)
+	})
+
+	t.Run("invalid pubkey errors", func(t *testing.T) {
+		t.Parallel()
+		for name, body := range map[string]string{
+			"invalid hex": `{"pubkey":"zz"}`,
+			"wrong size":  `{"pubkey":"00"}`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				srv := httptest.NewServer(
+					http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						// nolint:errcheck
+						fmt.Fprint(w, body)
+					}),
+				)
+				t.Cleanup(srv.Close)
+				h := contract.NewDelegateHandler(
+					&mockTransportClient{info: info}, testNetwork, srv.URL,
+				)
+				_, err := h.NewContract(context.Background(), testKey(t))
+				require.Error(t, err)
+			})
+		}
+	})
+
+	t.Run("no url configured errors", func(t *testing.T) {
+		t.Parallel()
+		h := contract.NewDelegateHandler(&mockTransportClient{info: info}, testNetwork, "")
+		_, err := h.NewContract(context.Background(), testKey(t))
+		require.ErrorContains(t, err, "url not configured")
+	})
+
+	t.Run("failed fetch is not cached", func(t *testing.T) {
+		t.Parallel()
+		delegatePriv := testDelegateKey(t)
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if calls.Add(1) == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// nolint:errcheck
+			fmt.Fprintf(w, `{"pubkey":%q}`,
+				hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()))
+		}))
+		t.Cleanup(srv.Close)
+		h := contract.NewDelegateHandler(
+			&mockTransportClient{info: info}, testNetwork, srv.URL,
+		)
+		key := testKey(t)
+
+		_, err := h.NewContract(context.Background(), key)
+		require.Error(t, err)
+
+		// The failed fetch must not poison the cache: a retry re-hits the
+		// server and succeeds.
+		c, err := h.NewContract(context.Background(), key)
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Equal(t, int32(2), calls.Load())
 	})
 }
 

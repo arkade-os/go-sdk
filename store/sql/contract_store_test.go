@@ -104,24 +104,6 @@ func TestContractStore_ListContracts(t *testing.T) {
 	require.Len(t, contracts, 3)
 }
 
-func TestContractStore_GetContractsByType(t *testing.T) {
-	t.Parallel()
-
-	store := sqlstore.NewContractStore(newTestDB(t))
-	ctx := context.Background()
-
-	c1 := newTestContract("s1") // ContractTypeDefault
-	c2 := newTestContract("s2")
-	c2.Type = types.ContractTypeBoarding
-	require.NoError(t, store.AddContract(ctx, c1, 0))
-	require.NoError(t, store.AddContract(ctx, c2, 1))
-
-	got, err := store.GetContractsByType(ctx, types.ContractTypeDefault)
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, "s1", got[0].Script)
-}
-
 func TestContractStore_GetContractsByState(t *testing.T) {
 	t.Parallel()
 
@@ -262,35 +244,4 @@ func TestContractStore_ExitDelayRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "512", got[0].Params["exitDelay"])
-}
-
-func TestContractStore_GetLatestContract(t *testing.T) {
-	t.Parallel()
-
-	store := sqlstore.NewContractStore(newTestDB(t))
-	ctx := context.Background()
-
-	// Insert two contracts of the same type; the latest by created_at is returned.
-	c1 := newTestContract("first")
-	c1.CreatedAt = time.Now().Add(-time.Hour).Truncate(time.Second)
-	c2 := newTestContract("second")
-	c2.CreatedAt = time.Now().Truncate(time.Second)
-
-	require.NoError(t, store.AddContract(ctx, c1, 0))
-	require.NoError(t, store.AddContract(ctx, c2, 1))
-
-	got, err := store.GetLatestContract(ctx, types.ContractTypeDefault)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	require.Equal(t, "second", got.Script)
-}
-
-func TestContractStore_GetLatestContractNotFound(t *testing.T) {
-	t.Parallel()
-
-	store := sqlstore.NewContractStore(newTestDB(t))
-
-	got, err := store.GetLatestContract(context.Background(), types.ContractTypeDefault)
-	require.NoError(t, err)
-	require.Nil(t, got)
 }

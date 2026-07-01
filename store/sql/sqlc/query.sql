@@ -193,10 +193,6 @@ WHERE script IN (sqlc.slice('scripts'));
 SELECT * FROM contract
 WHERE type = :type AND state = 'active';
 
--- name: SelectContractsByType :many
-SELECT * FROM contract
-WHERE type = :type;
-
 -- name: SelectContractsByState :many
 SELECT * FROM contract
 WHERE state = :state;
@@ -204,10 +200,6 @@ WHERE state = :state;
 -- name: SelectLatestActiveContractByType :one
 SELECT * FROM contract
 WHERE type = :contract_type AND state = 'active' ORDER BY key_index DESC LIMIT 1;
-
--- name: SelectLatestContractByType :one
-SELECT * FROM contract
-WHERE type = :contract_type ORDER BY key_index DESC LIMIT 1;
 
 -- name: UpdateContractState :execrows
 UPDATE contract

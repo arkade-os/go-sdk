@@ -141,11 +141,6 @@ func (m *fixContractManager) GetHandler(
 ) (handlers.Handler, error) {
 	return &fixHandler{}, nil
 }
-func (m *fixContractManager) NewDelegate(
-	_ context.Context, _ *btcec.PublicKey,
-) (*sdktypes.Contract, error) {
-	return nil, nil
-}
 func (m *fixContractManager) Clean(_ context.Context) error { return nil }
 func (m *fixContractManager) Close()                        {}
 func (m *fixContractManager) OnContractEvent(_ func(sdktypes.Contract)) func() {

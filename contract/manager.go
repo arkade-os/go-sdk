@@ -2,7 +2,6 @@ package contract
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,6 +28,11 @@ type contractManager struct {
 	registry    Registry
 	mu          sync.RWMutex
 	infoCache   *infoCache
+	// delegateEnabled is true when a delegate URL was configured. The delegate
+	// handler is always registered so existing delegate contracts stay
+	// resolvable via GetHandler, but deriving new ones and scanning for them is
+	// gated on this since both need the externally fetched delegate key.
+	delegateEnabled bool
 
 	cbMu   sync.RWMutex
 	cbs    map[int]func(types.Contract)
@@ -56,25 +59,30 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	// their own client wiring.
 	cache := newInfoCache(infoCacheTTL)
 	cachedClient := newCachingClient(args.Client, cache)
+	// The delegate handler is always registered so stored delegate contracts
+	// remain resolvable (its read-only methods need no URL); an empty URL just
+	// means new delegate contracts cannot be derived — see NewContract.
 	builtins := map[types.ContractType]handlers.Handler{
 		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
 		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+		types.ContractTypeDelegate: NewDelegateHandler(cachedClient, args.Network, o.delegateURL),
 	}
 	reg, err := newRegistry(builtins, o.customHandlers)
 	if err != nil {
 		return nil, err
 	}
 	return &contractManager{
-		store:       args.Store,
-		keyProvider: args.KeyProvider,
-		client:      cachedClient,
-		indexer:     args.Indexer,
-		explorer:    args.Explorer,
-		network:     args.Network,
-		registry:    reg,
-		mu:          sync.RWMutex{},
-		infoCache:   cache,
-		cbs:         make(map[int]func(types.Contract)),
+		store:           args.Store,
+		keyProvider:     args.KeyProvider,
+		client:          cachedClient,
+		indexer:         args.Indexer,
+		explorer:        args.Explorer,
+		network:         args.Network,
+		registry:        reg,
+		mu:              sync.RWMutex{},
+		infoCache:       cache,
+		delegateEnabled: o.delegateURL != "",
+		cbs:             make(map[int]func(types.Contract)),
 	}, nil
 }
 
@@ -118,6 +126,11 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	}
 
 	for _, contractType := range m.registry.SupportedTypes() {
+		if contractType == types.ContractTypeDelegate && !m.delegateEnabled {
+			// Delegate derivation needs an externally fetched key; with no URL
+			// configured there is nothing to scan for.
+			continue
+		}
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
@@ -238,129 +251,7 @@ func (m *contractManager) GetContracts(
 func (m *contractManager) GetHandler(
 	_ context.Context, c types.Contract,
 ) (handlers.Handler, error) {
-	// Delegate contracts are deliberately kept out of the registry: it
-	// drives ScanContracts (gap-limit scanning) and the keyless NewContract
-	// path, neither of which is valid for a delegate contract because it
-	// requires an externally supplied delegate key (DelegateHandler.NewContract
-	// errors by design). Route it through its stateless handler here instead.
-	if c.Type == types.ContractTypeDelegate {
-		return &DelegateHandler{}, nil
-	}
 	return m.registry.GetHandler(c.Type)
-}
-
-func (m *contractManager) NewDelegate(
-	ctx context.Context, delegateKey *btcec.PublicKey,
-) (*types.Contract, error) {
-	if delegateKey == nil {
-		return nil, fmt.Errorf("delegate key must not be nil")
-	}
-
-	info, err := m.client.GetInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server info: %w", err)
-	}
-
-	signerKeyBytes, err := hex.DecodeString(info.SignerPubKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
-	}
-	signerKey, err := btcec.ParsePubKey(signerKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
-	}
-
-	delay := info.UnilateralExitDelay
-	exitDelay := arklib.RelativeLocktime{
-		Type:  arklib.LocktimeTypeSecond,
-		Value: uint32(delay),
-	}
-	if delay < 512 {
-		exitDelay = arklib.RelativeLocktime{
-			Type:  arklib.LocktimeTypeBlock,
-			Value: uint32(delay),
-		}
-	}
-
-	cfg := DelegateConfig{
-		SignerKey: signerKey,
-		Network:   m.network,
-		ExitDelay: exitDelay,
-	}
-
-	contract, isNew, err := m.newDelegateLocked(ctx, delegateKey, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if isNew {
-		m.emit(*contract)
-	}
-	return contract, nil
-}
-
-func (m *contractManager) newDelegateLocked(
-	ctx context.Context, delegateKey *btcec.PublicKey, cfg DelegateConfig,
-) (*types.Contract, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	delegateKeyHex := hex.EncodeToString(delegateKey.SerializeCompressed())
-	existing, err := m.findDelegateContractByKey(ctx, delegateKeyHex)
-	if err != nil {
-		return nil, false, err
-	}
-	if existing != nil {
-		return existing, false, nil
-	}
-
-	// Anchors next-key derivation to the highest existing delegate key. The
-	// store returns the latest by key_index (DESC), not by wall-clock insertion
-	// time, so the derivation order is reproducible across a restore from backup.
-	latestContract, err := m.store.GetLatestContract(ctx, types.ContractTypeDelegate)
-	if err != nil {
-		return nil, false, err
-	}
-
-	var keyId string
-	if latestContract != nil {
-		dh := &DelegateHandler{}
-		keyRef, err := dh.GetKeyRef(*latestContract)
-		if err != nil {
-			return nil, false, fmt.Errorf(
-				"failed to get key ref for latest delegate contract: %w",
-				err,
-			)
-		}
-		keyId = keyRef.Id
-	}
-
-	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to compute next key index: %w", err)
-	}
-
-	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to derive key for contract: %w", err)
-	}
-
-	dh := &DelegateHandler{}
-	contract, err := dh.DeriveContract(ctx, *keyRef, cfg, delegateKey)
-	if err != nil {
-		return nil, false, err
-	}
-
-	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to get key index: %w", err)
-	}
-
-	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
-		return nil, false, fmt.Errorf("failed to store delegate contract: %w", err)
-	}
-
-	log.Debugf("%s added new delegate contract %s", logPrefix, contract.Script)
-	return contract, true, nil
 }
 
 func (m *contractManager) Clean(ctx context.Context) error {
@@ -555,24 +446,6 @@ func (m *contractManager) findUsedContracts(
 	return used, nil
 }
 
-func (m *contractManager) findDelegateContractByKey(
-	ctx context.Context, delegateKeyHex string,
-) (*types.Contract, error) {
-	// TODO: linear scan over every delegate contract. Fine for the handful
-	// expected per wallet; if this grows, add an indexed store lookup keyed
-	// on the delegate-key param instead.
-	contracts, err := m.store.GetContractsByType(ctx, types.ContractTypeDelegate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query delegate contracts: %w", err)
-	}
-	for i := range contracts {
-		if contracts[i].Params[ParamDelegateKey] == delegateKeyHex {
-			return &contracts[i], nil
-		}
-	}
-	return nil, nil
-}
-
 func (m *contractManager) findUsedBoardingContracts(
 	ctx context.Context, contracts []types.Contract,
 ) (map[string]struct{}, error) {
@@ -609,6 +482,11 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 	var offchain, boarding []pending
 
 	for _, contractType := range m.registry.SupportedTypes() {
+		if contractType == types.ContractTypeDelegate && !m.delegateEnabled {
+			// Delegate derivation needs an externally fetched key; with no URL
+			// configured there is nothing to scan for.
+			continue
+		}
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
