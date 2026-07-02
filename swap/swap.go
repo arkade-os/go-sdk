@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -35,11 +36,13 @@ import (
 var ErrorNoVtxosFound = fmt.Errorf("no vtxos found for the given vhtlc opts")
 
 type SwapHandler struct {
-	arkWallet      arksdk.Wallet
-	boltzSvc       *boltz.Api
-	explorerClient ExplorerClient
-	timeout        uint32
-	config         clientTypes.Config
+	arkWallet         arksdk.Wallet
+	boltzSvc          *boltz.Api
+	explorerClient    ExplorerClient
+	timeout           uint32
+	config            clientTypes.Config
+	htlcMu            sync.RWMutex
+	htlcKeysByAddress map[string]*btcec.PrivateKey
 }
 
 type SwapStatus int
@@ -74,11 +77,12 @@ func NewSwapHandler(
 		return nil, fmt.Errorf("failed to get config data: %w", err)
 	}
 	return &SwapHandler{
-		arkWallet:      arkClient,
-		boltzSvc:       boltzSvc,
-		explorerClient: NewExplorerClient(esploraURL),
-		timeout:        timeout,
-		config:         *cfg,
+		arkWallet:         arkClient,
+		boltzSvc:          boltzSvc,
+		explorerClient:    NewExplorerClient(esploraURL),
+		timeout:           timeout,
+		config:            *cfg,
+		htlcKeysByAddress: make(map[string]*btcec.PrivateKey),
 	}, nil
 }
 

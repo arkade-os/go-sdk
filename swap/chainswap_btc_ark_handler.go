@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/btcsuite/btcd/btcec/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,7 +20,7 @@ type btcToArkHandler struct {
 	swapHandler    *SwapHandler
 	chainSwapState ChainSwapState
 	preimage       []byte
-	refundKeyRef   *arkidentity.KeyRef
+	refundKey      *btcec.PrivateKey
 	swapResp       *boltz.CreateChainSwapResponse
 	quoteAccepted  bool
 }
@@ -29,14 +29,14 @@ func NewBtcToArkHandler(
 	swapHandler *SwapHandler,
 	chainSwapState ChainSwapState,
 	preimage []byte,
-	refundKeyRef *arkidentity.KeyRef,
+	refundKey *btcec.PrivateKey,
 	swapResp *boltz.CreateChainSwapResponse,
 ) ChainSwapEventHandler {
 	return &btcToArkHandler{
 		swapHandler:    swapHandler,
 		chainSwapState: chainSwapState,
 		preimage:       preimage,
-		refundKeyRef:   refundKeyRef,
+		refundKey:      refundKey,
 		swapResp:       swapResp,
 	}
 }
@@ -249,11 +249,11 @@ func (b *btcToArkHandler) signBoltzBtcClaim(
 		return fmt.Errorf("failed to parse Boltz public key: %w", err)
 	}
 
-	if b.refundKeyRef == nil || b.refundKeyRef.Id == "" || b.refundKeyRef.PubKey == nil {
+	if b.refundKey == nil {
 		return fmt.Errorf("missing BTC refund key")
 	}
 
-	musigSession, err := b.swapHandler.newMuSig2Session(ctx, b.refundKeyRef.Id, boltzPubKey)
+	musigSession, err := newLocalMuSig2Session(b.refundKey, boltzPubKey)
 	if err != nil {
 		return fmt.Errorf("musig context: %w", err)
 	}
@@ -285,7 +285,7 @@ func (b *btcToArkHandler) signBoltzBtcClaim(
 		return fmt.Errorf("compute merkle root: %w", err)
 	}
 
-	partialSig, err := musigSession.PartialSign(ctx, combinedNonce, msg, merkleRoot)
+	partialSig, err := musigSession.PartialSign(combinedNonce, msg, merkleRoot)
 	if err != nil {
 		return fmt.Errorf("our partial sig: %w", err)
 	}

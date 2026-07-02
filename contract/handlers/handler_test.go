@@ -11,9 +11,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	defaultHandler "github.com/arkade-os/go-sdk/contract/handlers/default"
-	htlcHandler "github.com/arkade-os/go-sdk/contract/handlers/htlc"
 	vhtlcHandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
-	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -25,7 +23,6 @@ import (
 const (
 	offchainMode = "offchain"
 	onchainMode  = "onchain"
-	htlcMode     = "htlc"
 	vhtlcMode    = "vhtlc"
 
 	// Values below and above 512 exercise block-based and second-based
@@ -67,16 +64,6 @@ func TestHandlerInterfaceContract(t *testing.T) {
 			expectDerivable: true,
 			expectExitDelay: true,
 			expectSignerKey: true,
-		},
-		{
-			name:    htlcMode,
-			handler: func(t *testing.T) handlers.Handler { return htlcHandler.NewHandler(testNetwork) },
-			params: func(t *testing.T, keyRef identity.KeyRef) any {
-				t.Helper()
-				return newTestHTLCOpts(t, keyRef.PubKey)
-			},
-			expectType:      types.ContractTypeHTLC,
-			expectDerivable: false,
 		},
 		{
 			name: vhtlcMode,
@@ -217,20 +204,5 @@ func newTestVHTLCOpts(t *testing.T) *vhtlc.Opts {
 		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{
 			Type: arklib.LocktimeTypeSecond, Value: 1024,
 		},
-	}
-}
-
-func newTestHTLCOpts(t *testing.T, ownerKey *btcec.PublicKey) *htlcHandler.Opts {
-	t.Helper()
-	preimageHash := make([]byte, htlc.Hash160Len)
-	_, err := rand.Read(preimageHash)
-	require.NoError(t, err)
-
-	return &htlcHandler.Opts{
-		ServerKey:      newTestPubKey(t),
-		ClaimKey:       ownerKey,
-		RefundKey:      newTestPubKey(t),
-		PreimageHash:   preimageHash,
-		RefundLocktime: arklib.AbsoluteLocktime(760),
 	}
 }

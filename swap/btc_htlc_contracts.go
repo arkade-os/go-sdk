@@ -1,111 +1,78 @@
 package swap
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"strings"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/swap/boltz"
-	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 )
 
-func (h *SwapHandler) ensureLocalHTLCContract(
-	ctx context.Context,
+func (h *SwapHandler) ensureLocalHTLCKey(
 	expectedAddress string,
 	serverPubKeyHex string,
 	swapTree boltz.SwapTree,
-) (*arkidentity.KeyRef, error) {
+) (*btcec.PrivateKey, error) {
 	if expectedAddress == "" {
 		return nil, fmt.Errorf("missing HTLC address")
 	}
 
-	opts, err := newHTLCOpts(serverPubKeyHex, swapTree)
-	if err != nil {
+	if _, err := newHTLCOpts(serverPubKeyHex, swapTree); err != nil {
 		return nil, err
 	}
 
-	keyRef, err := h.localHTLCKeyRefForAddress(ctx, expectedAddress)
-	if err != nil {
-		return nil, err
-	}
-	if keyRef != nil {
-		return keyRef, nil
-	}
-
-	keys, err := h.arkWallet.Identity().ListKeys(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list wallet keys: %w", err)
-	}
-	network := networkNameToParams(h.config.Network.Name)
-	for _, key := range keys {
-		if key.PubKey == nil {
-			continue
-		}
+	if key := h.localHTLCKeyForAddress(expectedAddress); key != nil {
 		if err := validateBtcLockupAddress(
-			network, expectedAddress, serverPubKeyHex, key.PubKey, swapTree,
+			networkNameToParams(h.config.Network.Name),
+			expectedAddress,
+			serverPubKeyHex,
+			key.PubKey(),
+			swapTree,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("local HTLC key does not match lockup address: %w", err)
 		}
-		if err := h.storeLocalHTLCContract(ctx, key, *opts); err != nil {
-			return nil, err
-		}
-		k := key
-		return &k, nil
+		return key, nil
 	}
 
 	return nil, fmt.Errorf(
-		"missing local HTLC contract for %s: wallet does not own a matching key",
+		"missing local HTLC key for %s: ephemeral key is not available",
 		expectedAddress,
 	)
 }
 
-func (h *SwapHandler) localHTLCKeyRefForAddress(
-	ctx context.Context,
+func (h *SwapHandler) localHTLCKeyForAddress(
 	expectedAddress string,
-) (*arkidentity.KeyRef, error) {
-	contracts, err := h.arkWallet.ContractManager().GetContracts(
-		ctx, contract.WithType(types.ContractTypeHTLC),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("lookup HTLC contracts: %w", err)
+) *btcec.PrivateKey {
+	h.htlcMu.RLock()
+	defer h.htlcMu.RUnlock()
+
+	key, ok := h.htlcKeysByAddress[expectedAddress]
+	if !ok {
+		return nil
 	}
-	for _, c := range contracts {
-		if c.Address != expectedAddress {
-			continue
-		}
-		handler, err := h.arkWallet.ContractManager().GetHandler(ctx, c)
-		if err != nil {
-			return nil, fmt.Errorf("get HTLC handler: %w", err)
-		}
-		keyRef, err := handler.GetKeyRef(c)
-		if err != nil {
-			return nil, fmt.Errorf("get HTLC key ref: %w", err)
-		}
-		return keyRef, nil
-	}
-	return nil, nil
+	return key
 }
 
-func (h *SwapHandler) storeLocalHTLCContract(
-	ctx context.Context,
-	keyRef arkidentity.KeyRef,
-	opts htlc.Opts,
-) error {
-	if _, err := h.arkWallet.ContractManager().NewContract(
-		ctx,
-		types.ContractTypeHTLC,
-		contract.WithKeyRef(keyRef),
-		contract.WithParams(&opts),
-	); err != nil {
-		return fmt.Errorf("store local HTLC contract: %w", err)
+func (h *SwapHandler) storeLocalHTLCKey(
+	address string,
+	key *btcec.PrivateKey,
+) {
+	h.htlcMu.Lock()
+	defer h.htlcMu.Unlock()
+
+	h.htlcKeysByAddress[address] = key
+}
+
+func newHTLCPrivateKey() (*btcec.PrivateKey, error) {
+	privateKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate HTLC key: %w", err)
 	}
-	return nil
+	return privateKey, nil
 }
 
 func newHTLCOpts(
@@ -116,8 +83,7 @@ func newHTLCOpts(
 		return nil, fmt.Errorf("invalid HTLC swap tree: %w", err)
 	}
 
-	serverPubKey, err := parsePubkey(serverPubKeyHex)
-	if err != nil {
+	if _, err := parsePubkey(serverPubKeyHex); err != nil {
 		return nil, fmt.Errorf("invalid HTLC server pubkey: %w", err)
 	}
 
@@ -140,7 +106,6 @@ func newHTLCOpts(
 	}
 
 	opts := &htlc.Opts{
-		ServerKey:      serverPubKey,
 		ClaimKey:       claimKey,
 		RefundKey:      refundKey,
 		PreimageHash:   append([]byte(nil), claimComponents.PreimageHash[:]...),

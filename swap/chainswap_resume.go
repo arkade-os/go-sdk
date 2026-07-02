@@ -86,8 +86,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		btcLockupAddress = swapResp.ClaimDetails.LockupAddress
 		btcServerPubKey = swapResp.ClaimDetails.ServerPublicKey
 	}
-	htlcKeyRef, err := h.ensureLocalHTLCContract(
-		ctx,
+	htlcKey, err := h.ensureLocalHTLCKey(
 		btcLockupAddress,
 		btcServerPubKey,
 		swapResp.GetSwapTree(arkToBtc),
@@ -100,7 +99,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		params.Network,
 		btcLockupAddress,
 		btcServerPubKey,
-		htlcKeyRef.PubKey,
+		htlcKey.PubKey(),
 		swapResp.GetSwapTree(arkToBtc),
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
@@ -150,7 +149,7 @@ func (h *SwapHandler) ResumeChainSwap(
 				params.Network,
 				params.EventCallback,
 				params.UnilateralRefundCB,
-				htlcKeyRef,
+				htlcKey,
 				preimage,
 				params.UserBtcAddress,
 				&swapResp,
@@ -172,7 +171,7 @@ func (h *SwapHandler) ResumeChainSwap(
 			monitorCtx,
 			params.EventCallback,
 			preimage,
-			htlcKeyRef,
+			htlcKey,
 			&swapResp,
 			swap,
 		)

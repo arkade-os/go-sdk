@@ -12,7 +12,6 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/arkade-os/go-sdk/htlc"
 	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -522,10 +521,10 @@ func (s *service) signTapscriptSpend(
 
 func canSignTapscriptLeaf(leafScript, xOnlyPub []byte) bool {
 	closure, err := script.DecodeClosure(leafScript)
-	if err == nil {
-		return closureContainsKey(closure, xOnlyPub)
+	if err != nil {
+		return false
 	}
-	return htlc.LeafContainsScriptKey(leafScript, xOnlyPub)
+	return closureContainsKey(closure, xOnlyPub)
 }
 
 func closureContainsKey(closure script.Closure, xOnlyPub []byte) bool {

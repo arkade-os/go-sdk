@@ -37,15 +37,6 @@ func TestParseClaimLeafScript(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, preimageHash, components.PreimageHash[:])
 	require.True(t, bytes.Equal(xOnlyPub, components.ClaimPubKey[:]))
-	require.True(t, ClaimLeafContainsScriptKey(leafScript, xOnlyPub))
-	require.True(t, LeafContainsScriptKey(leafScript, xOnlyPub))
-
-	otherPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	require.False(
-		t,
-		ClaimLeafContainsScriptKey(leafScript, schnorr.SerializePubKey(otherPriv.PubKey())),
-	)
 }
 
 func TestParseRefundLeafScript(t *testing.T) {
@@ -65,15 +56,6 @@ func TestParseRefundLeafScript(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, bytes.Equal(xOnlyPub, components.RefundPubKey[:]))
 	require.EqualValues(t, 760, components.Timeout)
-	require.True(t, RefundLeafContainsScriptKey(leafScript, xOnlyPub))
-	require.True(t, LeafContainsScriptKey(leafScript, xOnlyPub))
-
-	otherPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	require.False(
-		t,
-		RefundLeafContainsScriptKey(leafScript, schnorr.SerializePubKey(otherPriv.PubKey())),
-	)
 }
 
 func TestParseRefundLeafScriptSmallIntLocktime(t *testing.T) {
@@ -92,25 +74,4 @@ func TestParseRefundLeafScriptSmallIntLocktime(t *testing.T) {
 	components, err := ParseRefundLeafScript(leafScript)
 	require.NoError(t, err)
 	require.EqualValues(t, 16, components.Timeout)
-}
-
-func TestLeafContainsScriptKeyRejectsGenericScripts(t *testing.T) {
-	priv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	xOnlyPub := schnorr.SerializePubKey(priv.PubKey())
-
-	genericChecksigScript, err := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_NOP).
-		AddData(xOnlyPub).
-		AddOp(txscript.OP_CHECKSIG).
-		Script()
-	require.NoError(t, err)
-	require.False(t, LeafContainsScriptKey(genericChecksigScript, xOnlyPub))
-
-	dataOnlyScript, err := txscript.NewScriptBuilder().
-		AddData(xOnlyPub).
-		AddOp(txscript.OP_DROP).
-		Script()
-	require.NoError(t, err)
-	require.False(t, LeafContainsScriptKey(dataOnlyScript, xOnlyPub))
 }
