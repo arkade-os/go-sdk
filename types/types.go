@@ -111,6 +111,7 @@ type ContractType string
 const (
 	ContractTypeDefault  ContractType = "default"
 	ContractTypeBoarding ContractType = "boarding"
+	ContractTypeVHTLC    ContractType = "vhtlc"
 )
 
 type Contract struct {

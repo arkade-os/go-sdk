@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
@@ -126,6 +127,43 @@ func WithLabel(label string) ContractOption {
 	})
 }
 
+// WithParams passes handler-specific parameters for contract creation.
+// Each handler type documents its expected concrete type
+// (e.g. *vhtlcHandler.ContractParams for VHTLC contracts).
+func WithParams(params any) ContractOption {
+	return contractOptFn(func(o *contractOptions) error {
+		if o.params != nil {
+			return fmt.Errorf("params option is already set")
+		}
+		if params == nil {
+			return fmt.Errorf("params must not be nil")
+		}
+		o.params = params
+		return nil
+	})
+}
+
+// WithKeyRef creates the contract with a caller-selected wallet key instead of
+// deriving the next key from the contract manager. This is useful when an
+// external protocol needs the wallet pubkey before all contract params are
+// known, then the final contract must be stored with that same key.
+func WithKeyRef(keyRef identity.KeyRef) ContractOption {
+	return contractOptFn(func(o *contractOptions) error {
+		if o.keyRef != nil {
+			return fmt.Errorf("key ref option is already set")
+		}
+		if keyRef.Id == "" {
+			return fmt.Errorf("key ref ID is required")
+		}
+		if keyRef.PubKey == nil {
+			return fmt.Errorf("key ref pubkey is required")
+		}
+		k := keyRef
+		o.keyRef = &k
+		return nil
+	})
+}
+
 func WithServerParams(serverParams *client.Info) ContractOption {
 	return contractOptFn(func(o *contractOptions) error {
 		if o.serverParams != nil {
@@ -142,6 +180,8 @@ func WithServerParams(serverParams *client.Info) ContractOption {
 type contractOptions struct {
 	label        string
 	serverParams *client.Info
+	params       any
+	keyRef       *identity.KeyRef
 }
 
 func newDefaultContractOption() *contractOptions {

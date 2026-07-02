@@ -17,6 +17,7 @@ import (
 )
 
 func TestCustomContractHandlerRegistered(t *testing.T) {
+	t.Parallel()
 	// Build the wallet manually rather than via setupClient so we can
 	// inspect the registry immediately after Unlock, without waiting for
 	// the background ScanContracts to complete. The custom handler here
@@ -63,8 +64,9 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 // registration without exercising the contract lifecycle.
 type customTestHandler struct{ typ types.ContractType }
 
+func (h *customTestHandler) Derivable() bool { return true }
 func (h *customTestHandler) NewContract(
-	_ context.Context, k identity.KeyRef,
+	_ context.Context, k identity.KeyRef, _ any,
 ) (*types.Contract, error) {
 	s := sha256.Sum256([]byte(string(h.typ) + ":" + k.Id))
 	return &types.Contract{

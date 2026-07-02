@@ -269,7 +269,7 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 		t.Helper()
 		keyRef, err := wsvc.GetKey(t.Context(), keyId)
 		require.NoError(t, err)
-		c, err := offchainHandler.NewContract(t.Context(), *keyRef)
+		c, err := offchainHandler.NewContract(t.Context(), *keyRef, nil)
 		require.NoError(t, err)
 		return *c
 	}
@@ -277,7 +277,7 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 		t.Helper()
 		keyRef, err := wsvc.GetKey(t.Context(), keyId)
 		require.NoError(t, err)
-		c, err := boardingHandler.NewContract(t.Context(), *keyRef)
+		c, err := boardingHandler.NewContract(t.Context(), *keyRef, nil)
 		require.NoError(t, err)
 		return *c
 	}
@@ -361,8 +361,9 @@ type mockedHandler struct {
 	mock.Mock
 }
 
+func (h *mockedHandler) Derivable() bool { return true }
 func (h *mockedHandler) NewContract(
-	ctx context.Context, k identity.KeyRef,
+	ctx context.Context, k identity.KeyRef, params any,
 ) (*types.Contract, error) {
 	a := h.Called(ctx, k)
 	c, _ := a.Get(0).(*types.Contract)

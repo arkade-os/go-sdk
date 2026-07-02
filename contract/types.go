@@ -23,8 +23,11 @@ type Manager interface {
 	// ScanContracts looks for untracked contracts to store of any type, and for each of them stops
 	// when gapLimit consecutive unused contracts have been found.
 	ScanContracts(ctx context.Context, gapLimit uint32) error
-	// NewContract creates and stores a new contract. The key is derived from the key provider,
-	// all required parameters are fetched by the proper handler based on the contract type.
+	// NewContract creates and stores a new contract. By default the key is derived
+	// from the wallet's identity provider. Callers that must advertise a wallet
+	// key before all contract params are known can pass WithKeyRef to store the
+	// contract with that preselected key. Non-derivable types (HTLC, VHTLC,
+	// delegate) require WithParams with handler-specific parameters.
 	NewContract(
 		ctx context.Context, contractType types.ContractType, opts ...ContractOption,
 	) (*types.Contract, error)

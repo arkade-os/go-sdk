@@ -53,8 +53,10 @@ func NewHandler(
 	}
 }
 
+func (h *defaultHandler) Derivable() bool { return true }
+
 func (h *defaultHandler) NewContract(
-	ctx context.Context, keyRef identity.KeyRef,
+	ctx context.Context, keyRef identity.KeyRef, _ any,
 ) (*types.Contract, error) {
 	serverParams, err := h.getInfo(ctx)
 	if err != nil {

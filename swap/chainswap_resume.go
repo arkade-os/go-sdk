@@ -1,0 +1,181 @@
+package swap
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/arkade-os/go-sdk/vhtlc"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/input"
+	log "github.com/sirupsen/logrus"
+)
+
+type ResumeChainSwapParams struct {
+	SwapID             string
+	From               boltz.Currency
+	To                 boltz.Currency
+	Amount             uint64
+	PreimageHex        string
+	BoltzResponseJSON  string
+	UserBtcAddress     string
+	UserLockTxid       string
+	ServerLockTxid     string
+	ClaimTxid          string
+	RefundTxid         string
+	Status             ChainSwapStatus
+	Error              string
+	Timestamp          int64
+	Network            *chaincfg.Params
+	EventCallback      ChainSwapEventCallback
+	UnilateralRefundCB func(swapId string, opts vhtlc.Opts) error
+}
+
+func (h *SwapHandler) ResumeChainSwap(
+	ctx context.Context,
+	params ResumeChainSwapParams,
+) (*ChainSwap, error) {
+	if params.SwapID == "" {
+		return nil, fmt.Errorf("swap id is required")
+	}
+	if params.BoltzResponseJSON == "" {
+		return nil, fmt.Errorf("boltz response json is required")
+	}
+	if params.PreimageHex == "" {
+		return nil, fmt.Errorf("preimage is required")
+	}
+	if params.From == "" || params.To == "" {
+		return nil, fmt.Errorf("swap direction is required")
+	}
+
+	preimage, err := hex.DecodeString(params.PreimageHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode preimage: %w", err)
+	}
+
+	var swapResp boltz.CreateChainSwapResponse
+	if err := json.Unmarshal([]byte(params.BoltzResponseJSON), &swapResp); err != nil {
+		return nil, fmt.Errorf("unmarshal boltz response: %w", err)
+	}
+
+	arkToBtc := params.From == boltz.CurrencyArk && params.To == boltz.CurrencyBtc
+	btcToArk := params.From == boltz.CurrencyBtc && params.To == boltz.CurrencyArk
+	if !arkToBtc && !btcToArk {
+		return nil, fmt.Errorf("unsupported swap direction: %s -> %s", params.From, params.To)
+	}
+
+	preimageHashSHA := sha256.Sum256(preimage)
+	preimageHash160 := input.Ripemd160H(preimageHashSHA[:])
+
+	vhtlcOpts, err := validateVHTLC(ctx, h, arkToBtc, &swapResp, preimageHash160, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid VHTLC: %w", err)
+	}
+
+	if params.Network == nil {
+		return nil, fmt.Errorf("network is required")
+	}
+
+	btcLockupAddress := swapResp.LockupDetails.LockupAddress
+	btcServerPubKey := swapResp.LockupDetails.ServerPublicKey
+	if arkToBtc {
+		btcLockupAddress = swapResp.ClaimDetails.LockupAddress
+		btcServerPubKey = swapResp.ClaimDetails.ServerPublicKey
+	}
+	htlcKey, err := h.ensureLocalHTLCKey(
+		btcLockupAddress,
+		btcServerPubKey,
+		swapResp.GetSwapTree(arkToBtc),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BTC HTLC: %w", err)
+	}
+
+	if err := validateBtcLockupAddress(
+		params.Network,
+		btcLockupAddress,
+		btcServerPubKey,
+		htlcKey.PubKey(),
+		swapResp.GetSwapTree(arkToBtc),
+	); err != nil {
+		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
+	}
+
+	swap := &ChainSwap{
+		Id:                   params.SwapID,
+		Amount:               params.Amount,
+		Preimage:             preimage,
+		VhtlcOpts:            *vhtlcOpts,
+		UserBtcLockupAddress: params.UserBtcAddress,
+		UserLockTxid:         params.UserLockTxid,
+		ServerLockTxid:       params.ServerLockTxid,
+		ClaimTxid:            params.ClaimTxid,
+		RefundTxid:           params.RefundTxid,
+		Timestamp:            params.Timestamp,
+		Status:               params.Status,
+		Error:                params.Error,
+		SwapRespJson:         params.BoltzResponseJSON,
+		onEvent:              params.EventCallback,
+	}
+
+	if swap.Timestamp == 0 {
+		swap.Timestamp = time.Now().Unix()
+	}
+
+	log.Infof("Resuming chain swap %s (%s→%s)", swap.Id, params.From, params.To)
+
+	monitorCtx := chainSwapMonitorContext(ctx)
+	if arkToBtc {
+		if params.UserBtcAddress == "" {
+			return nil, fmt.Errorf(
+				"btc destination address missing for Ark→BTC swap %s",
+				params.SwapID,
+			)
+		}
+
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Errorf("panic in monitorAndClaimArkToBtcSwap: %v", r)
+				}
+			}()
+
+			h.monitorAndClaimArkToBtcSwap(
+				monitorCtx,
+				params.Network,
+				params.EventCallback,
+				params.UnilateralRefundCB,
+				htlcKey,
+				preimage,
+				params.UserBtcAddress,
+				&swapResp,
+				swap,
+			)
+		}()
+
+		return swap, nil
+	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("panic in monitorBtcToArkChainSwap: %v", r)
+			}
+		}()
+
+		h.monitorBtcToArkChainSwap(
+			monitorCtx,
+			params.EventCallback,
+			preimage,
+			htlcKey,
+			&swapResp,
+			swap,
+		)
+	}()
+
+	return swap, nil
+}

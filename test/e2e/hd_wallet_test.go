@@ -11,6 +11,7 @@ import (
 )
 
 func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	hdWallet := setupClient(t, "")

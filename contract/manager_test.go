@@ -75,6 +75,33 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "my-label", persisted[0].Label)
 		})
 
+		t.Run("with key ref persisted", func(t *testing.T) {
+			env, mgr, store := newTestManagerWithEnv(t)
+			keyRef, err := env.identity.GetKey(t.Context(), "m/0/7")
+			require.NoError(t, err)
+
+			c, err := mgr.NewContract(
+				t.Context(), types.ContractTypeDefault, contract.WithKeyRef(*keyRef),
+			)
+			require.NoError(t, err)
+			require.Equal(t, "m/0/7", c.Params[ownerKeyIdParam])
+
+			persisted, err := store.GetContractsByScripts(t.Context(), []string{c.Script})
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+			require.Equal(t, "m/0/7", persisted[0].Params[ownerKeyIdParam])
+
+			again, err := mgr.NewContract(
+				t.Context(), types.ContractTypeDefault, contract.WithKeyRef(*keyRef),
+			)
+			require.NoError(t, err)
+			require.Equal(t, c.Script, again.Script)
+
+			persisted, err = store.GetContractsByScripts(t.Context(), []string{c.Script})
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+		})
+
 		t.Run("with server params forces cache update", func(t *testing.T) {
 			env, mgr, _ := newTestManagerWithEnv(t)
 
@@ -589,7 +616,9 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 		t.Run("built-ins only", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 			expectedTypes := []types.ContractType{
-				types.ContractTypeBoarding, types.ContractTypeDefault,
+				types.ContractTypeBoarding,
+				types.ContractTypeDefault,
+				types.ContractTypeVHTLC,
 			}
 			got := mgr.Registry().SupportedTypes()
 			require.Equal(t, expectedTypes, got)
@@ -600,7 +629,10 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 			mockHandler(h, "custom")
 			mgr := newTestManagerWithHandlers(t, contract.WithHandler("custom", h))
 			expectedTypes := []types.ContractType{
-				types.ContractTypeBoarding, types.ContractType("custom"), types.ContractTypeDefault,
+				types.ContractTypeBoarding,
+				types.ContractType("custom"),
+				types.ContractTypeDefault,
+				types.ContractTypeVHTLC,
 			}
 			got := mgr.Registry().SupportedTypes()
 			require.Equal(t, expectedTypes, got)
