@@ -90,7 +90,6 @@ func refundLeafScript(
 		Script()
 }
 
-
 // ClaimLeafComponents contains the parsed components from a Bitcoin HTLC claim
 // leaf script.
 type ClaimLeafComponents struct {
