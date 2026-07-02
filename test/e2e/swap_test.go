@@ -543,9 +543,14 @@ func TestChainSwapMockArkToBTCUnilateralRefund(t *testing.T) {
 	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 60)
 	require.NoError(t, err)
 
-	var events []swap.ChainSwapEvent
+	var (
+		eventsMu sync.Mutex
+		events   []swap.ChainSwapEvent
+	)
 	eventCallback := func(event swap.ChainSwapEvent) {
+		eventsMu.Lock()
 		events = append(events, event)
+		eventsMu.Unlock()
 		t.Logf("Unilateral refund event: %T", event)
 	}
 
@@ -588,7 +593,10 @@ func TestChainSwapMockArkToBTCUnilateralRefund(t *testing.T) {
 	select {
 	case <-unilateralRefundCalled:
 		t.Logf("Unilateral refund callback confirmed for swap %s", chainSwap.Id)
-		require.NotEmpty(t, events, "should have received events")
+		eventsMu.Lock()
+		eventCount := len(events)
+		eventsMu.Unlock()
+		require.NotZero(t, eventCount, "should have received events")
 	case <-time.After(60 * time.Second):
 		switch chainSwap.GetStatus() {
 		case swap.ChainSwapRefundedUnilaterally, swap.ChainSwapFailed, swap.ChainSwapRefundFailed:
