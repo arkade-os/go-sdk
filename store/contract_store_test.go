@@ -239,23 +239,22 @@ func TestContractStoreGetContractsByState(t *testing.T) {
 	})
 }
 
-func TestContractStoreGetContractsByType(t *testing.T) {
+func TestContractStoreGetActiveContractsByType(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractB, testContractC)
 
 			t.Run("default returns offchain contracts", func(t *testing.T) {
-				got, err := s.GetContractsByType(ctx, types.ContractTypeDefault)
+				got, err := s.GetActiveContractsByType(ctx, types.ContractTypeDefault)
 				require.NoError(t, err)
 				require.Len(t, got, 2)
 			})
 
 			t.Run("boarding returns onchain contracts", func(t *testing.T) {
-				got, err := s.GetContractsByType(ctx, types.ContractTypeBoarding)
+				got, err := s.GetActiveContractsByType(ctx, types.ContractTypeBoarding)
 				require.NoError(t, err)
-				require.Len(t, got, 1)
-				require.Equal(t, testContractC.Script, got[0].Script)
+				require.Empty(t, got)
 			})
 
 			t.Run("empty", func(t *testing.T) {
@@ -267,7 +266,7 @@ func TestContractStoreGetContractsByType(t *testing.T) {
 				}
 
 				for _, c := range cases {
-					got, err := s.GetContractsByType(ctx, c.contractType)
+					got, err := s.GetActiveContractsByType(ctx, c.contractType)
 					require.NoError(t, err)
 					require.Empty(t, got)
 				}
@@ -276,10 +275,10 @@ func TestContractStoreGetContractsByType(t *testing.T) {
 	})
 }
 
-func TestContractStoreGetLatestContract(t *testing.T) {
+func TestContractStoreGetLatestActiveContract(t *testing.T) {
 	t.Run("empty store returns nil", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			got, err := s.GetLatestContract(t.Context(), types.ContractTypeDefault)
+			got, err := s.GetLatestActiveContract(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.Nil(t, got)
 		})
@@ -293,7 +292,7 @@ func TestContractStoreGetLatestContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractB)
 
-			got, err := s.GetLatestContract(ctx, types.ContractTypeBoarding)
+			got, err := s.GetLatestActiveContract(ctx, types.ContractTypeBoarding)
 			require.NoError(t, err)
 			require.Nil(t, got)
 		})
@@ -304,7 +303,7 @@ func TestContractStoreGetLatestContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA)
 
-			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			got, err := s.GetLatestActiveContract(ctx, types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, testContractA.Script, got.Script)
@@ -322,7 +321,7 @@ func TestContractStoreGetLatestContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractFull, testContractB)
 
-			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			got, err := s.GetLatestActiveContract(ctx, types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, testContractFull.Script, got.Script)
@@ -338,15 +337,14 @@ func TestContractStoreGetLatestContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractB, testContractC)
 
-			latestDefault, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			latestDefault, err := s.GetLatestActiveContract(ctx, types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, latestDefault)
 			require.Equal(t, testContractB.Script, latestDefault.Script)
 
-			latestBoarding, err := s.GetLatestContract(ctx, types.ContractTypeBoarding)
+			latestBoarding, err := s.GetLatestActiveContract(ctx, types.ContractTypeBoarding)
 			require.NoError(t, err)
-			require.NotNil(t, latestBoarding)
-			require.Equal(t, testContractC.Script, latestBoarding.Script)
+			require.Nil(t, latestBoarding)
 		})
 	})
 }
@@ -473,15 +471,14 @@ func TestContractStoreClean(t *testing.T) {
 				// Re-seeding the same scripts must not collide with leftover state.
 				seedContracts(t, s, testContractA, testContractC)
 
-				offchain, err := s.GetContractsByType(ctx, types.ContractTypeDefault)
+				offchain, err := s.GetActiveContractsByType(ctx, types.ContractTypeDefault)
 				require.NoError(t, err)
 				require.Len(t, offchain, 1)
 				require.Equal(t, testContractA.Script, offchain[0].Script)
 
-				boarding, err := s.GetContractsByType(ctx, types.ContractTypeBoarding)
+				boarding, err := s.GetActiveContractsByType(ctx, types.ContractTypeBoarding)
 				require.NoError(t, err)
-				require.Len(t, boarding, 1)
-				require.Equal(t, testContractC.Script, boarding[0].Script)
+				require.Empty(t, boarding)
 			})
 		})
 	})

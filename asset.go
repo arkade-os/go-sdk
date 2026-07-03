@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/arkade-os/arkd/pkg/ark-lib/asset"
 	client "github.com/arkade-os/arkd/pkg/client-lib"
@@ -57,7 +58,7 @@ func (w *wallet) IssueAsset(
 
 		// Wait until the indexer has tracked our new vtxo before releasing the
 		// slot, so the next queued operation can spend it.
-		if err := <-tracked; err != nil {
+		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
 		return res, nil
@@ -68,7 +69,10 @@ func (w *wallet) IssueAsset(
 		return "", nil, err
 	}
 
-	res := rr.(*client.IssueAssetRes)
+	res, ok := rr.(*client.IssueAssetRes)
+	if !ok {
+		return "", nil, fmt.Errorf("unexpected issue asset result type %T", rr)
+	}
 	return res.Txid, res.IssuedAssets, nil
 }
 
@@ -120,7 +124,7 @@ func (w *wallet) ReissueAsset(
 
 		// Wait until the indexer has tracked our new vtxo before releasing the
 		// slot, so the next queued operation can spend it.
-		if err := <-tracked; err != nil {
+		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
 		return res, nil
@@ -131,7 +135,10 @@ func (w *wallet) ReissueAsset(
 		return "", err
 	}
 
-	res := rr.(*client.ReissueAssetRes)
+	res, ok := rr.(*client.ReissueAssetRes)
+	if !ok {
+		return "", fmt.Errorf("unexpected reissue asset result type %T", rr)
+	}
 	return res.Txid, nil
 }
 
@@ -183,7 +190,7 @@ func (w *wallet) BurnAsset(
 
 		// Wait until the indexer has tracked our new vtxo before releasing the
 		// slot, so the next queued operation can spend it.
-		if err := <-tracked; err != nil {
+		if err := waitTracked(ctx, tracked); err != nil {
 			return nil, err
 		}
 		return res, nil
@@ -194,6 +201,9 @@ func (w *wallet) BurnAsset(
 		return "", err
 	}
 
-	res := rr.(*client.BurnAssetRes)
+	res, ok := rr.(*client.BurnAssetRes)
+	if !ok {
+		return "", fmt.Errorf("unexpected burn asset result type %T", rr)
+	}
 	return res.Txid, nil
 }

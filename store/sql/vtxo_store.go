@@ -361,6 +361,10 @@ func (v *vtxoRepository) GetVtxos(
 		params.AssetID = sql.NullString{String: q.AssetID, Valid: true}
 	}
 
+	if q.Script != "" {
+		params.ScriptFilter = sql.NullString{String: q.Script, Valid: true}
+	}
+
 	// Cursor position: SQL resumes from rows strictly less than
 	// (cursor_created_at, cursor_txid, cursor_vout) in the descending sort
 	// order. Nil After = first page; the cursor params stay invalid and the

@@ -40,6 +40,24 @@ func TestListVtxosOptions(t *testing.T) {
 		require.Equal(t, "usdt", o.assetID)
 	})
 
+	t.Run("WithScript rejects empty", func(t *testing.T) {
+		o := defaultListVtxosOpts()
+		require.ErrorIs(t, WithScript("")(o), ErrEmptyScript)
+		require.NoError(t, WithScript("deadbeef")(o))
+		require.Equal(t, "deadbeef", o.script)
+	})
+
+	t.Run("WithScript and WithAssetID combine on the same options", func(t *testing.T) {
+		// Stablecoin payment tracking: filter a specific address' script and a
+		// specific asset at the same time. The two options are independent and
+		// must both be retained.
+		o := defaultListVtxosOpts()
+		require.NoError(t, WithScript("deadbeef")(o))
+		require.NoError(t, WithAssetID("usdt")(o))
+		require.Equal(t, "deadbeef", o.script)
+		require.Equal(t, "usdt", o.assetID)
+	})
+
 	t.Run("status options mutually exclusive", func(t *testing.T) {
 		o := defaultListVtxosOpts()
 		require.NoError(t, WithSpendableOnly()(o))
@@ -110,6 +128,26 @@ func TestFilterHash(t *testing.T) {
 		a.assetID = "usdt"
 		b := defaultListVtxosOpts()
 		b.assetID = "btc"
+		require.NotEqual(t, filterHash(a), filterHash(b))
+	})
+
+	t.Run("differs by script", func(t *testing.T) {
+		a := defaultListVtxosOpts()
+		a.script = "scriptA"
+		b := defaultListVtxosOpts()
+		b.script = "scriptB"
+		require.NotEqual(t, filterHash(a), filterHash(b))
+	})
+
+	t.Run("differs when only one filter changes within a combined set", func(t *testing.T) {
+		// A cursor issued for (scriptA, usdt) must not be reusable for
+		// (scriptA, usdc): same script, different asset → different hash.
+		a := defaultListVtxosOpts()
+		a.script = "scriptA"
+		a.assetID = "usdt"
+		b := defaultListVtxosOpts()
+		b.script = "scriptA"
+		b.assetID = "usdc"
 		require.NotEqual(t, filterHash(a), filterHash(b))
 	})
 

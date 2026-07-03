@@ -112,7 +112,7 @@ func TestHandlerNewContract(t *testing.T) {
 					{
 						name:          "GetInfo fails",
 						infoErr:       errors.New("transport error"),
-						expectedError: "failed to get server info",
+						expectedError: "failed to get server params",
 					},
 					{
 						name:          "invalid signer pubkey hex",

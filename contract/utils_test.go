@@ -3,6 +3,7 @@ package contract_test
 import (
 	"context"
 	"encoding/hex"
+	"sync/atomic"
 	"testing"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -86,10 +87,16 @@ func newTestPubKey(t *testing.T) *btcec.PublicKey {
 type mockTransportClient struct {
 	info    *client.Info
 	infoErr error
+	calls   atomic.Int32
 }
 
 func (m *mockTransportClient) GetInfo(_ context.Context) (*client.Info, error) {
+	m.calls.Add(1)
 	return m.info, m.infoErr
+}
+
+func (m *mockTransportClient) callCount() int {
+	return int(m.calls.Load())
 }
 
 func (m *mockTransportClient) RegisterIntent(_ context.Context, _, _ string) (string, error) {
