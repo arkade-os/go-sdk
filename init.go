@@ -21,7 +21,7 @@ const HeaderVersion = "go-sdk/0.10.1"
 var (
 	defaultExplorerUrl = map[string]string{
 		arklib.Bitcoin.Name:          "https://mempool.space/api",
-		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
+		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000/api",
 		arklib.BitcoinTestNet.Name:   "https://mempool.space/testnet/api",
 		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
 		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
@@ -59,9 +59,7 @@ func (w *wallet) Init(
 	if info.Network == arklib.BitcoinRegTest.Name {
 		explorerOpts = append(explorerOpts, mempoolexplorer.WithPollInterval(2*time.Second))
 	}
-	explorer, err := mempoolexplorer.NewExplorer(
-		explorerUrl, network, explorerOpts...,
-	)
+	explorer, err := newExplorer(explorerUrl, network, explorerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to init explorer: %v", err)
 	}

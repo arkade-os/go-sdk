@@ -32,15 +32,15 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 
 	// Create a dedicated Bitcoin Core wallet for RBF testing with low fee rate.
 	walletName := fmt.Sprintf("rbftest_%d", time.Now().UnixNano())
-	_, err = runCommand("nigiri", "rpc", "createwallet", walletName)
+	_, err = bitcoinCli(t, "createwallet", walletName)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = runCommand("nigiri", "rpc", "unloadwallet", walletName)
+		_, _ = bitcoinCli(t, "unloadwallet", walletName)
 	})
 
 	rpc := func(args ...string) (string, error) {
-		fullArgs := append([]string{"rpc", fmt.Sprintf("-rpcwallet=%s", walletName)}, args...)
-		return runCommand("nigiri", fullArgs...)
+		fullArgs := append([]string{fmt.Sprintf("-rpcwallet=%s", walletName)}, args...)
+		return bitcoinCli(t, fullArgs...)
 	}
 
 	// Fund the test wallet.
@@ -51,30 +51,32 @@ func TestSettleAfterRBFBumpFee(t *testing.T) {
 	faucetOnchain(t, fundAddr, 1)
 	generateBlocks(t, 1)
 
-	// Set a low fee rate so bumpfee has room to increase.
-	_, err = rpc("settxfee", "0.00001000")
-	require.NoError(t, err)
-
 	// Send 5 boarding transactions, each RBF-bumped and mined individually.
 	// Mining after each bump ensures the wallet has a confirmed UTXO for the
 	// next send (otherwise sendtoaddress fails due to insufficient funds).
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	const numBoardingTxs = 5
 	for range numBoardingTxs {
+		// Send at an explicit low fee rate (1 sat/vB) so bumpfee has room to
+		// increase. Bitcoin Core 31 removed the settxfee RPC, so the fee rate is
+		// set per-transaction via the fee_rate named argument.
 		txidOut, err := rpc("-named", "sendtoaddress",
-			fmt.Sprintf("address=%s", boardingAddr), "amount=0.001", "replaceable=true",
+			fmt.Sprintf("address=%s", boardingAddr),
+			"amount=0.001", "replaceable=true", "fee_rate=1",
 		)
 		require.NoError(t, err)
 		origTxid := strings.TrimSpace(txidOut)
 
-		// Bump the fee — this creates a replacement tx that may reorder outputs.
-		bumpOut, err := rpc("bumpfee", origTxid)
+		// Bump to an explicit higher rate (10 sat/vB): creates a replacement tx
+		// that may reorder outputs. An explicit fee_rate is required because
+		// regtest has no fee estimation (settxfee was removed in Core 31).
+		bumpOut, err := rpc("bumpfee", origTxid, `{"fee_rate": 10}`)
 		require.NoError(t, err)
 
 		var bumpResp struct {
 			Txid string `json:"txid"`
 		}
-		// Strip ANSI escape codes that nigiri injects via terminal coloring.
+		// Defensively strip any ANSI escape codes before parsing JSON.
 		cleanBump := ansiRe.ReplaceAllString(strings.TrimSpace(bumpOut), "")
 		require.NoError(t, json.Unmarshal([]byte(cleanBump), &bumpResp))
 

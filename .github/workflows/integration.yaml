@@ -14,17 +14,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          submodules: recursive
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: '1.26.4'
-      
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
       - run: go mod tidy
-      
-      - name: Run Nigiri
-        uses: vulpemventures/nigiri-github-action@v1
-      
+
+      - name: Start arkade-regtest base stack
+        # Profile + auto-miner config come from the repo-root .env.regtest, which
+        # regtest.mjs auto-discovers as ../.env.regtest (REGTEST_PROFILES=base,
+        # AUTOMINE_INTERVAL=0). The SDK's own arkd/arkd-wallet are built on top by
+        # `make regtest`, so only the base layer is started here.
+        run: node regtest/regtest.mjs start
+
       - name: Run regtest environment
         run: make regtest
 
@@ -38,4 +49,10 @@ jobs:
           docker image ls -a
           docker ps -a
           docker compose -f test/docker/docker-compose.yml ps
-          docker compose -f test/docker/docker-compose.yml logs --no-color --timestamps pgnbxplorer nbxplorer arkd-wallet arkd
+          docker compose -f test/docker/docker-compose.yml logs --no-color --timestamps arkd-wallet arkd
+          docker logs --timestamps --tail 200 nbxplorer || true
+          docker logs --timestamps --tail 100 bitcoin || true
+
+      - name: Tear down arkade-regtest base stack
+        if: always()
+        run: node regtest/regtest.mjs clean

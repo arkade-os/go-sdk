@@ -169,7 +169,7 @@ func refill(httpClient *http.Client) error {
 		}
 
 		for range int(delta) {
-			if _, err := runCommand("nigiri", "faucet", address.Address); err != nil {
+			if err := faucet(address.Address, 1); err != nil {
 				return err
 			}
 		}
@@ -249,4 +249,26 @@ func runCommand(name string, arg ...string) (string, error) {
 func newCommand(name string, arg ...string) *exec.Cmd {
 	cmd := exec.Command(name, arg...)
 	return cmd
+}
+
+// bitcoinCli runs bitcoin-cli inside the regtest "bitcoin" container provided by
+// the arkade-regtest stack (RPC user admin1 / password 123). This replaces the
+// old `nigiri rpc` passthrough now that nigiri is no longer used.
+func bitcoinCli(args ...string) (string, error) {
+	full := append([]string{
+		"exec", "bitcoin",
+		"bitcoin-cli", "-regtest", "-rpcuser=admin1", "-rpcpassword=123",
+	}, args...)
+	return runCommand("docker", full...)
+}
+
+// faucet sends amountBtc from the node wallet to address and mines one block so
+// the send confirms immediately — mirroring the `regtest.mjs faucet --confirm`
+// behavior (the new stack does not auto-mine on every faucet call).
+func faucet(address string, amountBtc float64) error {
+	if _, err := bitcoinCli("sendtoaddress", address, fmt.Sprintf("%.8f", amountBtc)); err != nil {
+		return err
+	}
+	_, err := bitcoinCli("-generate", "1")
+	return err
 }
