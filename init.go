@@ -59,9 +59,7 @@ func (w *wallet) Init(
 	if info.Network == arklib.BitcoinRegTest.Name {
 		explorerOpts = append(explorerOpts, mempoolexplorer.WithPollInterval(2*time.Second))
 	}
-	explorer, err := mempoolexplorer.NewExplorer(
-		explorerUrl, network, explorerOpts...,
-	)
+	explorer, err := newExplorer(explorerUrl, network, explorerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to init explorer: %v", err)
 	}

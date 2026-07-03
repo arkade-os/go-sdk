@@ -228,9 +228,7 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		if cfgData.Network.Name == arklib.BitcoinRegTest.Name {
 			explorerOpts = append(explorerOpts, mempoolexplorer.WithPollInterval(2*time.Second))
 		}
-		explorerSvc, err = mempoolexplorer.NewExplorer(
-			explorerUrl, cfgData.Network, explorerOpts...,
-		)
+		explorerSvc, err = newExplorer(explorerUrl, cfgData.Network, explorerOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init explorer: %v", err)
 		}
