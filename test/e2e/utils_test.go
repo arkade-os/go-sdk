@@ -53,7 +53,8 @@ func faucetOnchain(t *testing.T, address string, amount float64) {
 	// Target the node's "default" wallet explicitly: the base stack's bootstrap
 	// loads a "default" wallet, and tests like rbf_test.go load a second wallet,
 	// after which a bare wallet RPC is ambiguous ("Multiple wallets are loaded").
-	_, err := bitcoinCli(t, "-rpcwallet=default", "sendtoaddress", address, fmt.Sprintf("%.8f", amount))
+	amountBtc := fmt.Sprintf("%.8f", amount)
+	_, err := bitcoinCli(t, "-rpcwallet=default", "sendtoaddress", address, amountBtc)
 	require.NoError(t, err)
 	generateBlocks(t, 1)
 }
