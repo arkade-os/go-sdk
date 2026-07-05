@@ -559,6 +559,146 @@ func TestOffchainTx(t *testing.T) {
 			})
 		}, 30*time.Second, time.Second)
 	})
+
+	// In this test Alice submits a tx without finalizing it and, without any
+	// restart or restore, the wallet's periodic db refresh finalizes the
+	// stranded pending tx on its own.
+	t.Run("finalize pending tx (periodic refresh)", func(t *testing.T) {
+		ctx := t.Context()
+		// WithoutAutoSettle so the scheduler doesn't settle the funding vtxo out
+		// from under the pending tx during the (>= refresh-interval) wait.
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+
+		vtxo := faucetOffchain(t, alice, 0.00021)
+
+		txid := submitUnfinalizedArkTx(t, alice, vtxo)
+
+		// It starts out unfinalized: not yet in history.
+		time.Sleep(time.Second)
+		history, err := alice.GetTransactionHistory(ctx)
+		require.NoError(t, err)
+		require.False(t, slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
+			return tx.TransactionKey.String() == txid
+		}))
+
+		// The periodic refresh finalizes it without a restart, so it eventually
+		// shows up in history. The window allows for a few refresh ticks.
+		require.Eventually(t, func() bool {
+			history, err := alice.GetTransactionHistory(ctx)
+			if err != nil {
+				return false
+			}
+			return slices.ContainsFunc(history, func(tx clientTypes.Transaction) bool {
+				return tx.TransactionKey.String() == txid
+			})
+		}, 90*time.Second, 2*time.Second)
+	})
+}
+
+// submitUnfinalizedArkTx builds, signs and submits an ark tx spending vtxo, but
+// deliberately does not finalize it, leaving a pending (non-finalized) tx whose
+// input the server considers spent. It returns the ark txid.
+func submitUnfinalizedArkTx(t *testing.T, alice arksdk.Wallet, vtxo clientTypes.Vtxo) string {
+	t.Helper()
+	ctx := t.Context()
+	aliceWallet := alice.Identity()
+	arkClient := alice.Client()
+	contractManager := alice.ContractManager()
+
+	aliceAddr, err := alice.NewOffchainAddress(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, aliceAddr)
+
+	decoded, err := arklib.DecodeAddressV0(aliceAddr)
+	require.NoError(t, err)
+	outScript, err := decoded.GetPkScript()
+	require.NoError(t, err)
+
+	contracts, err := contractManager.GetContracts(
+		ctx, contract.WithScripts([]string{vtxo.Script}),
+	)
+	require.NoError(t, err)
+	require.Len(t, contracts, 1)
+	ctr := contracts[0]
+
+	handler, err := contractManager.GetHandler(ctx, ctr)
+	require.NoError(t, err)
+	tapscripts, err := handler.GetTapscripts(ctr)
+	require.NoError(t, err)
+	require.NotEmpty(t, tapscripts)
+
+	serverParams, err := arkClient.GetInfo(ctx)
+	require.NoError(t, err)
+
+	vtxoScript, err := script.ParseVtxoScript(tapscripts)
+	require.NoError(t, err)
+	forfeitClosures := vtxoScript.ForfeitClosures()
+	require.Len(t, forfeitClosures, 1)
+	scriptBytes, err := forfeitClosures[0].Script()
+	require.NoError(t, err)
+
+	_, vtxoTapTree, err := vtxoScript.TapTree()
+	require.NoError(t, err)
+	merkleProof, err := vtxoTapTree.GetTaprootMerkleProof(
+		txscript.NewBaseTapLeaf(scriptBytes).TapHash(),
+	)
+	require.NoError(t, err)
+	ctrlBlock, err := txscript.ParseControlBlock(merkleProof.ControlBlock)
+	require.NoError(t, err)
+	tapscript := &waddrmgr.Tapscript{
+		ControlBlock:   ctrlBlock,
+		RevealedScript: merkleProof.Script,
+	}
+
+	checkpointTapscript, err := hex.DecodeString(serverParams.CheckpointTapscript)
+	require.NoError(t, err)
+	vtxoHash, err := chainhash.NewHashFromStr(vtxo.Txid)
+	require.NoError(t, err)
+
+	ptx, checkpointsPtx, err := offchain.BuildTxs(
+		[]offchain.VtxoInput{
+			{
+				Outpoint: &wire.OutPoint{
+					Hash:  *vtxoHash,
+					Index: vtxo.VOut,
+				},
+				Tapscript:          tapscript,
+				Amount:             int64(vtxo.Amount),
+				RevealedTapscripts: tapscripts,
+			},
+		},
+		[]*wire.TxOut{
+			{
+				Value:    int64(vtxo.Amount),
+				PkScript: outScript,
+			},
+		},
+		checkpointTapscript,
+	)
+	require.NoError(t, err)
+
+	encodedCheckpoints := make([]string, 0, len(checkpointsPtx))
+	for _, checkpoint := range checkpointsPtx {
+		encoded, err := checkpoint.B64Encode()
+		require.NoError(t, err)
+		encodedCheckpoints = append(encodedCheckpoints, encoded)
+	}
+
+	encodedArkTx, err := ptx.B64Encode()
+	require.NoError(t, err)
+
+	signingKeys, err := handler.GetKeyRefs(ctr)
+	require.NoError(t, err)
+	require.NotEmpty(t, signingKeys)
+
+	signedArkTx, err := aliceWallet.SignTransaction(ctx, encodedArkTx, signingKeys)
+	require.NoError(t, err)
+
+	txid, _, _, err := arkClient.SubmitTx(ctx, signedArkTx, encodedCheckpoints)
+	require.NoError(t, err)
+	require.NotEmpty(t, txid)
+
+	return txid
 }
 
 // TestConcurrentTxs exercises the txHandler priority queue

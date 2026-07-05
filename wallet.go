@@ -1344,6 +1344,15 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Finalize any pending txs stranded by a send that was interrupted
+			// after the server registered the spend (e.g. a transient failure
+			// between SubmitTx and FinalizeTx). Otherwise the spent input stays
+			// spendable in the local db and coin selection keeps re-picking it
+			// until the next unlock. Best-effort, mirroring the unlock path; the
+			// refreshDb below (and the next tick) reconcile the finalized spend.
+			if _, err := w.finalizePendingTxs(ctx, nil); err != nil {
+				log.WithError(err).Warn("failed to finalize pending txs")
+			}
 			log.Debugf("refreshing db (last update %s)...", w.lastUpdate.Format(time.RFC3339))
 			if err := w.refreshDb(ctx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
