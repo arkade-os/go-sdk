@@ -40,6 +40,19 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 		assertVHTLCContract(t, c, keyRef, opts)
 	})
 
+	t.Run("valid non-interactive", func(t *testing.T) {
+		_, keyRef, opts, c := newNonInteractiveVHTLCContract(
+			t, newTestVHTLCContractOptsWithNIC(t),
+		)
+
+		require.Equal(t, types.ContractTypeNonInteractiveVHTLC, c.Type)
+		require.Equal(t, types.ContractStateActive, c.State)
+		require.NotEmpty(t, c.Script)
+		require.NotEmpty(t, c.Address)
+		require.False(t, c.CreatedAt.IsZero())
+		assertVHTLCContract(t, c, keyRef, opts)
+	})
+
 	t.Run("stores checkpoint exit path from client info", func(t *testing.T) {
 		h := NewHandler(&mockInfoClient{
 			info: &client.Info{CheckpointTapscript: testCheckpointTapscript},
@@ -139,14 +152,14 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 				expectedError: "invalid unilateral claim delay",
 			},
 			{
-				name: "invalid non-interactive claim",
+				name: "standard handler rejects non-interactive claim",
 				mutate: func(o *vhtlc.Opts) {
 					o.NonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
-						ReceiverPkScript: []byte{0x51},
+						ReceiverPkScript: newTestP2TRPkScript(t),
 						EmulatorPubKey:   newTestPubKey(t),
 					}
 				},
-				expectedError: "receiver pkScript must be 34 bytes",
+				expectedError: "cannot include non-interactive claim params",
 			},
 		}
 
@@ -160,6 +173,16 @@ func TestVHTLCHandlerNewContract(t *testing.T) {
 				require.Nil(t, got)
 			})
 		}
+	})
+
+	t.Run("non-interactive handler requires claim params", func(t *testing.T) {
+		h := newTestNonInteractiveVHTLCHandler(t)
+		keyRef := newTestKeyRef(t)
+
+		got, err := h.NewContract(t.Context(), keyRef, newTestVHTLCContractOpts(t))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "requires non-interactive claim params")
+		require.Nil(t, got)
 	})
 }
 
@@ -214,11 +237,10 @@ func TestVHTLCHandlerGetKeyRef(t *testing.T) {
 				expectedError: "missing wallet key ID",
 			},
 			{
-				name: "both wallet key ids",
+				name: "prefers sender key id when both are present",
 				mutate: func(_ *testing.T, p map[string]string) {
 					p[paramReceiverKeyID] = "m/0/1"
 				},
-				expectedError: "expected exactly one",
 			},
 			{
 				name: "missing sender key",
@@ -253,6 +275,12 @@ func TestVHTLCHandlerGetKeyRef(t *testing.T) {
 					tc.mutate(t, params)
 				}
 				ref, err := h.GetKeyRef(types.Contract{Script: "broken", Params: params})
+				if tc.expectedError == "" {
+					require.NoError(t, err)
+					require.NotNil(t, ref)
+					require.Equal(t, params[paramSenderKeyID], ref.Id)
+					return
+				}
 				require.Error(t, err)
 				require.ErrorContains(t, err, tc.expectedError)
 				require.Nil(t, ref)
@@ -479,7 +507,9 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 		})
 
 		t.Run("non-interactive claim", func(t *testing.T) {
-			h, _, _, c := newVHTLCContract(t, newTestVHTLCContractOptsWithNIC(t))
+			h, _, _, c := newNonInteractiveVHTLCContract(
+				t, newTestVHTLCContractOptsWithNIC(t),
+			)
 
 			scripts, err := h.GetTapscripts(c)
 			require.NoError(t, err)
@@ -488,6 +518,18 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 				require.NotEmpty(t, s)
 			}
 		})
+	})
+
+	t.Run("standard handler rejects persisted non-interactive claim", func(t *testing.T) {
+		h := newTestVHTLCHandler(t)
+		_, _, _, c := newNonInteractiveVHTLCContract(
+			t, newTestVHTLCContractOptsWithNIC(t),
+		)
+
+		scripts, err := h.GetTapscripts(c)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "cannot include non-interactive claim params")
+		require.Nil(t, scripts)
 	})
 
 	t.Run("invalid", func(t *testing.T) {
@@ -685,9 +727,51 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 	})
 }
 
+func TestValidateWalletKeyIDParams(t *testing.T) {
+	cases := []struct {
+		name      string
+		params    map[string]string
+		expectErr bool
+	}{
+		{
+			name:   "sender only",
+			params: map[string]string{paramSenderKeyID: "m/0/0"},
+		},
+		{
+			name:   "receiver only",
+			params: map[string]string{paramReceiverKeyID: "m/0/1"},
+		},
+		{
+			name:      "neither",
+			params:    map[string]string{},
+			expectErr: true,
+		},
+		{
+			name: "both",
+			params: map[string]string{
+				paramSenderKeyID:   "m/0/0",
+				paramReceiverKeyID: "m/0/1",
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateWalletKeyIDParams(tc.params)
+			if tc.expectErr {
+				require.Error(t, err)
+				require.ErrorContains(t, err, "expected exactly one")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func newVHTLCContract(
 	t *testing.T, opts *vhtlc.Opts,
-) (*Handler, identity.KeyRef, *vhtlc.Opts, types.Contract) {
+) (*VHTLCHandler, identity.KeyRef, *vhtlc.Opts, types.Contract) {
 	t.Helper()
 	h := newTestVHTLCHandler(t)
 	keyRef := newTestKeyRef(t)
@@ -696,9 +780,28 @@ func newVHTLCContract(
 	return h, keyRef, opts, *built
 }
 
-func newTestVHTLCHandler(t *testing.T) *Handler {
+func newNonInteractiveVHTLCContract(
+	t *testing.T, opts *vhtlc.Opts,
+) (*NonInteractiveHandler, identity.KeyRef, *vhtlc.Opts, types.Contract) {
+	t.Helper()
+	h := newTestNonInteractiveVHTLCHandler(t)
+	keyRef := newTestKeyRef(t)
+	built, err := h.NewContract(t.Context(), keyRef, opts)
+	require.NoError(t, err)
+	return h, keyRef, opts, *built
+}
+
+func newTestVHTLCHandler(t *testing.T) *VHTLCHandler {
 	t.Helper()
 	return NewHandler(
+		&mockInfoClient{info: &client.Info{CheckpointTapscript: testCheckpointTapscript}},
+		testNetwork,
+	)
+}
+
+func newTestNonInteractiveVHTLCHandler(t *testing.T) *NonInteractiveHandler {
+	t.Helper()
+	return NewNonInteractiveHandler(
 		&mockInfoClient{info: &client.Info{CheckpointTapscript: testCheckpointTapscript}},
 		testNetwork,
 	)

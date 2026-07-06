@@ -16,6 +16,7 @@ import (
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,7 @@ const (
 	offchainMode = "offchain"
 	onchainMode  = "onchain"
 	vhtlcMode    = "vhtlc"
+	nicVHTLCMode = "non-interactive-vhtlc"
 
 	// Values below and above 512 exercise block-based and second-based
 	// relative locktime parsing.
@@ -81,6 +83,30 @@ func TestHandlerInterfaceContract(t *testing.T) {
 				return opts
 			},
 			expectType:      types.ContractTypeVHTLC,
+			expectDerivable: false,
+			expectExitDelay: true,
+			expectSignerKey: true,
+		},
+		{
+			name: nicVHTLCMode,
+			handler: func(t *testing.T) handlers.Handler {
+				t.Helper()
+				return vhtlcHandler.NewNonInteractiveHandler(
+					&mockClient{info: newTestInfo(newTestPubKey(t))},
+					testNetwork,
+				)
+			},
+			params: func(t *testing.T, _ identity.KeyRef) any {
+				t.Helper()
+				opts := newTestVHTLCOpts(t)
+				opts.Sender = nil
+				opts.NonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
+					ReceiverPkScript: newTestP2TRPkScript(t),
+					EmulatorPubKey:   newTestPubKey(t),
+				}
+				return opts
+			},
+			expectType:      types.ContractTypeNonInteractiveVHTLC,
 			expectDerivable: false,
 			expectExitDelay: true,
 			expectSignerKey: true,
@@ -171,6 +197,13 @@ func newTestPubKey(t *testing.T) *btcec.PublicKey {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	return priv.PubKey()
+}
+
+func newTestP2TRPkScript(t *testing.T) []byte {
+	t.Helper()
+	pkScript, err := txscript.PayToTaprootScript(newTestPubKey(t))
+	require.NoError(t, err)
+	return pkScript
 }
 
 func newTestInfo(signerKey *btcec.PublicKey) *client.Info {

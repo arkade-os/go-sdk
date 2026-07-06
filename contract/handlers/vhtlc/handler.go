@@ -37,33 +37,68 @@ const (
 	paramCheckpointExitPath         = "checkpointExitPath"
 )
 
-// Handler is a stateless contract handler for VHTLC scripts.
+// handler is the shared stateless contract handler for VHTLC scripts.
 // All VHTLC parameters are stored in Contract.Params, so the handler
 // can rebuild the full tapscript tree from any persisted contract.
-type Handler struct {
-	network arklib.Network
-	client  client.Client
+type handler struct {
+	network                arklib.Network
+	client                 client.Client
+	contractType           types.ContractType
+	requiresNonInteractive bool
+}
+
+// VHTLCHandler handles standard VHTLC contracts without a non-interactive
+// claim closure.
+type VHTLCHandler struct {
+	*handler
+}
+
+// NonInteractiveHandler handles VHTLC contracts that require a non-interactive
+// claim closure.
+type NonInteractiveHandler struct {
+	*handler
 }
 
 // NewHandler returns a VHTLC contract handler ready to be registered via
 // the contract manager built-in handler registry.
-func NewHandler(c client.Client, network arklib.Network) *Handler {
-	return &Handler{
-		network: network,
-		client:  c,
+func NewHandler(c client.Client, network arklib.Network) *VHTLCHandler {
+	return &VHTLCHandler{
+		handler: newHandler(c, network, types.ContractTypeVHTLC, false),
+	}
+}
+
+// NewNonInteractiveHandler returns a contract handler for VHTLC scripts that
+// include the non-interactive claim covenant leaf.
+func NewNonInteractiveHandler(c client.Client, network arklib.Network) *NonInteractiveHandler {
+	return &NonInteractiveHandler{
+		handler: newHandler(c, network, types.ContractTypeNonInteractiveVHTLC, true),
+	}
+}
+
+func newHandler(
+	c client.Client,
+	network arklib.Network,
+	contractType types.ContractType,
+	requiresNonInteractive bool,
+) *handler {
+	return &handler{
+		network:                network,
+		client:                 c,
+		contractType:           contractType,
+		requiresNonInteractive: requiresNonInteractive,
 	}
 }
 
 // Derivable returns false — VHTLC contracts require counterparty data
 // (pubkey, preimage hash, locktimes) and cannot be derived from an HD key alone.
 // Callers must provide WithParams(*vhtlc.Opts) when calling Manager.NewContract.
-func (h *Handler) Derivable() bool { return false }
+func (h *handler) Derivable() bool { return false }
 
 // NewContract builds a VHTLC contract from the caller-provided key and params.
 // params must be *vhtlc.Opts. If one of Sender or Receiver is missing, the
 // missing side is populated with keyRef.PubKey. If both are present, keyRef
 // must match one of them so the handler can persist the wallet role.
-func (h *Handler) NewContract(
+func (h *handler) NewContract(
 	ctx context.Context, keyRef identity.KeyRef, params any,
 ) (*types.Contract, error) {
 	p, ok := params.(*vhtlc.Opts)
@@ -74,6 +109,9 @@ func (h *Handler) NewContract(
 	}
 	opts, err := prepareOwnedOpts(*p, keyRef)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.validateOptsForType(opts); err != nil {
 		return nil, err
 	}
 	checkpointExitPath, err := h.resolveCheckpointExitPath(ctx)
@@ -96,56 +134,37 @@ func (h *Handler) NewContract(
 		return nil, fmt.Errorf("invalid checkpoint exit path")
 	}
 
-	return createContract(opts, keyRef, h.network, checkpointExitPath)
+	return createContract(opts, keyRef, h.network, checkpointExitPath, h.contractType)
 }
 
-func (h *Handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
-	optionalParam := func(c types.Contract, key string) (string, bool, error) {
-		if c.Params == nil {
-			return "", false, fmt.Errorf("vhtlc contract %s: no params", c.Script)
-		}
-		v, ok := c.Params[key]
-		if !ok || v == "" {
-			return "", false, nil
-		}
-		return v, true, nil
+func (h *handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
+	if c.Params == nil {
+		return nil, fmt.Errorf("vhtlc contract %s: no params", c.Script)
 	}
 
-	senderKeyID, hasSenderKeyID, err := optionalParam(c, paramSenderKeyID)
-	if err != nil {
-		return nil, err
-	}
-	receiverKeyID, hasReceiverKeyID, err := optionalParam(c, paramReceiverKeyID)
-	if err != nil {
-		return nil, err
-	}
-	if hasSenderKeyID == hasReceiverKeyID {
-		if hasSenderKeyID {
-			return nil, fmt.Errorf(
-				"vhtlc contract %s: expected exactly one of %q or %q",
-				c.Script, paramSenderKeyID, paramReceiverKeyID,
-			)
-		}
-		return nil, fmt.Errorf(
-			"vhtlc contract %s: missing wallet key ID: expected %q or %q",
-			c.Script, paramSenderKeyID, paramReceiverKeyID,
-		)
-	}
-	if hasSenderKeyID {
-		pub, err := parseCompressedParam(c, paramSender)
+	if keyID := c.Params[paramSenderKeyID]; keyID != "" {
+		pubKey, err := parseCompressedParam(c, paramSender)
 		if err != nil {
 			return nil, err
 		}
-		return &identity.KeyRef{Id: senderKeyID, PubKey: pub}, nil
+		return &identity.KeyRef{Id: keyID, PubKey: pubKey}, nil
 	}
-	pub, err := parseCompressedParam(c, paramReceiver)
-	if err != nil {
-		return nil, err
+
+	if keyID := c.Params[paramReceiverKeyID]; keyID != "" {
+		pubKey, err := parseCompressedParam(c, paramReceiver)
+		if err != nil {
+			return nil, err
+		}
+		return &identity.KeyRef{Id: keyID, PubKey: pubKey}, nil
 	}
-	return &identity.KeyRef{Id: receiverKeyID, PubKey: pub}, nil
+
+	return nil, fmt.Errorf(
+		"vhtlc contract %s: missing wallet key ID: expected %q or %q",
+		c.Script, paramSenderKeyID, paramReceiverKeyID,
+	)
 }
 
-func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
+func (h *handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 	keyRef, err := h.GetKeyRef(c)
 	if err != nil {
 		return nil, err
@@ -166,7 +185,7 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 		)
 	}
 
-	opts, err := OptsFromContract(c)
+	opts, err := h.optsFromContract(c)
 	if err != nil {
 		return nil, err
 	}
@@ -197,14 +216,14 @@ func (h *Handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
 	return keys, nil
 }
 
-func (h *Handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
+func (h *handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
 	return parseCompressedParam(c, paramServer)
 }
 
 // GetExitDelay returns the conservative (longest) exit delay:
 // refundWithoutReceiverDelay. This is always safe regardless of
 // whether the wallet is the sender or receiver.
-func (h *Handler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
+func (h *handler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
 	delay, err := parseRelativeLocktime(c, paramRefundWithoutReceiverDelay)
 	if err != nil {
 		return nil, err
@@ -212,8 +231,8 @@ func (h *Handler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, erro
 	return &delay, nil
 }
 
-func (h *Handler) GetTapscripts(c types.Contract) ([]string, error) {
-	opts, err := OptsFromContract(c)
+func (h *handler) GetTapscripts(c types.Contract) ([]string, error) {
+	opts, err := h.optsFromContract(c)
 	if err != nil {
 		return nil, err
 	}
@@ -224,8 +243,9 @@ func (h *Handler) GetTapscripts(c types.Contract) ([]string, error) {
 	return s.Encode()
 }
 
-// Compile-time check.
-var _ handlers.Handler = (*Handler)(nil)
+// Compile-time checks.
+var _ handlers.Handler = (*VHTLCHandler)(nil)
+var _ handlers.Handler = (*NonInteractiveHandler)(nil)
 
 // createContract builds a VHTLC contract entry. ownerKeyRef is the wallet's
 // identity key and must be either the sender or receiver key.
@@ -234,6 +254,7 @@ func createContract(
 	ownerKeyRef identity.KeyRef,
 	network arklib.Network,
 	checkpointExitPath string,
+	contractType types.ContractType,
 ) (*types.Contract, error) {
 	s, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	if err != nil {
@@ -288,13 +309,44 @@ func createContract(
 	params[paramCheckpointExitPath] = checkpointExitPath
 
 	return &types.Contract{
-		Type:      types.ContractTypeVHTLC,
+		Type:      contractType,
 		Script:    hex.EncodeToString(pkScript),
 		Address:   addr,
 		Params:    params,
 		State:     types.ContractStateActive,
 		CreatedAt: time.Now(),
 	}, nil
+}
+
+func (h *handler) optsFromContract(c types.Contract) (vhtlc.Opts, error) {
+	opts, err := OptsFromContract(c)
+	if err != nil {
+		return vhtlc.Opts{}, err
+	}
+	if err := h.validateOptsForType(opts); err != nil {
+		return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: %w", c.Script, err)
+	}
+	return opts, nil
+}
+
+func (h *handler) validateOptsForType(opts vhtlc.Opts) error {
+	if h.requiresNonInteractive {
+		if opts.NonInteractiveClaim == nil {
+			return fmt.Errorf(
+				"%s contract type requires non-interactive claim params",
+				types.ContractTypeNonInteractiveVHTLC,
+			)
+		}
+		return nil
+	}
+	if opts.NonInteractiveClaim != nil {
+		return fmt.Errorf(
+			"%s contract type cannot include non-interactive claim params; use %s",
+			types.ContractTypeVHTLC,
+			types.ContractTypeNonInteractiveVHTLC,
+		)
+	}
+	return nil
 }
 
 // OptsFromContract reconstructs vhtlc.Opts from a persisted contract's params.
@@ -384,7 +436,7 @@ func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
 
 // --- helpers ---
 
-func (h *Handler) resolveCheckpointExitPath(ctx context.Context) (string, error) {
+func (h *handler) resolveCheckpointExitPath(ctx context.Context) (string, error) {
 	if h.client == nil {
 		return "", fmt.Errorf("missing client")
 	}

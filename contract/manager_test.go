@@ -618,6 +618,7 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 			expectedTypes := []types.ContractType{
 				types.ContractTypeBoarding,
 				types.ContractTypeDefault,
+				types.ContractTypeNonInteractiveVHTLC,
 				types.ContractTypeVHTLC,
 			}
 			got := mgr.Registry().SupportedTypes()
@@ -632,6 +633,7 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 				types.ContractTypeBoarding,
 				types.ContractType("custom"),
 				types.ContractTypeDefault,
+				types.ContractTypeNonInteractiveVHTLC,
 				types.ContractTypeVHTLC,
 			}
 			got := mgr.Registry().SupportedTypes()
