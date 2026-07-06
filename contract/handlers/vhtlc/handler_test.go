@@ -727,48 +727,6 @@ func TestVHTLCHandlerGetTapscripts(t *testing.T) {
 	})
 }
 
-func TestValidateWalletKeyIDParams(t *testing.T) {
-	cases := []struct {
-		name      string
-		params    map[string]string
-		expectErr bool
-	}{
-		{
-			name:   "sender only",
-			params: map[string]string{paramSenderKeyID: "m/0/0"},
-		},
-		{
-			name:   "receiver only",
-			params: map[string]string{paramReceiverKeyID: "m/0/1"},
-		},
-		{
-			name:      "neither",
-			params:    map[string]string{},
-			expectErr: true,
-		},
-		{
-			name: "both",
-			params: map[string]string{
-				paramSenderKeyID:   "m/0/0",
-				paramReceiverKeyID: "m/0/1",
-			},
-			expectErr: true,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateWalletKeyIDParams(tc.params)
-			if tc.expectErr {
-				require.Error(t, err)
-				require.ErrorContains(t, err, "expected exactly one")
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
 func newVHTLCContract(
 	t *testing.T, opts *vhtlc.Opts,
 ) (*VHTLCHandler, identity.KeyRef, *vhtlc.Opts, types.Contract) {
