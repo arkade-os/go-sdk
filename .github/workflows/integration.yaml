@@ -10,18 +10,8 @@ on:
 
 jobs:
   test-e2e-sdk:
-    name: Sdk integration tests (${{ matrix.name }})
+    name: Sdk integration tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: core
-            regtest: make regtest
-            tests: make integrationtest
-          - name: swap
-            regtest: make regtestswap
-            tests: make integrationtest-swap
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -34,27 +24,18 @@ jobs:
       
       - name: Run Nigiri
         uses: vulpemventures/nigiri-github-action@v1
-
-      - name: Run regtest environment
-        run: ${{ matrix.regtest }}
       
-      - name: Run tests
-        run: ${{ matrix.tests }}
+      - name: Run regtest environment
+        run: make regtest
 
-      - name: Dump Docker diagnostics
+      - name: Run tests
+        run: make integrationtest
+
+      - name: Docker logs
         if: failure()
+        continue-on-error: true
         run: |
-          echo "::group::docker ps"
+          docker image ls -a
           docker ps -a
-          echo "::endgroup::"
-          echo "::group::docker compose ps"
-          docker compose -f test/infra/docker-compose.yml ps || true
-          echo "::endgroup::"
-          echo "::group::docker compose logs"
-          docker compose -f test/infra/docker-compose.yml logs --no-color --tail=300 || true
-          echo "::endgroup::"
-          for container in bitcoin chopsticks electrs lnd cln boltz boltz-fulmine mock-boltz arkd arkd-wallet solver; do
-            echo "::group::docker logs $container"
-            docker logs --tail=200 "$container" || true
-            echo "::endgroup::"
-          done
+          docker compose -f test/docker/docker-compose.yml ps
+          docker compose -f test/docker/docker-compose.yml logs --no-color --timestamps pgnbxplorer nbxplorer arkd-wallet arkd

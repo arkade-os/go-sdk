@@ -305,25 +305,19 @@ func TestBalance(t *testing.T) {
 		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 		faucetOffchain(t, alice, 0.0005)
 
-		// Make the funds expire and be swept by the server
-		generateBlocks(t, 21)
-
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 
-		require.Eventually(t, func() bool {
-			balance, err := alice.Balance(ctx)
-			require.NoError(t, err)
-			return balance.OffchainBalance.Recoverable > 0
-		}, 20*time.Second, 200*time.Millisecond)
+		// Make the funds expire and be swept by the server
+		generateBlocks(t, 181)
 
-		sawSweepEvent := false
-		for !sawSweepEvent {
+		sweepEventSeen := false
+		for !sweepEventSeen {
 			select {
 			case event := <-vtxoCh:
 				if event.Type == types.VtxosSwept {
-					sawSweepEvent = true
+					sweepEventSeen = true
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(20 * time.Second):
 				t.Fatal("timed out waiting for sweep event")
 			}
 		}

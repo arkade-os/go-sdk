@@ -137,6 +137,22 @@ func generateNote(t *testing.T, amount uint64) string {
 	return noteResp.Notes[0]
 }
 
+func setVtxoTreeExpiry(t *testing.T, expiry int64) {
+	adminHttpClient := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
+	reqBody := bytes.NewReader([]byte(fmt.Sprintf(`{"settings":{"vtxoTreeExpiry": %d}}`, expiry)))
+	req, err := http.NewRequest("POST", "http://127.0.0.1:7071/v1/admin/settings", reqBody)
+	require.NoError(t, err)
+
+	req.Header.Set("Authorization", "Basic YWRtaW46YWRtaW4=")
+	req.Header.Set("Content-Type", "application/json")
+
+	_, err = adminHttpClient.Do(req)
+	require.NoError(t, err)
+}
+
 func runCommand(name string, arg ...string) (string, error) {
 	errb := new(strings.Builder)
 	cmd := newCommand(name, arg...)
@@ -252,160 +268,6 @@ func lndPayInvoice(invoice string) error {
 		"payinvoice", "--force", invoice,
 	)
 	return err
-}
-
-// --- Regtest BTC helpers ---
-
-func getBlockHeight(t *testing.T) int {
-	t.Helper()
-	out, err := runCommand("nigiri", "rpc", "getblockcount")
-	require.NoError(t, err)
-
-	var height int
-	_, err = fmt.Sscanf(strings.TrimSpace(out), "%d", &height)
-	require.NoError(t, err)
-	return height
-}
-
-func mineBlocks(t *testing.T, n int) {
-	t.Helper()
-	if n <= 0 {
-		return
-	}
-	addr, err := runCommand("nigiri", "rpc", "getnewaddress")
-	require.NoError(t, err)
-	_, err = runCommand(
-		"nigiri", "rpc", "generatetoaddress",
-		fmt.Sprintf("%d", n), strings.TrimSpace(addr),
-	)
-	require.NoError(t, err)
-}
-
-func mineBlocksToHeight(t *testing.T, target int) {
-	t.Helper()
-	current := getBlockHeight(t)
-	if current >= target {
-		return
-	}
-	mineBlocks(t, target-current)
-}
-
-func sendToAddress(t *testing.T, address, amountBtc string) string {
-	t.Helper()
-	out, err := runCommand("nigiri", "rpc", "sendtoaddress", address, amountBtc)
-	require.NoError(t, err)
-	txid := strings.TrimSpace(out)
-	require.NotEmpty(t, txid)
-	return txid
-}
-
-func getRawTransaction(t *testing.T, txid string) string {
-	t.Helper()
-	out, err := runCommand("nigiri", "rpc", "getrawtransaction", txid)
-	require.NoError(t, err)
-	txhex := strings.TrimSpace(out)
-	require.NotEmpty(t, txhex)
-	return txhex
-}
-
-func fundAddressAndGetConfirmedTx(t *testing.T, address string, sats uint64) (string, string) {
-	t.Helper()
-	amountBtc := fmt.Sprintf("%d.%08d", sats/100000000, sats%100000000)
-	txid := sendToAddress(t, address, amountBtc)
-	mineBlocks(t, 10)
-	txhex := getRawTransaction(t, txid)
-	return txid, txhex
-}
-
-// --- Mock Boltz helpers ---
-
-func injectMockBoltzSwapEvent(t *testing.T, swapID, status string) {
-	t.Helper()
-	injectMockBoltzSwapEventWithTx(t, swapID, status, "", "")
-}
-
-func injectMockBoltzSwapEventWithTx(t *testing.T, swapID, status, txid, txhex string) {
-	t.Helper()
-	body, err := json.Marshal(map[string]string{
-		"status": status,
-		"txid":   txid,
-		"txhex":  txhex,
-	})
-	require.NoError(t, err)
-
-	url := fmt.Sprintf("%s/admin/swaps/%s/event", mockBoltzAdminURL, swapID)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	require.Equalf(t, http.StatusOK, resp.StatusCode,
-		"injectMockBoltzSwapEventWithTx(%s, %s) failed: %s", swapID, status, string(respBody))
-}
-
-func resetMockBoltz(t *testing.T) {
-	t.Helper()
-	req, err := http.NewRequest("POST", mockBoltzAdminURL+"/admin/reset", nil)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-}
-
-func setMockBoltzConfig(t *testing.T, config map[string]any) {
-	t.Helper()
-	body, err := json.Marshal(config)
-	require.NoError(t, err)
-
-	req, err := http.NewRequest("POST", mockBoltzAdminURL+"/admin/config", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-}
-
-type mockSwapState struct {
-	ID               string `json:"id"`
-	LastStatus       string `json:"lastStatus"`
-	ServerLockAmount uint64 `json:"serverLockAmount"`
-	BTCLockupAddress string `json:"btcLockupAddress"`
-	ClaimRequests    int    `json:"claimRequests"`
-	RefundRequests   int    `json:"refundRequests"`
-}
-
-func getMockBoltzSwap(t *testing.T, swapID string) map[string]any {
-	t.Helper()
-	url := fmt.Sprintf("%s/admin/swaps/%s", mockBoltzAdminURL, swapID)
-	resp, err := http.Get(url) //nolint:gosec
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	var state map[string]any
-	err = json.NewDecoder(resp.Body).Decode(&state)
-	require.NoError(t, err)
-	return state
-}
-
-func getMockBoltzSwapTyped(t *testing.T, swapID string) mockSwapState {
-	t.Helper()
-	url := fmt.Sprintf("%s/admin/swaps/%s", mockBoltzAdminURL, swapID)
-	resp, err := http.Get(url) //nolint:gosec
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	var state mockSwapState
-	err = json.NewDecoder(resp.Body).Decode(&state)
-	require.NoError(t, err)
-	return state
 }
 
 // --- Thread-safe error collection ---

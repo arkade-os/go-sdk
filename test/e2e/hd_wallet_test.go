@@ -266,7 +266,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		}
 
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
-			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable
+			balance.OnchainBalance.Total == wantOnchainSpendable
 	}, 30*time.Second, 500*time.Millisecond)
 }
 

@@ -2,7 +2,7 @@
 set -o pipefail
 
 # vars
-composeFile="test/infra/docker-compose.yml"
+composeFile="test/docker/docker-compose.yml"
 password="password"
 fulmineBoltzUrl="http://127.0.0.1:7003/api/v1"
 arkdUrl="http://arkd:7070"
@@ -291,7 +291,7 @@ else
 fi
 
 echo "setting up Boltz stack..."
-if ! run_quiet $compose up -d --no-recreate boltz mock-boltz boltz-fulmine; then
+if ! run_quiet $compose up -d --no-recreate boltz boltz-fulmine; then
     exit "  ❌ failed to start stack (status=$status) (err=$err)"
 else
     echo "  ✅ stack started"
