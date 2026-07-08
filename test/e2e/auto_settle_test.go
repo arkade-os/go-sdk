@@ -28,6 +28,8 @@ func TestAutoSettle(t *testing.T) {
 	// (3 mins with a 1 sec blocktime) to 20 blocks (20s) to wait a maximum reasonable time.
 	setVtxoTreeExpiry(t, 20)
 	t.Cleanup(func() { setVtxoTreeExpiry(t, 180) })
+
+	time.Sleep(time.Second)
 	// This test pins the common case of the auto-settle wiring end-to-end: a wallet built with
 	// the default scheduler must refresh its vtxos before they expire, without any user action.
 	t.Run("enabled", func(t *testing.T) {
