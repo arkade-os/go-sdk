@@ -17,6 +17,7 @@ import (
 )
 
 func TestCustomContractHandlerRegistered(t *testing.T) {
+	t.Parallel()
 	// Build the wallet manually rather than via setupClient so we can
 	// inspect the registry immediately after Unlock, without waiting for
 	// the background ScanContracts to complete. The custom handler here
@@ -64,8 +65,9 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 type customTestHandler struct{ typ types.ContractType }
 
 func (h *customTestHandler) NewContract(
-	_ context.Context, k identity.KeyRef,
+	_ context.Context, p any,
 ) (*types.Contract, error) {
+	k := p.(identity.KeyRef)
 	s := sha256.Sum256([]byte(string(h.typ) + ":" + k.Id))
 	return &types.Contract{
 		Type:   h.typ,
@@ -91,5 +93,11 @@ func (h *customTestHandler) GetExitDelay(types.Contract) (*arklib.RelativeLockti
 	return nil, nil
 }
 func (h *customTestHandler) GetTapscripts(types.Contract) ([]string, error) {
+	return nil, nil
+}
+func (h *customTestHandler) GetArgs(types.Contract) (any, error) {
+	return nil, nil
+}
+func (h *customTestHandler) GetCheckpointExitPath(types.Contract) ([]byte, error) {
 	return nil, nil
 }

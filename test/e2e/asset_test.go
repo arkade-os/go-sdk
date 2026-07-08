@@ -13,15 +13,29 @@ import (
 
 const dustAmount = 330
 
+func isolateAssetCommitmentChain(t *testing.T) {
+	t.Helper()
+
+	// Asset operations create chains of commitment transactions; mine around each
+	// case to avoid Bitcoin Core rejecting broadcasts with:
+	// "too-long-mempool-chain, too many unconfirmed ancestors [limit: 25]".
+	generateBlocks(t, 1)
+	t.Cleanup(func() {
+		generateBlocks(t, 1)
+	})
+}
+
 // TestAssetTransfer tests the transfer of an asset between alice and bob.
 // then they both settle their funds.
 func TestAssetTransferAndRenew(t *testing.T) {
+	isolateAssetCommitmentChain(t)
+
 	const supply = 5_000
 	const transferAmount = 1_200
 
 	ctx := t.Context()
-	alice := setupClient(t, "")
-	bob := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
+	bob := setupClient(t, "", sdk.WithoutAutoSettle())
 	aliceTxStream := alice.GetTransactionEventChannel(ctx)
 	bobTxStream := bob.GetTransactionEventChannel(ctx)
 
@@ -123,9 +137,11 @@ func TestAssetTransferAndRenew(t *testing.T) {
 }
 
 func TestProveDustAmountAddedByDefault(t *testing.T) {
+	isolateAssetCommitmentChain(t)
+
 	ctx := t.Context()
-	alice := setupClient(t, "")
-	bob := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
+	bob := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	faucetOffchain(t, alice, 0.002)
 
@@ -160,9 +176,11 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 }
 
 func TestAssetIssuance(t *testing.T) {
+	isolateAssetCommitmentChain(t)
+
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -189,7 +207,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with new control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -223,7 +241,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with existing control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -276,8 +294,10 @@ func TestAssetIssuance(t *testing.T) {
 
 // TestAssetReissuance makes issue an asset with a control asset and then reissue it.
 func TestAssetReissuance(t *testing.T) {
+	isolateAssetCommitmentChain(t)
+
 	ctx := t.Context()
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	faucetOffchain(t, alice, 0.01)
 
@@ -343,8 +363,10 @@ func TestAssetReissuance(t *testing.T) {
 }
 
 func TestAssetBurn(t *testing.T) {
+	isolateAssetCommitmentChain(t)
+
 	ctx := t.Context()
-	alice := setupClient(t, "")
+	alice := setupClient(t, "", sdk.WithoutAutoSettle())
 
 	faucetOffchain(t, alice, 0.01)
 

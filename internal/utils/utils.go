@@ -115,9 +115,6 @@ func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
 	if _, err := h.GetSignerKey(*c); err != nil {
 		return fmt.Errorf("custom handler GetSignerKey fails: %w", err)
 	}
-	if _, err := h.GetExitDelay(*c); err != nil {
-		return fmt.Errorf("custom handler GetExitDelay fails: %w", err)
-	}
 	if _, err := h.GetTapscripts(*c); err != nil {
 		return fmt.Errorf("custom handler GetTapscripts fails: %w", err)
 	}

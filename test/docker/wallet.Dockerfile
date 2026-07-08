@@ -1,25 +1,20 @@
 # First stage: build the ark-wallet-daemon binary
 FROM golang:1.26.4 AS builder
 
-# arkd master may require a newer Go than the image ships; let go download it.
-ENV GOTOOLCHAIN=auto
-
 ARG VERSION
 ARG TARGETOS
 ARG TARGETARCH
+ARG ARKD_VERSION=master
 
-ARG BRANCH=master
 
 WORKDIR /app
 
-RUN git clone --branch ${BRANCH} --single-branch https://github.com/arkade-os/arkd.git
+RUN git clone --branch ${ARKD_VERSION} --single-branch https://github.com/arkade-os/arkd.git
 
-RUN mkdir -p bin && cd arkd && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -ldflags="-X 'main.Version=${VERSION}'" -o /app/bin/arkd-wallet ./cmd/arkd-wallet/main.go
+RUN cd arkd && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /app/bin/arkd-wallet ./cmd/arkd-wallet
 
 # Second stage: minimal runtime image
-FROM alpine:3.22
+FROM alpine:3.20
 
 RUN apk update && apk upgrade
 
@@ -28,8 +23,8 @@ WORKDIR /app
 COPY --from=builder /app/bin/arkd-wallet /app/
 
 ENV PATH="/app:${PATH}"
-ENV ARK_WALLET_DATADIR=/app/wallet-data
+ENV ARKD_WALLET_DATADIR=/app/data
 
-VOLUME /app/wallet-data
+VOLUME /app/data
 
 ENTRYPOINT [ "arkd-wallet" ]

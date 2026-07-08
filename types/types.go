@@ -109,8 +109,10 @@ const (
 type ContractType string
 
 const (
-	ContractTypeDefault  ContractType = "default"
-	ContractTypeBoarding ContractType = "boarding"
+	ContractTypeDefault             ContractType = "default"
+	ContractTypeBoarding            ContractType = "boarding"
+	ContractTypeVHTLC               ContractType = "vhtlc"
+	ContractTypeNonInteractiveVHTLC ContractType = "noninteractivevhtlc"
 )
 
 type Contract struct {

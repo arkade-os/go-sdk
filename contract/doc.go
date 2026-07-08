@@ -27,10 +27,12 @@
 //
 //   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
 //     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to the built-in handlers (default,
-//     boarding) so they share a single GetInfo cache. Handlers added by
-//     callers via [WithHandler] are constructed outside the manager and
-//     own their own client wiring — see the Extending section below.
+//     and hands the wrapped client to the built-in handlers that need
+//     server info (default, boarding, vhtlc) so they share a single
+//     GetInfo cache. The htlc built-in does not need server info.
+//     Handlers added by callers via [WithHandler] are constructed outside
+//     the manager and own their own client wiring — see the Extending
+//     section below.
 //
 //   - keyProvider (unexported, defined in types.go) is the subset of the
 //     identity.Identity surface the manager needs to derive contracts:
@@ -42,11 +44,12 @@
 //
 // [Manager.NewContract](ctx, contractType, opts...):
 //  1. Look up the handler registered for contractType.
-//  2. Ask the store for GetLatestContract(contractType) and resolve the
+//  2. If WithKeyRef is provided, use that caller-selected key. Otherwise,
+//     ask the store for GetLatestContract(contractType) and resolve the
 //     last-used keyId from it (or start at the first key id when the pool
 //     is empty).
-//  3. Advance with keyProvider.NextKeyId, then GetKey to derive the new
-//     KeyRef.
+//  3. Without WithKeyRef, advance with keyProvider.NextKeyId, then GetKey
+//     to derive the new KeyRef.
 //  4. Hand the KeyRef to handler.NewContract — the handler builds the
 //     script, address, and contract-type-specific params.
 //  5. Persist via store.AddContract with the resolved key index.
@@ -84,14 +87,14 @@
 //
 // # Extending with new contract types
 //
-// New handler kinds (vhtlc, delegate, custom user-defined contracts, …)
+// New handler kinds (delegate, custom user-defined contracts, …)
 // plug in by:
 //  1. Implementing handlers.Handler (see contract/handlers/handler.go).
 //  2. Passing the handler to NewManager via [WithHandler], keyed by a
 //     new types.ContractType. WithHandler rejects empty types, nil
 //     handlers, typed-nil concrete values, and duplicates in the same
 //     options list. NewManager additionally rejects any type that
-//     collides with a built-in (default, boarding).
+//     collides with a built-in (default, boarding, htlc, vhtlc).
 //  3. If the new type's "has this contract been used externally?" probe
 //     differs from the indexer or explorer paths the dispatcher already
 //     knows about, adding a branch in ScanContracts that selects the

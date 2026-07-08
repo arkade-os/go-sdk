@@ -5,6 +5,7 @@ import (
 
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/types"
 )
 
 func (w *wallet) getSigningKeyRefs(
@@ -64,18 +65,58 @@ func (w *wallet) getKeys(ctx context.Context, scripts []string) (map[string]stri
 	}
 
 	keys := make(map[string]string)
+	if err := w.addContractKeys(ctx, keys, contracts, nil); err != nil {
+		return nil, err
+	}
+
+	missing := missingScripts(keys, scripts)
+	if len(missing) == 0 {
+		return keys, nil
+	}
+
+	contracts, err = w.contractManager.GetContracts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.addContractKeys(ctx, keys, contracts, missing); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+func (w *wallet) addContractKeys(
+	ctx context.Context,
+	keys map[string]string,
+	contracts []types.Contract,
+	only map[string]struct{},
+) error {
 	for _, contract := range contracts {
 		handler, err := w.contractManager.GetHandler(ctx, contract)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		contractKeys, err := handler.GetKeyRefs(contract)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		for k, v := range contractKeys {
+			if only != nil {
+				if _, ok := only[k]; !ok {
+					continue
+				}
+			}
 			keys[k] = v
 		}
 	}
-	return keys, nil
+	return nil
+}
+
+func missingScripts(keys map[string]string, scripts []string) map[string]struct{} {
+	missing := make(map[string]struct{})
+	for _, script := range scripts {
+		if _, ok := keys[script]; !ok {
+			missing[script] = struct{}{}
+		}
+	}
+	return missing
 }
