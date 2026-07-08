@@ -199,10 +199,10 @@ func TestWalletOptions(t *testing.T) {
 // zero-value stubs since these tests never invoke the methods.
 type mockHandler struct{ typ types.ContractType }
 
-func (h *mockHandler) Derivable() bool { return true }
 func (h *mockHandler) NewContract(
-	_ context.Context, k identity.KeyRef, _ any,
+	_ context.Context, p any,
 ) (*types.Contract, error) {
+	k := p.(identity.KeyRef)
 	s := sha256.Sum256([]byte(string(h.typ) + ":" + k.Id))
 	return &types.Contract{
 		Type:   h.typ,
@@ -223,5 +223,11 @@ func (h *mockHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, er
 	return nil, nil
 }
 func (h *mockHandler) GetTapscripts(types.Contract) ([]string, error) {
+	return nil, nil
+}
+func (h *mockHandler) GetArgs(types.Contract) (any, error) {
+	return nil, nil
+}
+func (h *mockHandler) GetCheckpointExitPath(types.Contract) ([]byte, error) {
 	return nil, nil
 }
