@@ -229,31 +229,6 @@ func TestWithLabel(t *testing.T) {
 	})
 }
 
-func TestWithKeyRef(t *testing.T) {
-	key, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	keyRef := identity.KeyRef{Id: "m/0/7", PubKey: key.PubKey()}
-
-	t.Run("valid", func(t *testing.T) {
-		o, err := applyContractOptions(WithKeyRef(keyRef))
-		require.NoError(t, err)
-		require.NotNil(t, o.keyRef)
-		require.Equal(t, keyRef.Id, o.keyRef.Id)
-		require.Equal(t, keyRef.PubKey.SerializeCompressed(), o.keyRef.PubKey.SerializeCompressed())
-	})
-
-	t.Run("invalid", func(t *testing.T) {
-		_, err := applyContractOptions(WithKeyRef(identity.KeyRef{}))
-		require.ErrorContains(t, err, "key ref ID is required")
-
-		_, err = applyContractOptions(WithKeyRef(identity.KeyRef{Id: "m/0/0"}))
-		require.ErrorContains(t, err, "key ref pubkey is required")
-
-		_, err = applyContractOptions(WithKeyRef(keyRef), WithKeyRef(keyRef))
-		require.ErrorContains(t, err, "key ref option is already set")
-	})
-}
-
 func TestWithServerParams(t *testing.T) {
 	info := &client.Info{SignerPubKey: "abcd"}
 
@@ -319,10 +294,10 @@ func newMockHandler(ctType string) handlers.Handler {
 
 const mockOwnerKeyIdParam = "ownerKeyId"
 
-func (m *mockHandler) Derivable() bool { return true }
 func (m *mockHandler) NewContract(
-	_ context.Context, k identity.KeyRef, _ any,
+	_ context.Context, args any,
 ) (*types.Contract, error) {
+	k := args.(identity.KeyRef)
 	return &types.Contract{
 		Type:    types.ContractType(m.ctType),
 		State:   types.ContractStateActive,
@@ -345,4 +320,10 @@ func (m *mockHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, er
 }
 func (m *mockHandler) GetTapscripts(types.Contract) ([]string, error) {
 	return []string{m.ctType + "-tapscript"}, nil
+}
+func (m *mockHandler) GetArgs(c types.Contract) (any, error) {
+	return m.GetKeyRef(c)
+}
+func (m *mockHandler) GetCheckpointExitPath(c types.Contract) ([]byte, error) {
+	return nil, nil
 }

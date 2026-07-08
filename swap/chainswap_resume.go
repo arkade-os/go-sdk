@@ -2,16 +2,18 @@ package swap
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
+	"github.com/arkade-os/go-sdk/contract"
+	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/lightningnetwork/lnd/input"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -67,13 +69,61 @@ func (h *SwapHandler) ResumeChainSwap(
 	if !arkToBtc && !btcToArk {
 		return nil, fmt.Errorf("unsupported swap direction: %s -> %s", params.From, params.To)
 	}
+	var addr string
+	if arkToBtc {
+		addr = swapResp.LockupDetails.LockupAddress
+	} else {
+		addr = swapResp.ClaimDetails.LockupAddress
+	}
 
-	preimageHashSHA := sha256.Sum256(preimage)
-	preimageHash160 := input.Ripemd160H(preimageHashSHA[:])
-
-	vhtlcOpts, err := validateVHTLC(ctx, h, arkToBtc, &swapResp, preimageHash160, nil)
+	decoded, err := arklib.DecodeAddressV0(addr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid VHTLC: %w", err)
+		return nil, fmt.Errorf("failed to decode address vhtlc address %s : %w", addr, err)
+	}
+	vhtlcOutScript, err := script.P2TRScript(decoded.VtxoTapKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vhtlc address to p2tr script: %w", err)
+	}
+
+	contractManager := h.arkWallet.ContractManager()
+	scripts := []string{hex.EncodeToString(vhtlcOutScript)}
+	contracts, err := contractManager.GetContracts(
+		ctx, contract.WithScripts(scripts),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed tot get vhtlc contract %s: %w", scripts[0], err)
+	}
+	if len(contracts) <= 0 {
+		return nil, fmt.Errorf("vhtlc contract %s not found", scripts[0])
+	}
+
+	contract := contracts[0]
+	handler, err := contractManager.GetHandler(ctx, contract)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get handler for vhtlc contract %s: %w", scripts[0], err)
+	}
+
+	contractArgs, err := handler.GetArgs(contract)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get args for vhtlc contract %s: %w", scripts[0], err)
+	}
+
+	parsed, ok := contractArgs.(vhtlchandler.ContractArgs)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid contract args type: got %T, expected %T",
+			contractArgs, vhtlchandler.ContractArgs{},
+		)
+	}
+	vhtlcOpts := vhtlc.Opts{
+		Sender:                               parsed.Sender,
+		Receiver:                             parsed.Receiver,
+		Server:                               parsed.Signer,
+		PreimageHash:                         parsed.PreimageHash,
+		RefundLocktime:                       parsed.RefundLocktime,
+		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
 	}
 
 	if params.Network == nil {
@@ -109,7 +159,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		Id:                   params.SwapID,
 		Amount:               params.Amount,
 		Preimage:             preimage,
-		VhtlcOpts:            *vhtlcOpts,
+		VhtlcOpts:            vhtlcOpts,
 		UserBtcLockupAddress: params.UserBtcAddress,
 		UserLockTxid:         params.UserLockTxid,
 		ServerLockTxid:       params.ServerLockTxid,

@@ -3,19 +3,10 @@ package swap
 import (
 	"fmt"
 
-	sdkidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 )
-
-func (h *SwapHandler) requirePreimageSigner() (sdkidentity.KeyedPreimageSigner, error) {
-	signer, ok := h.arkWallet.Identity().(sdkidentity.KeyedPreimageSigner)
-	if !ok {
-		return nil, fmt.Errorf("wallet identity does not support deterministic preimage signing")
-	}
-	return signer, nil
-}
 
 func signLocalSchnorr(
 	key *btcec.PrivateKey,

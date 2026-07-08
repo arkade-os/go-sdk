@@ -54,6 +54,7 @@ func TestVHTLCClaimDirect(t *testing.T) {
 	opts := makeClaimVhtlcOpts(
 		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
 	)
+	registerVHTLCContract(t, alice, opts)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	require.NoError(t, err)
@@ -555,6 +556,7 @@ func TestVHTLCClaimWithOutpoint(t *testing.T) {
 	opts := makeClaimVhtlcOpts(
 		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
 	)
+	registerVHTLCContract(t, alice, opts)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	require.NoError(t, err)
@@ -628,6 +630,7 @@ func TestVHTLCClaimOldestVtxo(t *testing.T) {
 	opts := makeClaimVhtlcOpts(
 		t, privKey.PubKey(), cfg.SignerPubKey, preimageHash, refundLocktime,
 	)
+	registerVHTLCContract(t, alice, opts)
 
 	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	require.NoError(t, err)
@@ -719,12 +722,24 @@ func makeClaimVhtlcOpts(
 
 // registerVHTLCContract registers a VHTLC in the wallet's contract manager
 // so that SignTransaction can find the tapscripts during batch settlement.
+// The wallet-owned role is left empty in the args: the manager fills it with
+// a wallet key, which for the single-key identity used in these tests is the
+// very key the opts were built with, so the derived script stays the same.
 func registerVHTLCContract(
 	t *testing.T, w arksdk.Wallet, opts vhtlc.Opts,
 ) {
 	t.Helper()
 
-	contractOpts := opts
+	args := contract.VHTLCContractArgs{
+		Sender:                               opts.Sender,
+		Receiver:                             opts.Receiver,
+		PreimageHash:                         opts.PreimageHash,
+		RefundLocktime:                       opts.RefundLocktime,
+		UnilateralClaimDelay:                 opts.UnilateralClaimDelay,
+		UnilateralRefundDelay:                opts.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: opts.UnilateralRefundWithoutReceiverDelay,
+	}
+
 	keys, err := w.Identity().ListKeys(t.Context())
 	require.NoError(t, err)
 
@@ -732,10 +747,10 @@ func registerVHTLCContract(
 	for _, key := range keys {
 		switch {
 		case sameVHTLCPubKey(key.PubKey, opts.Sender):
-			contractOpts.Sender = nil
+			args.Sender = nil
 			ownsVHTLC = true
 		case sameVHTLCPubKey(key.PubKey, opts.Receiver):
-			contractOpts.Receiver = nil
+			args.Receiver = nil
 			ownsVHTLC = true
 		}
 		if ownsVHTLC {
@@ -746,7 +761,7 @@ func registerVHTLCContract(
 
 	_, err = w.ContractManager().NewContract(
 		t.Context(), types.ContractTypeVHTLC,
-		contract.WithParams(&contractOpts),
+		contract.WithParams(args),
 	)
 	require.NoError(t, err)
 }

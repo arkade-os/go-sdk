@@ -3,6 +3,7 @@ package swap
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,14 +22,18 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/indexer"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/contract"
+	"github.com/arkade-os/go-sdk/contract/handlers"
+	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
+	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/ccoveille/go-safecast"
-	decodepay "github.com/nbd-wtf/ln-decodepay"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -43,6 +48,12 @@ type SwapHandler struct {
 	config            clientTypes.Config
 	htlcMu            sync.RWMutex
 	htlcKeysByAddress map[string]*btcec.PrivateKey
+	// contractMu serializes the key-reservation → ImportContract span across
+	// concurrent swap creations: getNewKey derives the next key from the
+	// latest persisted contract, so it must not run again until the previous
+	// contract has been imported (with deterministic preimages, a reused key
+	// also means a duplicate payment hash rejected by Boltz).
+	contractMu sync.Mutex
 }
 
 type SwapStatus int
@@ -62,7 +73,7 @@ type Swap struct {
 	Status       SwapStatus
 	PreimageHash []byte
 	TimeoutInfo  boltz.TimeoutBlockHeights
-	Opts         *vhtlc.Opts
+	Opts         vhtlc.Opts
 	Amount       uint64
 }
 
@@ -132,7 +143,7 @@ func (h *SwapHandler) PayOffer(
 
 func (h *SwapHandler) GetInvoice(
 	ctx context.Context, amount uint64, postProcess func(swap Swap) error,
-) (Swap, error) {
+) (*Swap, error) {
 	return h.reverseSwap(ctx, amount, postProcess)
 }
 
@@ -224,20 +235,37 @@ func (h *SwapHandler) getPendingVHTLCTx(
 func (h *SwapHandler) ClaimVHTLC(
 	ctx context.Context, preimage []byte, vhtlcOpts vhtlc.Opts, outpoint *clientTypes.Outpoint,
 ) (string, error) {
-	vHTLC, err := vhtlc.NewVHTLCScriptFromOpts(vhtlcOpts)
+	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(vhtlcOpts)
 	if err != nil {
 		return "", err
 	}
-	if err := h.ensureLocalVHTLCContractForSigning(ctx, vhtlcOpts); err != nil {
+
+	tapKey, _, err := vhtlcScript.TapTree()
+	if err != nil {
 		return "", err
 	}
+	outScript, err := script.P2TRScript(tapKey)
+	if err != nil {
+		return "", err
+	}
+	scripts := []string{hex.EncodeToString(outScript)}
 
-	vtxo, pending, err := h.selectClaimableVTXO(ctx, vHTLC, outpoint)
+	contracts, err := h.arkWallet.ContractManager().GetContracts(
+		ctx, contract.WithScripts(scripts),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vhtlc contract %s: %w", scripts[0], err)
+	}
+	if len(contracts) <= 0 {
+		return "", fmt.Errorf("vhtlc contract %s not found", scripts[0])
+	}
+
+	vtxo, pending, err := h.selectClaimableVTXO(ctx, vhtlcScript, outpoint)
 	if err != nil {
 		return "", err
 	}
 	if pending {
-		txids, err := h.finalizePendingClaimVHTLCTxs(ctx, *vtxo, vHTLC, preimage)
+		txids, err := h.finalizePendingClaimVHTLCTxs(ctx, *vtxo, vhtlcScript, preimage)
 		if err != nil {
 			return "", fmt.Errorf("failed to finalize pending txs: %w", err)
 		}
@@ -288,7 +316,7 @@ func (h *SwapHandler) ClaimVHTLC(
 		return "", err
 	}
 
-	claimTapscript, err := vHTLC.ClaimTapscript()
+	claimTapscript, err := vhtlcScript.ClaimTapscript()
 	if err != nil {
 		return "", err
 	}
@@ -296,7 +324,7 @@ func (h *SwapHandler) ClaimVHTLC(
 	arkTx, checkpoints, err := offchain.BuildTxs(
 		[]offchain.VtxoInput{
 			{
-				RevealedTapscripts: vHTLC.GetRevealedTapscripts(),
+				RevealedTapscripts: vhtlcScript.GetRevealedTapscripts(),
 				Outpoint:           vtxoOutpoint,
 				Amount:             amount,
 				Tapscript:          claimTapscript,
@@ -379,8 +407,25 @@ func (h *SwapHandler) RefundSwap(
 	if err != nil {
 		return "", err
 	}
-	if err := h.ensureLocalVHTLCContractForSigning(ctx, vhtlcOpts); err != nil {
+
+	tapKey, _, err := vhtlcScript.TapTree()
+	if err != nil {
 		return "", err
+	}
+	outScript, err := script.P2TRScript(tapKey)
+	if err != nil {
+		return "", err
+	}
+	scripts := []string{hex.EncodeToString(outScript)}
+
+	contracts, err := h.arkWallet.ContractManager().GetContracts(
+		ctx, contract.WithScripts(scripts),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vhtlc contract %s: %w", scripts[0], err)
+	}
+	if len(contracts) <= 0 {
+		return "", fmt.Errorf("vhtlc contract %s not found", scripts[0])
 	}
 
 	vtxo, pending, err := h.selectClaimableVTXO(ctx, vhtlcScript, outpoint)
@@ -781,12 +826,6 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 func (h *SwapHandler) submarineSwap(
 	ctx context.Context, invoice string, unilateralRefund func(swap Swap) error,
 ) (*Swap, error) {
-	var (
-		preimageHash []byte
-		refundKeyRef *identity.KeyRef
-		err          error
-	)
-
 	if len(invoice) == 0 {
 		return nil, fmt.Errorf("missing invoice")
 	}
@@ -795,6 +834,7 @@ func (h *SwapHandler) submarineSwap(
 	}
 
 	// TODO: move to decodeInvoice
+	var preimageHash []byte
 	if IsBolt12Invoice(invoice) {
 		decodedInvoice, err := DecodeBolt12Invoice(invoice)
 		if err != nil {
@@ -802,14 +842,24 @@ func (h *SwapHandler) submarineSwap(
 		}
 		preimageHash = decodedInvoice.PaymentHash160
 	} else {
-		_, hash, err := decodeInvoice(invoice)
+		_, hash, _, err := decodeInvoice(invoice)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode invoice: %v", err)
 		}
 		preimageHash = hash
 	}
 
-	refundKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
+	contractManager := h.arkWallet.ContractManager()
+	handler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
+	if err != nil {
+		return nil, err
+	}
+
+	h.contractMu.Lock()
+	unlockContractMu := sync.OnceFunc(h.contractMu.Unlock)
+	defer unlockContractMu()
+
+	keyRef, err := h.getNewKey(ctx, handler)
 	if err != nil {
 		return nil, err
 	}
@@ -819,7 +869,7 @@ func (h *SwapHandler) submarineSwap(
 		From:            boltz.CurrencyArk,
 		To:              boltz.CurrencyBtc,
 		Invoice:         invoice,
-		RefundPublicKey: hex.EncodeToString(refundKeyRef.PubKey.SerializeCompressed()),
+		RefundPublicKey: hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		PaymentTimeout:  h.timeout,
 	})
 	if err != nil {
@@ -831,24 +881,54 @@ func (h *SwapHandler) submarineSwap(
 		return nil, fmt.Errorf("invalid claim pubkey: %v", err)
 	}
 
-	vhtlcAddress, _, vhtlcOpts, err := h.buildLocalSenderVHTLC(
-		receiverPubkey,
-		preimageHash,
-		arklib.AbsoluteLocktime(swap.TimeoutBlockHeights.RefundLocktime),
-		parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
-		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefund),
-		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefundWithoutReceiver),
-		refundKeyRef.PubKey,
-	)
+	contract, err := handler.NewContract(ctx, vhtlchandler.ContractArgs{
+		SenderKeyId:           keyRef.Id,
+		Sender:                keyRef.PubKey,
+		Receiver:              receiverPubkey,
+		PreimageHash:          preimageHash,
+		RefundLocktime:        arklib.AbsoluteLocktime(swap.TimeoutBlockHeights.RefundLocktime),
+		UnilateralClaimDelay:  parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
+		UnilateralRefundDelay: parseLocktime(swap.TimeoutBlockHeights.UnilateralRefund),
+		UnilateralRefundWithoutReceiverDelay: parseLocktime(
+			swap.TimeoutBlockHeights.UnilateralRefundWithoutReceiver,
+		),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify vHTLC: %v", err)
 	}
-	if swap.Address != vhtlcAddress {
-		return nil, fmt.Errorf("boltz is trying to scam us, vHTLCs do not match")
+	if swap.Address != contract.Address {
+		return nil, fmt.Errorf(
+			"vhtlc address mismatch: rebuilt %s, got %s from boltz",
+			contract.Address, swap.Address,
+		)
 	}
-	if err := h.storeLocalVHTLCContract(ctx, *refundKeyRef, *vhtlcOpts); err != nil {
+	args, err := handler.GetArgs(*contract)
+	if err != nil {
 		return nil, err
 	}
+	parsed, ok := args.(vhtlchandler.ContractArgs)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid contract args type: got %T, expected %T",
+			args, vhtlchandler.ContractArgs{},
+		)
+	}
+
+	vhtlcOpts := vhtlc.Opts{
+		Sender:                               parsed.Sender,
+		Receiver:                             parsed.Receiver,
+		Server:                               parsed.Signer,
+		PreimageHash:                         parsed.PreimageHash,
+		RefundLocktime:                       parsed.RefundLocktime,
+		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+	}
+
+	if err := contractManager.ImportContract(ctx, *contract); err != nil {
+		return nil, err
+	}
+	unlockContractMu()
 
 	ws := h.boltzSvc.NewWebsocket()
 	if err := ws.ConnectAndSubscribe(ctx, []string{swap.Id}, 5*time.Second); err != nil {
@@ -913,7 +993,7 @@ func (h *SwapHandler) submarineSwap(
 				swapDetails.Status = SwapFailed
 
 				txid, err := h.RefundSwap(
-					context.Background(), SwapTypeSubmarine, swap.Id, withReceiver, *vhtlcOpts, nil,
+					context.Background(), SwapTypeSubmarine, swap.Id, withReceiver, vhtlcOpts, nil,
 				)
 				if err != nil {
 					log.WithError(err).Warnf("failed to refund swap %s collaboratively", swap.Id)
@@ -949,76 +1029,129 @@ func (h *SwapHandler) submarineSwap(
 
 func (h *SwapHandler) reverseSwap(
 	ctx context.Context, amount uint64, postProcess func(swap Swap) error,
-) (Swap, error) {
-	var (
-		preimage, preimageHashSHA256, preimageHashHASH160 []byte
-		claimKeyRef                                       *identity.KeyRef
-		err                                               error
-	)
-
-	claimKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
+) (*Swap, error) {
+	contractManager := h.arkWallet.ContractManager()
+	keyProvider := h.arkWallet.Identity()
+	handler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
 	if err != nil {
-		return Swap{}, err
+		return nil, err
 	}
 
-	preimageSigner, err := h.requirePreimageSigner()
+	h.contractMu.Lock()
+	unlockContractMu := sync.OnceFunc(h.contractMu.Unlock)
+	defer unlockContractMu()
+
+	keyRef, err := h.getNewKey(ctx, handler)
 	if err != nil {
-		return Swap{}, err
+		return nil, err
 	}
-	preimage, preimageHashSHA256, preimageHashHASH160, err = genPreimageInfo(
-		ctx, preimageSigner, *claimKeyRef,
-	)
-	if err != nil {
-		return Swap{}, fmt.Errorf("failed to generate preimage: %w", err)
+
+	// If the identity supports schnorr signing, use it to generate a deterministic preimage,
+	// otherwise use a random preimage
+	schnorrSigner, ok := keyProvider.(hdidentity.KeyedPreimageSigner)
+	var preimage []byte
+	if ok {
+		keyIndex, err := keyProvider.GetKeyIndex(ctx, keyRef.Id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get key index for contract: %w", err)
+		}
+
+		preimage, err = genPreimage(ctx, schnorrSigner, *keyRef, keyIndex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate deterministic preimage: %w", err)
+		}
+	} else {
+		preimage = make([]byte, 32)
+		if _, err := rand.Read(preimage); err != nil {
+			return nil, fmt.Errorf("failed to generate random preimage: %w", err)
+		}
 	}
+
+	preimageHashSHA256, preimageHashHASH160 := preimageHashes(preimage)
 
 	swap, err := h.boltzSvc.CreateReverseSwap(boltz.CreateReverseSwapRequest{
 		From:           boltz.CurrencyBtc,
 		To:             boltz.CurrencyArk,
 		InvoiceAmount:  amount,
-		ClaimPublicKey: hex.EncodeToString(claimKeyRef.PubKey.SerializeCompressed()),
+		ClaimPublicKey: hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		PreimageHash:   hex.EncodeToString(preimageHashSHA256),
 	})
 	if err != nil {
-		return Swap{}, fmt.Errorf("failed to make reverse submarine swap: %v", err)
+		return nil, fmt.Errorf("failed to make reverse submarine swap: %v", err)
 	}
 
 	// verify vHTLC
 	senderPubkey, err := parsePubkey(swap.RefundPublicKey)
 	if err != nil {
-		return Swap{}, fmt.Errorf("invalid refund pubkey: %v", err)
+		return nil, fmt.Errorf("invalid refund pubkey: %v", err)
 	}
 
 	// verify preimage hash and invoice amount
-	invoiceAmount, gotPreimageHash, err := decodeInvoice(swap.Invoice)
+	invoiceAmount, gotPreimageHash, invoiceExpiry, err := decodeInvoice(swap.Invoice)
 	if err != nil {
-		return Swap{}, fmt.Errorf("failed to decode invoice: %v", err)
+		return nil, fmt.Errorf("failed to decode invoice: %v", err)
 	}
 
 	if !bytes.Equal(preimageHashHASH160, gotPreimageHash) {
-		return Swap{}, fmt.Errorf(
-			"invalid preimage hash: expected %x, got %x",
+		return nil, fmt.Errorf(
+			"invalid preimage hash: expected %x, got %x from Boltz",
 			preimageHashHASH160, gotPreimageHash,
 		)
 	}
 	if invoiceAmount != amount {
-		return Swap{}, fmt.Errorf(
-			"invalid invoice amount: expected %d, got %d", amount, invoiceAmount,
+		return nil, fmt.Errorf(
+			"invalid invoice amount: expected %d, got %d from Boltz", amount, invoiceAmount,
 		)
 	}
 
-	vhtlcAddress, _, vhtlcOpts, err := h.buildLocalReceiverVHTLC(
-		senderPubkey,
-		gotPreimageHash,
-		arklib.AbsoluteLocktime(swap.TimeoutBlockHeights.RefundLocktime),
-		parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
-		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefund),
-		parseLocktime(swap.TimeoutBlockHeights.UnilateralRefundWithoutReceiver),
-		claimKeyRef.PubKey,
-	)
+	contract, err := handler.NewContract(ctx, vhtlchandler.ContractArgs{
+		Sender:                senderPubkey,
+		ReceiverKeyId:         keyRef.Id,
+		Receiver:              keyRef.PubKey,
+		PreimageHash:          preimageHashHASH160,
+		RefundLocktime:        arklib.AbsoluteLocktime(swap.TimeoutBlockHeights.RefundLocktime),
+		UnilateralClaimDelay:  parseLocktime(swap.TimeoutBlockHeights.UnilateralClaim),
+		UnilateralRefundDelay: parseLocktime(swap.TimeoutBlockHeights.UnilateralRefund),
+		UnilateralRefundWithoutReceiverDelay: parseLocktime(
+			swap.TimeoutBlockHeights.UnilateralRefundWithoutReceiver,
+		),
+	})
 	if err != nil {
-		return Swap{}, fmt.Errorf("failed to verify vHTLC: %v", err)
+		return nil, fmt.Errorf("failed to verify vHTLC: %v", err)
 	}
+	if swap.LockupAddress != contract.Address {
+		return nil, fmt.Errorf(
+			"vhtlc address mismatch: rebuilt %s, got %s from boltz",
+			contract.Address, swap.LockupAddress,
+		)
+	}
+	args, err := handler.GetArgs(*contract)
+	if err != nil {
+		return nil, err
+	}
+	parsed, ok := args.(vhtlchandler.ContractArgs)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid contract args type: got %T, expected %T",
+			args, vhtlchandler.ContractArgs{},
+		)
+	}
+
+	vhtlcOpts := vhtlc.Opts{
+		Sender:                               parsed.Sender,
+		Receiver:                             parsed.Receiver,
+		Server:                               parsed.Signer,
+		PreimageHash:                         parsed.PreimageHash,
+		RefundLocktime:                       parsed.RefundLocktime,
+		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+	}
+
+	if err := contractManager.ImportContract(ctx, *contract); err != nil {
+		return nil, err
+	}
+	unlockContractMu()
 
 	swapDetails := Swap{
 		Id:           swap.Id,
@@ -1030,25 +1163,10 @@ func (h *SwapHandler) reverseSwap(
 		Amount:       swap.OnchainAmount,
 		Opts:         vhtlcOpts,
 	}
-	if err != nil {
-		return swapDetails, fmt.Errorf("failed to verify vHTLC: %v", err)
-	}
-
-	if swap.LockupAddress != vhtlcAddress {
-		return swapDetails, fmt.Errorf("boltz is trying to scam us, vHTLCs do not match")
-	}
-	if err := h.storeLocalVHTLCContract(ctx, *claimKeyRef, *vhtlcOpts); err != nil {
-		return swapDetails, err
-	}
-
-	inv, err := decodepay.Decodepay(swap.Invoice)
-	if err != nil {
-		return swapDetails, fmt.Errorf("failed to decode invoice: %v", err)
-	}
 
 	go func(swapDetails Swap) {
 		if reedeemTxId, err := h.waitAndClaim(
-			inv.Expiry, swapDetails.Id, preimage, vhtlcOpts,
+			invoiceExpiry, swapDetails.Id, preimage, vhtlcOpts,
 		); err != nil {
 			swapDetails.Status = SwapFailed
 			log.WithError(err).Error("failed to claim VHTLC")
@@ -1061,7 +1179,7 @@ func (h *SwapHandler) reverseSwap(
 			log.WithError(err).Error("failed to post process swap")
 		}
 	}(swapDetails)
-	return swapDetails, nil
+	return &swapDetails, nil
 }
 
 func (h *SwapHandler) getVHTLCFunds(
@@ -1115,7 +1233,7 @@ func (h *SwapHandler) getPendingVHTLCFunds(
 }
 
 func (h *SwapHandler) waitAndClaim(
-	invoiceExpiry int, swapId string, preimage []byte, vhtlcOpts *vhtlc.Opts,
+	invoiceExpiry int, swapId string, preimage []byte, vhtlcOpts vhtlc.Opts,
 ) (string, error) {
 	expiryDuration := time.Duration(invoiceExpiry) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), expiryDuration*2)
@@ -1159,7 +1277,7 @@ func (h *SwapHandler) waitAndClaim(
 				log.Debug("claiming VHTLC with preimage...")
 				if err := retry(ctx, interval, func(ctx context.Context) (bool, error) {
 					var err error
-					txid, err = h.ClaimVHTLC(ctx, preimage, *vhtlcOpts, nil)
+					txid, err = h.ClaimVHTLC(ctx, preimage, vhtlcOpts, nil)
 					if err != nil {
 						if errors.Is(err, ErrorNoVtxosFound) {
 							return false, nil
@@ -1421,4 +1539,38 @@ func (h *SwapHandler) finalizePendingRefundVHTLCTxs(
 		Closure:  vhtlcScript.RefundWithoutReceiverClosure,
 		Sequence: wire.MaxTxInSequenceNum - 1,
 	}}, uint32(vhtlcScript.RefundWithoutReceiverClosure.Locktime), signCheckpoint)
+}
+
+func (h *SwapHandler) getNewKey(
+	ctx context.Context, handler handlers.Handler,
+) (*identity.KeyRef, error) {
+	store := h.arkWallet.Store().ContractStore()
+	keyProvider := h.arkWallet.Identity()
+
+	latestContract, err := store.GetLatestActiveContract(ctx, types.ContractTypeVHTLC)
+	if err != nil {
+		return nil, err
+	}
+
+	var keyId string
+	if latestContract != nil {
+		keyRef, err := handler.GetKeyRef(*latestContract)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to get key ref for contract %s: %w", latestContract.Script, err,
+			)
+		}
+		keyId = keyRef.Id
+	}
+
+	nextKeyId, err := keyProvider.NextKeyId(ctx, keyId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute next key index: %w", err)
+	}
+
+	keyRef, err := keyProvider.GetKey(ctx, nextKeyId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
+	}
+	return keyRef, nil
 }

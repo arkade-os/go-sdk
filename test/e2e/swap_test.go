@@ -13,8 +13,10 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/swap"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -518,6 +520,28 @@ func TestRefundSwap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, createResp.Address, addr, "locally derived VHTLC address must match Boltz's")
 
+	// The swap was created directly with Boltz rather than through the
+	// SwapHandler, so the resulting vhtlc contract must be imported into the
+	// contract manager for the wallet to be able to sign for it.
+	contractManager := alice.ContractManager()
+	vhtlcHandler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
+	require.NoError(t, err)
+	keyId, err := alice.Identity().NextKeyId(ctx, "")
+	require.NoError(t, err)
+	vhtlcContract, err := vhtlcHandler.NewContract(ctx, vhtlchandler.ContractArgs{
+		SenderKeyId:                          keyId,
+		Sender:                               opts.Sender,
+		Receiver:                             opts.Receiver,
+		PreimageHash:                         opts.PreimageHash,
+		RefundLocktime:                       opts.RefundLocktime,
+		UnilateralClaimDelay:                 opts.UnilateralClaimDelay,
+		UnilateralRefundDelay:                opts.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: opts.UnilateralRefundWithoutReceiverDelay,
+	})
+	require.NoError(t, err)
+	require.Equal(t, createResp.Address, vhtlcContract.Address)
+	require.NoError(t, contractManager.ImportContract(ctx, *vhtlcContract))
+
 	// Underfund the swap — send less than expectedAmount
 	underfundAmount := createResp.ExpectedAmount - 100
 	_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{
@@ -893,7 +917,7 @@ func createReverseSwapWithRetry(
 	handler *swap.SwapHandler,
 	amount uint64,
 	postProcess func(swap.Swap) error,
-) (swap.Swap, error) {
+) (*swap.Swap, error) {
 	t.Helper()
 
 	const attempts = 5
@@ -907,7 +931,7 @@ func createReverseSwapWithRetry(
 
 		lastErr = err
 		if !isBoltzSerializationAbort(err) || attempt == attempts-1 {
-			return swap.Swap{}, err
+			return nil, err
 		}
 
 		backoff := time.Duration(attempt+1) * 400 * time.Millisecond
@@ -922,12 +946,12 @@ func createReverseSwapWithRetry(
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return swap.Swap{}, ctx.Err()
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}
 
-	return swap.Swap{}, lastErr
+	return nil, lastErr
 }
 
 func isBoltzSerializationAbort(err error) bool {

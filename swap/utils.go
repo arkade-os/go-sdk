@@ -374,19 +374,19 @@ func verifySignatures(
 	return nil
 }
 
-func decodeInvoice(invoice string) (uint64, []byte, error) {
+func decodeInvoice(invoice string) (uint64, []byte, int, error) {
 	bolt11, err := decodepay.Decodepay(invoice)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, -1, err
 	}
 
 	amount := uint64(bolt11.MSatoshi / 1000)
 	preimageHash, err := hex.DecodeString(bolt11.PaymentHash)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, -1, err
 	}
 
-	return amount, input.Ripemd160H(preimageHash), nil
+	return amount, input.Ripemd160H(preimageHash), bolt11.Expiry, nil
 }
 
 func parsePubkey(pubkey string) (*btcec.PublicKey, error) {

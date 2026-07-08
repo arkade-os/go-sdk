@@ -3,6 +3,7 @@ package swap
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,8 +12,10 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
+	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -423,48 +426,95 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 ) (*ChainSwap, error) {
 	log.Infof("Initiating Ark → BTC chain swap for %d sats to %s", amount, btcDestinationAddress)
 
-	var (
-		arkToBtc          = true
-		err               error
-		btcClaimKey       *btcec.PrivateKey
-		vhtlcRefundKeyRef *identity.KeyRef
-	)
+	arkToBtc := true
 
-	btcClaimKey, err = newHTLCPrivateKey()
+	btcClaimKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ephemeral claim key for HTLC: %w", err)
+	}
+
+	keyProvider := h.arkWallet.Identity()
+	contractManager := h.arkWallet.ContractManager()
+	handler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
 	if err != nil {
 		return nil, err
 	}
+	h.contractMu.Lock()
+	unlockContractMu := sync.OnceFunc(h.contractMu.Unlock)
+	defer unlockContractMu()
 
-	vhtlcRefundKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
+	keyRef, err := h.getNewKey(ctx, handler)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get new key: %w", err)
 	}
 
-	preimageSigner, err := h.requirePreimageSigner()
-	if err != nil {
-		return nil, err
+	// If the identity supports schnorr signing, use it to generate a deterministic preimage,
+	// otherwise use a random preimage
+	schnorrSigner, ok := keyProvider.(hdidentity.KeyedPreimageSigner)
+	var preimage []byte
+	if ok {
+		keyIndex, err := keyProvider.GetKeyIndex(ctx, keyRef.Id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get key index for contract: %w", err)
+		}
+
+		preimage, err = genPreimage(ctx, schnorrSigner, *keyRef, keyIndex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate deterministic preimage: %w", err)
+		}
+	} else {
+		preimage = make([]byte, 32)
+		if _, err := rand.Read(preimage); err != nil {
+			return nil, fmt.Errorf("failed to generate random preimage: %w", err)
+		}
 	}
-	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo(
-		ctx,
-		preimageSigner,
-		*vhtlcRefundKeyRef, //TOOD derivated based on refund key due to compatibility with .NET sdk
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate preimage: %w", err)
-	}
+
+	preimageHashSHA256, preimageHashHASH160 := preimageHashes(preimage)
 
 	createReq := boltz.CreateChainSwapRequest{
 		From:            boltz.CurrencyArk,
 		To:              boltz.CurrencyBtc,
 		PreimageHash:    hex.EncodeToString(preimageHashSHA256[:]),
 		ClaimPublicKey:  hex.EncodeToString(btcClaimKey.PubKey().SerializeCompressed()),
-		RefundPublicKey: hex.EncodeToString(vhtlcRefundKeyRef.PubKey.SerializeCompressed()),
+		RefundPublicKey: hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		UserLockAmount:  amount,
 	}
 
 	swapResp, err := h.boltzSvc.CreateChainSwap(createReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap with Boltz: %w", err)
+	}
+
+	receiverPubkey, err := parsePubkey(swapResp.LockupDetails.ServerPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid claim pubkey: %v", err)
+	}
+
+	contract, err := handler.NewContract(ctx, vhtlchandler.ContractArgs{
+		SenderKeyId:    keyRef.Id,
+		Sender:         keyRef.PubKey,
+		Receiver:       receiverPubkey,
+		PreimageHash:   preimageHashHASH160,
+		RefundLocktime: arklib.AbsoluteLocktime(swapResp.LockupDetails.Timeouts.Refund),
+		UnilateralClaimDelay: parseLocktime(
+			uint32(swapResp.LockupDetails.Timeouts.UnilateralClaim),
+		),
+		UnilateralRefundDelay: parseLocktime(
+			uint32(swapResp.LockupDetails.Timeouts.UnilateralRefund),
+		),
+		UnilateralRefundWithoutReceiverDelay: parseLocktime(
+			uint32(swapResp.LockupDetails.Timeouts.UnilateralRefundWithoutReceiver),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to rebuild contract: %w", err)
+	}
+
+	if contract.Address != swapResp.LockupDetails.LockupAddress {
+		return nil, fmt.Errorf(
+			"vhtlc address mismatch: rebuilt %s, got %s from boltz",
+			contract.Address, swapResp.LockupDetails.LockupAddress,
+		)
 	}
 
 	// validate proposed BTC script so that we are sure that we can claim BTC UTXO before we send VTXO
@@ -496,15 +546,34 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		btcClaimKey,
 	)
 
-	vhtlcOpts, err := validateVHTLC(
-		ctx, h, arkToBtc, swapResp, preimageHashHASH160, vhtlcRefundKeyRef.PubKey,
-	)
+	// Persist the VHTLC contract
+	args, err := handler.GetArgs(*contract)
 	if err != nil {
-		return nil, fmt.Errorf("invalid VHTLC: %w", err)
-	}
-	if err := h.storeLocalVHTLCContract(ctx, *vhtlcRefundKeyRef, *vhtlcOpts); err != nil {
 		return nil, err
 	}
+	parsed, ok := args.(vhtlchandler.ContractArgs)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid contract args type: got %T, expected %T",
+			args, vhtlchandler.ContractArgs{},
+		)
+	}
+
+	vhtlcOpts := vhtlc.Opts{
+		Sender:                               parsed.Sender,
+		Receiver:                             parsed.Receiver,
+		Server:                               parsed.Signer,
+		PreimageHash:                         parsed.PreimageHash,
+		RefundLocktime:                       parsed.RefundLocktime,
+		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+	}
+
+	if err := contractManager.ImportContract(ctx, *contract); err != nil {
+		return nil, err
+	}
+	unlockContractMu()
 
 	swapRespJson, err := json.Marshal(swapResp)
 	if err != nil {
@@ -515,7 +584,7 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		swapResp.Id,
 		amount,
 		preimage,
-		vhtlcOpts,
+		&vhtlcOpts,
 		string(swapRespJson),
 		arkToBtc,
 		btcDestinationAddress,
@@ -593,39 +662,56 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 ) (*ChainSwap, error) {
 	log.Infof("Initiating BTC → Ark chain swap for %d sats", amount)
 
-	var (
-		arkToBtc         = false
-		err              error
-		btcRefundKey     *btcec.PrivateKey
-		vhtlcClaimKeyRef *identity.KeyRef
-	)
+	arkToBtc := false
 
-	btcRefundKey, err = newHTLCPrivateKey()
+	btcRefundKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ephemeral refund key for HTLC: %w", err)
+	}
+
+	keyProvider := h.arkWallet.Identity()
+	contractManager := h.arkWallet.ContractManager()
+	handler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
 	if err != nil {
 		return nil, err
 	}
 
-	vhtlcClaimKeyRef, err = h.arkWallet.Identity().NewKey(ctx)
+	h.contractMu.Lock()
+	unlockContractMu := sync.OnceFunc(h.contractMu.Unlock)
+	defer unlockContractMu()
+
+	keyRef, err := h.getNewKey(ctx, handler)
 	if err != nil {
 		return nil, err
 	}
 
-	preimageSigner, err := h.requirePreimageSigner()
-	if err != nil {
-		return nil, err
+	// If the identity supports schnorr signing, use it to generate a deterministic preimage,
+	// otherwise use a random preimage
+	schnorrSigner, ok := keyProvider.(hdidentity.KeyedPreimageSigner)
+	var preimage []byte
+	if ok {
+		keyIndex, err := keyProvider.GetKeyIndex(ctx, keyRef.Id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get key index for contract: %w", err)
+		}
+
+		preimage, err = genPreimage(ctx, schnorrSigner, *keyRef, keyIndex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate deterministic preimage: %w", err)
+		}
+	} else {
+		preimage = make([]byte, 32)
+		if _, err := rand.Read(preimage); err != nil {
+			return nil, fmt.Errorf("failed to generate random preimage: %w", err)
+		}
 	}
-	preimage, preimageHashSHA256, preimageHashHASH160, err := genPreimageInfo(
-		ctx, preimageSigner, *vhtlcClaimKeyRef,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate preimage: %w", err)
-	}
+	preimageHashSHA256, preimageHashHASH160 := preimageHashes(preimage)
 
 	createReq := boltz.CreateChainSwapRequest{
 		From:            boltz.CurrencyBtc,
 		To:              boltz.CurrencyArk,
 		PreimageHash:    hex.EncodeToString(preimageHashSHA256[:]),
-		ClaimPublicKey:  hex.EncodeToString(vhtlcClaimKeyRef.PubKey.SerializeCompressed()),
+		ClaimPublicKey:  hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		RefundPublicKey: hex.EncodeToString(btcRefundKey.PubKey().SerializeCompressed()),
 		UserLockAmount:  amount,
 	}
@@ -633,6 +719,38 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	swapResp, err := h.boltzSvc.CreateChainSwap(createReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap with Boltz: %w", err)
+	}
+
+	senderPubkey, err := parsePubkey(swapResp.ClaimDetails.ServerPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid sender pubkey: %v", err)
+	}
+
+	contract, err := handler.NewContract(ctx, vhtlchandler.ContractArgs{
+		Sender:         senderPubkey,
+		ReceiverKeyId:  keyRef.Id,
+		Receiver:       keyRef.PubKey,
+		PreimageHash:   preimageHashHASH160,
+		RefundLocktime: arklib.AbsoluteLocktime(swapResp.ClaimDetails.Timeouts.Refund),
+		UnilateralClaimDelay: parseLocktime(
+			uint32(swapResp.ClaimDetails.Timeouts.UnilateralClaim),
+		),
+		UnilateralRefundDelay: parseLocktime(
+			uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefund),
+		),
+		UnilateralRefundWithoutReceiverDelay: parseLocktime(
+			uint32(swapResp.ClaimDetails.Timeouts.UnilateralRefundWithoutReceiver),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to rebuild contract: %w", err)
+	}
+
+	if contract.Address != swapResp.ClaimDetails.LockupAddress {
+		return nil, fmt.Errorf(
+			"vhtlc address mismatch: rebuilt %s, got %s from boltz",
+			contract.Address, swapResp.ClaimDetails.LockupAddress,
+		)
 	}
 
 	if err := validateBtcClaimOrRefundPossible(
@@ -660,20 +778,34 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		btcRefundKey,
 	)
 
-	vhtlcOpts, err := validateVHTLC(
-		ctx,
-		h,
-		arkToBtc,
-		swapResp,
-		preimageHashHASH160,
-		vhtlcClaimKeyRef.PubKey,
-	)
+	// Persist the VHTLC contract
+	args, err := handler.GetArgs(*contract)
 	if err != nil {
-		return nil, fmt.Errorf("invalid VHTLC: %w", err)
-	}
-	if err := h.storeLocalVHTLCContract(ctx, *vhtlcClaimKeyRef, *vhtlcOpts); err != nil {
 		return nil, err
 	}
+	parsed, ok := args.(vhtlchandler.ContractArgs)
+	if !ok {
+		return nil, fmt.Errorf(
+			"invalid contract args type: got %T, expected %T",
+			args, vhtlchandler.ContractArgs{},
+		)
+	}
+
+	vhtlcOpts := vhtlc.Opts{
+		Sender:                               parsed.Sender,
+		Receiver:                             parsed.Receiver,
+		Server:                               parsed.Signer,
+		PreimageHash:                         parsed.PreimageHash,
+		RefundLocktime:                       parsed.RefundLocktime,
+		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+	}
+
+	if err := contractManager.ImportContract(ctx, *contract); err != nil {
+		return nil, err
+	}
+	unlockContractMu()
 
 	log.Infof("Created BTC→ARK chain swap %s with Boltz", swapResp.Id)
 	log.Infof(
@@ -688,7 +820,8 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	}
 
 	chainSwap, err := NewChainSwap(
-		swapResp.Id, amount, preimage, vhtlcOpts, string(swapRespJson), arkToBtc, "", eventCallback,
+		swapResp.Id, amount, preimage, &vhtlcOpts,
+		string(swapRespJson), arkToBtc, "", eventCallback,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)

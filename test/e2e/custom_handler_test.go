@@ -64,10 +64,10 @@ func TestCustomContractHandlerRegistered(t *testing.T) {
 // registration without exercising the contract lifecycle.
 type customTestHandler struct{ typ types.ContractType }
 
-func (h *customTestHandler) Derivable() bool { return true }
 func (h *customTestHandler) NewContract(
-	_ context.Context, k identity.KeyRef, _ any,
+	_ context.Context, p any,
 ) (*types.Contract, error) {
+	k := p.(identity.KeyRef)
 	s := sha256.Sum256([]byte(string(h.typ) + ":" + k.Id))
 	return &types.Contract{
 		Type:   h.typ,
@@ -93,5 +93,11 @@ func (h *customTestHandler) GetExitDelay(types.Contract) (*arklib.RelativeLockti
 	return nil, nil
 }
 func (h *customTestHandler) GetTapscripts(types.Contract) ([]string, error) {
+	return nil, nil
+}
+func (h *customTestHandler) GetArgs(types.Contract) (any, error) {
+	return nil, nil
+}
+func (h *customTestHandler) GetCheckpointExitPath(types.Contract) ([]byte, error) {
 	return nil, nil
 }

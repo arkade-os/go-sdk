@@ -58,14 +58,15 @@ func TestGenPreimageInfo(t *testing.T) {
 	}
 	signer := preimageTestSigner{privKey: privKey}
 
-	preimage, shaHash, hash160, err := genPreimageInfo(
-		context.Background(), signer, keyRef,
-	)
+	preimage, err := genPreimage(t.Context(), signer, keyRef, 7)
 	require.NoError(t, err)
-	preimageAgain, shaHashAgain, hash160Again, err := genPreimageInfo(
-		context.Background(), signer, keyRef,
-	)
+
+	shaHash, hash160 := preimageHashes(preimage)
+
+	preimageAgain, err := genPreimage(t.Context(), signer, keyRef, 7)
 	require.NoError(t, err)
+
+	shaHashAgain, hash160Again := preimageHashes(preimageAgain)
 
 	require.Len(t, preimage, 32)
 	require.Equal(t, preimage, preimageAgain)

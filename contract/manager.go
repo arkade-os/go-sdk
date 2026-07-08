@@ -50,17 +50,9 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 	cache := newInfoCache(infoCacheTTL)
 	cachedClient := newCachingClient(args.Client, cache)
 	builtins := map[types.ContractType]handlers.Handler{
-		types.ContractTypeDefault: defaultHandler.NewHandler(
-			cachedClient,
-			args.Network,
-			false,
-		),
-		types.ContractTypeBoarding: defaultHandler.NewHandler(
-			cachedClient,
-			args.Network,
-			true,
-		),
-		types.ContractTypeVHTLC: vhtlcHandler.NewHandler(cachedClient, args.Network),
+		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
+		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
+		types.ContractTypeVHTLC:    vhtlcHandler.NewHandler(cachedClient, args.Network),
 		types.ContractTypeNonInteractiveVHTLC: vhtlcHandler.NewNonInteractiveHandler(
 			cachedClient,
 			args.Network,
@@ -97,12 +89,15 @@ func (m *contractManager) ScanContracts(ctx context.Context, gapLimit uint32) er
 	}
 
 	for _, contractType := range m.registry.SupportedTypes() {
+		// TODO: support rescan of vhtlc contracts
+		if contractType == types.ContractTypeVHTLC ||
+			contractType == types.ContractTypeNonInteractiveVHTLC {
+			continue
+		}
+
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
-		}
-		if !handler.Derivable() {
-			continue
 		}
 		// Pick the "is this contract used externally?" probe for the type:
 		// boarding contracts are looked up via the explorer per-address (and
@@ -145,66 +140,49 @@ func (m *contractManager) NewContract(
 		m.infoCache.set(o.serverParams)
 	}
 
-	// Derivable single-key contracts are idempotent when the manager controls
-	// key selection: the same key always produces the same script, so return
-	// the existing one.
-	if o.keyRef == nil && handler.Derivable() &&
-		m.keyProvider.GetType() == identity.SingleKeyIdentity {
-		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
-		if err != nil {
-			return nil, err
+	var contract *types.Contract
+	switch contractType {
+	case types.ContractTypeVHTLC, types.ContractTypeNonInteractiveVHTLC:
+		// TODO: handle single-key identity case
+		// if m.keyProvider.GetType() == identity.SingleKeyIdentity { ... }
+		contract, err = m.newVHTLCContract(ctx, contractType, handler, o.params)
+	// TODO: this won't likely work properly with custom handlers and we need to find a way to
+	// properly support creation of custom contracts.
+	default:
+		if m.keyProvider.GetType() == identity.SingleKeyIdentity {
+			// A single-key identity reuses the same key for every contract of a given type, so the
+			// derived script is identical across calls. Treat a repeat as idempotent reuse and return
+			// the stored contract.
+			contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
+			if err != nil {
+				return nil, err
+			}
+			if len(contracts) > 0 {
+				contract := contracts[0]
+				return &contract, nil
+			}
 		}
-		if len(contracts) > 0 {
-			c := contracts[0]
-			return &c, nil
-		}
+		contract, err = m.newDefaultContract(ctx, contractType, handler)
 	}
-
-	contract, err := m.newContract(ctx, contractType, handler, o)
 	if err != nil {
 		return nil, err
 	}
-
-	if o.keyRef != nil {
-		contracts, err := m.store.GetContractsByScripts(ctx, []string{contract.Script})
-		if err != nil {
-			return nil, err
-		}
-		if len(contracts) > 0 {
-			c := contracts[0]
-			return &c, nil
-		}
-	}
 	contract.Label = o.label
 
-	keyRef, err := handler.GetKeyRef(*contract)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
+	if err := m.storeContract(ctx, *contract, handler); err != nil {
+		return nil, err
 	}
-	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
-	}
-
-	if err := m.store.AddContract(ctx, *contract, keyIndex); err != nil {
-		return nil, fmt.Errorf("failed to store contract: %w", err)
-	}
-
-	log.Debugf("%s added new %s contract %s", logPrefix, contractType, contract.Script)
 
 	return contract, nil
 }
 
-func (m *contractManager) newContract(
-	ctx context.Context,
-	contractType types.ContractType,
-	handler handlers.Handler,
-	o *contractOptions,
-) (*types.Contract, error) {
-	if o.keyRef != nil {
-		return handler.NewContract(ctx, *o.keyRef, o.params)
+func (m *contractManager) ImportContract(ctx context.Context, contract types.Contract) error {
+	handler, err := m.registry.GetHandler(contract.Type)
+	if err != nil {
+		return err
 	}
-	return m.deriveContract(ctx, contractType, handler, o.params)
+
+	return m.storeContract(ctx, contract, handler)
 }
 
 func (m *contractManager) GetContracts(
@@ -322,7 +300,7 @@ scan:
 			if err != nil {
 				return err
 			}
-			contract, err := handler.NewContract(ctx, *keyRef, nil)
+			contract, err := handler.NewContract(ctx, *keyRef)
 			if err != nil {
 				return fmt.Errorf(
 					"failed to derive %s contract for key %s: %w",
@@ -373,9 +351,8 @@ scan:
 	return nil
 }
 
-func (m *contractManager) deriveContract(
-	ctx context.Context,
-	contractType types.ContractType, handler handlers.Handler, params any,
+func (m *contractManager) newDefaultContract(
+	ctx context.Context, contractType types.ContractType, handler handlers.Handler,
 ) (*types.Contract, error) {
 	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
 	if err != nil {
@@ -403,7 +380,97 @@ func (m *contractManager) deriveContract(
 		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
 	}
 
-	return handler.NewContract(ctx, *keyRef, params)
+	return handler.NewContract(ctx, *keyRef)
+}
+
+// newVHTLCContract validates the given contract params, retrieves a new key from the identity for
+// the given contract type, adds it to the provided contract params and let the handler create
+// the new contract.
+// NOTE: The handler takes care of fetching and adding the signer key arg.
+func (m *contractManager) newVHTLCContract(
+	ctx context.Context, contractType types.ContractType, handler handlers.Handler, params any,
+) (*types.Contract, error) {
+	parsed, ok := params.(VHTLCContractArgs)
+	if !ok {
+		return nil, fmt.Errorf(
+			"got invalid contract args type %T, expected %T", params, VHTLCContractArgs{},
+		)
+	}
+	if err := parsed.validate(contractType == types.ContractTypeNonInteractiveVHTLC); err != nil {
+		return nil, fmt.Errorf("invalid contract args: %w", err)
+	}
+
+	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	if err != nil {
+		return nil, err
+	}
+
+	var keyId string
+	if contract != nil {
+		keyRef, err := handler.GetKeyRef(*contract)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to get key ref for contract %s: %w", contract.Script, err,
+			)
+		}
+		keyId = keyRef.Id
+	}
+
+	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute next key index: %w", err)
+	}
+
+	keyRef, err := m.keyProvider.GetKey(ctx, nextKeyId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive key for contract: %w", err)
+	}
+
+	// Add the identity key as sender or receiver, depending on which one is missing
+	var senderKeyId, receiverKeyId string
+	senderPubkey := parsed.Sender
+	if senderPubkey == nil {
+		senderPubkey = keyRef.PubKey
+		senderKeyId = keyRef.Id
+	}
+	receiverPubkey := parsed.Receiver
+	if receiverPubkey == nil {
+		receiverPubkey = keyRef.PubKey
+		receiverKeyId = keyRef.Id
+	}
+
+	var args any
+	if contractType == types.ContractTypeNonInteractiveVHTLC {
+		args = vhtlcHandler.NonInteractiveContractArgs{
+			ContractArgs: vhtlcHandler.ContractArgs{
+				SenderKeyId:                          senderKeyId,
+				Sender:                               senderPubkey,
+				ReceiverKeyId:                        receiverKeyId,
+				Receiver:                             receiverPubkey,
+				PreimageHash:                         parsed.PreimageHash,
+				RefundLocktime:                       parsed.RefundLocktime,
+				UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+				UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+				UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+			},
+			NonInteractiveReceiver: parsed.NonInteractiveReceiver,
+			NonInteractiveEmulator: parsed.NonInteractiveEmulator,
+		}
+	} else {
+		args = vhtlcHandler.ContractArgs{
+			SenderKeyId:                          senderKeyId,
+			Sender:                               senderPubkey,
+			ReceiverKeyId:                        receiverKeyId,
+			Receiver:                             receiverPubkey,
+			PreimageHash:                         parsed.PreimageHash,
+			RefundLocktime:                       parsed.RefundLocktime,
+			UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+			UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+			UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+		}
+	}
+
+	return handler.NewContract(ctx, args)
 }
 
 func (m *contractManager) findUsedContracts(
@@ -466,12 +533,15 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 	var offchain, boarding []pending
 
 	for _, contractType := range m.registry.SupportedTypes() {
+		// TODO: support rescan of vhtlc contracts for single-key identity
+		if contractType == types.ContractTypeVHTLC ||
+			contractType == types.ContractTypeNonInteractiveVHTLC {
+			continue
+		}
+
 		handler, err := m.registry.GetHandler(contractType)
 		if err != nil {
 			return err
-		}
-		if !handler.Derivable() {
-			continue
 		}
 		contracts, err := m.store.GetActiveContractsByType(ctx, contractType)
 		if err != nil {
@@ -492,7 +562,7 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		c, err := handler.NewContract(ctx, *keyRef, nil)
+		c, err := handler.NewContract(ctx, *keyRef)
 		if err != nil {
 			return fmt.Errorf(
 				"failed to derive %s contract for key %s: %w", contractType, keyId, err,
@@ -550,5 +620,26 @@ func (m *contractManager) scanSingleKeyContracts(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func (m *contractManager) storeContract(
+	ctx context.Context, contract types.Contract, handler handlers.Handler,
+) error {
+	keyRef, err := handler.GetKeyRef(contract)
+	if err != nil {
+		return fmt.Errorf("failed to get key ref for contract %s: %w", contract.Script, err)
+	}
+
+	keyIndex, err := m.keyProvider.GetKeyIndex(ctx, keyRef.Id)
+	if err != nil {
+		return fmt.Errorf("failed to get key index for contract %s: %w", contract.Script, err)
+	}
+
+	if err := m.store.AddContract(ctx, contract, keyIndex); err != nil {
+		return fmt.Errorf("failed to store contract: %w", err)
+	}
+
+	log.Debugf("%s added new contract %s", logPrefix, contract.Script)
 	return nil
 }

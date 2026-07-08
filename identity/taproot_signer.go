@@ -17,15 +17,6 @@ func (s *service) SignSchnorrBIP340(
 	keyID string,
 	msg [32]byte,
 ) (*schnorr.Signature, error) {
-	var auxRand [32]byte
-	return s.signSchnorr(keyID, msg, schnorr.CustomNonce(auxRand))
-}
-
-func (s *service) signSchnorr(
-	keyID string,
-	msg [32]byte,
-	opts ...schnorr.SignOption,
-) (*schnorr.Signature, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -40,5 +31,6 @@ func (s *service) signSchnorr(
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive key %q: %w", keyID, err)
 	}
-	return schnorr.Sign(privKey, msg[:], opts...)
+	var auxRand [32]byte
+	return schnorr.Sign(privKey, msg[:], schnorr.CustomNonce(auxRand))
 }

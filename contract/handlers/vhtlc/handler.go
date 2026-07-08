@@ -1,8 +1,7 @@
-package vhtlcHandler
+package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -12,254 +11,249 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/arkade-os/go-sdk/contract/handlers"
-	sdkutils "github.com/arkade-os/go-sdk/internal/utils"
+	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 )
 
 // Param keys stored in Contract.Params.
 const (
-	paramSenderKeyID                = "senderKeyId"
-	paramReceiverKeyID              = "receiverKeyId"
-	paramSender                     = "sender"
-	paramReceiver                   = "receiver"
-	paramServer                     = "server"
-	paramPreimageHash               = "preimageHash"
-	paramRefundLocktime             = "refundLocktime"
-	paramClaimDelay                 = "claimDelay"
-	paramRefundDelay                = "refundDelay"
-	paramRefundWithoutReceiverDelay = "refundWithoutReceiverDelay"
-	paramNICReceiverPkScript        = "nicReceiverPkScript"
-	paramNICEmulatorPubKey          = "nicEmulatorPubKey"
-	paramCheckpointExitPath         = "checkpointExitPath"
+	senderKeyIdParam                          = "senderKeyId"
+	receiverKeyIdParam                        = "receiverKeyId"
+	senderKeyParam                            = "senderKey"
+	receiverKeyParam                          = "receiverKey"
+	signerKeyParam                            = "signerKey"
+	preimageHashParam                         = "preimageHash"
+	refundLocktimeParam                       = "refundLocktime"
+	unilateralClaimDelayParam                 = "unilateralClaimDelay"
+	unilateralRefundDelayParam                = "unilateralRefundDelay"
+	unilateralRefundWithoutReceiverDelayParam = "unilateralRefundWithoutReceiverDelay"
+	nonInteractiveReceiverParam               = "nonInteractiveReceiver"
+	nonInteractiveEmulatorParam               = "nonInteractiveEmulator"
+	checkpointExitPathParam                   = "checkpointExitPath"
 )
 
 // handler is the shared stateless contract handler for VHTLC scripts.
 // All VHTLC parameters are stored in Contract.Params, so the handler
 // can rebuild the full tapscript tree from any persisted contract.
 type handler struct {
-	network                arklib.Network
-	client                 client.Client
-	contractType           types.ContractType
-	requiresNonInteractive bool
+	network arklib.Network
+	client  client.Client
 }
 
-// VHTLCHandler handles standard VHTLC contracts without a non-interactive
-// claim closure.
-type VHTLCHandler struct {
-	*handler
-}
-
-// NonInteractiveHandler handles VHTLC contracts that require a non-interactive
-// claim closure.
-type NonInteractiveHandler struct {
-	*handler
-}
-
-// NewHandler returns a VHTLC contract handler ready to be registered via
-// the contract manager built-in handler registry.
-func NewHandler(c client.Client, network arklib.Network) *VHTLCHandler {
-	return &VHTLCHandler{
-		handler: newHandler(c, network, types.ContractTypeVHTLC, false),
+func newHandler(c client.Client, network arklib.Network) handler {
+	return handler{
+		network: network,
+		client:  c,
 	}
 }
 
-// NewNonInteractiveHandler returns a contract handler for VHTLC scripts that
-// include the non-interactive claim covenant leaf.
-func NewNonInteractiveHandler(c client.Client, network arklib.Network) *NonInteractiveHandler {
-	return &NonInteractiveHandler{
-		handler: newHandler(c, network, types.ContractTypeNonInteractiveVHTLC, true),
-	}
-}
-
-func newHandler(
-	c client.Client,
-	network arklib.Network,
-	contractType types.ContractType,
-	requiresNonInteractive bool,
-) *handler {
-	return &handler{
-		network:                network,
-		client:                 c,
-		contractType:           contractType,
-		requiresNonInteractive: requiresNonInteractive,
-	}
-}
-
-// Derivable returns false — VHTLC contracts require counterparty data
-// (pubkey, preimage hash, locktimes) and cannot be derived from an HD key alone.
-// Callers must provide WithParams(*vhtlc.Opts) when calling Manager.NewContract.
-func (h *handler) Derivable() bool { return false }
-
-// NewContract builds a VHTLC contract from the caller-provided key and params.
-// params must be *vhtlc.Opts. If one of Sender or Receiver is missing, the
-// missing side is populated with keyRef.PubKey. If both are present, keyRef
-// must match one of them so the handler can persist the wallet role.
-func (h *handler) NewContract(
-	ctx context.Context, keyRef identity.KeyRef, params any,
-) (*types.Contract, error) {
-	p, ok := params.(*vhtlc.Opts)
-	if !ok || p == nil {
-		return nil, fmt.Errorf(
-			"vhtlc handler requires *vhtlc.Opts, got %T", params,
-		)
-	}
-	opts, err := prepareOwnedOpts(*p, keyRef)
-	if err != nil {
-		return nil, err
-	}
-	if err := h.validateOptsForType(opts); err != nil {
-		return nil, err
-	}
-	checkpointExitPath, err := h.resolveCheckpointExitPath(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if checkpointExitPath == "" {
-		return nil, fmt.Errorf("missing checkpoint exit path")
-	}
-	checkpointExitPathBytes, err := hex.DecodeString(checkpointExitPath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid checkpoint exit path hex: %w", err)
-	}
-	exitPath := &script.CSVMultisigClosure{}
-	valid, err := exitPath.Decode(checkpointExitPathBytes)
-	if err != nil {
-		return nil, fmt.Errorf("decode checkpoint exit path: %w", err)
-	}
-	if !valid {
-		return nil, fmt.Errorf("invalid checkpoint exit path")
-	}
-
-	return createContract(opts, keyRef, h.network, checkpointExitPath, h.contractType)
-}
-
-func (h *handler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
-	if c.Params == nil {
-		return nil, fmt.Errorf("vhtlc contract %s: no params", c.Script)
-	}
-
-	if keyID := c.Params[paramSenderKeyID]; keyID != "" {
-		pubKey, err := parseCompressedParam(c, paramSender)
-		if err != nil {
-			return nil, err
-		}
-		return &identity.KeyRef{Id: keyID, PubKey: pubKey}, nil
-	}
-
-	if keyID := c.Params[paramReceiverKeyID]; keyID != "" {
-		pubKey, err := parseCompressedParam(c, paramReceiver)
-		if err != nil {
-			return nil, err
-		}
-		return &identity.KeyRef{Id: keyID, PubKey: pubKey}, nil
-	}
-
-	return nil, fmt.Errorf(
-		"vhtlc contract %s: missing wallet key ID: expected %q or %q",
-		c.Script, paramSenderKeyID, paramReceiverKeyID,
-	)
-}
-
-func (h *handler) GetKeyRefs(c types.Contract) (map[string]string, error) {
-	keyRef, err := h.GetKeyRef(c)
+func (h handler) GetKeyRefs(contract types.Contract) (map[string]string, error) {
+	keyRef, err := h.GetKeyRef(contract)
 	if err != nil {
 		return nil, err
 	}
 
-	keys := map[string]string{c.Script: keyRef.Id}
+	keys := map[string]string{contract.Script: keyRef.Id}
 
-	checkpointExitPathStr, err := requireParam(c, paramCheckpointExitPath)
-	if err != nil {
-		return nil, err
+	// For the offchain contract add also a key ref for the checkpoint script.
+	checkpointExitPathStr, ok := contract.Params[checkpointExitPathParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing checkpoint exit path", contract.Script)
 	}
 	checkpointExitPath, err := hex.DecodeString(checkpointExitPathStr)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"vhtlc contract %s: invalid checkpoint exit path hex: %w",
-			c.Script,
-			err,
+			"contract %s has invalid checkpoint exit path format", contract.Script,
 		)
-	}
-
-	opts, err := h.optsFromContract(c)
-	if err != nil {
-		return nil, err
-	}
-	vhtlcScript, err := vhtlc.NewVHTLCScriptFromOpts(opts)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: rebuild script: %w", c.Script, err)
 	}
 
 	exitPath := &script.CSVMultisigClosure{}
 	valid, err := exitPath.Decode(checkpointExitPath)
 	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: decode checkpoint exit path: %w", c.Script, err)
+		return nil, fmt.Errorf("failed to decode checkpoint exit path")
 	}
 	if !valid {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid checkpoint exit path", c.Script)
+		return nil, fmt.Errorf("invalid checkpoint exit path")
 	}
 
+	vhtlcScript, err := h.getVhtlc(contract)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the checkpoint exit closure to any vhtlc closures that contain the key ref.
 	for _, closure := range []script.Closure{
 		vhtlcScript.ClaimClosure,
 		vhtlcScript.RefundClosure,
 		vhtlcScript.RefundWithoutReceiverClosure,
 	} {
-		if err := addCheckpointKeyRef(keys, exitPath, closure, keyRef); err != nil {
-			return nil, fmt.Errorf("vhtlc contract %s: checkpoint key ref: %w", c.Script, err)
+		if !closureContainsKey(closure, keyRef.PubKey) {
+			continue
 		}
+
+		rawCheckpointScript := script.TapscriptsVtxoScript{
+			Closures: []script.Closure{closure, exitPath},
+		}
+		taprootKey, _, err := rawCheckpointScript.TapTree()
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute checkpoint script taproot key: %w", err)
+		}
+
+		checkpointScript, err := script.P2TRScript(taprootKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute checkpoint: %w", err)
+		}
+
+		keys[hex.EncodeToString(checkpointScript)] = keyRef.Id
 	}
 
 	return keys, nil
 }
 
-func (h *handler) GetSignerKey(c types.Contract) (*btcec.PublicKey, error) {
-	return parseCompressedParam(c, paramServer)
+func (h handler) GetKeyRef(contract types.Contract) (*identity.KeyRef, error) {
+	if len(contract.Params) <= 0 {
+		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
+	}
+
+	if keyId, ok := contract.Params[senderKeyIdParam]; ok {
+		buf, err := hex.DecodeString(contract.Params[senderKeyParam])
+		if err != nil {
+			return nil, fmt.Errorf("contract %s has invalid sender key format", contract.Script)
+		}
+		pubkey, err := schnorr.ParsePubKey(buf)
+		if err != nil {
+			return nil, fmt.Errorf("contract %s has invalid sender key: %w", contract.Script, err)
+		}
+		return &identity.KeyRef{Id: keyId, PubKey: pubkey}, nil
+	}
+
+	keyId, ok := contract.Params[receiverKeyIdParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing sender or receiver key ID", contract.Script)
+	}
+
+	buf, err := hex.DecodeString(contract.Params[receiverKeyParam])
+	if err != nil {
+		return nil, fmt.Errorf("contract %s has invalid receiver key format", contract.Script)
+	}
+	pubkey, err := schnorr.ParsePubKey(buf)
+	if err != nil {
+		return nil, fmt.Errorf("contract %s has invalid receiver key: %w", contract.Script, err)
+	}
+	return &identity.KeyRef{Id: keyId, PubKey: pubkey}, nil
+}
+
+func (h handler) GetSignerKey(contract types.Contract) (*btcec.PublicKey, error) {
+	if len(contract.Params) <= 0 {
+		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
+	}
+	key, ok := contract.Params[signerKeyParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing signer key", contract.Script)
+	}
+	buf, err := hex.DecodeString(key)
+	if err != nil {
+		return nil, fmt.Errorf("contract %s has invalid signer key format", contract.Script)
+	}
+	signerKey, err := schnorr.ParsePubKey(buf)
+	if err != nil {
+		return nil, fmt.Errorf("contract %s has invalid signer key: %w", contract.Script, err)
+	}
+	return signerKey, nil
 }
 
 // GetExitDelay returns the conservative (longest) exit delay:
 // refundWithoutReceiverDelay. This is always safe regardless of
 // whether the wallet is the sender or receiver.
-func (h *handler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
-	delay, err := parseRelativeLocktime(c, paramRefundWithoutReceiverDelay)
+func (h handler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime, error) {
+	if len(c.Params) <= 0 {
+		return nil, fmt.Errorf("contract %s has no parameters", c.Script)
+	}
+	delay, ok := c.Params[unilateralRefundWithoutReceiverDelayParam]
+	if !ok {
+		return nil, fmt.Errorf(
+			"contract %s is missing unilateral refund without receiver delay", c.Script,
+		)
+	}
+	return utils.ParseDelay(delay)
+}
+
+func (h handler) GetTapscripts(c types.Contract) ([]string, error) {
+	vhtlcScript, err := h.getVhtlc(c)
 	if err != nil {
 		return nil, err
 	}
-	return &delay, nil
+	return vhtlcScript.Encode()
 }
 
-func (h *handler) GetTapscripts(c types.Contract) ([]string, error) {
-	opts, err := h.optsFromContract(c)
-	if err != nil {
-		return nil, err
+func (h handler) GetCheckpointExitPath(contract types.Contract) ([]byte, error) {
+	if len(contract.Params) <= 0 {
+		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
 	}
-	s, err := vhtlc.NewVHTLCScriptFromOpts(opts)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: rebuild script: %w", c.Script, err)
+	checkpointExitPath, ok := contract.Params[checkpointExitPathParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing checkpoint exit path", contract.Script)
 	}
-	return s.Encode()
+	if len(checkpointExitPath) <= 0 {
+		return nil, fmt.Errorf("contract %s has empty checkpoint exit path", contract.Script)
+	}
+	buf, err := hex.DecodeString(checkpointExitPath)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"contract %s has invalid checkpoint exit path format", contract.Script,
+		)
+	}
+	return buf, nil
 }
 
-// Compile-time checks.
-var _ handlers.Handler = (*VHTLCHandler)(nil)
-var _ handlers.Handler = (*NonInteractiveHandler)(nil)
-
-// createContract builds a VHTLC contract entry. ownerKeyRef is the wallet's
-// identity key and must be either the sender or receiver key.
-func createContract(
-	opts vhtlc.Opts,
-	ownerKeyRef identity.KeyRef,
-	network arklib.Network,
-	checkpointExitPath string,
-	contractType types.ContractType,
+// newContract builds a new VHTLC contract from the given args. Is is used by both the vhtlc and
+// non-interactive vhtlc handlers, therefore takes the extended NonInteractiveContractArgs type and
+// expects the non interactive args for the closure to be optional.
+func (h handler) newContract(
+	serverParams *client.Info, args NonInteractiveContractArgs,
+	contractType types.ContractType, withNonInteractive bool,
 ) (*types.Contract, error) {
+	buf, err := hex.DecodeString(serverParams.SignerPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
+	}
+	fetchedSignerKey, err := btcec.ParsePubKey(buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
+	}
+	signerKey := args.Signer
+	if signerKey != nil {
+		// Compare x-only: callers typically hold the signer key from an
+		// x-only source (ark address, persisted signerKey param), so the
+		// y parity of the provided point is meaningless.
+		if !bytes.Equal(
+			schnorr.SerializePubKey(signerKey), schnorr.SerializePubKey(fetchedSignerKey),
+		) {
+			keyStr := func(key *btcec.PublicKey) string {
+				return hex.EncodeToString(schnorr.SerializePubKey(key))
+			}
+			return nil, fmt.Errorf(
+				"invalid signer key: got %s, expected %s",
+				keyStr(signerKey), keyStr(fetchedSignerKey),
+			)
+		}
+	} else {
+		signerKey = fetchedSignerKey
+	}
+
+	opts := args.ContractArgs.vhtlcOpts(signerKey)
+	if withNonInteractive {
+		opts = args.vhtlcOpts(signerKey)
+	}
 	s, err := vhtlc.NewVHTLCScriptFromOpts(opts)
 	if err != nil {
 		return nil, fmt.Errorf("build vhtlc script: %w", err)
 	}
+
 	tapKey, _, err := s.TapTree()
 	if err != nil {
 		return nil, fmt.Errorf("compute vhtlc tap tree: %w", err)
@@ -268,219 +262,178 @@ func createContract(
 	if err != nil {
 		return nil, fmt.Errorf("compute vhtlc pkScript: %w", err)
 	}
-	addr, err := s.Address(network.Addr)
+	addr, err := s.Address(h.network.Addr)
 	if err != nil {
 		return nil, fmt.Errorf("encode vhtlc address: %w", err)
 	}
 
 	params := map[string]string{
-		paramSender: hex.EncodeToString(opts.Sender.SerializeCompressed()),
-		paramReceiver: hex.EncodeToString(
-			opts.Receiver.SerializeCompressed(),
+		senderKeyParam:            hex.EncodeToString(schnorr.SerializePubKey(args.Sender)),
+		receiverKeyParam:          hex.EncodeToString(schnorr.SerializePubKey(args.Receiver)),
+		signerKeyParam:            hex.EncodeToString(schnorr.SerializePubKey(signerKey)),
+		preimageHashParam:         hex.EncodeToString(args.PreimageHash),
+		refundLocktimeParam:       strconv.FormatUint(uint64(args.RefundLocktime), 10),
+		unilateralClaimDelayParam: strconv.FormatUint(uint64(args.UnilateralClaimDelay.Value), 10),
+		unilateralRefundDelayParam: strconv.FormatUint(
+			uint64(opts.UnilateralRefundDelay.Value), 10,
 		),
-		paramServer:         hex.EncodeToString(opts.Server.SerializeCompressed()),
-		paramPreimageHash:   hex.EncodeToString(opts.PreimageHash),
-		paramRefundLocktime: strconv.FormatUint(uint64(opts.RefundLocktime), 10),
-		paramClaimDelay:     formatRelativeLocktime(opts.UnilateralClaimDelay),
-		paramRefundDelay:    formatRelativeLocktime(opts.UnilateralRefundDelay),
-		paramRefundWithoutReceiverDelay: formatRelativeLocktime(
-			opts.UnilateralRefundWithoutReceiverDelay,
+		unilateralRefundWithoutReceiverDelayParam: strconv.FormatUint(
+			uint64(opts.UnilateralRefundWithoutReceiverDelay.Value), 10,
 		),
+		checkpointExitPathParam: serverParams.CheckpointTapscript,
 	}
-	role, err := ownerRole(opts, ownerKeyRef.PubKey)
-	if err != nil {
-		return nil, err
+
+	// Only persist the key id of the role(s) the wallet actually owns: an
+	// empty senderKeyId param would shadow the receiver one in GetKeyRef.
+	if len(args.SenderKeyId) > 0 {
+		params[senderKeyIdParam] = args.SenderKeyId
 	}
-	switch role {
-	case paramSender:
-		params[paramSenderKeyID] = ownerKeyRef.Id
-	case paramReceiver:
-		params[paramReceiverKeyID] = ownerKeyRef.Id
+	if len(args.ReceiverKeyId) > 0 {
+		params[receiverKeyIdParam] = args.ReceiverKeyId
 	}
 
 	if opts.NonInteractiveClaim != nil {
-		params[paramNICReceiverPkScript] = hex.EncodeToString(
+		params[nonInteractiveReceiverParam] = hex.EncodeToString(
 			opts.NonInteractiveClaim.ReceiverPkScript,
 		)
-		params[paramNICEmulatorPubKey] = hex.EncodeToString(
-			opts.NonInteractiveClaim.EmulatorPubKey.SerializeCompressed(),
+		params[nonInteractiveEmulatorParam] = hex.EncodeToString(
+			schnorr.SerializePubKey(opts.NonInteractiveClaim.EmulatorPubKey),
 		)
 	}
-	params[paramCheckpointExitPath] = checkpointExitPath
 
 	return &types.Contract{
 		Type:      contractType,
+		Params:    params,
 		Script:    hex.EncodeToString(pkScript),
 		Address:   addr,
-		Params:    params,
 		State:     types.ContractStateActive,
 		CreatedAt: time.Now(),
 	}, nil
 }
 
-func (h *handler) optsFromContract(c types.Contract) (vhtlc.Opts, error) {
-	opts, err := OptsFromContract(c)
+func (h handler) getVhtlc(contract types.Contract) (*vhtlc.VHTLCScript, error) {
+	opts, err := h.parseContractParams(contract)
 	if err != nil {
-		return vhtlc.Opts{}, err
+		return nil, err
 	}
-	if err := h.validateOptsForType(opts); err != nil {
-		return vhtlc.Opts{}, fmt.Errorf("vhtlc contract %s: %w", c.Script, err)
-	}
-	return opts, nil
+
+	return vhtlc.NewVHTLCScriptFromOpts(*opts)
 }
 
-func (h *handler) validateOptsForType(opts vhtlc.Opts) error {
-	if h.requiresNonInteractive {
-		if opts.NonInteractiveClaim == nil {
-			return fmt.Errorf(
-				"%s contract type requires non-interactive claim params",
-				types.ContractTypeNonInteractiveVHTLC,
-			)
-		}
-		return nil
+func (h handler) parseContractParams(contract types.Contract) (*vhtlc.Opts, error) {
+	senderKey, ok := contract.Params[senderKeyParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing sender key", contract.Script)
 	}
-	if opts.NonInteractiveClaim != nil {
-		return fmt.Errorf(
-			"%s contract type cannot include non-interactive claim params; use %s",
-			types.ContractTypeVHTLC,
-			types.ContractTypeNonInteractiveVHTLC,
-		)
+	sender, err := parsePubkey(senderKey, "sender")
+	if err != nil {
+		return nil, fmt.Errorf("contract %s %w", contract.Script, err)
 	}
-	return nil
-}
 
-// OptsFromContract reconstructs vhtlc.Opts from a persisted contract's params.
-func OptsFromContract(c types.Contract) (vhtlc.Opts, error) {
-	sender, err := parseCompressedParam(c, paramSender)
-	if err != nil {
-		return vhtlc.Opts{}, err
+	receiverKey, ok := contract.Params[receiverKeyParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing receiver key", contract.Script)
 	}
-	receiver, err := parseCompressedParam(c, paramReceiver)
+	receiver, err := parsePubkey(receiverKey, "receiver")
 	if err != nil {
-		return vhtlc.Opts{}, err
+		return nil, fmt.Errorf("contract %s %w", contract.Script, err)
 	}
-	server, err := parseCompressedParam(c, paramServer)
-	if err != nil {
-		return vhtlc.Opts{}, err
+
+	signerKey, ok := contract.Params[signerKeyParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing signer key", contract.Script)
 	}
-	preimageHashHex, err := requireParam(c, paramPreimageHash)
+	signer, err := parsePubkey(signerKey, "signer")
 	if err != nil {
-		return vhtlc.Opts{}, err
+		return nil, fmt.Errorf("contract %s %w", contract.Script, err)
+	}
+
+	preimageHashHex, ok := contract.Params[preimageHashParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing preimage hash", contract.Script)
 	}
 	preimageHash, err := hex.DecodeString(preimageHashHex)
 	if err != nil {
-		return vhtlc.Opts{}, fmt.Errorf(
-			"vhtlc contract %s: invalid preimage hash: %w",
-			c.Script,
-			err,
-		)
-	}
-	refundLockStr, err := requireParam(c, paramRefundLocktime)
-	if err != nil {
-		return vhtlc.Opts{}, err
-	}
-	refundLock, err := strconv.ParseUint(refundLockStr, 10, 32)
-	if err != nil {
-		return vhtlc.Opts{}, fmt.Errorf(
-			"vhtlc contract %s: invalid refund locktime: %w",
-			c.Script,
-			err,
-		)
-	}
-	claimDelay, err := parseRelativeLocktime(c, paramClaimDelay)
-	if err != nil {
-		return vhtlc.Opts{}, err
-	}
-	refundDelay, err := parseRelativeLocktime(c, paramRefundDelay)
-	if err != nil {
-		return vhtlc.Opts{}, err
-	}
-	refundWithoutReceiverDelay, err := parseRelativeLocktime(c, paramRefundWithoutReceiverDelay)
-	if err != nil {
-		return vhtlc.Opts{}, err
+		return nil, fmt.Errorf("contract %s has invalid preimage hash format", contract.Script)
 	}
 
-	opts := vhtlc.Opts{
-		Sender:                               sender,
-		Receiver:                             receiver,
-		Server:                               server,
-		PreimageHash:                         preimageHash,
-		RefundLocktime:                       arklib.AbsoluteLocktime(refundLock),
-		UnilateralClaimDelay:                 claimDelay,
-		UnilateralRefundDelay:                refundDelay,
-		UnilateralRefundWithoutReceiverDelay: refundWithoutReceiverDelay,
+	refundLocktimeStr, ok := contract.Params[refundLocktimeParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing refund locktime", contract.Script)
+	}
+	refundLocktime, err := strconv.ParseUint(refundLocktimeStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("contract %s has invalid refund locktime format", contract.Script)
 	}
 
+	unilateralClaimDelayStr, ok := contract.Params[unilateralClaimDelayParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing unilateral claim delay", contract.Script)
+	}
+	unilateralClaimDelay, err := utils.ParseDelay(unilateralClaimDelayStr)
+	if err != nil {
+		return nil, err
+	}
+
+	unilateralRefundDelayStr, ok := contract.Params[unilateralRefundDelayParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing unilateral refund delay", contract.Script)
+	}
+	unilateralRefundDelay, err := utils.ParseDelay(unilateralRefundDelayStr)
+	if err != nil {
+		return nil, err
+	}
+
+	unilateralRefundWithoutReceiverDelayStr, ok :=
+		contract.Params[unilateralRefundWithoutReceiverDelayParam]
+	if !ok {
+		return nil, fmt.Errorf(
+			"contract %s is missing unilateral refund without receiver delay", contract.Script,
+		)
+	}
+	unilateralRefundWithoutReceiverDelay, err := utils.ParseDelay(
+		unilateralRefundWithoutReceiverDelayStr,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nonInteractiveClaim *vhtlc.NonInteractiveClaimOpts
 	// Non-interactive claim params are optional.
-	if recvHex, ok := c.Params[paramNICReceiverPkScript]; ok && recvHex != "" {
+	if recvHex, ok := contract.Params[nonInteractiveReceiverParam]; ok {
 		recv, err := hex.DecodeString(recvHex)
 		if err != nil {
-			return vhtlc.Opts{}, fmt.Errorf(
-				"vhtlc contract %s: invalid NIC receiver pkScript: %w",
-				c.Script,
-				err,
+			return nil, fmt.Errorf(
+				"contract %s has invalid non interactive receiver script: %w",
+				contract.Script, err,
 			)
 		}
-		emulator, err := parseCompressedParam(c, paramNICEmulatorPubKey)
+		emulator, err := parsePubkey(contract.Params[nonInteractiveEmulatorParam], "emulator")
 		if err != nil {
-			return vhtlc.Opts{}, err
+			return nil, fmt.Errorf("contract %s %w", contract.Script, err)
 		}
-		opts.NonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
+		nonInteractiveClaim = &vhtlc.NonInteractiveClaimOpts{
 			ReceiverPkScript: recv,
 			EmulatorPubKey:   emulator,
 		}
 	}
 
-	return opts, nil
-}
-
-// --- helpers ---
-
-func (h *handler) resolveCheckpointExitPath(ctx context.Context) (string, error) {
-	if h.client == nil {
-		return "", fmt.Errorf("missing client")
-	}
-	info, err := h.client.GetInfo(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get server info: %w", err)
-	}
-	return info.CheckpointTapscript, nil
-}
-
-func addCheckpointKeyRef(
-	keys map[string]string,
-	exitPath *script.CSVMultisigClosure,
-	spendPath script.Closure,
-	keyRef *identity.KeyRef,
-) error {
-	if !closureContainsKey(spendPath, keyRef.PubKey) {
-		return nil
-	}
-
-	rawCheckpointScript := script.TapscriptsVtxoScript{
-		Closures: []script.Closure{exitPath, spendPath},
-	}
-	taprootKey, _, err := rawCheckpointScript.TapTree()
-	if err != nil {
-		return fmt.Errorf("compute checkpoint taproot key: %w", err)
-	}
-
-	checkpointScript, err := script.P2TRScript(taprootKey)
-	if err != nil {
-		return fmt.Errorf("compute checkpoint script: %w", err)
-	}
-
-	keys[hex.EncodeToString(checkpointScript)] = keyRef.Id
-	return nil
+	return &vhtlc.Opts{
+		Sender:                               sender,
+		Receiver:                             receiver,
+		Server:                               signer,
+		PreimageHash:                         preimageHash,
+		RefundLocktime:                       arklib.AbsoluteLocktime(refundLocktime),
+		UnilateralClaimDelay:                 *unilateralClaimDelay,
+		UnilateralRefundDelay:                *unilateralRefundDelay,
+		UnilateralRefundWithoutReceiverDelay: *unilateralRefundWithoutReceiverDelay,
+		NonInteractiveClaim:                  nonInteractiveClaim,
+	}, nil
 }
 
 func closureContainsKey(closure script.Closure, pubkey *btcec.PublicKey) bool {
-	if pubkey == nil {
-		return false
-	}
-
-	for _, candidate := range closurePubKeys(closure) {
-		if samePubKey(candidate, pubkey) {
+	for _, pk := range closurePubKeys(closure) {
+		if pk.IsEqual(pubkey) {
 			return true
 		}
 	}
@@ -495,120 +448,9 @@ func closurePubKeys(closure script.Closure) []*btcec.PublicKey {
 		return c.PubKeys
 	case *script.ConditionMultisigClosure:
 		return c.PubKeys
+	case *script.CSVMultisigClosure:
+		return c.PubKeys
 	default:
 		return nil
 	}
-}
-
-func requireParam(c types.Contract, key string) (string, error) {
-	if c.Params == nil {
-		return "", fmt.Errorf("vhtlc contract %s: no params", c.Script)
-	}
-	v, ok := c.Params[key]
-	if !ok || v == "" {
-		return "", fmt.Errorf("vhtlc contract %s: missing param %q", c.Script, key)
-	}
-	return v, nil
-}
-
-func parseCompressedParam(c types.Contract, key string) (*btcec.PublicKey, error) {
-	raw, err := requireParam(c, key)
-	if err != nil {
-		return nil, err
-	}
-	buf, err := hex.DecodeString(raw)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid %s hex: %w", c.Script, key, err)
-	}
-	const compressedPubKeyLen = 33
-	if len(buf) != compressedPubKeyLen {
-		return nil, fmt.Errorf(
-			"vhtlc contract %s: invalid %s: expected compressed key length %d, got %d",
-			c.Script, key, compressedPubKeyLen, len(buf),
-		)
-	}
-	if buf[0] != 0x02 && buf[0] != 0x03 {
-		return nil, fmt.Errorf(
-			"vhtlc contract %s: invalid %s: expected compressed key prefix 0x02 or 0x03, got 0x%02x",
-			c.Script,
-			key,
-			buf[0],
-		)
-	}
-	pub, err := btcec.ParsePubKey(buf)
-	if err != nil {
-		return nil, fmt.Errorf("vhtlc contract %s: invalid %s: %w", c.Script, key, err)
-	}
-	return pub, nil
-}
-
-func prepareOwnedOpts(opts vhtlc.Opts, keyRef identity.KeyRef) (vhtlc.Opts, error) {
-	if keyRef.Id == "" {
-		return vhtlc.Opts{}, fmt.Errorf("missing wallet key ID")
-	}
-	if keyRef.PubKey == nil {
-		return vhtlc.Opts{}, fmt.Errorf("missing wallet pubkey")
-	}
-
-	hasSender := opts.Sender != nil
-	hasReceiver := opts.Receiver != nil
-	if !hasSender && !hasReceiver {
-		return vhtlc.Opts{}, fmt.Errorf(
-			"vhtlc handler requires sender or receiver pubkey",
-		)
-	}
-
-	if hasSender && !hasReceiver {
-		opts.Receiver = keyRef.PubKey
-		return opts, nil
-	}
-	if !hasSender && hasReceiver {
-		opts.Sender = keyRef.PubKey
-		return opts, nil
-	}
-
-	if _, err := ownerRole(opts, keyRef.PubKey); err != nil {
-		return vhtlc.Opts{}, err
-	}
-	return opts, nil
-}
-
-func ownerRole(opts vhtlc.Opts, owner *btcec.PublicKey) (string, error) {
-	matchesSender := samePubKey(owner, opts.Sender)
-	matchesReceiver := samePubKey(owner, opts.Receiver)
-	if matchesSender == matchesReceiver {
-		if matchesSender {
-			return "", fmt.Errorf("wallet key matches both VHTLC sender and receiver")
-		}
-		return "", fmt.Errorf("wallet key must match VHTLC sender or receiver")
-	}
-	if matchesSender {
-		return paramSender, nil
-	}
-	return paramReceiver, nil
-}
-
-func samePubKey(a, b *btcec.PublicKey) bool {
-	if a == nil || b == nil {
-		return false
-	}
-	return bytes.Equal(a.SerializeCompressed(), b.SerializeCompressed())
-}
-
-func parseRelativeLocktime(c types.Contract, key string) (arklib.RelativeLocktime, error) {
-	valueStr, err := requireParam(c, key)
-	if err != nil {
-		return arklib.RelativeLocktime{}, err
-	}
-	delay, err := sdkutils.ParseDelay(valueStr)
-	if err != nil {
-		return arklib.RelativeLocktime{}, fmt.Errorf(
-			"vhtlc contract %s: invalid %s: %w", c.Script, key, err,
-		)
-	}
-	return *delay, nil
-}
-
-func formatRelativeLocktime(delay arklib.RelativeLocktime) string {
-	return strconv.FormatUint(uint64(delay.Value), 10)
 }

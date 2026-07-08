@@ -136,7 +136,7 @@ func TestDefaultHandlerNewContract(t *testing.T) {
 				h := newTestDefaultHandler(t, mode.isOnchain)
 				keyRef := newTestKeyRef(t)
 
-				built, err := h.NewContract(t.Context(), keyRef, nil)
+				built, err := h.NewContract(t.Context(), keyRef)
 				require.NoError(t, err)
 				c := *built
 
@@ -187,7 +187,7 @@ func TestDefaultHandlerNewContract(t *testing.T) {
 							testNetwork,
 							mode.isOnchain,
 						)
-						got, err := h.NewContract(t.Context(), keyRef, nil)
+						got, err := h.NewContract(t.Context(), keyRef)
 						require.Error(t, err)
 						require.ErrorContains(t, err, c.expectedError)
 						require.Nil(t, got)
@@ -478,7 +478,7 @@ func newDefaultContract(
 	t.Helper()
 	h := newTestDefaultHandler(t, mode.isOnchain)
 	keyRef := newTestKeyRef(t)
-	built, err := h.NewContract(t.Context(), keyRef, nil)
+	built, err := h.NewContract(t.Context(), keyRef)
 	require.NoError(t, err)
 	return h, keyRef, *built
 }

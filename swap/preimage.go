@@ -50,9 +50,7 @@ func buildPreimageMessage(pubKey *btcec.PublicKey, index uint32) ([32]byte, erro
 
 func genPreimage(
 	ctx context.Context,
-	signer sdkidentity.KeyedPreimageSigner,
-	keyRef arkidentity.KeyRef,
-	index uint32,
+	signer sdkidentity.KeyedPreimageSigner, keyRef arkidentity.KeyRef, index uint32,
 ) ([]byte, error) {
 	if signer == nil {
 		return nil, fmt.Errorf("missing preimage signer")
@@ -73,19 +71,6 @@ func genPreimage(
 
 	preimage := sha256.Sum256(sig.Serialize())
 	return preimage[:], nil
-}
-
-func genPreimageInfo(
-	ctx context.Context,
-	signer sdkidentity.KeyedPreimageSigner,
-	keyRef arkidentity.KeyRef,
-) (preimage []byte, preimageHashSHA256, preimageHashHASH160 []byte, err error) {
-	preimage, err = genPreimage(ctx, signer, keyRef, 0)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	preimageHashSHA256, preimageHashHASH160 = preimageHashes(preimage)
-	return preimage, preimageHashSHA256, preimageHashHASH160, nil
 }
 
 func preimageHashes(preimage []byte) ([]byte, []byte) {

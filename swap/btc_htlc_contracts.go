@@ -67,14 +67,6 @@ func (h *SwapHandler) storeLocalHTLCKey(
 	h.htlcKeysByAddress[address] = key
 }
 
-func newHTLCPrivateKey() (*btcec.PrivateKey, error) {
-	privateKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate HTLC key: %w", err)
-	}
-	return privateKey, nil
-}
-
 func newHTLCOpts(
 	serverPubKeyHex string,
 	swapTree boltz.SwapTree,

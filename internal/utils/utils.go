@@ -76,13 +76,6 @@ func ValidateHandler(h handlers.Handler, t types.ContractType) error {
 }
 
 func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
-	// Non-derivable handlers (VHTLC, delegate, covenant) cannot produce valid
-	// contracts from a random key — they require external state. Skip the
-	// full NewContract → getter chain check for these types.
-	if !h.Derivable() {
-		return nil
-	}
-
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return err
@@ -98,7 +91,7 @@ func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
 		Id:     randomId,
 		PubKey: randomKey.PubKey(),
 	}
-	c, err := h.NewContract(context.Background(), fakeId, nil)
+	c, err := h.NewContract(context.Background(), fakeId)
 	if err != nil {
 		return fmt.Errorf("custom handler NewContract fails: %w", err)
 	}
@@ -121,9 +114,6 @@ func handlerSanityCheck(h handlers.Handler, t types.ContractType) error {
 	}
 	if _, err := h.GetSignerKey(*c); err != nil {
 		return fmt.Errorf("custom handler GetSignerKey fails: %w", err)
-	}
-	if _, err := h.GetExitDelay(*c); err != nil {
-		return fmt.Errorf("custom handler GetExitDelay fails: %w", err)
 	}
 	if _, err := h.GetTapscripts(*c); err != nil {
 		return fmt.Errorf("custom handler GetTapscripts fails: %w", err)
