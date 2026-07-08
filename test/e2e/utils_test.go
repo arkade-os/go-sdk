@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,16 +13,21 @@ import (
 	"testing"
 	"time"
 
+	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey"
+	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey/store/inmemory"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	password    = "secret"
-	serverUrl   = "127.0.0.1:7070"
-	explorerUrl = "http://127.0.0.1:3000"
+	password          = "secret"
+	serverUrl         = "127.0.0.1:7070"
+	explorerUrl       = "http://127.0.0.1:3000"
+	mockBoltzAdminURL = "http://127.0.0.1:9101"
+	settleTimeout     = 90 * time.Second
 )
 
 func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
@@ -43,6 +49,27 @@ func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet
 	t.Cleanup(arkClient.Stop)
 
 	return arkClient
+}
+
+// setupSwapClient creates a wallet with a single-key identity for swap/vhtlc
+// tests that need direct access to the private key for manual PSBT signing.
+func setupSwapClient(t *testing.T) (sdk.Wallet, *btcec.PrivateKey) {
+	t.Helper()
+
+	privkey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	store, err := inmemorystore.NewStore()
+	require.NoError(t, err)
+	singleKey, err := singlekeywallet.NewIdentity(store)
+	require.NoError(t, err)
+
+	seed := hex.EncodeToString(privkey.Serialize())
+	w := setupClient(t, seed,
+		sdk.WithIdentity(singleKey),
+	)
+
+	return w, privkey
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
@@ -110,6 +137,22 @@ func generateNote(t *testing.T, amount uint64) string {
 	return noteResp.Notes[0]
 }
 
+func setVtxoTreeExpiry(t *testing.T, expiry int64) {
+	adminHttpClient := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
+	reqBody := bytes.NewReader([]byte(fmt.Sprintf(`{"settings":{"vtxoTreeExpiry": %d}}`, expiry)))
+	req, err := http.NewRequest("POST", "http://127.0.0.1:7071/v1/admin/settings", reqBody)
+	require.NoError(t, err)
+
+	req.Header.Set("Authorization", "Basic YWRtaW46YWRtaW4=")
+	req.Header.Set("Content-Type", "application/json")
+
+	_, err = adminHttpClient.Do(req)
+	require.NoError(t, err)
+}
+
 func runCommand(name string, arg ...string) (string, error) {
 	errb := new(strings.Builder)
 	cmd := newCommand(name, arg...)
@@ -175,4 +218,67 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 func generateBlocks(t *testing.T, n int) {
 	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
 	require.NoError(t, err)
+}
+
+// --- LND helpers (for Lightning swap tests) ---
+
+func lndAddInvoice(sats int) (string, error) {
+	out, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"addinvoice", "--amt", fmt.Sprintf("%d", sats),
+	)
+	if err != nil {
+		return "", fmt.Errorf("lnd addinvoice: %w", err)
+	}
+
+	var resp struct {
+		PaymentRequest string `json:"payment_request"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return "", fmt.Errorf("parse lnd addinvoice response: %w (raw: %s)", err, out)
+	}
+	return resp.PaymentRequest, nil
+}
+
+func lndAddInvoiceWithHash(sats int) (string, string, error) {
+	out, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"addinvoice", "--amt", fmt.Sprintf("%d", sats),
+	)
+	if err != nil {
+		return "", "", fmt.Errorf("lnd addinvoice: %w", err)
+	}
+
+	var resp struct {
+		PaymentRequest string `json:"payment_request"`
+		RHash          string `json:"r_hash"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return "", "", fmt.Errorf("parse lnd addinvoice response: %w (raw: %s)", err, out)
+	}
+	return resp.PaymentRequest, resp.RHash, nil
+}
+
+func lndPayInvoice(invoice string) error {
+	_, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"payinvoice", "--force", invoice,
+	)
+	return err
+}
+
+// --- Thread-safe error collection ---
+
+type concurrentErrors struct {
+	mu   sync.Mutex
+	errs []error
+}
+
+func (e *concurrentErrors) add(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.errs = append(e.errs, err)
 }

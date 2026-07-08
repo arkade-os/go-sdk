@@ -135,7 +135,7 @@ type mockContractHandler struct{}
 
 func (h *mockContractHandler) NewContract(
 	_ context.Context,
-	_ identity.KeyRef,
+	_ any,
 ) (*types.Contract, error) {
 	return nil, nil
 }
@@ -177,6 +177,10 @@ func (h *mockContractHandler) GetTapscripts(c types.Contract) ([]string, error) 
 	}
 	return ts, nil
 }
+func (h *mockContractHandler) GetArgs(_ types.Contract) (any, error) { return nil, nil }
+func (h *mockContractHandler) GetCheckpointExitPath(_ types.Contract) ([]byte, error) {
+	return nil, nil
+}
 
 // Ensure mockContractHandler satisfies handlers.Handler at compile time.
 var _ handlers.Handler = (*mockContractHandler)(nil)
@@ -196,6 +200,9 @@ func (m *watcherMockManager) NewContract(
 	_ context.Context, _ types.ContractType, _ ...contract.ContractOption,
 ) (*types.Contract, error) {
 	return nil, nil
+}
+func (m *watcherMockManager) ImportContract(_ context.Context, _ types.Contract) error {
+	return nil
 }
 func (m *watcherMockManager) GetContracts(
 	_ context.Context,

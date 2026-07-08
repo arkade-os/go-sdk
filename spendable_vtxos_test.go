@@ -95,7 +95,7 @@ func (s *fixStore) Close()                                      {}
 // All other methods are no-ops since getSpendableVtxos only calls GetTapscripts.
 type fixHandler struct{}
 
-func (h *fixHandler) NewContract(_ context.Context, _ identity.KeyRef) (*sdktypes.Contract, error) {
+func (h *fixHandler) NewContract(_ context.Context, _ any) (*sdktypes.Contract, error) {
 	return nil, nil
 }
 func (h *fixHandler) GetKeyRefs(_ sdktypes.Contract) (map[string]string, error) { return nil, nil }
@@ -116,6 +116,8 @@ func (h *fixHandler) GetTapscripts(c sdktypes.Contract) ([]string, error) {
 	json.Unmarshal([]byte(s), &ts)
 	return ts, nil
 }
+func (h *fixHandler) GetArgs(_ sdktypes.Contract) (any, error)                  { return nil, nil }
+func (h *fixHandler) GetCheckpointExitPath(_ sdktypes.Contract) ([]byte, error) { return nil, nil }
 
 var _ handlers.Handler = (*fixHandler)(nil)
 
@@ -129,6 +131,9 @@ func (m *fixContractManager) NewContract(
 	_ context.Context, _ sdktypes.ContractType, _ ...contract.ContractOption,
 ) (*sdktypes.Contract, error) {
 	return nil, nil
+}
+func (m *fixContractManager) ImportContract(_ context.Context, _ sdktypes.Contract) error {
+	return nil
 }
 func (m *fixContractManager) GetContracts(
 	_ context.Context,

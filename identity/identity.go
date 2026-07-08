@@ -466,39 +466,11 @@ func (s *service) signTapscriptSpend(
 		return err
 	}
 	xOnlyPub := schnorr.SerializePubKey(prvkey.PubKey())
+	signed := false
 
 	for _, leaf := range input.TaprootLeafScript {
-		closure, err := script.DecodeClosure(leaf.Script)
-		if err != nil {
+		if !canSignTapscriptLeaf(leaf.Script, xOnlyPub) {
 			continue
-		}
-
-		checkKeys := func(keys []*btcec.PublicKey) bool {
-			for _, key := range keys {
-				if bytes.Equal(schnorr.SerializePubKey(key), xOnlyPub) {
-					return true
-				}
-			}
-			return false
-		}
-
-		var sign bool
-		switch c := closure.(type) {
-		case *script.CSVMultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		case *script.MultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		case *script.CLTVMultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		case *script.ConditionMultisigClosure:
-			sign = checkKeys(c.PubKeys)
-		}
-
-		if !sign {
-			return fmt.Errorf(
-				"cannot sign taproot input %d with script-path: pubkey %x not found in witness",
-				inputIndex, xOnlyPub,
-			)
 		}
 
 		hash := txscript.NewTapLeaf(leaf.LeafVersion, leaf.Script).TapHash()
@@ -535,9 +507,48 @@ func (s *service) signTapscriptSpend(
 				SigHash:     input.SighashType,
 			},
 		)
+		signed = true
 	}
 
+	if !signed {
+		return fmt.Errorf(
+			"cannot sign taproot input %d with script-path: pubkey %x not found in witness",
+			inputIndex, xOnlyPub,
+		)
+	}
 	return nil
+}
+
+func canSignTapscriptLeaf(leafScript, xOnlyPub []byte) bool {
+	closure, err := script.DecodeClosure(leafScript)
+	if err != nil {
+		return false
+	}
+	return closureContainsKey(closure, xOnlyPub)
+}
+
+func closureContainsKey(closure script.Closure, xOnlyPub []byte) bool {
+	checkKeys := func(keys []*btcec.PublicKey) bool {
+		for _, key := range keys {
+			if bytes.Equal(schnorr.SerializePubKey(key), xOnlyPub) {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch c := closure.(type) {
+	case *script.CSVMultisigClosure:
+		return checkKeys(c.PubKeys)
+	case *script.MultisigClosure:
+		return checkKeys(c.PubKeys)
+	case *script.CLTVMultisigClosure:
+		return checkKeys(c.PubKeys)
+	case *script.ConditionMultisigClosure:
+		return checkKeys(c.PubKeys)
+	default:
+		return false
+	}
 }
 
 func (s *service) signTaprootKeySpend(

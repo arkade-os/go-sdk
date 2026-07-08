@@ -294,7 +294,10 @@ func newMockHandler(ctType string) handlers.Handler {
 
 const mockOwnerKeyIdParam = "ownerKeyId"
 
-func (m *mockHandler) NewContract(_ context.Context, k identity.KeyRef) (*types.Contract, error) {
+func (m *mockHandler) NewContract(
+	_ context.Context, args any,
+) (*types.Contract, error) {
+	k := args.(identity.KeyRef)
 	return &types.Contract{
 		Type:    types.ContractType(m.ctType),
 		State:   types.ContractStateActive,
@@ -317,4 +320,10 @@ func (m *mockHandler) GetExitDelay(types.Contract) (*arklib.RelativeLocktime, er
 }
 func (m *mockHandler) GetTapscripts(types.Contract) ([]string, error) {
 	return []string{m.ctType + "-tapscript"}, nil
+}
+func (m *mockHandler) GetArgs(c types.Contract) (any, error) {
+	return m.GetKeyRef(c)
+}
+func (m *mockHandler) GetCheckpointExitPath(c types.Contract) ([]byte, error) {
+	return nil, nil
 }

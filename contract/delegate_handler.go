@@ -20,19 +20,21 @@ import (
 )
 
 const (
-	ParamKeyID       = "keyId"
-	ParamOwnerKey    = "ownerKey"
-	ParamSignerKey   = "signerKey"
-	ParamDelegateKey = "delegateKey"
-	ParamTapscripts  = "tapscripts"
-	ParamExitDelay   = "exitDelay"
+	ParamKeyID              = "keyId"
+	ParamOwnerKey           = "ownerKey"
+	ParamSignerKey          = "signerKey"
+	ParamDelegateKey        = "delegateKey"
+	ParamTapscripts         = "tapscripts"
+	ParamExitDelay          = "exitDelay"
+	ParamCheckpointExitPath = "checkpointExitPath"
 )
 
 // DelegateConfig holds the server parameters needed to derive a delegate contract.
 type DelegateConfig struct {
-	SignerKey *btcec.PublicKey
-	Network   arklib.Network
-	ExitDelay arklib.RelativeLocktime
+	SignerKey           *btcec.PublicKey
+	Network             arklib.Network
+	ExitDelay           arklib.RelativeLocktime
+	CheckpointTapscript string
 }
 
 // PathContext describes how the caller intends to spend a delegate contract.
@@ -156,12 +158,13 @@ func (h *DelegateHandler) DeriveContract(
 	return &types.Contract{
 		Type: types.ContractTypeDelegate,
 		Params: map[string]string{
-			ParamKeyID:       key.Id,
-			ParamOwnerKey:    hex.EncodeToString(schnorr.SerializePubKey(key.PubKey)),
-			ParamSignerKey:   hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerKey)),
-			ParamDelegateKey: hex.EncodeToString(delegateKey.SerializeCompressed()),
-			ParamTapscripts:  serializeTapscripts(tapscripts),
-			ParamExitDelay:   serializeDelay(cfg.ExitDelay),
+			ParamKeyID:              key.Id,
+			ParamOwnerKey:           hex.EncodeToString(schnorr.SerializePubKey(key.PubKey)),
+			ParamSignerKey:          hex.EncodeToString(schnorr.SerializePubKey(cfg.SignerKey)),
+			ParamDelegateKey:        hex.EncodeToString(delegateKey.SerializeCompressed()),
+			ParamTapscripts:         serializeTapscripts(tapscripts),
+			ParamExitDelay:          serializeDelay(cfg.ExitDelay),
+			ParamCheckpointExitPath: cfg.CheckpointTapscript,
 		},
 		Script:    hex.EncodeToString(pkScript),
 		Address:   encodedArkAddr,
@@ -170,13 +173,18 @@ func (h *DelegateHandler) DeriveContract(
 	}, nil
 }
 
-// NewContract derives a delegate contract for keyRef. Server params come from
-// the shared transport client; the delegate public key is resolved from the
-// configured URL and memoized in the handler's cache.
+// NewContract derives a delegate contract for the identity.KeyRef passed as
+// args. Server params come from the shared transport client; the delegate
+// public key is resolved from the configured URL and memoized in the handler's
+// cache.
 func (h *DelegateHandler) NewContract(
 	ctx context.Context,
-	keyRef identity.KeyRef,
+	args any,
 ) (*types.Contract, error) {
+	keyRef, ok := args.(identity.KeyRef)
+	if !ok {
+		return nil, fmt.Errorf("invalid params type: expected identity.KeyRef")
+	}
 	if h.url == "" {
 		return nil, fmt.Errorf("delegate url not configured: cannot derive delegate contracts")
 	}
@@ -217,11 +225,42 @@ func (h *DelegateHandler) NewContract(
 	}
 
 	cfg := DelegateConfig{
-		SignerKey: signerKey,
-		Network:   h.network,
-		ExitDelay: exitDelay,
+		SignerKey:           signerKey,
+		Network:             h.network,
+		ExitDelay:           exitDelay,
+		CheckpointTapscript: info.CheckpointTapscript,
 	}
 	return h.DeriveContract(ctx, keyRef, cfg, delegateKey)
+}
+
+// GetArgs returns the identity.KeyRef that derived the contract, so it can be
+// fed straight back into NewContract.
+func (h *DelegateHandler) GetArgs(c types.Contract) (any, error) {
+	keyRef, err := h.GetKeyRef(c)
+	if err != nil {
+		return nil, err
+	}
+	return *keyRef, nil
+}
+
+// GetCheckpointExitPath returns the server-provided checkpoint exit tapscript
+// stored at derivation time.
+func (h *DelegateHandler) GetCheckpointExitPath(c types.Contract) ([]byte, error) {
+	if len(c.Params) == 0 {
+		return nil, fmt.Errorf("contract %s has no parameters", c.Script)
+	}
+	checkpointExitPath, ok := c.Params[ParamCheckpointExitPath]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing checkpoint exit path", c.Script)
+	}
+	if len(checkpointExitPath) == 0 {
+		return nil, fmt.Errorf("contract %s has empty checkpoint exit path", c.Script)
+	}
+	buf, err := hex.DecodeString(checkpointExitPath)
+	if err != nil {
+		return nil, fmt.Errorf("contract %s has invalid checkpoint exit path format", c.Script)
+	}
+	return buf, nil
 }
 
 func (h *DelegateHandler) GetKeyRef(c types.Contract) (*identity.KeyRef, error) {
