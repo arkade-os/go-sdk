@@ -362,9 +362,9 @@ type mockedHandler struct {
 }
 
 func (h *mockedHandler) NewContract(
-	ctx context.Context, k identity.KeyRef,
+	ctx context.Context, params any,
 ) (*types.Contract, error) {
-	a := h.Called(ctx, k)
+	a := h.Called(ctx, params)
 	c, _ := a.Get(0).(*types.Contract)
 	return c, a.Error(1)
 }
@@ -396,6 +396,16 @@ func (h *mockedHandler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime
 func (h *mockedHandler) GetTapscripts(c types.Contract) ([]string, error) {
 	a := h.Called(c)
 	s, _ := a.Get(0).([]string)
+	return s, a.Error(1)
+}
+func (h *mockedHandler) GetArgs(c types.Contract) (any, error) {
+	a := h.Called(c)
+	s := a.Get(0)
+	return s, a.Error(1)
+}
+func (h *mockedHandler) GetCheckpointExitPath(c types.Contract) ([]byte, error) {
+	a := h.Called(c)
+	s, _ := a.Get(0).([]byte)
 	return s, a.Error(1)
 }
 

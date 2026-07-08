@@ -44,9 +44,7 @@ sqlc:
 
 regtest:
 	@echo "Starting regtest..."
-	@docker compose -f test/docker/docker-compose.yml down
-	@docker compose -f test/docker/docker-compose.yml up -d --build
-	@go run test/docker/setup.go
+	@bash test/docker/setup.sh
 
 regtestdown:
 	@echo "Stopping regtest..."

@@ -8,6 +8,7 @@ import (
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract/handlers"
+	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/internal/utils"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -250,18 +251,6 @@ func TestValidateHandler(t *testing.T) {
 				wantErrContains: "GetSignerKey fails",
 			},
 			{
-				name: "GetExitDelay returns error",
-				handler: func() handlers.Handler {
-					h := &mockedHandler{}
-					h.On("GetExitDelay", mock.Anything).
-						Return((*arklib.RelativeLocktime)(nil), handlerErr)
-					mockHandler(h, "test")
-					return h
-				},
-				contractType:    "test",
-				wantErrContains: "GetExitDelay fails",
-			},
-			{
 				name: "GetTapscripts returns error",
 				handler: func() handlers.Handler {
 					h := &mockedHandler{}
@@ -293,9 +282,9 @@ type mockedHandler struct {
 }
 
 func (h *mockedHandler) NewContract(
-	ctx context.Context, k identity.KeyRef,
+	ctx context.Context, args any,
 ) (*types.Contract, error) {
-	a := h.Called(ctx, k)
+	a := h.Called(ctx, args)
 	c, _ := a.Get(0).(*types.Contract)
 	return c, a.Error(1)
 }
@@ -327,6 +316,18 @@ func (h *mockedHandler) GetExitDelay(c types.Contract) (*arklib.RelativeLocktime
 func (h *mockedHandler) GetTapscripts(c types.Contract) ([]string, error) {
 	a := h.Called(c)
 	s, _ := a.Get(0).([]string)
+	return s, a.Error(1)
+}
+
+func (h *mockedHandler) GetArgs(c types.Contract) (any, error) {
+	a := h.Called(c)
+	s, _ := a.Get(0).([]vhtlchandler.ContractArgs)
+	return s, a.Error(1)
+}
+
+func (h *mockedHandler) GetCheckpointExitPath(c types.Contract) ([]byte, error) {
+	a := h.Called(c)
+	s, _ := a.Get(0).([]byte)
 	return s, a.Error(1)
 }
 
