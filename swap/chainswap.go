@@ -146,17 +146,19 @@ func NewChainSwap(
 		onEvent:              eventCallback,
 	}
 
-	eventCallback(CreateEvent{
-		Id:                   id,
-		Timestamp:            time.Now().Unix(),
-		Status:               ChainSwapPending,
-		Amount:               amount,
-		Preimage:             preimage,
-		VhtlcOpts:            *vhtlcOpts,
-		SwapRespJson:         swapRespJson,
-		IsArkToBtc:           isArkToBtc,
-		UserBtcLockupAddress: userBtcLockupAddress,
-	})
+	if eventCallback != nil {
+		eventCallback(CreateEvent{
+			Id:                   id,
+			Timestamp:            ch.Timestamp,
+			Status:               ChainSwapPending,
+			Amount:               amount,
+			Preimage:             preimage,
+			VhtlcOpts:            *vhtlcOpts,
+			SwapRespJson:         swapRespJson,
+			IsArkToBtc:           isArkToBtc,
+			UserBtcLockupAddress: userBtcLockupAddress,
+		})
+	}
 
 	return ch, nil
 }
@@ -541,10 +543,13 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
-	h.storeLocalHTLCKey(
+	if err := h.storeLocalHTLCKey(
+		ctx,
 		swapResp.ClaimDetails.LockupAddress,
 		btcClaimKey,
-	)
+	); err != nil {
+		return nil, err
+	}
 
 	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
@@ -593,6 +598,16 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)
 	}
+	if err := h.persistChainSwap(
+		ctx, chainSwap, boltz.CurrencyArk, boltz.CurrencyBtc,
+	); err != nil {
+		return nil, err
+	}
+	chainSwap.onEvent = h.persistChainSwapEventCallback(
+		boltz.CurrencyArk,
+		boltz.CurrencyBtc,
+		eventCallback,
+	)
 
 	monitorCtx := chainSwapMonitorContext(ctx)
 	go func() {
@@ -773,10 +788,13 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
-	h.storeLocalHTLCKey(
+	if err := h.storeLocalHTLCKey(
+		ctx,
 		swapResp.LockupDetails.LockupAddress,
 		btcRefundKey,
-	)
+	); err != nil {
+		return nil, err
+	}
 
 	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
@@ -820,14 +838,28 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	}
 
 	chainSwap, err := NewChainSwap(
-		swapResp.Id, amount, preimage, &vhtlcOpts,
-		string(swapRespJson), arkToBtc, "", eventCallback,
+		swapResp.Id,
+		amount,
+		preimage,
+		&vhtlcOpts,
+		string(swapRespJson),
+		arkToBtc,
+		swapResp.LockupDetails.LockupAddress,
+		eventCallback,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)
 	}
-
-	chainSwap.UserBtcLockupAddress = swapResp.LockupDetails.LockupAddress
+	if err := h.persistChainSwap(
+		ctx, chainSwap, boltz.CurrencyBtc, boltz.CurrencyArk,
+	); err != nil {
+		return nil, err
+	}
+	chainSwap.onEvent = h.persistChainSwapEventCallback(
+		boltz.CurrencyBtc,
+		boltz.CurrencyArk,
+		eventCallback,
+	)
 
 	log.Debugf("Cached swap response for swap %s (used during active monitoring)", swapResp.Id)
 
@@ -931,6 +963,7 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 
 	swapTree := *swapResp.LockupDetails.SwapTree
 	htlcKey, err := h.ensureLocalHTLCKey(
+		ctx,
 		swapResp.LockupDetails.LockupAddress,
 		swapResp.LockupDetails.ServerPublicKey,
 		swapTree,

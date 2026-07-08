@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS htlc_key;
+DROP TABLE IF EXISTS chain_swap;
+DROP TABLE IF EXISTS swap;

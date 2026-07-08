@@ -1,9 +1,12 @@
 package swap
 
 import (
+	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/go-sdk/htlc"
@@ -13,6 +16,7 @@ import (
 )
 
 func (h *SwapHandler) ensureLocalHTLCKey(
+	ctx context.Context,
 	expectedAddress string,
 	serverPubKeyHex string,
 	swapTree boltz.SwapTree,
@@ -25,7 +29,11 @@ func (h *SwapHandler) ensureLocalHTLCKey(
 		return nil, err
 	}
 
-	if key := h.localHTLCKeyForAddress(expectedAddress); key != nil {
+	key, err := h.localHTLCKeyForAddress(ctx, expectedAddress)
+	if err != nil {
+		return nil, err
+	}
+	if key != nil {
 		if err := validateBtcLockupAddress(
 			networkNameToParams(h.config.Network.Name),
 			expectedAddress,
@@ -45,26 +53,83 @@ func (h *SwapHandler) ensureLocalHTLCKey(
 }
 
 func (h *SwapHandler) localHTLCKeyForAddress(
+	ctx context.Context,
 	expectedAddress string,
-) *btcec.PrivateKey {
+) (*btcec.PrivateKey, error) {
 	h.htlcMu.RLock()
-	defer h.htlcMu.RUnlock()
-
 	key, ok := h.htlcKeysByAddress[expectedAddress]
 	if !ok {
-		return nil
+		h.htlcMu.RUnlock()
+		return h.persistedHTLCKeyForAddress(ctx, expectedAddress)
 	}
-	return key
+	h.htlcMu.RUnlock()
+
+	return key, nil
+}
+
+func (h *SwapHandler) persistedHTLCKeyForAddress(
+	ctx context.Context,
+	expectedAddress string,
+) (*btcec.PrivateKey, error) {
+	store := h.htlcKeyStore()
+	if store == nil {
+		return nil, nil
+	}
+
+	record, err := store.Get(ctx, expectedAddress)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load HTLC key for %s: %w", expectedAddress, err)
+	}
+
+	keyBytes, err := hex.DecodeString(record.PrivateKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode persisted HTLC key for %s: %w", expectedAddress, err)
+	}
+	key, _ := btcec.PrivKeyFromBytes(keyBytes)
+
+	h.htlcMu.Lock()
+	h.htlcKeysByAddress[expectedAddress] = key
+	h.htlcMu.Unlock()
+
+	return key, nil
 }
 
 func (h *SwapHandler) storeLocalHTLCKey(
+	ctx context.Context,
 	address string,
 	key *btcec.PrivateKey,
-) {
+) error {
+	if address == "" {
+		return fmt.Errorf("missing HTLC address")
+	}
+	if key == nil {
+		return fmt.Errorf("missing HTLC key")
+	}
+	if store := h.htlcKeyStore(); store != nil {
+		if err := store.Add(ctx, HTLCKeyRecord{
+			Address:       address,
+			PrivateKeyHex: hex.EncodeToString(key.Serialize()),
+			CreatedAt:     time.Now().Unix(),
+		}); err != nil {
+			return fmt.Errorf("persist HTLC key for %s: %w", address, err)
+		}
+	}
+
 	h.htlcMu.Lock()
 	defer h.htlcMu.Unlock()
 
 	h.htlcKeysByAddress[address] = key
+	return nil
+}
+
+func (h *SwapHandler) htlcKeyStore() HTLCKeyRepository {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	return h.store.HTLCKeys()
 }
 
 func newHTLCOpts(

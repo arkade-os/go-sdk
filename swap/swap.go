@@ -44,6 +44,7 @@ type SwapHandler struct {
 	arkWallet         arksdk.Wallet
 	boltzSvc          *boltz.Api
 	explorerClient    ExplorerClient
+	store             Store
 	timeout           uint32
 	config            clientTypes.Config
 	htlcMu            sync.RWMutex
@@ -82,19 +83,26 @@ func NewSwapHandler(
 	boltzSvc *boltz.Api,
 	esploraURL string,
 	timeout uint32,
+	opts ...HandlerOption,
 ) (*SwapHandler, error) {
 	cfg, err := arkClient.GetConfigData(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config data: %w", err)
 	}
-	return &SwapHandler{
+	h := &SwapHandler{
 		arkWallet:         arkClient,
 		boltzSvc:          boltzSvc,
 		explorerClient:    NewExplorerClient(esploraURL),
 		timeout:           timeout,
 		config:            *cfg,
 		htlcKeysByAddress: make(map[string]*btcec.PrivateKey),
-	}, nil
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(h)
+		}
+	}
+	return h, nil
 }
 
 func (h *SwapHandler) PayInvoice(
@@ -104,7 +112,7 @@ func (h *SwapHandler) PayInvoice(
 		return nil, fmt.Errorf("missing invoice")
 	}
 
-	return h.submarineSwap(ctx, invoice, unilateralRefund)
+	return h.submarineSwap(ctx, invoice, SwapRecordRegular, unilateralRefund)
 }
 
 func (h *SwapHandler) PayOffer(
@@ -138,7 +146,7 @@ func (h *SwapHandler) PayOffer(
 		return nil, fmt.Errorf("failed to fetch invoice: %s", response.Error)
 	}
 
-	return h.submarineSwap(ctx, response.Invoice, unilateralRefund)
+	return h.submarineSwap(ctx, response.Invoice, SwapRecordPayment, unilateralRefund)
 }
 
 func (h *SwapHandler) GetInvoice(
@@ -824,7 +832,10 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 }
 
 func (h *SwapHandler) submarineSwap(
-	ctx context.Context, invoice string, unilateralRefund func(swap Swap) error,
+	ctx context.Context,
+	invoice string,
+	swapType SwapRecordType,
+	unilateralRefund func(swap Swap) error,
 ) (*Swap, error) {
 	if len(invoice) == 0 {
 		return nil, fmt.Errorf("missing invoice")
@@ -964,6 +975,16 @@ func (h *SwapHandler) submarineSwap(
 		Opts:         vhtlcOpts,
 		Amount:       swap.ExpectedAmount,
 	}
+	if err := h.persistSwap(
+		ctx,
+		*swapDetails,
+		boltz.CurrencyArk,
+		boltz.CurrencyBtc,
+		swapType,
+		contract.Script,
+	); err != nil {
+		return nil, err
+	}
 
 	contextTimeout := time.Second * time.Duration(h.timeout)
 	timeoutCtx, cancel := context.WithTimeout(ctx, contextTimeout)
@@ -1006,15 +1027,24 @@ func (h *SwapHandler) submarineSwap(
 					}()
 				}
 				swapDetails.RedeemTxid = txid
+				if err := h.updatePersistedSwap(context.Background(), *swapDetails); err != nil {
+					return nil, err
+				}
 
 				return swapDetails, nil
 			case boltz.TransactionClaimed, boltz.InvoiceSettled:
 				swapDetails.Status = SwapSuccess
+				if err := h.updatePersistedSwap(context.Background(), *swapDetails); err != nil {
+					return nil, err
+				}
 
 				return swapDetails, nil
 			}
 		case <-ctx.Done():
 			swapDetails.Status = SwapFailed
+			if err := h.updatePersistedSwap(context.Background(), *swapDetails); err != nil {
+				return nil, err
+			}
 			go func() {
 				if err := unilateralRefund(*swapDetails); err != nil {
 					log.WithError(err).Errorf("failed to refund swap %s unilaterally", swap.Id)
@@ -1163,6 +1193,16 @@ func (h *SwapHandler) reverseSwap(
 		Amount:       swap.OnchainAmount,
 		Opts:         vhtlcOpts,
 	}
+	if err := h.persistSwap(
+		ctx,
+		swapDetails,
+		boltz.CurrencyBtc,
+		boltz.CurrencyArk,
+		SwapRecordRegular,
+		contract.Script,
+	); err != nil {
+		return nil, err
+	}
 
 	go func(swapDetails Swap) {
 		if reedeemTxId, err := h.waitAndClaim(
@@ -1173,6 +1213,10 @@ func (h *SwapHandler) reverseSwap(
 		} else {
 			swapDetails.RedeemTxid = reedeemTxId
 			swapDetails.Status = SwapSuccess
+		}
+
+		if err := h.updatePersistedSwap(context.Background(), swapDetails); err != nil {
+			log.WithError(err).Error("failed to update persisted reverse swap")
 		}
 
 		if err := postProcess(swapDetails); err != nil {

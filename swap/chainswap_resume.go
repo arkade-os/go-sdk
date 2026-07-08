@@ -137,6 +137,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		btcServerPubKey = swapResp.ClaimDetails.ServerPublicKey
 	}
 	htlcKey, err := h.ensureLocalHTLCKey(
+		ctx,
 		btcLockupAddress,
 		btcServerPubKey,
 		swapResp.GetSwapTree(arkToBtc),
@@ -169,7 +170,11 @@ func (h *SwapHandler) ResumeChainSwap(
 		Status:               params.Status,
 		Error:                params.Error,
 		SwapRespJson:         params.BoltzResponseJSON,
-		onEvent:              params.EventCallback,
+		onEvent: h.persistChainSwapEventCallback(
+			params.From,
+			params.To,
+			params.EventCallback,
+		),
 	}
 
 	if swap.Timestamp == 0 {
