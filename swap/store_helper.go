@@ -19,7 +19,7 @@ func (h *SwapHandler) persistSwap(
 	if h.store == nil || h.store.Swaps() == nil {
 		return nil
 	}
-	_, err := h.store.Swaps().Add(ctx, []SwapRecord{{
+	count, err := h.store.Swaps().Add(ctx, []SwapRecord{{
 		ID:                  swap.Id,
 		Amount:              swap.Amount,
 		Timestamp:           swap.Timestamp,
@@ -35,6 +35,9 @@ func (h *SwapHandler) persistSwap(
 	if err != nil {
 		return fmt.Errorf("persist swap %s: %w", swap.Id, err)
 	}
+
+	log.Debugf("persisted %v swaps", count)
+
 	return nil
 }
 
