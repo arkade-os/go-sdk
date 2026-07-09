@@ -61,6 +61,7 @@ type Store interface {
 
 type SwapRepository interface {
 	Add(ctx context.Context, swaps []SwapRecord) (int, error)
+	Get(ctx context.Context, id string) (*SwapRecord, error)
 	Update(ctx context.Context, swap SwapRecord) error
 }
 

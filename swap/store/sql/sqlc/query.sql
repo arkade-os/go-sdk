@@ -4,11 +4,16 @@ INSERT OR IGNORE INTO swap (
     invoice, funding_tx_id, redeem_tx_id, vhtlc_contract_script
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: SelectSwap :one
+SELECT * FROM swap
+WHERE id = :id;
+
 -- name: UpdateSwap :execrows
 UPDATE swap
 SET
     status = :status,
-    redeem_tx_id = :redeem_tx_id
+    funding_tx_id = COALESCE(sqlc.narg('funding_tx_id'), funding_tx_id),
+    redeem_tx_id = COALESCE(sqlc.narg('redeem_tx_id'), redeem_tx_id)
 WHERE id = :id;
 
 -- name: InsertChainSwap :exec

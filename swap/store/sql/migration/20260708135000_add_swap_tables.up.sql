@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS swap (
   status INTEGER NOT NULL CHECK(status IN(0,1,2)),
   swap_type INTEGER NOT NULL,
   invoice TEXT NOT NULL,
-  funding_tx_id TEXT NOT NULL,
-  redeem_tx_id TEXT NOT NULL,
+  funding_tx_id TEXT,
+  redeem_tx_id TEXT,
   vhtlc_contract_script TEXT NOT NULL
 );
 

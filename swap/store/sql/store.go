@@ -121,8 +121,8 @@ func (r *swapRepository) Add(ctx context.Context, swaps []swap.SwapRecord) (int,
 			Status:              int64(record.Status),
 			SwapType:            int64(record.Type),
 			Invoice:             record.Invoice,
-			FundingTxID:         record.FundingTxID,
-			RedeemTxID:          record.RedeemTxID,
+			FundingTxID:         nullableString(record.FundingTxID),
+			RedeemTxID:          nullableString(record.RedeemTxID),
 			VhtlcContractScript: record.VHTLCContractScript,
 		})
 		if err != nil {
@@ -137,11 +137,24 @@ func (r *swapRepository) Add(ctx context.Context, swaps []swap.SwapRecord) (int,
 	return int(count), nil
 }
 
+func (r *swapRepository) Get(ctx context.Context, id string) (*swap.SwapRecord, error) {
+	row, err := r.querier.SelectSwap(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: swap %s", swap.ErrNotFound, id)
+		}
+		return nil, err
+	}
+	record := toSwapRecord(row)
+	return &record, nil
+}
+
 func (r *swapRepository) Update(ctx context.Context, record swap.SwapRecord) error {
 	n, err := r.querier.UpdateSwap(ctx, queries.UpdateSwapParams{
-		Status:     int64(record.Status),
-		RedeemTxID: record.RedeemTxID,
-		ID:         record.ID,
+		Status:      int64(record.Status),
+		FundingTxID: nullableString(record.FundingTxID),
+		RedeemTxID:  nullableString(record.RedeemTxID),
+		ID:          record.ID,
 	})
 	if err != nil {
 		return err
@@ -284,6 +297,22 @@ func toChainSwapRecord(row queries.ChainSwap) swap.ChainSwapRecord {
 		BoltzCreateResponseJSON: stringValue(row.BoltzCreateResponseJson),
 		CreatedAt:               int64Value(row.CreatedAt),
 		UpdatedAt:               int64Value(row.UpdatedAt),
+	}
+}
+
+func toSwapRecord(row queries.Swap) swap.SwapRecord {
+	return swap.SwapRecord{
+		ID:                  row.ID,
+		Amount:              uint64(row.Amount),
+		Timestamp:           row.Timestamp,
+		ToCurrency:          row.ToCurrency,
+		FromCurrency:        row.FromCurrency,
+		Status:              swap.SwapStatus(row.Status),
+		Type:                swap.SwapRecordType(row.SwapType),
+		Invoice:             row.Invoice,
+		FundingTxID:         stringValue(row.FundingTxID),
+		RedeemTxID:          stringValue(row.RedeemTxID),
+		VHTLCContractScript: row.VhtlcContractScript,
 	}
 }
 

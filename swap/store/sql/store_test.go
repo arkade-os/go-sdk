@@ -1,7 +1,6 @@
 package sqlstore_test
 
 import (
-	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func TestSwapRepository(t *testing.T) {
-	store, dbPath := newStore(t)
+	store, _ := newStore(t)
 	defer func() { require.NoError(t, store.Close()) }()
 
 	ctx := t.Context()
@@ -25,7 +24,6 @@ func TestSwapRepository(t *testing.T) {
 		Status:              swap.SwapPending,
 		Type:                swap.SwapRecordRegular,
 		Invoice:             "invoice",
-		FundingTxID:         "funding-tx",
 		VHTLCContractScript: "vhtlc-script",
 	}
 
@@ -37,13 +35,21 @@ func TestSwapRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, count)
 
+	got, err := repo.Get(ctx, record.ID)
+	require.NoError(t, err)
+	require.Empty(t, got.FundingTxID)
+	require.Empty(t, got.RedeemTxID)
+
 	record.Status = swap.SwapSuccess
+	record.FundingTxID = "funding-tx"
 	record.RedeemTxID = "redeem-tx"
 	require.NoError(t, repo.Update(ctx, record))
 
-	status, redeemTxID := getSwapStatusAndRedeemTxID(t, dbPath, record.ID)
-	require.Equal(t, swap.SwapSuccess, status)
-	require.Equal(t, "redeem-tx", redeemTxID)
+	got, err = repo.Get(ctx, record.ID)
+	require.NoError(t, err)
+	require.Equal(t, swap.SwapSuccess, got.Status)
+	require.Equal(t, "funding-tx", got.FundingTxID)
+	require.Equal(t, "redeem-tx", got.RedeemTxID)
 }
 
 func TestChainSwapRepository(t *testing.T) {
@@ -120,23 +126,4 @@ func newStore(t *testing.T) (swap.Store, string) {
 	store, err := sqlstore.Open(dbPath)
 	require.NoError(t, err)
 	return store, dbPath
-}
-
-func getSwapStatusAndRedeemTxID(
-	t *testing.T, dbPath, id string,
-) (swap.SwapStatus, string) {
-	t.Helper()
-
-	db, err := sql.Open("sqlite", dbPath)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, db.Close()) }()
-
-	var status int64
-	var redeemTxID string
-	err = db.QueryRow(
-		"SELECT status, redeem_tx_id FROM swap WHERE id = ?",
-		id,
-	).Scan(&status, &redeemTxID)
-	require.NoError(t, err)
-	return swap.SwapStatus(status), redeemTxID
 }
