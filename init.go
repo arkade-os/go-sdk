@@ -96,6 +96,12 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		return err
 	}
 
+	info, err := w.Client().GetInfo(ctx)
+	if err != nil {
+		return err
+	}
+	w.dustAmount = info.Dust
+
 	w.logMu.Lock()
 	log.SetLevel(log.DebugLevel)
 	if !w.verbose {
