@@ -52,7 +52,9 @@ func TestSubmarineSwap(t *testing.T) {
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
 	swapStore := newSwapStore(t)
-	defer func() { require.NoError(t, swapStore.Close()) }()
+	t.Cleanup(func() {
+		require.NoError(t, swapStore.Close())
+	})
 	handler, err := swap.NewSwapHandler(
 		alice, boltzSvc, explorerUrl, 300, swap.WithStore(swapStore),
 	)
@@ -110,7 +112,9 @@ func TestReverseSwap(t *testing.T) {
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
 	swapStore := newSwapStore(t)
-	defer func() { require.NoError(t, swapStore.Close()) }()
+	t.Cleanup(func() {
+		require.NoError(t, swapStore.Close())
+	})
 	handler, err := swap.NewSwapHandler(
 		alice, boltzSvc, explorerUrl, 300, swap.WithStore(swapStore),
 	)
@@ -603,7 +607,9 @@ func TestChainSwapArkToBtc(t *testing.T) {
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
 	swapStore := newSwapStore(t)
-	defer func() { require.NoError(t, swapStore.Close()) }()
+	t.Cleanup(func() {
+		require.NoError(t, swapStore.Close())
+	})
 	handler, err := swap.NewSwapHandler(
 		alice, boltzSvc, explorerUrl, 300, swap.WithStore(swapStore),
 	)
@@ -719,7 +725,9 @@ func TestChainSwapBtcToArk(t *testing.T) {
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
 	swapStore := newSwapStore(t)
-	defer func() { require.NoError(t, swapStore.Close()) }()
+	t.Cleanup(func() {
+		require.NoError(t, swapStore.Close())
+	})
 	handler, err := swap.NewSwapHandler(
 		alice, boltzSvc, explorerUrl, 300, swap.WithStore(swapStore),
 	)
