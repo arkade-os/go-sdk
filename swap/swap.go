@@ -27,6 +27,7 @@ import (
 	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	swapstore "github.com/arkade-os/go-sdk/swap/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -40,14 +41,15 @@ import (
 
 var ErrorNoVtxosFound = fmt.Errorf("no vtxos found for the given vhtlc opts")
 
+const boltzReconnectBackoff = time.Second
+
 type SwapHandler struct {
-	arkWallet         arksdk.Wallet
-	boltzSvc          *boltz.Api
-	explorerClient    ExplorerClient
-	timeout           uint32
-	config            clientTypes.Config
-	htlcMu            sync.RWMutex
-	htlcKeysByAddress map[string]*btcec.PrivateKey
+	arkWallet      arksdk.Wallet
+	boltzSvc       *boltz.Api
+	explorerClient ExplorerClient
+	store          swapstore.Service
+	timeout        uint32
+	config         clientTypes.Config
 	// contractMu serializes the key-reservation → ImportContract span across
 	// concurrent swap creations: getNewKey derives the next key from the
 	// latest persisted contract, so it must not run again until the previous
@@ -82,19 +84,53 @@ func NewSwapHandler(
 	boltzSvc *boltz.Api,
 	esploraURL string,
 	timeout uint32,
+	datadir string,
 ) (*SwapHandler, error) {
 	cfg, err := arkClient.GetConfigData(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config data: %w", err)
 	}
-	return &SwapHandler{
-		arkWallet:         arkClient,
-		boltzSvc:          boltzSvc,
-		explorerClient:    NewExplorerClient(esploraURL),
-		timeout:           timeout,
-		config:            *cfg,
-		htlcKeysByAddress: make(map[string]*btcec.PrivateKey),
-	}, nil
+	store, err := swapstore.NewService(datadir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init swap store: %w", err)
+	}
+
+	h := &SwapHandler{
+		arkWallet:      arkClient,
+		boltzSvc:       boltzSvc,
+		explorerClient: NewExplorerClient(esploraURL),
+		store:          store,
+		timeout:        timeout,
+		config:         *cfg,
+	}
+	return h, nil
+}
+
+func (h *SwapHandler) Close() error {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	return h.store.Close()
+}
+
+func (h *SwapHandler) reconnectBoltzWebsocket(
+	ctx context.Context, oldWs *boltz.Websocket, swapId string,
+) (*boltz.Websocket, error) {
+	nextWs := h.boltzSvc.NewWebsocket()
+	if err := nextWs.ConnectAndSubscribe(ctx, []string{swapId}, 5*time.Second); err != nil {
+		_ = oldWs.Close()
+		_ = nextWs.Close()
+
+		select {
+		case <-time.After(boltzReconnectBackoff):
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	_ = oldWs.Close()
+	return nextWs, nil
 }
 
 func (h *SwapHandler) PayInvoice(
@@ -824,7 +860,9 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 }
 
 func (h *SwapHandler) submarineSwap(
-	ctx context.Context, invoice string, unilateralRefund func(swap Swap) error,
+	ctx context.Context,
+	invoice string,
+	unilateralRefund func(swap Swap) error,
 ) (*Swap, error) {
 	if len(invoice) == 0 {
 		return nil, fmt.Errorf("missing invoice")
@@ -964,6 +1002,15 @@ func (h *SwapHandler) submarineSwap(
 		Opts:         vhtlcOpts,
 		Amount:       swap.ExpectedAmount,
 	}
+	if err := h.persistSwap(
+		ctx,
+		*swapDetails,
+		boltz.CurrencyArk,
+		boltz.CurrencyBtc,
+		contract.Script,
+	); err != nil {
+		return nil, err
+	}
 
 	contextTimeout := time.Second * time.Duration(h.timeout)
 	timeoutCtx, cancel := context.WithTimeout(ctx, contextTimeout)
@@ -974,14 +1021,13 @@ func (h *SwapHandler) submarineSwap(
 		select {
 		case update, ok := <-ws.Updates:
 			if !ok {
-				oldWs := ws
-				nextWs := h.boltzSvc.NewWebsocket()
-				if err := nextWs.ConnectAndSubscribe(
-					ctx, []string{swap.Id}, 5*time.Second,
-				); err != nil {
+				nextWs, err := h.reconnectBoltzWebsocket(ctx, ws, swap.Id)
+				if err != nil {
+					return nil, err
+				}
+				if nextWs == nil {
 					continue
 				}
-				_ = oldWs.Close()
 				ws = nextWs
 				continue
 			}
@@ -1006,15 +1052,24 @@ func (h *SwapHandler) submarineSwap(
 					}()
 				}
 				swapDetails.RedeemTxid = txid
+				if err := h.updatePersistedSwap(context.Background(), *swapDetails); err != nil {
+					return nil, err
+				}
 
 				return swapDetails, nil
 			case boltz.TransactionClaimed, boltz.InvoiceSettled:
 				swapDetails.Status = SwapSuccess
+				if err := h.updatePersistedSwap(context.Background(), *swapDetails); err != nil {
+					return nil, err
+				}
 
 				return swapDetails, nil
 			}
 		case <-ctx.Done():
 			swapDetails.Status = SwapFailed
+			if err := h.updatePersistedSwap(context.Background(), *swapDetails); err != nil {
+				return nil, err
+			}
 			go func() {
 				if err := unilateralRefund(*swapDetails); err != nil {
 					log.WithError(err).Errorf("failed to refund swap %s unilaterally", swap.Id)
@@ -1163,6 +1218,15 @@ func (h *SwapHandler) reverseSwap(
 		Amount:       swap.OnchainAmount,
 		Opts:         vhtlcOpts,
 	}
+	if err := h.persistSwap(
+		ctx,
+		swapDetails,
+		boltz.CurrencyBtc,
+		boltz.CurrencyArk,
+		contract.Script,
+	); err != nil {
+		return nil, err
+	}
 
 	go func(swapDetails Swap) {
 		if reedeemTxId, err := h.waitAndClaim(
@@ -1173,6 +1237,10 @@ func (h *SwapHandler) reverseSwap(
 		} else {
 			swapDetails.RedeemTxid = reedeemTxId
 			swapDetails.Status = SwapSuccess
+		}
+
+		if err := h.updatePersistedSwap(context.Background(), swapDetails); err != nil {
+			log.WithError(err).Error("failed to update persisted reverse swap")
 		}
 
 		if err := postProcess(swapDetails); err != nil {
@@ -1252,14 +1320,13 @@ func (h *SwapHandler) waitAndClaim(
 		select {
 		case update, ok := <-ws.Updates:
 			if !ok {
-				oldWs := ws
-				nextWs := h.boltzSvc.NewWebsocket()
-				if err := nextWs.ConnectAndSubscribe(
-					ctx, []string{swapId}, 5*time.Second,
-				); err != nil {
+				nextWs, err := h.reconnectBoltzWebsocket(ctx, ws, swapId)
+				if err != nil {
+					return "", err
+				}
+				if nextWs == nil {
 					continue
 				}
-				_ = oldWs.Close()
 				ws = nextWs
 				continue
 			}

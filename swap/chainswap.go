@@ -52,6 +52,7 @@ type ChainSwap struct {
 	Preimage []byte
 
 	UserBtcLockupAddress string
+	BTCHTLCPrivateKey    string
 
 	VhtlcOpts vhtlc.Opts
 
@@ -115,6 +116,7 @@ func NewChainSwap(
 	swapRespJson string,
 	isArkToBtc bool,
 	userBtcLockupAddress string,
+	btcHTLCPrivateKey string,
 	eventCallback ChainSwapEventCallback,
 ) (*ChainSwap, error) {
 	if id == "" {
@@ -133,6 +135,10 @@ func NewChainSwap(
 		return nil, errors.New("preimage cannot be nil")
 	}
 
+	if btcHTLCPrivateKey == "" {
+		return nil, errors.New("btcHTLCPrivateKey cannot be empty")
+	}
+
 	ch := &ChainSwap{
 		Id:                   id,
 		Timestamp:            time.Now().Unix(),
@@ -143,20 +149,24 @@ func NewChainSwap(
 		SwapRespJson:         swapRespJson,
 		IsArkToBtc:           isArkToBtc,
 		UserBtcLockupAddress: userBtcLockupAddress,
+		BTCHTLCPrivateKey:    btcHTLCPrivateKey,
 		onEvent:              eventCallback,
 	}
 
-	eventCallback(CreateEvent{
-		Id:                   id,
-		Timestamp:            time.Now().Unix(),
-		Status:               ChainSwapPending,
-		Amount:               amount,
-		Preimage:             preimage,
-		VhtlcOpts:            *vhtlcOpts,
-		SwapRespJson:         swapRespJson,
-		IsArkToBtc:           isArkToBtc,
-		UserBtcLockupAddress: userBtcLockupAddress,
-	})
+	if eventCallback != nil {
+		eventCallback(CreateEvent{
+			Id:                   id,
+			Timestamp:            ch.Timestamp,
+			Status:               ChainSwapPending,
+			Amount:               amount,
+			Preimage:             preimage,
+			VhtlcOpts:            *vhtlcOpts,
+			SwapRespJson:         swapRespJson,
+			IsArkToBtc:           isArkToBtc,
+			UserBtcLockupAddress: userBtcLockupAddress,
+			BTCHTLCPrivateKey:    btcHTLCPrivateKey,
+		})
+	}
 
 	return ch, nil
 }
@@ -327,6 +337,7 @@ type CreateEvent struct {
 	SwapRespJson         string
 	IsArkToBtc           bool
 	UserBtcLockupAddress string
+	BTCHTLCPrivateKey    string
 }
 
 func (CreateEvent) isChainSwapEvent() {}
@@ -541,10 +552,6 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
-	h.storeLocalHTLCKey(
-		swapResp.ClaimDetails.LockupAddress,
-		btcClaimKey,
-	)
 
 	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
@@ -588,11 +595,19 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		string(swapRespJson),
 		arkToBtc,
 		btcDestinationAddress,
+		hex.EncodeToString(btcClaimKey.Serialize()),
 		eventCallback,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)
 	}
+	if err := h.persistChainSwap(
+		ctx, chainSwap, boltz.CurrencyArk, boltz.CurrencyBtc,
+	); err != nil {
+		return nil, err
+	}
+
+	chainSwap.onEvent = h.persistChainSwapEventCallback(eventCallback)
 
 	monitorCtx := chainSwapMonitorContext(ctx)
 	go func() {
@@ -773,10 +788,6 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
-	h.storeLocalHTLCKey(
-		swapResp.LockupDetails.LockupAddress,
-		btcRefundKey,
-	)
 
 	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
@@ -820,14 +831,25 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	}
 
 	chainSwap, err := NewChainSwap(
-		swapResp.Id, amount, preimage, &vhtlcOpts,
-		string(swapRespJson), arkToBtc, "", eventCallback,
+		swapResp.Id,
+		amount,
+		preimage,
+		&vhtlcOpts,
+		string(swapRespJson),
+		arkToBtc,
+		swapResp.LockupDetails.LockupAddress,
+		hex.EncodeToString(btcRefundKey.Serialize()),
+		eventCallback,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap: %w", err)
 	}
-
-	chainSwap.UserBtcLockupAddress = swapResp.LockupDetails.LockupAddress
+	if err := h.persistChainSwap(
+		ctx, chainSwap, boltz.CurrencyBtc, boltz.CurrencyArk,
+	); err != nil {
+		return nil, err
+	}
+	chainSwap.onEvent = h.persistChainSwapEventCallback(eventCallback)
 
 	log.Debugf("Cached swap response for swap %s (used during active monitoring)", swapResp.Id)
 
@@ -930,14 +952,18 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	}
 
 	swapTree := *swapResp.LockupDetails.SwapTree
-	htlcKey, err := h.ensureLocalHTLCKey(
-		swapResp.LockupDetails.LockupAddress,
-		swapResp.LockupDetails.ServerPublicKey,
-		swapTree,
-	)
+	record, err := h.store.ChainSwaps().Get(ctx, swapId)
 	if err != nil {
-		return "", fmt.Errorf("invalid BTC HTLC: %w", err)
+		return "", fmt.Errorf("load chain swap %s: %w", swapId, err)
 	}
+	if record.BTCHTLCPrivateKey == "" {
+		return "", fmt.Errorf("missing BTC HTLC private key for swap %s", swapId)
+	}
+	htlcKeyBytes, err := hex.DecodeString(record.BTCHTLCPrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("decode BTC HTLC private key for swap %s: %w", swapId, err)
+	}
+	htlcKey, _ := btcec.PrivKeyFromBytes(htlcKeyBytes)
 
 	lockupTx, err := deserializeTransaction(userLockupTxHex)
 	if err != nil {

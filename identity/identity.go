@@ -546,6 +546,8 @@ func closureContainsKey(closure script.Closure, xOnlyPub []byte) bool {
 		return checkKeys(c.PubKeys)
 	case *script.ConditionMultisigClosure:
 		return checkKeys(c.PubKeys)
+	case *script.ConditionCSVMultisigClosure:
+		return checkKeys(c.PubKeys)
 	default:
 		return false
 	}

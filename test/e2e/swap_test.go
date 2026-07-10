@@ -16,6 +16,7 @@ import (
 	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/swap"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	swapstore "github.com/arkade-os/go-sdk/swap/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -46,12 +47,12 @@ const (
 // 4. Returns SwapSuccess when invoice is settled
 func TestSubmarineSwap(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
+	alice, datadir := setupClientWithDatadir(t, "")
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
+	swapStore := openSwapStore(t, datadir)
 
 	// Create a Lightning invoice on the LND node (nigiri's LND)
 	invoiceAmount := 5000 // 5,000 sats
@@ -81,6 +82,7 @@ func TestSubmarineSwap(t *testing.T) {
 	require.Equal(t, swap.SwapSuccess, swapResult.Status,
 		"submarine swap should succeed (status=SwapSuccess), got status %d", swapResult.Status)
 	require.False(t, unilateralRefundCalled.Load(), "unilateral refund should NOT have been called")
+	requirePersistedSwapStatus(t, swapStore, swapResult.Id, swap.SwapSuccess)
 	t.Logf("Submarine swap %s succeeded!", swapResult.Id)
 }
 
@@ -98,13 +100,13 @@ func TestSubmarineSwap(t *testing.T) {
 // invoice generation, LN payment, and Boltz VTXO delivery.
 func TestReverseSwap(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
+	alice, datadir := setupClientWithDatadir(t, "")
 	// Alice needs some initial funds for the VHTLC fee overhead
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
+	swapStore := openSwapStore(t, datadir)
 
 	invoiceAmount := uint64(4000) // 4,000 sats
 
@@ -175,6 +177,7 @@ func TestReverseSwap(t *testing.T) {
 	case <-time.After(90 * time.Second):
 		t.Fatalf("reverse swap %s timed out waiting for postProcess", swapResult.Id)
 	}
+	requirePersistedSwapStatus(t, swapStore, swapResult.Id, postProcessSwap.Status)
 }
 
 // =============================================================================
@@ -194,12 +197,11 @@ func TestReverseSwap(t *testing.T) {
 // Adapted from fulmine's TestCircularSwap (swap_test.go:126).
 func TestCircularSwap(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
+	alice, datadir := setupClientWithDatadir(t, "")
 	faucetOffchain(t, alice, 0.002) // 200,000 sats (needs enough for both send + receive fees)
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 	invoiceAmount := uint64(3000)
 
@@ -281,12 +283,11 @@ func TestCircularSwap(t *testing.T) {
 func TestConcurrentSwaps(t *testing.T) {
 	t.Run("distinct submarine swaps", func(t *testing.T) {
 		settleBoltzFulmine(t)
-		alice := setupClient(t, "")
+		alice, datadir := setupClientWithDatadir(t, "")
 		faucetOffchain(t, alice, 0.002) // enough for two submarine swaps
 
 		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-		require.NoError(t, err)
+		handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 		invoiceAmount := 2000
 		invoice1, err := lndAddInvoice(invoiceAmount)
@@ -330,12 +331,11 @@ func TestConcurrentSwaps(t *testing.T) {
 
 	t.Run("submarine and reverse swaps", func(t *testing.T) {
 		settleBoltzFulmine(t)
-		alice := setupClient(t, "")
+		alice, datadir := setupClientWithDatadir(t, "")
 		faucetOffchain(t, alice, 0.002)
 
 		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-		require.NoError(t, err)
+		handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 		invoiceAmount := 2001
 		invoice, err := lndAddInvoice(invoiceAmount)
@@ -386,12 +386,11 @@ func TestConcurrentSwaps(t *testing.T) {
 
 	t.Run("distinct reverse swaps", func(t *testing.T) {
 		settleBoltzFulmine(t)
-		alice := setupClient(t, "")
+		alice, datadir := setupClientWithDatadir(t, "")
 		faucetOffchain(t, alice, 0.002)
 
 		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-		require.NoError(t, err)
+		handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 		invoiceAmount := uint64(2002)
 
@@ -454,7 +453,7 @@ func TestConcurrentSwaps(t *testing.T) {
 func TestRefundSwap(t *testing.T) {
 	settleBoltzFulmine(t)
 
-	alice, privKey := setupSwapClient(t)
+	alice, privKey, datadir := setupSwapClientWithDatadir(t)
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
@@ -558,8 +557,7 @@ func TestRefundSwap(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	// Create swap handler and refund cooperatively
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 120)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 120, datadir)
 
 	refundTxid, err := handler.RefundSwap(
 		ctx,
@@ -587,12 +585,12 @@ func TestRefundSwap(t *testing.T) {
 // - Swap reaches ChainSwapClaimed terminal state
 func TestChainSwapArkToBtc(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
+	alice, datadir := setupClientWithDatadir(t, "")
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
+	swapStore := openSwapStore(t, datadir)
 
 	// Track swap events to verify the correct state machine transitions
 	var events []swap.ChainSwapEvent
@@ -673,6 +671,9 @@ func TestChainSwapArkToBtc(t *testing.T) {
 					unilateralRefundCalled.Load(),
 					"unilateral refund should NOT have been called",
 				)
+				requirePersistedChainSwapStatus(
+					t, swapStore, chainSwap.Id, swap.ChainSwapClaimed,
+				)
 				return
 			}
 			if chainSwap.GetStatus() == swap.ChainSwapFailed {
@@ -697,11 +698,11 @@ func TestChainSwapArkToBtc(t *testing.T) {
 // The test verifies that the swap reaches at least ServerLocked state successfully.
 func TestChainSwapBtcToArk(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
+	alice, datadir := setupClientWithDatadir(t, "")
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
+	swapStore := openSwapStore(t, datadir)
 
 	var events []swap.ChainSwapEvent
 	eventCallback := func(event swap.ChainSwapEvent) {
@@ -752,6 +753,9 @@ func TestChainSwapBtcToArk(t *testing.T) {
 					chainSwap.GetClaimTxid(),
 				)
 				require.NotEmpty(t, chainSwap.GetClaimTxid(), "claim txid should be set")
+				requirePersistedChainSwapStatus(
+					t, swapStore, chainSwap.Id, swap.ChainSwapClaimed,
+				)
 				return
 			}
 			if chainSwap.GetStatus() == swap.ChainSwapFailed {
@@ -782,6 +786,9 @@ func TestChainSwapBtcToArk(t *testing.T) {
 						chainSwap.Id, chainSwap.GetError())
 					t.Logf(
 						"This is a known limitation in pkg/swap ClaimVHTLC (needs retry for VTXO settlement)",
+					)
+					requirePersistedChainSwapStatus(
+						t, swapStore, chainSwap.Id, swap.ChainSwapFailed,
 					)
 					return
 				}
@@ -817,11 +824,10 @@ func TestChainSwapBtcToArk(t *testing.T) {
 // Adapted from fulmine's TestChainSwapBTCtoARKWithQuote (chainswap_test.go:98).
 func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
+	alice, datadir := setupClientWithDatadir(t, "")
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 	var events []swap.ChainSwapEvent
 	eventCallback := func(event swap.ChainSwapEvent) {
@@ -952,6 +958,47 @@ func createReverseSwapWithRetry(
 	}
 
 	return nil, lastErr
+}
+
+func openSwapStore(t *testing.T, datadir string) swapstore.Service {
+	t.Helper()
+
+	store, err := swapstore.NewService(datadir)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		// nolint
+		store.Close()
+	})
+
+	return store
+}
+
+func requirePersistedSwapStatus(
+	t *testing.T,
+	store swapstore.Service,
+	id string,
+	want swap.SwapStatus,
+) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		record, err := store.Swaps().Get(context.Background(), id)
+		return err == nil && record.Status == int(want)
+	}, 5*time.Second, 100*time.Millisecond)
+}
+
+func requirePersistedChainSwapStatus(
+	t *testing.T,
+	store swapstore.Service,
+	id string,
+	want swap.ChainSwapStatus,
+) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		record, err := store.ChainSwaps().Get(context.Background(), id)
+		return err == nil && record.Status == int(want)
+	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func isBoltzSerializationAbort(err error) bool {
