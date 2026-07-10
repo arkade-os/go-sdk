@@ -17,7 +17,6 @@ import (
 	"github.com/arkade-os/go-sdk/swap"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	swapstore "github.com/arkade-os/go-sdk/swap/store"
-	sqlstore "github.com/arkade-os/go-sdk/swap/store/sql"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -979,10 +978,10 @@ func createReverseSwapWithRetry(
 	return nil, lastErr
 }
 
-func openSwapStore(t *testing.T, datadir string) swapstore.Store {
+func openSwapStore(t *testing.T, datadir string) swapstore.Service {
 	t.Helper()
 
-	store, err := sqlstore.NewStore(datadir)
+	store, err := swapstore.NewService(datadir)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, store.Close())
@@ -993,7 +992,7 @@ func openSwapStore(t *testing.T, datadir string) swapstore.Store {
 
 func requirePersistedSwapStatus(
 	t *testing.T,
-	store swapstore.Store,
+	store swapstore.Service,
 	id string,
 	want swap.SwapStatus,
 ) {
@@ -1007,7 +1006,7 @@ func requirePersistedSwapStatus(
 
 func requirePersistedChainSwapStatus(
 	t *testing.T,
-	store swapstore.Store,
+	store swapstore.Service,
 	id string,
 	want swap.ChainSwapStatus,
 ) {

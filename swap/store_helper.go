@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/arkade-os/go-sdk/swap/boltz"
-	swapstore "github.com/arkade-os/go-sdk/swap/store"
+	swapstore "github.com/arkade-os/go-sdk/swap/store/domain"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,7 +19,7 @@ func (h *SwapHandler) persistSwap(
 	if h.store == nil || h.store.Swaps() == nil {
 		return nil
 	}
-	count, err := h.store.Swaps().Add(ctx, []swapstore.SwapRecord{{
+	count, err := h.store.Swaps().Add(ctx, []swapstore.Swap{{
 		ID:                  swap.Id,
 		Amount:              swap.Amount,
 		Timestamp:           swap.Timestamp,
@@ -44,7 +44,7 @@ func (h *SwapHandler) updatePersistedSwap(ctx context.Context, swap Swap) error 
 	if h.store == nil || h.store.Swaps() == nil {
 		return nil
 	}
-	if err := h.store.Swaps().Update(ctx, swapstore.SwapRecord{
+	if err := h.store.Swaps().Update(ctx, swapstore.Swap{
 		ID:         swap.Id,
 		Status:     int(swap.Status),
 		RedeemTxID: swap.RedeemTxid,
@@ -91,42 +91,42 @@ func (h *SwapHandler) persistChainSwapEvent(
 
 	switch e := event.(type) {
 	case UserLockEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapUserLocked)
 			s.UserLockupTxID = e.TxID
 		})
 	case ServerLockEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapServerLocked)
 			s.ServerLockupTxID = e.TxID
 		})
 	case ClaimEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapClaimed)
 			s.ClaimTxID = e.TxID
 		})
 	case RefundEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapRefunded)
 			s.RefundTxID = e.TxID
 		})
 	case RefundEventUnilaterally:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapRefundedUnilaterally)
 			s.RefundTxID = e.TxID
 		})
 	case FailEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapFailed)
 			s.ErrorMessage = e.Error
 		})
 	case RefundFailedEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapRefundFailed)
 			s.ErrorMessage = e.Error
 		})
 	case UserLockFailedEvent:
-		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwapRecord) {
+		return h.updatePersistedChainSwap(ctx, e.SwapID, func(s *swapstore.ChainSwap) {
 			s.Status = int(ChainSwapUserLockedFailed)
 			s.ErrorMessage = e.Error
 		})
@@ -138,7 +138,7 @@ func (h *SwapHandler) persistChainSwapEvent(
 func (h *SwapHandler) updatePersistedChainSwap(
 	ctx context.Context,
 	id string,
-	update func(*swapstore.ChainSwapRecord),
+	update func(*swapstore.ChainSwap),
 ) error {
 	if h.store == nil || h.store.ChainSwaps() == nil {
 		return nil
@@ -154,11 +154,11 @@ func (h *SwapHandler) updatePersistedChainSwap(
 func chainSwapRecord(
 	swap *ChainSwap,
 	from, to boltz.Currency,
-) swapstore.ChainSwapRecord {
+) swapstore.ChainSwap {
 	swap.mu.RLock()
 	defer swap.mu.RUnlock()
 
-	return swapstore.ChainSwapRecord{
+	return swapstore.ChainSwap{
 		ID:                      swap.Id,
 		FromCurrency:            string(from),
 		ToCurrency:              string(to),

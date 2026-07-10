@@ -28,7 +28,6 @@ import (
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	swapstore "github.com/arkade-os/go-sdk/swap/store"
-	sqlstore "github.com/arkade-os/go-sdk/swap/store/sql"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -48,7 +47,7 @@ type SwapHandler struct {
 	arkWallet      arksdk.Wallet
 	boltzSvc       *boltz.Api
 	explorerClient ExplorerClient
-	store          swapstore.Store
+	store          swapstore.Service
 	timeout        uint32
 	config         clientTypes.Config
 	// contractMu serializes the key-reservation → ImportContract span across
@@ -91,7 +90,7 @@ func NewSwapHandler(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config data: %w", err)
 	}
-	store, err := sqlstore.NewStore(datadir)
+	store, err := swapstore.NewService(datadir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init swap store: %w", err)
 	}

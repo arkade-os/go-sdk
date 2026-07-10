@@ -1,4 +1,4 @@
-package sqlstore_test
+package swapstore_test
 
 import (
 	"path/filepath"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/arkade-os/go-sdk/swap"
 	swapstore "github.com/arkade-os/go-sdk/swap/store"
-	sqlstore "github.com/arkade-os/go-sdk/swap/store/sql"
+	swapdomain "github.com/arkade-os/go-sdk/swap/store/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +16,7 @@ func TestSwapRepository(t *testing.T) {
 
 	ctx := t.Context()
 	repo := store.Swaps()
-	record := swapstore.SwapRecord{
+	record := swapdomain.Swap{
 		ID:                  "swap-1",
 		Amount:              42,
 		Timestamp:           1700000000,
@@ -27,11 +27,11 @@ func TestSwapRepository(t *testing.T) {
 		VHTLCContractScript: "vhtlc-script",
 	}
 
-	count, err := repo.Add(ctx, []swapstore.SwapRecord{record})
+	count, err := repo.Add(ctx, []swapdomain.Swap{record})
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
 
-	count, err = repo.Add(ctx, []swapstore.SwapRecord{record})
+	count, err = repo.Add(ctx, []swapdomain.Swap{record})
 	require.NoError(t, err)
 	require.Zero(t, count)
 
@@ -58,7 +58,7 @@ func TestChainSwapRepository(t *testing.T) {
 
 	ctx := t.Context()
 	repo := store.ChainSwaps()
-	first := swapstore.ChainSwapRecord{
+	first := swapdomain.ChainSwap{
 		ID:                      "chain-1",
 		FromCurrency:            "ARK",
 		ToCurrency:              "BTC",
@@ -97,10 +97,10 @@ func TestChainSwapRepository(t *testing.T) {
 	require.Equal(t, "private-key", got.BTCHTLCPrivateKey)
 }
 
-func newStore(t *testing.T) (swapstore.Store, string) {
+func newStore(t *testing.T) (swapstore.Service, string) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "swap.sqlite.db")
-	store, err := sqlstore.Open(dbPath)
+	store, err := swapstore.NewService(dbPath)
 	require.NoError(t, err)
 	return store, dbPath
 }

@@ -1,0 +1,109 @@
+package swapstore
+
+import (
+	"database/sql"
+	"embed"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	swapdomain "github.com/arkade-os/go-sdk/swap/store/domain"
+	sqlstore "github.com/arkade-os/go-sdk/swap/store/sql"
+	"github.com/golang-migrate/migrate/v4"
+	sqlitemigrate "github.com/golang-migrate/migrate/v4/database/sqlite"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	_ "modernc.org/sqlite"
+)
+
+//go:embed sql/migration/*
+var migrations embed.FS
+
+const (
+	driverName   = "sqlite"
+	sqliteDbFile = "swap.sqlite.db"
+)
+
+type Service interface {
+	Swaps() swapdomain.SwapRepository
+	ChainSwaps() swapdomain.ChainSwapRepository
+	Close() error
+}
+
+type service struct {
+	db         *sql.DB
+	swaps      swapdomain.SwapRepository
+	chainSwaps swapdomain.ChainSwapRepository
+}
+
+func NewService(dir string) (Service, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("missing swap sqlite datadir")
+	}
+
+	dbPath := filepath.Join(dir, sqliteDbFile)
+	if dbPath == "" {
+		return nil, fmt.Errorf("missing swap sqlite db path")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return nil, fmt.Errorf("create swap sqlite datadir: %w", err)
+	}
+
+	db, err := sql.Open(driverName, dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open swap sqlite db: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			_ = db.Close()
+		}
+	}()
+
+	if err := migrateDB(db); err != nil {
+		return nil, err
+	}
+
+	swapRepo := sqlstore.NewSwapRepository(db)
+	chainSwapRepo := sqlstore.NewChainSwapRepository(db)
+
+	succeeded = true
+	return &service{
+		db:         db,
+		swaps:      swapRepo,
+		chainSwaps: chainSwapRepo,
+	}, nil
+}
+
+func (s *service) Swaps() swapdomain.SwapRepository { return s.swaps }
+
+func (s *service) ChainSwaps() swapdomain.ChainSwapRepository { return s.chainSwaps }
+
+func (s *service) Close() error {
+	if s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+func migrateDB(db *sql.DB) error {
+	driver, err := sqlitemigrate.WithInstance(db, &sqlitemigrate.Config{})
+	if err != nil {
+		return fmt.Errorf("open swap sqlite migration driver: %w", err)
+	}
+	source, err := iofs.New(migrations, "sql/migration")
+	if err != nil {
+		return fmt.Errorf("embed swap sqlite migrations: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", source, "swaps", driver)
+	if err != nil {
+		return fmt.Errorf("create swap sqlite migration instance: %w", err)
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("run swap sqlite migrations: %w", err)
+	}
+	return nil
+}
