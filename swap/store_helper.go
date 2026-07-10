@@ -2,7 +2,6 @@ package swap
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/arkade-os/go-sdk/swap/boltz"
@@ -167,7 +166,6 @@ func chainSwapRecord(
 		UserLockupTxID:          swap.UserLockTxid,
 		ServerLockupTxID:        swap.ServerLockTxid,
 		ClaimTxID:               swap.ClaimTxid,
-		ClaimPreimage:           hex.EncodeToString(swap.Preimage),
 		RefundTxID:              swap.RefundTxid,
 		UserBTCLockupAddress:    swap.UserBtcLockupAddress,
 		BTCHTLCPrivateKey:       swap.BTCHTLCPrivateKey,

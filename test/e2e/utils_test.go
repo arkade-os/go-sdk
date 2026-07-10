@@ -17,6 +17,8 @@ import (
 	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey/store/inmemory"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
+	"github.com/arkade-os/go-sdk/swap"
+	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
@@ -89,6 +91,24 @@ func setupSwapClientWithDatadir(t *testing.T) (sdk.Wallet, *btcec.PrivateKey, st
 	)
 
 	return w, privkey, datadir
+}
+
+func setupSwapHandler(
+	t *testing.T,
+	wallet sdk.Wallet,
+	boltzSvc *boltz.Api,
+	timeout uint32,
+	datadir string,
+) *swap.SwapHandler {
+	t.Helper()
+
+	handler, err := swap.NewSwapHandler(wallet, boltzSvc, explorerUrl, timeout, datadir)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, handler.Close())
+	})
+
+	return handler
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {

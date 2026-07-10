@@ -11,7 +11,6 @@ type ChainSwap struct {
 	UserLockupTxID          string
 	ServerLockupTxID        string
 	ClaimTxID               string
-	ClaimPreimage           string
 	RefundTxID              string
 	UserBTCLockupAddress    string
 	BTCHTLCPrivateKey       string

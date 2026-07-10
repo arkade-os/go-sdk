@@ -106,6 +106,13 @@ func NewSwapHandler(
 	return h, nil
 }
 
+func (h *SwapHandler) Close() error {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	return h.store.Close()
+}
+
 func (h *SwapHandler) reconnectBoltzWebsocket(
 	ctx context.Context, oldWs *boltz.Websocket, swapId string,
 ) (*boltz.Websocket, error) {

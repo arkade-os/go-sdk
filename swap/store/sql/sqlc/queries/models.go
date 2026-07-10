@@ -17,7 +17,6 @@ type ChainSwap struct {
 	UserLockupTxID          sql.NullString
 	ServerLockupTxID        sql.NullString
 	ClaimTxID               sql.NullString
-	ClaimPreimage           string
 	RefundTxID              sql.NullString
 	UserBtcLockupAddress    sql.NullString
 	BtcHtlcPrivateKey       sql.NullString

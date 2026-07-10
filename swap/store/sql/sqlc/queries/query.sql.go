@@ -13,11 +13,11 @@ import (
 const insertChainSwap = `-- name: InsertChainSwap :exec
 INSERT INTO chain_swap (
     id, from_currency, to_currency, amount, status, user_lockup_tx_id,
-    server_lockup_tx_id, claim_tx_id, claim_preimage, refund_tx_id,
+    server_lockup_tx_id, claim_tx_id, refund_tx_id,
     user_btc_lockup_address, btc_htlc_private_key,
     error_message, boltz_create_response_json,
     created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertChainSwapParams struct {
@@ -29,7 +29,6 @@ type InsertChainSwapParams struct {
 	UserLockupTxID          sql.NullString
 	ServerLockupTxID        sql.NullString
 	ClaimTxID               sql.NullString
-	ClaimPreimage           string
 	RefundTxID              sql.NullString
 	UserBtcLockupAddress    sql.NullString
 	BtcHtlcPrivateKey       sql.NullString
@@ -49,7 +48,6 @@ func (q *Queries) InsertChainSwap(ctx context.Context, arg InsertChainSwapParams
 		arg.UserLockupTxID,
 		arg.ServerLockupTxID,
 		arg.ClaimTxID,
-		arg.ClaimPreimage,
 		arg.RefundTxID,
 		arg.UserBtcLockupAddress,
 		arg.BtcHtlcPrivateKey,
@@ -101,7 +99,7 @@ func (q *Queries) InsertSwap(ctx context.Context, arg InsertSwapParams) (int64, 
 }
 
 const selectChainSwap = `-- name: SelectChainSwap :one
-SELECT id, from_currency, to_currency, amount, status, user_lockup_tx_id, server_lockup_tx_id, claim_tx_id, claim_preimage, refund_tx_id, user_btc_lockup_address, btc_htlc_private_key, error_message, boltz_create_response_json, created_at, updated_at FROM chain_swap
+SELECT id, from_currency, to_currency, amount, status, user_lockup_tx_id, server_lockup_tx_id, claim_tx_id, refund_tx_id, user_btc_lockup_address, btc_htlc_private_key, error_message, boltz_create_response_json, created_at, updated_at FROM chain_swap
 WHERE id = ?1
 `
 
@@ -117,7 +115,6 @@ func (q *Queries) SelectChainSwap(ctx context.Context, id string) (ChainSwap, er
 		&i.UserLockupTxID,
 		&i.ServerLockupTxID,
 		&i.ClaimTxID,
-		&i.ClaimPreimage,
 		&i.RefundTxID,
 		&i.UserBtcLockupAddress,
 		&i.BtcHtlcPrivateKey,

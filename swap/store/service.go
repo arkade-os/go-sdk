@@ -55,6 +55,10 @@ func NewService(dir string) (Service, error) {
 		return nil, fmt.Errorf("open swap sqlite db: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	if err := configureSQLite(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	succeeded := false
 	defer func() {
@@ -104,6 +108,18 @@ func migrateDB(db *sql.DB) error {
 	}
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("run swap sqlite migrations: %w", err)
+	}
+	return nil
+}
+
+// configureSQLite reduces lock contention when the handler and tests open
+// separate connections to the same swap database.
+func configureSQLite(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		return fmt.Errorf("configure swap sqlite busy timeout: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		return fmt.Errorf("configure swap sqlite journal mode: %w", err)
 	}
 	return nil
 }

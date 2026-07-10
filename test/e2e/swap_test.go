@@ -51,10 +51,7 @@ func TestSubmarineSwap(t *testing.T) {
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(
-		alice, boltzSvc, explorerUrl, 300, datadir,
-	)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 	swapStore := openSwapStore(t, datadir)
 
 	// Create a Lightning invoice on the LND node (nigiri's LND)
@@ -108,10 +105,7 @@ func TestReverseSwap(t *testing.T) {
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(
-		alice, boltzSvc, explorerUrl, 300, datadir,
-	)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 	swapStore := openSwapStore(t, datadir)
 
 	invoiceAmount := uint64(4000) // 4,000 sats
@@ -207,8 +201,7 @@ func TestCircularSwap(t *testing.T) {
 	faucetOffchain(t, alice, 0.002) // 200,000 sats (needs enough for both send + receive fees)
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 	invoiceAmount := uint64(3000)
 
@@ -294,8 +287,7 @@ func TestConcurrentSwaps(t *testing.T) {
 		faucetOffchain(t, alice, 0.002) // enough for two submarine swaps
 
 		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300, datadir)
-		require.NoError(t, err)
+		handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 		invoiceAmount := 2000
 		invoice1, err := lndAddInvoice(invoiceAmount)
@@ -343,8 +335,7 @@ func TestConcurrentSwaps(t *testing.T) {
 		faucetOffchain(t, alice, 0.002)
 
 		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300, datadir)
-		require.NoError(t, err)
+		handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 		invoiceAmount := 2001
 		invoice, err := lndAddInvoice(invoiceAmount)
@@ -399,8 +390,7 @@ func TestConcurrentSwaps(t *testing.T) {
 		faucetOffchain(t, alice, 0.002)
 
 		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300, datadir)
-		require.NoError(t, err)
+		handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 		invoiceAmount := uint64(2002)
 
@@ -567,8 +557,7 @@ func TestRefundSwap(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	// Create swap handler and refund cooperatively
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 120, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 120, datadir)
 
 	refundTxid, err := handler.RefundSwap(
 		ctx,
@@ -600,10 +589,7 @@ func TestChainSwapArkToBtc(t *testing.T) {
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(
-		alice, boltzSvc, explorerUrl, 300, datadir,
-	)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 	swapStore := openSwapStore(t, datadir)
 
 	// Track swap events to verify the correct state machine transitions
@@ -715,10 +701,7 @@ func TestChainSwapBtcToArk(t *testing.T) {
 	alice, datadir := setupClientWithDatadir(t, "")
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(
-		alice, boltzSvc, explorerUrl, 300, datadir,
-	)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 	swapStore := openSwapStore(t, datadir)
 
 	var events []swap.ChainSwapEvent
@@ -844,8 +827,7 @@ func TestChainSwapBTCtoARKWithQuote(t *testing.T) {
 	alice, datadir := setupClientWithDatadir(t, "")
 
 	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	handler, err := swap.NewSwapHandler(alice, boltzSvc, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, boltzSvc, 300, datadir)
 
 	var events []swap.ChainSwapEvent
 	eventCallback := func(event swap.ChainSwapEvent) {

@@ -64,7 +64,6 @@ func TestChainSwapRepository(t *testing.T) {
 		ToCurrency:              "BTC",
 		Amount:                  1000,
 		Status:                  int(swap.ChainSwapPending),
-		ClaimPreimage:           "preimage",
 		UserBTCLockupAddress:    "btc-address",
 		BTCHTLCPrivateKey:       "private-key",
 		BoltzCreateResponseJSON: "{}",

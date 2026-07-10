@@ -15,7 +15,6 @@ import (
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/contract"
-	"github.com/arkade-os/go-sdk/swap"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -67,8 +66,7 @@ func TestVHTLCClaimDirect(t *testing.T) {
 	fundVHTLC(t, alice, vhtlcAddr, 1000)
 
 	// Create swap handler (boltzSvc=nil since we only need VHTLC operations)
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, nil, 300, datadir)
 
 	// Verify VHTLC has funds
 	vtxos, err := handler.GetVHTLCFunds(ctx, []vhtlc.Opts{opts})
@@ -123,8 +121,7 @@ func TestVHTLCClaimSettlement(t *testing.T) {
 
 	fundVHTLC(t, alice, vhtlcAddr, fundAmount)
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, nil, 300, datadir)
 
 	// Verify VHTLC has funds before settlement
 	vtxos, err := handler.GetVHTLCFunds(ctx, []vhtlc.Opts{opts})
@@ -197,8 +194,7 @@ func TestVHTLCRefundSettlement(t *testing.T) {
 
 	fundVHTLC(t, alice, vhtlcAddr, fundAmount)
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, nil, 300, datadir)
 
 	// Verify VHTLC has funds
 	vtxos, err := handler.GetVHTLCFunds(ctx, []vhtlc.Opts{opts})
@@ -284,14 +280,7 @@ func TestVHTLCDelegateRefund(t *testing.T) {
 	fundVHTLC(t, sender, vhtlcAddr, 1000)
 
 	// Get funded VHTLC vtxo info
-	senderHandler, err := swap.NewSwapHandler(
-		sender,
-		nil,
-		explorerUrl,
-		300,
-		senderDatadir,
-	)
-	require.NoError(t, err)
+	senderHandler := setupSwapHandler(t, sender, nil, 300, senderDatadir)
 
 	vtxos, err := senderHandler.GetVHTLCFunds(ctx, []vhtlc.Opts{opts})
 	require.NoError(t, err)
@@ -340,14 +329,7 @@ func TestVHTLCDelegateRefund(t *testing.T) {
 	require.NoError(t, err)
 
 	// Receiver acts as delegate to settle the VHTLC refund
-	receiverHandler, err := swap.NewSwapHandler(
-		receiver,
-		nil,
-		explorerUrl,
-		300,
-		receiverDatadir,
-	)
-	require.NoError(t, err)
+	receiverHandler := setupSwapHandler(t, receiver, nil, 300, receiverDatadir)
 
 	// Create a signer session for the receiver (the delegate cosigner)
 	receiverSignerSession := tree.NewTreeSignerSession(receiverPrivKey)
@@ -570,8 +552,7 @@ func TestVHTLCClaimWithOutpoint(t *testing.T) {
 	fundVHTLC(t, alice, vhtlcAddr, 1000) // first VTXO
 	fundVHTLC(t, alice, vhtlcAddr, 2000) // second VTXO
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, nil, 300, datadir)
 
 	vtxos, err := handler.GetVHTLCFunds(ctx, []vhtlc.Opts{opts})
 	require.NoError(t, err)
@@ -647,8 +628,7 @@ func TestVHTLCClaimOldestVtxo(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	fundVHTLC(t, alice, vhtlcAddr, 3000) // newest
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
-	require.NoError(t, err)
+	handler := setupSwapHandler(t, alice, nil, 300, datadir)
 
 	// Claim with nil outpoint — should select oldest (1000-sat) VTXO
 	claimTxid, err := handler.ClaimVHTLC(ctx, preimage, opts, nil)

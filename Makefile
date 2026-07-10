@@ -1,4 +1,4 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smokehd keyrotation keyrotationrestart keyrotationruntime bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc swapsqlc regtest regtestdown integrationtest smokehd keyrotation keyrotationrestart keyrotationruntime bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -41,6 +41,11 @@ migrate:
 sqlc:
 	@echo "gen sql..."
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
+
+## swapsqlc: gen swap sql
+swapsqlc:
+	@echo "gen swap sql..."
+	@docker run --rm -v ./swap/store/sql:/src -w /src sqlc/sqlc generate
 
 regtest:
 	@echo "Starting regtest..."

@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS chain_swap (
   user_lockup_tx_id TEXT,
   server_lockup_tx_id TEXT,
   claim_tx_id TEXT,
-  claim_preimage TEXT NOT NULL,
   refund_tx_id TEXT,
   user_btc_lockup_address TEXT,
   btc_htlc_private_key TEXT,
