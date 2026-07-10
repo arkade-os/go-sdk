@@ -104,7 +104,10 @@ func setupSwapHandler(
 
 	handler, err := swap.NewSwapHandler(wallet, boltzSvc, explorerUrl, timeout, datadir)
 	require.NoError(t, err)
-	t.Cleanup(func() { handler.Close() })
+	t.Cleanup(func() {
+		// nolint
+		handler.Close()
+	})
 
 	return handler
 }
