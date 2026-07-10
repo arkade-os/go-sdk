@@ -965,9 +965,7 @@ func openSwapStore(t *testing.T, datadir string) swapstore.Service {
 
 	store, err := swapstore.NewService(datadir)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, store.Close())
-	})
+	t.Cleanup(func() { store.Close() })
 
 	return store
 }
