@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/arkade-os/go-sdk/swap/store/domain"
+	swapdomain "github.com/arkade-os/go-sdk/swap/store/domain"
 	"github.com/arkade-os/go-sdk/swap/store/sql/sqlc/queries"
 )
 
