@@ -13,6 +13,7 @@ import (
 	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/vhtlc"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	log "github.com/sirupsen/logrus"
 )
@@ -29,6 +30,7 @@ type ResumeChainSwapParams struct {
 	ServerLockTxid     string
 	ClaimTxid          string
 	RefundTxid         string
+	BTCHTLCPrivateKey  string
 	Status             ChainSwapStatus
 	Error              string
 	Timestamp          int64
@@ -130,20 +132,20 @@ func (h *SwapHandler) ResumeChainSwap(
 		return nil, fmt.Errorf("network is required")
 	}
 
+	if params.BTCHTLCPrivateKey == "" {
+		return nil, fmt.Errorf("BTC HTLC private key is required")
+	}
+	htlcKeyBytes, err := hex.DecodeString(params.BTCHTLCPrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode BTC HTLC private key: %w", err)
+	}
+	htlcKey, _ := btcec.PrivKeyFromBytes(htlcKeyBytes)
+
 	btcLockupAddress := swapResp.LockupDetails.LockupAddress
 	btcServerPubKey := swapResp.LockupDetails.ServerPublicKey
 	if arkToBtc {
 		btcLockupAddress = swapResp.ClaimDetails.LockupAddress
 		btcServerPubKey = swapResp.ClaimDetails.ServerPublicKey
-	}
-	htlcKey, err := h.ensureLocalHTLCKey(
-		ctx,
-		btcLockupAddress,
-		btcServerPubKey,
-		swapResp.GetSwapTree(arkToBtc),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("invalid BTC HTLC: %w", err)
 	}
 
 	if err := validateBtcLockupAddress(
@@ -162,6 +164,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		Preimage:             preimage,
 		VhtlcOpts:            vhtlcOpts,
 		UserBtcLockupAddress: params.UserBtcAddress,
+		BTCHTLCPrivateKey:    params.BTCHTLCPrivateKey,
 		UserLockTxid:         params.UserLockTxid,
 		ServerLockTxid:       params.ServerLockTxid,
 		ClaimTxid:            params.ClaimTxid,
@@ -170,11 +173,7 @@ func (h *SwapHandler) ResumeChainSwap(
 		Status:               params.Status,
 		Error:                params.Error,
 		SwapRespJson:         params.BoltzResponseJSON,
-		onEvent: h.persistChainSwapEventCallback(
-			params.From,
-			params.To,
-			params.EventCallback,
-		),
+		onEvent:              h.persistChainSwapEventCallback(params.EventCallback),
 	}
 
 	if swap.Timestamp == 0 {

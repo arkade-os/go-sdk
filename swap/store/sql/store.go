@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/arkade-os/go-sdk/swap"
+	swapstore "github.com/arkade-os/go-sdk/swap/store"
 	"github.com/arkade-os/go-sdk/swap/store/sql/sqlc/queries"
 	"github.com/golang-migrate/migrate/v4"
 	sqlitemigrate "github.com/golang-migrate/migrate/v4/database/sqlite"
@@ -29,19 +29,18 @@ const (
 
 type Store struct {
 	db         *sql.DB
-	swaps      swap.SwapRepository
-	chainSwaps swap.ChainSwapRepository
-	htlcKeys   swap.HTLCKeyRepository
+	swaps      swapstore.SwapRepository
+	chainSwaps swapstore.ChainSwapRepository
 }
 
-func NewStore(dir string) (swap.Store, error) {
+func NewStore(dir string) (swapstore.Store, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("missing swap sqlite datadir")
 	}
 	return Open(filepath.Join(dir, sqliteDbFile))
 }
 
-func Open(dbPath string) (swap.Store, error) {
+func Open(dbPath string) (swapstore.Store, error) {
 	if dbPath == "" {
 		return nil, fmt.Errorf("missing swap sqlite db path")
 	}
@@ -71,17 +70,14 @@ func Open(dbPath string) (swap.Store, error) {
 		db:         db,
 		swaps:      &swapRepository{db: db, querier: querier},
 		chainSwaps: &chainSwapRepository{querier: querier},
-		htlcKeys:   &htlcKeyRepository{querier: querier},
 	}
 	succeeded = true
 	return store, nil
 }
 
-func (s *Store) Swaps() swap.SwapRepository { return s.swaps }
+func (s *Store) Swaps() swapstore.SwapRepository { return s.swaps }
 
-func (s *Store) ChainSwaps() swap.ChainSwapRepository { return s.chainSwaps }
-
-func (s *Store) HTLCKeys() swap.HTLCKeyRepository { return s.htlcKeys }
+func (s *Store) ChainSwaps() swapstore.ChainSwapRepository { return s.chainSwaps }
 
 func (s *Store) Close() error {
 	if s.db == nil {
@@ -95,7 +91,7 @@ type swapRepository struct {
 	querier *queries.Queries
 }
 
-func (r *swapRepository) Add(ctx context.Context, swaps []swap.SwapRecord) (int, error) {
+func (r *swapRepository) Add(ctx context.Context, swaps []swapstore.SwapRecord) (int, error) {
 	if len(swaps) == 0 {
 		return 0, nil
 	}
@@ -119,7 +115,6 @@ func (r *swapRepository) Add(ctx context.Context, swaps []swap.SwapRecord) (int,
 			ToCurrency:          record.ToCurrency,
 			FromCurrency:        record.FromCurrency,
 			Status:              int64(record.Status),
-			SwapType:            int64(record.Type),
 			Invoice:             record.Invoice,
 			FundingTxID:         nullableString(record.FundingTxID),
 			RedeemTxID:          nullableString(record.RedeemTxID),
@@ -137,11 +132,11 @@ func (r *swapRepository) Add(ctx context.Context, swaps []swap.SwapRecord) (int,
 	return int(count), nil
 }
 
-func (r *swapRepository) Get(ctx context.Context, id string) (*swap.SwapRecord, error) {
+func (r *swapRepository) Get(ctx context.Context, id string) (*swapstore.SwapRecord, error) {
 	row, err := r.querier.SelectSwap(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: swap %s", swap.ErrNotFound, id)
+			return nil, fmt.Errorf("%w: swap %s", swapstore.ErrNotFound, id)
 		}
 		return nil, err
 	}
@@ -149,7 +144,7 @@ func (r *swapRepository) Get(ctx context.Context, id string) (*swap.SwapRecord, 
 	return &record, nil
 }
 
-func (r *swapRepository) Update(ctx context.Context, record swap.SwapRecord) error {
+func (r *swapRepository) Update(ctx context.Context, record swapstore.SwapRecord) error {
 	n, err := r.querier.UpdateSwap(ctx, queries.UpdateSwapParams{
 		Status:      int64(record.Status),
 		FundingTxID: nullableString(record.FundingTxID),
@@ -166,7 +161,7 @@ type chainSwapRepository struct {
 	querier *queries.Queries
 }
 
-func (r *chainSwapRepository) Add(ctx context.Context, record swap.ChainSwapRecord) error {
+func (r *chainSwapRepository) Add(ctx context.Context, record swapstore.ChainSwapRecord) error {
 	if record.CreatedAt == 0 {
 		record.CreatedAt = time.Now().Unix()
 	}
@@ -189,6 +184,7 @@ func (r *chainSwapRepository) Add(ctx context.Context, record swap.ChainSwapReco
 		ClaimPreimage:           record.ClaimPreimage,
 		RefundTxID:              nullableString(record.RefundTxID),
 		UserBtcLockupAddress:    nullableString(record.UserBTCLockupAddress),
+		BtcHtlcPrivateKey:       nullableString(record.BTCHTLCPrivateKey),
 		ErrorMessage:            nullableString(record.ErrorMessage),
 		BoltzCreateResponseJson: nullableString(record.BoltzCreateResponseJSON),
 		CreatedAt:               nullableInt64(record.CreatedAt),
@@ -198,11 +194,11 @@ func (r *chainSwapRepository) Add(ctx context.Context, record swap.ChainSwapReco
 
 func (r *chainSwapRepository) Get(
 	ctx context.Context, id string,
-) (*swap.ChainSwapRecord, error) {
+) (*swapstore.ChainSwapRecord, error) {
 	row, err := r.querier.SelectChainSwap(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: chain swap %s", swap.ErrNotFound, id)
+			return nil, fmt.Errorf("%w: chain swap %s", swapstore.ErrNotFound, id)
 		}
 		return nil, err
 	}
@@ -210,7 +206,7 @@ func (r *chainSwapRepository) Get(
 	return &record, nil
 }
 
-func (r *chainSwapRepository) Update(ctx context.Context, record swap.ChainSwapRecord) error {
+func (r *chainSwapRepository) Update(ctx context.Context, record swapstore.ChainSwapRecord) error {
 	if record.UpdatedAt == 0 {
 		record.UpdatedAt = time.Now().Unix()
 	}
@@ -221,6 +217,7 @@ func (r *chainSwapRepository) Update(ctx context.Context, record swap.ChainSwapR
 		ServerLockupTxID:        nullableString(record.ServerLockupTxID),
 		ClaimTxID:               nullableString(record.ClaimTxID),
 		RefundTxID:              nullableString(record.RefundTxID),
+		BtcHtlcPrivateKey:       nullableString(record.BTCHTLCPrivateKey),
 		ErrorMessage:            nullableString(record.ErrorMessage),
 		BoltzCreateResponseJson: nullableString(record.BoltzCreateResponseJSON),
 		UpdatedAt:               nullableInt64(record.UpdatedAt),
@@ -230,35 +227,6 @@ func (r *chainSwapRepository) Update(ctx context.Context, record swap.ChainSwapR
 		return err
 	}
 	return requireAffected(n, "chain swap %s", record.ID)
-}
-
-type htlcKeyRepository struct {
-	querier *queries.Queries
-}
-
-func (r *htlcKeyRepository) Add(ctx context.Context, record swap.HTLCKeyRecord) error {
-	return r.querier.UpsertHTLCKey(ctx, queries.UpsertHTLCKeyParams{
-		Address:    record.Address,
-		PrivateKey: record.PrivateKeyHex,
-		CreatedAt:  record.CreatedAt,
-	})
-}
-
-func (r *htlcKeyRepository) Get(
-	ctx context.Context, address string,
-) (*swap.HTLCKeyRecord, error) {
-	row, err := r.querier.SelectHTLCKey(ctx, address)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: HTLC key for %s", swap.ErrNotFound, address)
-		}
-		return nil, err
-	}
-	return &swap.HTLCKeyRecord{
-		Address:       row.Address,
-		PrivateKeyHex: row.PrivateKey,
-		CreatedAt:     row.CreatedAt,
-	}, nil
 }
 
 func migrateDB(db *sql.DB) error {
@@ -280,19 +248,20 @@ func migrateDB(db *sql.DB) error {
 	return nil
 }
 
-func toChainSwapRecord(row queries.ChainSwap) swap.ChainSwapRecord {
-	return swap.ChainSwapRecord{
+func toChainSwapRecord(row queries.ChainSwap) swapstore.ChainSwapRecord {
+	return swapstore.ChainSwapRecord{
 		ID:                      row.ID,
 		FromCurrency:            row.FromCurrency,
 		ToCurrency:              row.ToCurrency,
 		Amount:                  uint64(row.Amount),
-		Status:                  swap.ChainSwapStatus(row.Status),
+		Status:                  int(row.Status),
 		UserLockupTxID:          stringValue(row.UserLockupTxID),
 		ServerLockupTxID:        stringValue(row.ServerLockupTxID),
 		ClaimTxID:               stringValue(row.ClaimTxID),
 		ClaimPreimage:           row.ClaimPreimage,
 		RefundTxID:              stringValue(row.RefundTxID),
 		UserBTCLockupAddress:    stringValue(row.UserBtcLockupAddress),
+		BTCHTLCPrivateKey:       stringValue(row.BtcHtlcPrivateKey),
 		ErrorMessage:            stringValue(row.ErrorMessage),
 		BoltzCreateResponseJSON: stringValue(row.BoltzCreateResponseJson),
 		CreatedAt:               int64Value(row.CreatedAt),
@@ -300,15 +269,14 @@ func toChainSwapRecord(row queries.ChainSwap) swap.ChainSwapRecord {
 	}
 }
 
-func toSwapRecord(row queries.Swap) swap.SwapRecord {
-	return swap.SwapRecord{
+func toSwapRecord(row queries.Swap) swapstore.SwapRecord {
+	return swapstore.SwapRecord{
 		ID:                  row.ID,
 		Amount:              uint64(row.Amount),
 		Timestamp:           row.Timestamp,
 		ToCurrency:          row.ToCurrency,
 		FromCurrency:        row.FromCurrency,
-		Status:              swap.SwapStatus(row.Status),
-		Type:                swap.SwapRecordType(row.SwapType),
+		Status:              int(row.Status),
 		Invoice:             row.Invoice,
 		FundingTxID:         stringValue(row.FundingTxID),
 		RedeemTxID:          stringValue(row.RedeemTxID),
@@ -340,7 +308,7 @@ func int64Value(value sql.NullInt64) int64 {
 
 func requireAffected(count int64, format, id string) error {
 	if count == 0 {
-		return fmt.Errorf("%w: "+format, swap.ErrNotFound, id)
+		return fmt.Errorf("%w: "+format, swapstore.ErrNotFound, id)
 	}
 	return nil
 }

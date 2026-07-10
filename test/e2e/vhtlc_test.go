@@ -37,7 +37,7 @@ import (
 //  4. Verify claim returns a valid txid
 func TestVHTLCClaimDirect(t *testing.T) {
 	t.Parallel()
-	alice, privKey := setupSwapClient(t)
+	alice, privKey, datadir := setupSwapClientWithDatadir(t)
 	ctx := t.Context()
 
 	// Fund alice with offchain sats so she can send to the VHTLC
@@ -67,7 +67,7 @@ func TestVHTLCClaimDirect(t *testing.T) {
 	fundVHTLC(t, alice, vhtlcAddr, 1000)
 
 	// Create swap handler (boltzSvc=nil since we only need VHTLC operations)
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300)
+	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
 	require.NoError(t, err)
 
 	// Verify VHTLC has funds
@@ -92,7 +92,7 @@ func TestVHTLCClaimDirect(t *testing.T) {
 //  5. Verify balance is preserved (minus dust/fees)
 func TestVHTLCClaimSettlement(t *testing.T) {
 	t.Parallel()
-	alice, privKey := setupSwapClient(t)
+	alice, privKey, datadir := setupSwapClientWithDatadir(t)
 	ctx := t.Context()
 
 	// Get initial balance
@@ -123,7 +123,7 @@ func TestVHTLCClaimSettlement(t *testing.T) {
 
 	fundVHTLC(t, alice, vhtlcAddr, fundAmount)
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300)
+	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
 	require.NoError(t, err)
 
 	// Verify VHTLC has funds before settlement
@@ -156,7 +156,7 @@ func TestVHTLCClaimSettlement(t *testing.T) {
 //  4. Verify balance is preserved
 func TestVHTLCRefundSettlement(t *testing.T) {
 	t.Parallel()
-	alice, privKey := setupSwapClient(t)
+	alice, privKey, datadir := setupSwapClientWithDatadir(t)
 	ctx := t.Context()
 
 	faucetOffchain(t, alice, 0.001)
@@ -197,7 +197,7 @@ func TestVHTLCRefundSettlement(t *testing.T) {
 
 	fundVHTLC(t, alice, vhtlcAddr, fundAmount)
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300)
+	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
 	require.NoError(t, err)
 
 	// Verify VHTLC has funds
@@ -236,9 +236,9 @@ func TestVHTLCRefundSettlement(t *testing.T) {
 func TestVHTLCDelegateRefund(t *testing.T) {
 	t.Parallel()
 	// Setup sender (the VTXO owner who will delegate the refund)
-	sender, senderPrivKey := setupSwapClient(t)
+	sender, senderPrivKey, senderDatadir := setupSwapClientWithDatadir(t)
 	// Setup receiver (acts as the delegate who completes the refund)
-	receiver, receiverPrivKey := setupSwapClient(t)
+	receiver, receiverPrivKey, receiverDatadir := setupSwapClientWithDatadir(t)
 
 	ctx := t.Context()
 
@@ -289,6 +289,7 @@ func TestVHTLCDelegateRefund(t *testing.T) {
 		nil,
 		explorerUrl,
 		300,
+		senderDatadir,
 	)
 	require.NoError(t, err)
 
@@ -344,6 +345,7 @@ func TestVHTLCDelegateRefund(t *testing.T) {
 		nil,
 		explorerUrl,
 		300,
+		receiverDatadir,
 	)
 	require.NoError(t, err)
 
@@ -542,7 +544,7 @@ func buildDelegatePartialForfeit(
 // by outpoint when multiple VTXOs exist at the same VHTLC address.
 func TestVHTLCClaimWithOutpoint(t *testing.T) {
 	t.Parallel()
-	alice, privKey := setupSwapClient(t)
+	alice, privKey, datadir := setupSwapClientWithDatadir(t)
 	ctx := t.Context()
 
 	faucetOffchain(t, alice, 0.001)
@@ -568,7 +570,7 @@ func TestVHTLCClaimWithOutpoint(t *testing.T) {
 	fundVHTLC(t, alice, vhtlcAddr, 1000) // first VTXO
 	fundVHTLC(t, alice, vhtlcAddr, 2000) // second VTXO
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300)
+	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
 	require.NoError(t, err)
 
 	vtxos, err := handler.GetVHTLCFunds(ctx, []vhtlc.Opts{opts})
@@ -616,7 +618,7 @@ func TestVHTLCClaimWithOutpoint(t *testing.T) {
 // the oldest VTXO (by CreatedAt ascending) when multiple exist.
 func TestVHTLCClaimOldestVtxo(t *testing.T) {
 	t.Parallel()
-	alice, privKey := setupSwapClient(t)
+	alice, privKey, datadir := setupSwapClientWithDatadir(t)
 	ctx := t.Context()
 
 	faucetOffchain(t, alice, 0.001)
@@ -645,7 +647,7 @@ func TestVHTLCClaimOldestVtxo(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	fundVHTLC(t, alice, vhtlcAddr, 3000) // newest
 
-	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300)
+	handler, err := swap.NewSwapHandler(alice, nil, explorerUrl, 300, datadir)
 	require.NoError(t, err)
 
 	// Claim with nil outpoint — should select oldest (1000-sat) VTXO

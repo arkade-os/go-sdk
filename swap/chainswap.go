@@ -52,6 +52,7 @@ type ChainSwap struct {
 	Preimage []byte
 
 	UserBtcLockupAddress string
+	BTCHTLCPrivateKey    string
 
 	VhtlcOpts vhtlc.Opts
 
@@ -115,6 +116,7 @@ func NewChainSwap(
 	swapRespJson string,
 	isArkToBtc bool,
 	userBtcLockupAddress string,
+	btcHTLCPrivateKey string,
 	eventCallback ChainSwapEventCallback,
 ) (*ChainSwap, error) {
 	if id == "" {
@@ -133,6 +135,10 @@ func NewChainSwap(
 		return nil, errors.New("preimage cannot be nil")
 	}
 
+	if btcHTLCPrivateKey == "" {
+		return nil, errors.New("btcHTLCPrivateKey cannot be empty")
+	}
+
 	ch := &ChainSwap{
 		Id:                   id,
 		Timestamp:            time.Now().Unix(),
@@ -143,6 +149,7 @@ func NewChainSwap(
 		SwapRespJson:         swapRespJson,
 		IsArkToBtc:           isArkToBtc,
 		UserBtcLockupAddress: userBtcLockupAddress,
+		BTCHTLCPrivateKey:    btcHTLCPrivateKey,
 		onEvent:              eventCallback,
 	}
 
@@ -157,6 +164,7 @@ func NewChainSwap(
 			SwapRespJson:         swapRespJson,
 			IsArkToBtc:           isArkToBtc,
 			UserBtcLockupAddress: userBtcLockupAddress,
+			BTCHTLCPrivateKey:    btcHTLCPrivateKey,
 		})
 	}
 
@@ -329,6 +337,7 @@ type CreateEvent struct {
 	SwapRespJson         string
 	IsArkToBtc           bool
 	UserBtcLockupAddress string
+	BTCHTLCPrivateKey    string
 }
 
 func (CreateEvent) isChainSwapEvent() {}
@@ -543,13 +552,6 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
-	if err := h.storeLocalHTLCKey(
-		ctx,
-		swapResp.ClaimDetails.LockupAddress,
-		btcClaimKey,
-	); err != nil {
-		return nil, err
-	}
 
 	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
@@ -593,6 +595,7 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		string(swapRespJson),
 		arkToBtc,
 		btcDestinationAddress,
+		hex.EncodeToString(btcClaimKey.Serialize()),
 		eventCallback,
 	)
 	if err != nil {
@@ -603,11 +606,8 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	); err != nil {
 		return nil, err
 	}
-	chainSwap.onEvent = h.persistChainSwapEventCallback(
-		boltz.CurrencyArk,
-		boltz.CurrencyBtc,
-		eventCallback,
-	)
+
+	chainSwap.onEvent = h.persistChainSwapEventCallback(eventCallback)
 
 	monitorCtx := chainSwapMonitorContext(ctx)
 	go func() {
@@ -788,13 +788,6 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	); err != nil {
 		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
 	}
-	if err := h.storeLocalHTLCKey(
-		ctx,
-		swapResp.LockupDetails.LockupAddress,
-		btcRefundKey,
-	); err != nil {
-		return nil, err
-	}
 
 	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
@@ -845,6 +838,7 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		string(swapRespJson),
 		arkToBtc,
 		swapResp.LockupDetails.LockupAddress,
+		hex.EncodeToString(btcRefundKey.Serialize()),
 		eventCallback,
 	)
 	if err != nil {
@@ -855,11 +849,7 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	); err != nil {
 		return nil, err
 	}
-	chainSwap.onEvent = h.persistChainSwapEventCallback(
-		boltz.CurrencyBtc,
-		boltz.CurrencyArk,
-		eventCallback,
-	)
+	chainSwap.onEvent = h.persistChainSwapEventCallback(eventCallback)
 
 	log.Debugf("Cached swap response for swap %s (used during active monitoring)", swapResp.Id)
 
@@ -962,15 +952,18 @@ func (h *SwapHandler) RefundBtcToArkSwap(
 	}
 
 	swapTree := *swapResp.LockupDetails.SwapTree
-	htlcKey, err := h.ensureLocalHTLCKey(
-		ctx,
-		swapResp.LockupDetails.LockupAddress,
-		swapResp.LockupDetails.ServerPublicKey,
-		swapTree,
-	)
+	record, err := h.store.ChainSwaps().Get(ctx, swapId)
 	if err != nil {
-		return "", fmt.Errorf("invalid BTC HTLC: %w", err)
+		return "", fmt.Errorf("load chain swap %s: %w", swapId, err)
 	}
+	if record.BTCHTLCPrivateKey == "" {
+		return "", fmt.Errorf("missing BTC HTLC private key for swap %s", swapId)
+	}
+	htlcKeyBytes, err := hex.DecodeString(record.BTCHTLCPrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("decode BTC HTLC private key for swap %s: %w", swapId, err)
+	}
+	htlcKey, _ := btcec.PrivKeyFromBytes(htlcKeyBytes)
 
 	lockupTx, err := deserializeTransaction(userLockupTxHex)
 	if err != nil {

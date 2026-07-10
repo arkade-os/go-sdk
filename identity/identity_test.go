@@ -5,9 +5,12 @@ import (
 	"sync"
 	"testing"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -657,6 +660,26 @@ func TestListKeys(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestClosureContainsKeyConditionCSVMultisigClosure(t *testing.T) {
+	key, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	otherKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	closure := &script.ConditionCSVMultisigClosure{
+		CSVMultisigClosure: script.CSVMultisigClosure{
+			MultisigClosure: script.MultisigClosure{
+				PubKeys: []*btcec.PublicKey{key.PubKey()},
+			},
+			Locktime: arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: 1},
+		},
+		Condition: []byte{0x51},
+	}
+
+	require.True(t, closureContainsKey(closure, schnorr.SerializePubKey(key.PubKey())))
+	require.False(t, closureContainsKey(closure, schnorr.SerializePubKey(otherKey.PubKey())))
 }
 
 func TestSignMessage(t *testing.T) {

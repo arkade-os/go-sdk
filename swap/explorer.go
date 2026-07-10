@@ -113,7 +113,7 @@ func (e explorerClient) GetCurrentBlockHeight() (uint32, error) {
 		return 0, fmt.Errorf("failed to construct endpoint: %w", err)
 	}
 
-	resp, err := http.Get(endpoint)
+	resp, err := e.client.Get(endpoint)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get block height: %w", err)
 	}
@@ -143,7 +143,7 @@ func (e explorerClient) GetTransactionStatus(txid string) (*TransactionStatus, e
 		return nil, fmt.Errorf("failed to construct endpoint: %w", err)
 	}
 
-	resp, err := http.Get(endpoint)
+	resp, err := e.client.Get(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
@@ -185,7 +185,7 @@ func (e explorerClient) GetTransaction(txid string) (string, error) {
 		return "", fmt.Errorf("failed to construct endpoint: %w", err)
 	}
 
-	resp, err := http.Get(endpoint)
+	resp, err := e.client.Get(endpoint)
 	if err != nil {
 		return "", fmt.Errorf("failed to get transaction %s: %w", txid, err)
 	}

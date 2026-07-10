@@ -1,8 +1,8 @@
 -- name: InsertSwap :execrows
 INSERT OR IGNORE INTO swap (
-    id, amount, timestamp, to_currency, from_currency, status, swap_type,
+    id, amount, timestamp, to_currency, from_currency, status,
     invoice, funding_tx_id, redeem_tx_id, vhtlc_contract_script
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SelectSwap :one
 SELECT * FROM swap
@@ -20,9 +20,10 @@ WHERE id = :id;
 INSERT INTO chain_swap (
     id, from_currency, to_currency, amount, status, user_lockup_tx_id,
     server_lockup_tx_id, claim_tx_id, claim_preimage, refund_tx_id,
-    user_btc_lockup_address, error_message, boltz_create_response_json,
+    user_btc_lockup_address, btc_htlc_private_key,
+    error_message, boltz_create_response_json,
     created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SelectChainSwap :one
 SELECT * FROM chain_swap
@@ -36,18 +37,8 @@ SET
     server_lockup_tx_id = :server_lockup_tx_id,
     claim_tx_id = :claim_tx_id,
     refund_tx_id = :refund_tx_id,
+    btc_htlc_private_key = COALESCE(sqlc.narg('btc_htlc_private_key'), btc_htlc_private_key),
     error_message = :error_message,
     boltz_create_response_json = :boltz_create_response_json,
     updated_at = :updated_at
 WHERE id = :id;
-
--- name: UpsertHTLCKey :exec
-INSERT INTO htlc_key (address, private_key, created_at)
-VALUES (?, ?, ?)
-ON CONFLICT(address) DO UPDATE SET
-    private_key = excluded.private_key,
-    created_at = excluded.created_at;
-
--- name: SelectHTLCKey :one
-SELECT * FROM htlc_key
-WHERE address = :address;

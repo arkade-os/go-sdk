@@ -1,4 +1,4 @@
-package swap
+package store
 
 import (
 	"context"
@@ -7,21 +7,13 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-type SwapRecordType int
-
-const (
-	SwapRecordRegular SwapRecordType = iota
-	SwapRecordPayment
-)
-
 type SwapRecord struct {
 	ID                  string
 	Amount              uint64
 	Timestamp           int64
 	ToCurrency          string
 	FromCurrency        string
-	Status              SwapStatus
-	Type                SwapRecordType
+	Status              int
 	Invoice             string
 	FundingTxID         string
 	RedeemTxID          string
@@ -33,29 +25,23 @@ type ChainSwapRecord struct {
 	FromCurrency            string
 	ToCurrency              string
 	Amount                  uint64
-	Status                  ChainSwapStatus
+	Status                  int
 	UserLockupTxID          string
 	ServerLockupTxID        string
 	ClaimTxID               string
 	ClaimPreimage           string
 	RefundTxID              string
 	UserBTCLockupAddress    string
+	BTCHTLCPrivateKey       string
 	ErrorMessage            string
 	BoltzCreateResponseJSON string
 	CreatedAt               int64
 	UpdatedAt               int64
 }
 
-type HTLCKeyRecord struct {
-	Address       string
-	PrivateKeyHex string
-	CreatedAt     int64
-}
-
 type Store interface {
 	Swaps() SwapRepository
 	ChainSwaps() ChainSwapRepository
-	HTLCKeys() HTLCKeyRepository
 	Close() error
 }
 
@@ -69,17 +55,4 @@ type ChainSwapRepository interface {
 	Add(ctx context.Context, swap ChainSwapRecord) error
 	Get(ctx context.Context, id string) (*ChainSwapRecord, error)
 	Update(ctx context.Context, swap ChainSwapRecord) error
-}
-
-type HTLCKeyRepository interface {
-	Add(ctx context.Context, key HTLCKeyRecord) error
-	Get(ctx context.Context, address string) (*HTLCKeyRecord, error)
-}
-
-type HandlerOption func(*SwapHandler)
-
-func WithStore(store Store) HandlerOption {
-	return func(h *SwapHandler) {
-		h.store = store
-	}
 }

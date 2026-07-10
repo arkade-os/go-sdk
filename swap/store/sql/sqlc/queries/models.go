@@ -20,16 +20,11 @@ type ChainSwap struct {
 	ClaimPreimage           string
 	RefundTxID              sql.NullString
 	UserBtcLockupAddress    sql.NullString
+	BtcHtlcPrivateKey       sql.NullString
 	ErrorMessage            sql.NullString
 	BoltzCreateResponseJson sql.NullString
 	CreatedAt               sql.NullInt64
 	UpdatedAt               sql.NullInt64
-}
-
-type HtlcKey struct {
-	Address    string
-	PrivateKey string
-	CreatedAt  int64
 }
 
 type Swap struct {
@@ -39,7 +34,6 @@ type Swap struct {
 	ToCurrency          string
 	FromCurrency        string
 	Status              int64
-	SwapType            int64
 	Invoice             string
 	FundingTxID         sql.NullString
 	RedeemTxID          sql.NullString

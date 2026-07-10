@@ -27,6 +27,8 @@ import (
 	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
 	hdidentity "github.com/arkade-os/go-sdk/identity"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	swapstore "github.com/arkade-os/go-sdk/swap/store"
+	sqlstore "github.com/arkade-os/go-sdk/swap/store/sql"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -40,15 +42,15 @@ import (
 
 var ErrorNoVtxosFound = fmt.Errorf("no vtxos found for the given vhtlc opts")
 
+const boltzReconnectBackoff = time.Second
+
 type SwapHandler struct {
-	arkWallet         arksdk.Wallet
-	boltzSvc          *boltz.Api
-	explorerClient    ExplorerClient
-	store             Store
-	timeout           uint32
-	config            clientTypes.Config
-	htlcMu            sync.RWMutex
-	htlcKeysByAddress map[string]*btcec.PrivateKey
+	arkWallet      arksdk.Wallet
+	boltzSvc       *boltz.Api
+	explorerClient ExplorerClient
+	store          swapstore.Store
+	timeout        uint32
+	config         clientTypes.Config
 	// contractMu serializes the key-reservation → ImportContract span across
 	// concurrent swap creations: getNewKey derives the next key from the
 	// latest persisted contract, so it must not run again until the previous
@@ -83,26 +85,46 @@ func NewSwapHandler(
 	boltzSvc *boltz.Api,
 	esploraURL string,
 	timeout uint32,
-	opts ...HandlerOption,
+	datadir string,
 ) (*SwapHandler, error) {
 	cfg, err := arkClient.GetConfigData(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config data: %w", err)
 	}
-	h := &SwapHandler{
-		arkWallet:         arkClient,
-		boltzSvc:          boltzSvc,
-		explorerClient:    NewExplorerClient(esploraURL),
-		timeout:           timeout,
-		config:            *cfg,
-		htlcKeysByAddress: make(map[string]*btcec.PrivateKey),
+	store, err := sqlstore.NewStore(datadir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init swap store: %w", err)
 	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(h)
-		}
+
+	h := &SwapHandler{
+		arkWallet:      arkClient,
+		boltzSvc:       boltzSvc,
+		explorerClient: NewExplorerClient(esploraURL),
+		store:          store,
+		timeout:        timeout,
+		config:         *cfg,
 	}
 	return h, nil
+}
+
+func (h *SwapHandler) reconnectBoltzWebsocket(
+	ctx context.Context, oldWs *boltz.Websocket, swapId string,
+) (*boltz.Websocket, error) {
+	nextWs := h.boltzSvc.NewWebsocket()
+	if err := nextWs.ConnectAndSubscribe(ctx, []string{swapId}, 5*time.Second); err != nil {
+		_ = oldWs.Close()
+		_ = nextWs.Close()
+
+		select {
+		case <-time.After(boltzReconnectBackoff):
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	_ = oldWs.Close()
+	return nextWs, nil
 }
 
 func (h *SwapHandler) PayInvoice(
@@ -112,7 +134,7 @@ func (h *SwapHandler) PayInvoice(
 		return nil, fmt.Errorf("missing invoice")
 	}
 
-	return h.submarineSwap(ctx, invoice, SwapRecordRegular, unilateralRefund)
+	return h.submarineSwap(ctx, invoice, unilateralRefund)
 }
 
 func (h *SwapHandler) PayOffer(
@@ -146,7 +168,7 @@ func (h *SwapHandler) PayOffer(
 		return nil, fmt.Errorf("failed to fetch invoice: %s", response.Error)
 	}
 
-	return h.submarineSwap(ctx, response.Invoice, SwapRecordPayment, unilateralRefund)
+	return h.submarineSwap(ctx, response.Invoice, unilateralRefund)
 }
 
 func (h *SwapHandler) GetInvoice(
@@ -834,7 +856,6 @@ func (h *SwapHandler) SettleVHTLCWithCollaborativeRefundPath(
 func (h *SwapHandler) submarineSwap(
 	ctx context.Context,
 	invoice string,
-	swapType SwapRecordType,
 	unilateralRefund func(swap Swap) error,
 ) (*Swap, error) {
 	if len(invoice) == 0 {
@@ -980,7 +1001,6 @@ func (h *SwapHandler) submarineSwap(
 		*swapDetails,
 		boltz.CurrencyArk,
 		boltz.CurrencyBtc,
-		swapType,
 		contract.Script,
 	); err != nil {
 		return nil, err
@@ -995,14 +1015,13 @@ func (h *SwapHandler) submarineSwap(
 		select {
 		case update, ok := <-ws.Updates:
 			if !ok {
-				oldWs := ws
-				nextWs := h.boltzSvc.NewWebsocket()
-				if err := nextWs.ConnectAndSubscribe(
-					ctx, []string{swap.Id}, 5*time.Second,
-				); err != nil {
+				nextWs, err := h.reconnectBoltzWebsocket(ctx, ws, swap.Id)
+				if err != nil {
+					return nil, err
+				}
+				if nextWs == nil {
 					continue
 				}
-				_ = oldWs.Close()
 				ws = nextWs
 				continue
 			}
@@ -1198,7 +1217,6 @@ func (h *SwapHandler) reverseSwap(
 		swapDetails,
 		boltz.CurrencyBtc,
 		boltz.CurrencyArk,
-		SwapRecordRegular,
 		contract.Script,
 	); err != nil {
 		return nil, err
@@ -1296,14 +1314,13 @@ func (h *SwapHandler) waitAndClaim(
 		select {
 		case update, ok := <-ws.Updates:
 			if !ok {
-				oldWs := ws
-				nextWs := h.boltzSvc.NewWebsocket()
-				if err := nextWs.ConnectAndSubscribe(
-					ctx, []string{swapId}, 5*time.Second,
-				); err != nil {
+				nextWs, err := h.reconnectBoltzWebsocket(ctx, ws, swapId)
+				if err != nil {
+					return "", err
+				}
+				if nextWs == nil {
 					continue
 				}
-				_ = oldWs.Close()
 				ws = nextWs
 				continue
 			}

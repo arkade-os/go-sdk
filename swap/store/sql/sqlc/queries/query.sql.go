@@ -14,9 +14,10 @@ const insertChainSwap = `-- name: InsertChainSwap :exec
 INSERT INTO chain_swap (
     id, from_currency, to_currency, amount, status, user_lockup_tx_id,
     server_lockup_tx_id, claim_tx_id, claim_preimage, refund_tx_id,
-    user_btc_lockup_address, error_message, boltz_create_response_json,
+    user_btc_lockup_address, btc_htlc_private_key,
+    error_message, boltz_create_response_json,
     created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertChainSwapParams struct {
@@ -31,6 +32,7 @@ type InsertChainSwapParams struct {
 	ClaimPreimage           string
 	RefundTxID              sql.NullString
 	UserBtcLockupAddress    sql.NullString
+	BtcHtlcPrivateKey       sql.NullString
 	ErrorMessage            sql.NullString
 	BoltzCreateResponseJson sql.NullString
 	CreatedAt               sql.NullInt64
@@ -50,6 +52,7 @@ func (q *Queries) InsertChainSwap(ctx context.Context, arg InsertChainSwapParams
 		arg.ClaimPreimage,
 		arg.RefundTxID,
 		arg.UserBtcLockupAddress,
+		arg.BtcHtlcPrivateKey,
 		arg.ErrorMessage,
 		arg.BoltzCreateResponseJson,
 		arg.CreatedAt,
@@ -60,9 +63,9 @@ func (q *Queries) InsertChainSwap(ctx context.Context, arg InsertChainSwapParams
 
 const insertSwap = `-- name: InsertSwap :execrows
 INSERT OR IGNORE INTO swap (
-    id, amount, timestamp, to_currency, from_currency, status, swap_type,
+    id, amount, timestamp, to_currency, from_currency, status,
     invoice, funding_tx_id, redeem_tx_id, vhtlc_contract_script
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertSwapParams struct {
@@ -72,7 +75,6 @@ type InsertSwapParams struct {
 	ToCurrency          string
 	FromCurrency        string
 	Status              int64
-	SwapType            int64
 	Invoice             string
 	FundingTxID         sql.NullString
 	RedeemTxID          sql.NullString
@@ -87,7 +89,6 @@ func (q *Queries) InsertSwap(ctx context.Context, arg InsertSwapParams) (int64, 
 		arg.ToCurrency,
 		arg.FromCurrency,
 		arg.Status,
-		arg.SwapType,
 		arg.Invoice,
 		arg.FundingTxID,
 		arg.RedeemTxID,
@@ -100,7 +101,7 @@ func (q *Queries) InsertSwap(ctx context.Context, arg InsertSwapParams) (int64, 
 }
 
 const selectChainSwap = `-- name: SelectChainSwap :one
-SELECT id, from_currency, to_currency, amount, status, user_lockup_tx_id, server_lockup_tx_id, claim_tx_id, claim_preimage, refund_tx_id, user_btc_lockup_address, error_message, boltz_create_response_json, created_at, updated_at FROM chain_swap
+SELECT id, from_currency, to_currency, amount, status, user_lockup_tx_id, server_lockup_tx_id, claim_tx_id, claim_preimage, refund_tx_id, user_btc_lockup_address, btc_htlc_private_key, error_message, boltz_create_response_json, created_at, updated_at FROM chain_swap
 WHERE id = ?1
 `
 
@@ -119,6 +120,7 @@ func (q *Queries) SelectChainSwap(ctx context.Context, id string) (ChainSwap, er
 		&i.ClaimPreimage,
 		&i.RefundTxID,
 		&i.UserBtcLockupAddress,
+		&i.BtcHtlcPrivateKey,
 		&i.ErrorMessage,
 		&i.BoltzCreateResponseJson,
 		&i.CreatedAt,
@@ -127,20 +129,8 @@ func (q *Queries) SelectChainSwap(ctx context.Context, id string) (ChainSwap, er
 	return i, err
 }
 
-const selectHTLCKey = `-- name: SelectHTLCKey :one
-SELECT address, private_key, created_at FROM htlc_key
-WHERE address = ?1
-`
-
-func (q *Queries) SelectHTLCKey(ctx context.Context, address string) (HtlcKey, error) {
-	row := q.db.QueryRowContext(ctx, selectHTLCKey, address)
-	var i HtlcKey
-	err := row.Scan(&i.Address, &i.PrivateKey, &i.CreatedAt)
-	return i, err
-}
-
 const selectSwap = `-- name: SelectSwap :one
-SELECT id, amount, timestamp, to_currency, from_currency, status, swap_type, invoice, funding_tx_id, redeem_tx_id, vhtlc_contract_script FROM swap
+SELECT id, amount, timestamp, to_currency, from_currency, status, invoice, funding_tx_id, redeem_tx_id, vhtlc_contract_script FROM swap
 WHERE id = ?1
 `
 
@@ -154,7 +144,6 @@ func (q *Queries) SelectSwap(ctx context.Context, id string) (Swap, error) {
 		&i.ToCurrency,
 		&i.FromCurrency,
 		&i.Status,
-		&i.SwapType,
 		&i.Invoice,
 		&i.FundingTxID,
 		&i.RedeemTxID,
@@ -171,10 +160,11 @@ SET
     server_lockup_tx_id = ?3,
     claim_tx_id = ?4,
     refund_tx_id = ?5,
-    error_message = ?6,
-    boltz_create_response_json = ?7,
-    updated_at = ?8
-WHERE id = ?9
+    btc_htlc_private_key = COALESCE(?6, btc_htlc_private_key),
+    error_message = ?7,
+    boltz_create_response_json = ?8,
+    updated_at = ?9
+WHERE id = ?10
 `
 
 type UpdateChainSwapParams struct {
@@ -183,6 +173,7 @@ type UpdateChainSwapParams struct {
 	ServerLockupTxID        sql.NullString
 	ClaimTxID               sql.NullString
 	RefundTxID              sql.NullString
+	BtcHtlcPrivateKey       sql.NullString
 	ErrorMessage            sql.NullString
 	BoltzCreateResponseJson sql.NullString
 	UpdatedAt               sql.NullInt64
@@ -196,6 +187,7 @@ func (q *Queries) UpdateChainSwap(ctx context.Context, arg UpdateChainSwapParams
 		arg.ServerLockupTxID,
 		arg.ClaimTxID,
 		arg.RefundTxID,
+		arg.BtcHtlcPrivateKey,
 		arg.ErrorMessage,
 		arg.BoltzCreateResponseJson,
 		arg.UpdatedAt,
@@ -234,23 +226,4 @@ func (q *Queries) UpdateSwap(ctx context.Context, arg UpdateSwapParams) (int64, 
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const upsertHTLCKey = `-- name: UpsertHTLCKey :exec
-INSERT INTO htlc_key (address, private_key, created_at)
-VALUES (?, ?, ?)
-ON CONFLICT(address) DO UPDATE SET
-    private_key = excluded.private_key,
-    created_at = excluded.created_at
-`
-
-type UpsertHTLCKeyParams struct {
-	Address    string
-	PrivateKey string
-	CreatedAt  int64
-}
-
-func (q *Queries) UpsertHTLCKey(ctx context.Context, arg UpsertHTLCKeyParams) error {
-	_, err := q.db.ExecContext(ctx, upsertHTLCKey, arg.Address, arg.PrivateKey, arg.CreatedAt)
-	return err
 }

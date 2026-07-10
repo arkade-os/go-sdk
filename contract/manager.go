@@ -182,6 +182,9 @@ func (m *contractManager) ImportContract(ctx context.Context, contract types.Con
 		return err
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	return m.storeContract(ctx, contract, handler)
 }
 
