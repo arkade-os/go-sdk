@@ -3,12 +3,12 @@ package contract_test
 import (
 	"testing"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	singlekeyidentity "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey"
 	singlekeystore "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey/store/inmemory"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,12 +28,12 @@ func TestManagerSingleKeyReuse(t *testing.T) {
 			require.NoError(t, err)
 			id, err := singlekeyidentity.NewIdentity(skStore)
 			require.NoError(t, err)
-			_, err = id.Create(t.Context(), chaincfg.RegressionNetParams, testPassword, "")
+			_, err = id.Create(t.Context(), arklib.BitcoinRegTest, testPassword, "")
 			require.NoError(t, err)
 			_, err = id.Unlock(t.Context(), testPassword)
 			require.NoError(t, err)
 
-			svc, err := store.NewStore(store.Config{
+			svc, err := store.NewStore(types.StoreConfig{
 				StoreType: types.SQLStore,
 				Args:      t.TempDir(),
 			})

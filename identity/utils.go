@@ -10,12 +10,13 @@ import (
 	"strconv"
 	"strings"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func getBIP86RootPath(network chaincfg.Params) []uint32 {
+func getBIP86RootPath(network *chaincfg.Params) []uint32 {
 	coinType := uint32(0)
 	if network.Name != chaincfg.MainNetParams.Name {
 		coinType = uint32(1)
@@ -150,5 +151,24 @@ func deriveEncryptionKey(password, salt []byte) ([]byte, []byte, error) {
 func zeroBytes(b []byte) {
 	for i := range b {
 		b[i] = 0
+	}
+}
+
+func toBitcoinNetwork(net arklib.Network) *chaincfg.Params {
+	switch net.Name {
+	case arklib.Bitcoin.Name:
+		return &chaincfg.MainNetParams
+	case arklib.BitcoinTestNet.Name:
+		return &chaincfg.TestNet3Params
+	//case arklib.BitcoinTestNet4.Name: //TODO uncomment once supported
+	//	return chaincfg.TestNet4Params
+	case arklib.BitcoinSigNet.Name:
+		return &chaincfg.SigNetParams
+	case arklib.BitcoinMutinyNet.Name:
+		return &arklib.MutinyNetSigNetParams
+	case arklib.BitcoinRegTest.Name:
+		return &chaincfg.RegressionNetParams
+	default:
+		return &chaincfg.MainNetParams
 	}
 }

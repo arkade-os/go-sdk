@@ -12,6 +12,7 @@ import (
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/vhtlc"
 )
 
 // modulePath identifies the SDK to the build-info reader. Must match
@@ -87,6 +88,13 @@ type Wallet interface {
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
+
+	CreateVHTLC(ctx context.Context, args contract.VHTLCContractArgs) (*vhtlc.VHTLCScript, error)
+	ClaimVHTLC(
+		ctx context.Context, script string, preimage vhtlc.Preimage, opts ...VHTLCOption,
+	) (string, error)
+	RefundVHTLC(ctx context.Context, script string, opts ...VHTLCOption) (string, string, error)
+	UnilateralRefundVHTLC(ctx context.Context, script string, opts ...VHTLCOption) (string, error)
 
 	// ListVtxos returns one page of wallet VTXOs plus an opaque cursor for the
 	// next page. The cursor is empty when there are no more results; callers

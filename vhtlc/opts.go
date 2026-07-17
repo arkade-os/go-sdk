@@ -1,12 +1,32 @@
 package vhtlc
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/input"
 )
+
+type Preimage []byte
+
+// Validate checks that the preimage has the expected 32-byte length.
+func (p Preimage) Validate() error {
+	if len(p) != 32 {
+		return fmt.Errorf("preimage must be 32 bytes, got %d", len(p))
+	}
+	return nil
+}
+
+func (p Preimage) Hash() ([]byte, []byte) {
+	if len(p) != 32 {
+		return nil, nil
+	}
+	sha := sha256.Sum256(p)
+	return sha[:], input.Ripemd160H(sha[:])
+}
 
 // Opts contains all parameters needed to construct a VHTLC tapscript tree.
 // When NonInteractiveClaim is non-nil, a 7th covenant leaf is added that

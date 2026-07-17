@@ -1,105 +1,133 @@
-package swapstore_test
+package store_test
 
 import (
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/arkade-os/go-sdk/swap"
-	swapstore "github.com/arkade-os/go-sdk/swap/store"
-	swapdomain "github.com/arkade-os/go-sdk/swap/store/domain"
+	"github.com/arkade-os/go-sdk/swap/boltz"
+	"github.com/arkade-os/go-sdk/swap/store"
+	"github.com/arkade-os/go-sdk/swap/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestSwapRepository(t *testing.T) {
-	store, _ := newStore(t)
-	defer func() { require.NoError(t, store.Close()) }()
+func TestSwapStore(t *testing.T) {
+	storeSvc := newStore(t)
 
 	ctx := t.Context()
-	repo := store.Swaps()
-	record := swapdomain.Swap{
-		ID:                  "swap-1",
-		Amount:              42,
-		Timestamp:           1700000000,
-		ToCurrency:          "BTC",
-		FromCurrency:        "ARK",
-		Status:              int(swap.SwapPending),
-		Invoice:             "invoice",
-		VHTLCContractScript: "vhtlc-script",
-	}
+	swapStore := storeSvc.Swaps()
 
-	count, err := repo.Add(ctx, []swapdomain.Swap{record})
-	require.NoError(t, err)
-	require.Equal(t, 1, count)
+	t.Run("add", func(t *testing.T) {
+		fixtures := []struct {
+			name string
+			args types.Swap
+		}{
+			{
+				name: "swap",
+				args: types.Swap{
+					Id:          "ln-swap-1",
+					From:        boltz.CurrencyArk,
+					To:          boltz.CurrencyBtc,
+					CreatedAt:   time.Now(),
+					Status:      int(swap.SwapStatusPending),
+					VHTLCScript: "script",
+					Amount:      5000,
+					Preimage:    make([]byte, 32),
+					LNSwap: &types.LNSwapInfo{
+						PreimageHash: make([]byte, 32),
+						Invoice:      "lnbcrt50u1invoice",
+					},
+				},
+			},
+			{
+				name: "chainswap",
+				args: types.Swap{
+					Id:          "chain-swap-1",
+					From:        boltz.CurrencyBtc,
+					To:          boltz.CurrencyArk,
+					CreatedAt:   time.Now(),
+					Status:      int(swap.SwapStatusPending),
+					VHTLCScript: "chain-swap-script",
+					Amount:      7000,
+					Preimage:    make([]byte, 32),
+					ChainSwap: &types.ChainSwapInfo{
+						FundingTxid: "user-lockup-tx",
+						RedeemTxid:  "claim-tx",
+						Address:     "bcrt1qlockupaddress",
+						PrivateKey:  "btc-htlc-private-key",
+						SwapTree: boltz.SwapTree{
+							ClaimLeaf:  boltz.SwapTreeLeaf{Version: 192, Output: "claim-leaf-output"},
+							RefundLeaf: boltz.SwapTreeLeaf{Version: 192, Output: "refund-leaf-output"},
+						},
+					},
+				},
+			},
+		}
 
-	count, err = repo.Add(ctx, []swapdomain.Swap{record})
-	require.NoError(t, err)
-	require.Zero(t, count)
+		for _, f := range fixtures {
+			t.Run(f.name, func(t *testing.T) {
+				err := swapStore.Add(ctx, f.args)
+				require.NoError(t, err)
 
-	got, err := repo.Get(ctx, record.ID)
-	require.NoError(t, err)
-	require.Empty(t, got.FundingTxID)
-	require.Empty(t, got.RedeemTxID)
+				// Adding a swap with the same id must fail.
+				err = swapStore.Add(ctx, f.args)
+				require.Error(t, err)
 
-	record.Status = int(swap.SwapSuccess)
-	record.FundingTxID = "funding-tx"
-	record.RedeemTxID = "redeem-tx"
-	require.NoError(t, repo.Update(ctx, record))
+				got, err := swapStore.Get(ctx, f.args.Id)
+				require.NoError(t, err)
+				requireSwapsMatch(t, f.args, *got)
+			})
+		}
+	})
 
-	got, err = repo.Get(ctx, record.ID)
-	require.NoError(t, err)
-	require.Equal(t, int(swap.SwapSuccess), got.Status)
-	require.Equal(t, "funding-tx", got.FundingTxID)
-	require.Equal(t, "redeem-tx", got.RedeemTxID)
+	t.Run("update", func(t *testing.T) {
+		record := types.Swap{
+			Id:          "swap-to-update",
+			From:        boltz.CurrencyArk,
+			To:          boltz.CurrencyBtc,
+			CreatedAt:   time.Now(),
+			Status:      int(swap.SwapStatusPending),
+			VHTLCScript: "script",
+			Amount:      5000,
+			Preimage:    make([]byte, 32),
+			LNSwap: &types.LNSwapInfo{
+				PreimageHash: make([]byte, 32),
+				Invoice:      "lnbcrt50u1invoice",
+			},
+		}
+		require.NoError(t, swapStore.Add(ctx, record))
+
+		record.Status = int(swap.SwapStatusSuccess)
+		record.FundingTxid = "funding-tx"
+		record.RedeemTxid = "redeem-tx"
+		require.NoError(t, swapStore.Update(ctx, record))
+
+		got, err := swapStore.Get(ctx, record.Id)
+		require.NoError(t, err)
+		require.Equal(t, int(swap.SwapStatusSuccess), got.Status)
+		require.Equal(t, "funding-tx", got.FundingTxid)
+		require.Equal(t, "redeem-tx", got.RedeemTxid)
+
+		// Updating a swap that doesn't exist must fail.
+		missing := record
+		missing.Id = "missing-swap"
+		require.Error(t, swapStore.Update(ctx, missing))
+	})
 }
 
-func TestChainSwapRepository(t *testing.T) {
-	store, _ := newStore(t)
-	defer func() { require.NoError(t, store.Close()) }()
-
-	ctx := t.Context()
-	repo := store.ChainSwaps()
-	first := swapdomain.ChainSwap{
-		ID:                      "chain-1",
-		FromCurrency:            "ARK",
-		ToCurrency:              "BTC",
-		Amount:                  1000,
-		Status:                  int(swap.ChainSwapPending),
-		UserBTCLockupAddress:    "btc-address",
-		BTCHTLCPrivateKey:       "private-key",
-		BoltzCreateResponseJSON: "{}",
-		CreatedAt:               1700000000,
-	}
-	require.NoError(t, repo.Add(ctx, first))
-
-	got, err := repo.Get(ctx, first.ID)
-	require.NoError(t, err)
-	require.Equal(t, first.ID, got.ID)
-	require.Equal(t, first.UserBTCLockupAddress, got.UserBTCLockupAddress)
-	require.Equal(t, first.BTCHTLCPrivateKey, got.BTCHTLCPrivateKey)
-
-	first.Status = int(swap.ChainSwapUserLocked)
-	first.UserLockupTxID = "user-lock"
-	first.ServerLockupTxID = "server-lock"
-	first.ClaimTxID = "claim"
-	first.RefundTxID = "refund"
-	first.ErrorMessage = "error"
-	require.NoError(t, repo.Update(ctx, first))
-
-	got, err = repo.Get(ctx, first.ID)
-	require.NoError(t, err)
-	require.Equal(t, int(swap.ChainSwapUserLocked), got.Status)
-	require.Equal(t, "user-lock", got.UserLockupTxID)
-	require.Equal(t, "server-lock", got.ServerLockupTxID)
-	require.Equal(t, "claim", got.ClaimTxID)
-	require.Equal(t, "refund", got.RefundTxID)
-	require.Equal(t, "error", got.ErrorMessage)
-	require.Equal(t, "private-key", got.BTCHTLCPrivateKey)
-}
-
-func newStore(t *testing.T) (swapstore.Service, string) {
+func newStore(t *testing.T) types.Store {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "swap.sqlite.db")
-	store, err := swapstore.NewService(dbPath)
+	storeSvc, err := store.NewService(t.TempDir())
 	require.NoError(t, err)
-	return store, dbPath
+	t.Cleanup(func() { require.NoError(t, storeSvc.Close()) })
+	return storeSvc
+}
+
+func requireSwapsMatch(t *testing.T, expected, got types.Swap) {
+	t.Helper()
+	require.Equal(t, expected.CreatedAt.Unix(), got.CreatedAt.Unix())
+	require.Equal(t, expected.UpdatedAt.Unix(), got.UpdatedAt.Unix())
+	expected.CreatedAt, got.CreatedAt = time.Time{}, time.Time{}
+	expected.UpdatedAt, got.UpdatedAt = time.Time{}, time.Time{}
+	require.Equal(t, expected, got)
 }

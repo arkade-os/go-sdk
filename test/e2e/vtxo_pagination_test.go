@@ -22,7 +22,7 @@ type vtxoPaginationFixture struct {
 	assetID string
 }
 
-func TestE2EVtxoPagination(t *testing.T) {
+func TestListVtxoPagination(t *testing.T) {
 	f := setupVtxoPaginationFixture(t)
 
 	t.Run("paginated walk equals single-call result", func(t *testing.T) {

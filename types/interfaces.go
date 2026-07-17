@@ -40,7 +40,13 @@ type VtxoPageResult struct {
 	Next  *Cursor
 }
 
+type StoreConfig struct {
+	StoreType string
+	Args      any
+}
+
 type Store interface {
+	GetConfig() StoreConfig
 	TransactionStore() TransactionStore
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore

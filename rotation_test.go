@@ -243,6 +243,7 @@ type fakeStore struct {
 	contractStore types.ContractStore
 }
 
+func (s *fakeStore) GetConfig() types.StoreConfig             { return types.StoreConfig{} }
 func (s *fakeStore) ContractStore() types.ContractStore       { return s.contractStore }
 func (s *fakeStore) TransactionStore() types.TransactionStore { return nil }
 func (s *fakeStore) UtxoStore() types.UtxoStore               { return nil }

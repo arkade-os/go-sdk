@@ -489,9 +489,9 @@ func forEachContractBackend(t *testing.T, fn func(t *testing.T, s types.Contract
 
 	backends := []struct {
 		name   string
-		config store.Config
+		config types.StoreConfig
 	}{
-		{name: "sql", config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()}},
+		{name: "sql", config: types.StoreConfig{StoreType: types.SQLStore, Args: t.TempDir()}},
 	}
 
 	for _, b := range backends {

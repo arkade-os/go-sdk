@@ -106,7 +106,7 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		ConfigStoreType: clienttypes.FileStore,
 		BaseDir:         datadir,
 	}
-	dbConfig := store.Config{
+	dbConfig := types.StoreConfig{
 		StoreType: types.SQLStore,
 		Args:      datadir,
 	}
@@ -181,7 +181,7 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 		ConfigStoreType: clienttypes.FileStore,
 		BaseDir:         datadir,
 	}
-	dbConfig := store.Config{
+	dbConfig := types.StoreConfig{
 		StoreType: types.SQLStore,
 		Args:      datadir,
 	}
@@ -396,19 +396,6 @@ func (w *wallet) Stop() {
 			w.txHandler.stop()
 		}
 
-		w.client.Stop()
-
-		if explorer := w.Explorer(); explorer != nil {
-			explorer.Stop()
-		}
-		// Tear down the auto-settle scheduler before the store closes,
-		// otherwise an already-scheduled refresh task can fire after Stop()
-		// and try to begin a transaction on a closed DB. Mirrors what Lock()
-		// already does.
-		if w.scheduler != nil {
-			w.scheduler.Stop()
-		}
-
 		w.syncMu.Lock()
 		w.syncDone = false
 		w.syncErr = nil
@@ -422,11 +409,25 @@ func (w *wallet) Stop() {
 			w.syncListeners.clear()
 		}
 
-		// Wait for background listeners (listenForArkTxs / listenForOnchainTxs /
-		// listenDbEvents / periodicRefreshDb) to exit before closing the store —
-		// otherwise an in-flight handler write can race the Close and leave
-		// SQLite WAL/Badger vlog tempfiles behind.
+		// Wait for the background workers spawned by Unlock (initial sync, listeners,
+		// periodic refresh) to exit before tearing down the services they use: stopping
+		// the explorer while the sync routine is still starting it is a data race.
+		// This must also happen before closing the store, otherwise an in-flight handler
+		// write can race the Close and leave SQLite WAL/Badger vlog tempfiles behind.
 		w.waitForBackground(5 * time.Second)
+
+		w.client.Stop()
+
+		if w.Explorer() != nil {
+			w.Explorer().Stop()
+		}
+		// Tear down the auto-settle scheduler before the store closes,
+		// otherwise an already-scheduled refresh task can fire after Stop()
+		// and try to begin a transaction on a closed DB. Mirrors what Lock()
+		// already does.
+		if w.scheduler != nil {
+			w.scheduler.Stop()
+		}
 
 		w.store.Close()
 	})

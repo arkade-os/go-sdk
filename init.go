@@ -195,8 +195,8 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 		err := w.refreshDb(ctx)
 		if err == nil {
-			w.scheduleNextSettlement()
 			w.detectAndHandleSignerRotation(ctx)
+			w.scheduleNextSettlement()
 		}
 		w.syncCh <- err
 		close(w.syncCh)
@@ -215,35 +215,41 @@ func (w *wallet) Lock(ctx context.Context) error {
 		return err
 	}
 
-	w.Explorer().Stop()
-	if w.scheduler != nil {
-		w.scheduler.Stop()
-	}
-
 	// Abort any queued tx operations before tearing down shared state, so a
 	// waiter can't resume and run against a nil contractManager / stopCtx.
 	if w.txHandler != nil {
 		w.txHandler.stop()
 	}
 
+	w.syncMu.Lock()
+	w.syncDone = false
+	w.syncErr = nil
+	w.syncMu.Unlock()
+
 	if w.stopFn != nil {
 		w.stopFn()
 	}
+	if w.syncListeners != nil {
+		w.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
+		w.syncListeners.clear()
+	}
+
+	// Wait for the background workers spawned by Unlock to exit before tearing down the
+	// services they use and the contract manager they dereference. Mirrors Stop().
+	w.waitForBackground(5 * time.Second)
+
 	w.stopCtx = nil
+
+	w.Explorer().Stop()
+	if w.scheduler != nil {
+		w.scheduler.Stop()
+	}
 
 	if w.contractManager != nil {
 		w.contractManager.Close()
 		w.contractManager = nil
 	}
 
-	w.syncMu.Lock()
-	w.syncDone = false
-	w.syncErr = nil
-	w.syncMu.Unlock()
-	if w.syncListeners != nil {
-		w.syncListeners.broadcast(fmt.Errorf("wallet locked while restoring"))
-		w.syncListeners.clear()
-	}
 	return nil
 }
 

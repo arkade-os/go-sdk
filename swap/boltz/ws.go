@@ -31,8 +31,8 @@ type SwapStatusResponse struct {
 }
 
 type SwapUpdate struct {
-	SwapStatusResponse `       mapstructure:",squash"`
-	Id                 string `                       json:"id"`
+	SwapStatusResponse `mapstructure:",squash"`
+	Id                 string `json:"id"`
 }
 
 type Websocket struct {

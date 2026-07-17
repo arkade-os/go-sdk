@@ -230,6 +230,16 @@ func (v *VHTLCScript) Address(hrp string) (string, error) {
 	return addr.EncodeV0()
 }
 
+// PkScript returns the taproot output script locking the VHTLC.
+func (v *VHTLCScript) PkScript() ([]byte, error) {
+	tapKey, _, err := v.TapTree()
+	if err != nil {
+		return nil, err
+	}
+
+	return script.P2TRScript(tapKey)
+}
+
 // ClaimTapscript computes the necessary script and control block to spend the claim closure.
 func (v *VHTLCScript) ClaimTapscript() (*waddrmgr.Tapscript, error) {
 	claimScript, err := v.ClaimClosure.Script()

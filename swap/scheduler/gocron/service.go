@@ -1,0 +1,213 @@
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/go-sdk/swap/types"
+	"github.com/go-co-op/gocron"
+)
+
+type heightTask struct {
+	target uint32
+	fn     func()
+}
+
+type service struct {
+	scheduler            *gocron.Scheduler
+	explorer             explorer.Explorer
+	job                  *gocron.Job
+	stopJob              func()
+	mu                   *sync.Mutex
+	blockCancel          context.CancelFunc
+	tasks                []*heightTask
+	explorerPollInterval time.Duration
+}
+
+func NewScheduler(
+	explorerSvc explorer.Explorer, pollInterval time.Duration,
+) types.Scheduler {
+	svc := gocron.NewScheduler(time.UTC)
+	return &service{svc, explorerSvc, nil, nil, &sync.Mutex{}, nil, nil, pollInterval}
+}
+
+func (s *service) Start() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Nothing to do if already started
+	if s.blockCancel != nil {
+		return
+	}
+
+	s.scheduler.StartAsync()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.blockCancel = cancel
+
+	go func() {
+		t := time.NewTicker(s.explorerPollInterval)
+		defer t.Stop()
+		for {
+			h, err := s.explorer.GetBlockHeight()
+			if err == nil {
+				s.mu.Lock()
+				keep := s.tasks[:0]
+				for _, tsk := range s.tasks {
+					if uint32(h) >= tsk.target {
+						go tsk.fn()
+						continue
+					}
+					keep = append(keep, tsk)
+				}
+				s.tasks = keep
+				s.mu.Unlock()
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+}
+
+func (s *service) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.scheduler != nil {
+		s.scheduler.Remove(s.job)
+		s.scheduler.Stop()
+		s.scheduler.Clear()
+
+		s.job = nil
+		s.tasks = make([]*heightTask, 0)
+	}
+
+	if s.blockCancel != nil {
+		s.blockCancel()
+		s.blockCancel = nil
+	}
+}
+
+func (s *service) ScheduleTaskAtHeight(target uint32, task func()) error {
+	if target <= 0 {
+		return fmt.Errorf("invalid height: %d", target)
+	}
+
+	currentHeight, err := s.explorer.GetBlockHeight()
+	if err != nil {
+		return fmt.Errorf("failed to get current block height: %w", err)
+	}
+	if uint32(currentHeight) >= target {
+		go task()
+		return nil
+	}
+	tsk := &heightTask{target: target, fn: task}
+	s.mu.Lock()
+	s.tasks = append(s.tasks, tsk)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *service) ScheduleTaskAtTime(at time.Time, task func()) error {
+	if at.IsZero() {
+		return fmt.Errorf("invalid schedule time")
+	}
+
+	delay := time.Until(at)
+	if delay <= 0 {
+		go task()
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(func() {
+		task()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	})
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+// ScheduleNextSettlement schedules a Settle() to run in the best market hour
+func (s *service) ScheduleNextSettlement(at time.Time, settleFunc func()) error {
+	if at.IsZero() {
+		return fmt.Errorf("invalid schedule time")
+	}
+
+	delay := time.Until(at)
+
+	s.CancelNextSettlement()
+
+	// If the requested time is already due (the vtxos are at/over their expiry),
+	// settle immediately instead of dropping the request. Run async so callers
+	// holding their own locks (e.g. the vtxo event listener) don't deadlock.
+	if delay <= 0 {
+		go settleFunc()
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	job, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(func() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		s.mu.Lock()
+		s.scheduler.Remove(s.job)
+		s.job = nil
+		s.mu.Unlock()
+
+		settleFunc()
+	})
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	s.job = job
+	s.stopJob = cancel
+
+	return err
+}
+
+// WhenNextSettlement returns the next scheduled settlement time
+func (s *service) WhenNextSettlement() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.job == nil {
+		return time.Time{}
+	}
+
+	return s.job.NextRun()
+}
+
+func (s *service) CancelNextSettlement() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.job == nil {
+		return
+	}
+
+	s.stopJob()
+	s.scheduler.Remove(s.job)
+	s.job = nil
+}

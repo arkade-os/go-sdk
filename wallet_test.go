@@ -9,7 +9,6 @@ import (
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,6 +79,7 @@ func TestLoadWallet(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, wallet)
 			require.True(t, wallet.IsLocked(t.Context()))
+			t.Cleanup(wallet.Stop)
 
 			err = wallet.Unlock(t.Context(), "password")
 			require.NoError(t, err)
@@ -188,7 +188,7 @@ func seedIdentity(t *testing.T, datadir string) {
 	c, err := arksdk.NewWallet(datadir)
 	require.NoError(t, err)
 
-	mnemonic, err := c.Identity().Create(t.Context(), chaincfg.RegressionNetParams, "password", "")
+	mnemonic, err := c.Identity().Create(t.Context(), arklib.BitcoinRegTest, "password", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, mnemonic)
 
@@ -204,7 +204,9 @@ func seedIdentity(t *testing.T, datadir string) {
 	require.NotNil(t, randomKey)
 
 	err = clientStore.ConfigStore().AddData(t.Context(), clienttypes.Config{
-		ServerUrl:     "localhost:7070",
+		// Deliberately point to a dead port: unit tests must never talk to a live arkd,
+		// even if one is running locally on the default port.
+		ServerUrl:     "localhost:1",
 		SignerPubKey:  randomKey.PubKey(),
 		ForfeitPubKey: randomKey.PubKey(),
 		Network:       arklib.BitcoinRegTest,

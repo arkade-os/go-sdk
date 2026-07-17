@@ -20,7 +20,6 @@ import (
 	"github.com/arkade-os/go-sdk/store"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +52,7 @@ func newTestManagerWithEnv(
 
 	env := newMockedEnv(t)
 
-	svc, err := store.NewStore(store.Config{
+	svc, err := store.NewStore(types.StoreConfig{
 		StoreType: types.SQLStore,
 		Args:      t.TempDir(),
 	})
@@ -253,7 +252,7 @@ func newMockedEnv(t *testing.T) *mockedEnv {
 
 	wsvc, err := hdidentity.NewIdentity(identityinmemorystore.NewStore())
 	require.NoError(t, err)
-	_, err = wsvc.Create(t.Context(), chaincfg.RegressionNetParams, testPassword, "")
+	_, err = wsvc.Create(t.Context(), arklib.BitcoinRegTest, testPassword, "")
 	require.NoError(t, err)
 	_, err = wsvc.Unlock(t.Context(), testPassword)
 	require.NoError(t, err)
@@ -325,7 +324,7 @@ func (e *mockedEnv) markBoardingUsed(t *testing.T, keyIds ...string) {
 func newValidTestArgs(t *testing.T) contract.Args {
 	t.Helper()
 	env := newMockedEnv(t)
-	svc, err := store.NewStore(store.Config{
+	svc, err := store.NewStore(types.StoreConfig{
 		StoreType: types.SQLStore,
 		Args:      t.TempDir(),
 	})

@@ -33,8 +33,8 @@ func (w *wallet) detectAndHandleSignerRotation(ctx context.Context) {
 	}
 
 	log.Debugf(
-		"detected deprecation of signer %s, migrating all funds to new contract(s) with "+
-			"signer %s...", serverParams.DeprecatedSignerPubKeys[0].PubKey, serverParams.SignerPubKey,
+		"detected signer rotation, migrating all funds to new contract(s) with signer %s...",
+		serverParams.SignerPubKey,
 	)
 
 	if err := w.updateConfig(ctx, serverParams); err != nil {

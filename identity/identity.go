@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/script"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
@@ -17,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/tyler-smith/go-bip39"
@@ -65,7 +65,7 @@ func (s *service) GetType() string {
 // - empty seed: generate and return a new BIP39 mnemonic
 // - valid mnemonic: restore from that mnemonic and return it unchanged
 func (s *service) Create(
-	ctx context.Context, network chaincfg.Params, password, seed string,
+	ctx context.Context, network arklib.Network, password, seed string,
 ) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,12 +102,13 @@ func (s *service) Create(
 	}
 	defer zeroBytes(masterSeed)
 
-	extendedKey, err := hdkeychain.NewMaster(masterSeed, &network)
+	net := toBitcoinNetwork(network)
+	extendedKey, err := hdkeychain.NewMaster(masterSeed, net)
 	if err != nil {
 		return "", fmt.Errorf("failed to create master key: %w", err)
 	}
 
-	rootPath := getBIP86RootPath(network)
+	rootPath := getBIP86RootPath(net)
 	for _, step := range rootPath {
 		extendedKey, err = extendedKey.Derive(step)
 		if err != nil {

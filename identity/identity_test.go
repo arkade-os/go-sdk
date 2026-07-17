@@ -18,7 +18,7 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-var network = chaincfg.RegressionNetParams
+var network = arklib.BitcoinRegTest
 
 const (
 	testPassword = "testpassword"
