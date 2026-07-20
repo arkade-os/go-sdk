@@ -5,7 +5,7 @@ RUN git clone --branch ${FULMINE_VERSION} --single-branch https://github.com/Ark
 WORKDIR /app/fulmine/internal/interface/web
 RUN rm -rf .parcel-cache && yarn && yarn build
 
-FROM golang:1.26.3 AS go-builder
+FROM golang:1.26.5 AS go-builder
 ARG FULMINE_VERSION=master
 ARG TARGETOS
 ARG TARGETARCH
