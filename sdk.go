@@ -90,6 +90,7 @@ type Wallet interface {
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
 
 	CreateVHTLC(ctx context.Context, args contract.VHTLCContractArgs) (*vhtlc.VHTLCScript, error)
+	ListVHTLCs(ctx context.Context, opts ...VHTLCOption) ([]vhtlc.VHTLCScript, error)
 	ClaimVHTLC(
 		ctx context.Context, script string, preimage vhtlc.Preimage, opts ...VHTLCOption,
 	) (string, error)

@@ -25,6 +25,9 @@ func (m *mockIdentity) Unlock(_ context.Context, _ string) (bool, error) {
 func (m *mockIdentity) IsLocked() bool {
 	return false
 }
+func (m *mockIdentity) GetXpub(_ context.Context) (string, error) {
+	return "", nil
+}
 func (m *mockIdentity) NextKeyId(_ context.Context, _ string) (string, error) {
 	return "", nil
 }

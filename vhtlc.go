@@ -49,6 +49,63 @@ func (w *wallet) CreateVHTLC(
 	return w.vhtlcScript(ctx, *contract)
 }
 
+// ListVHTLC returns the vhtlc contracts tracked by the wallet, optionally filtered by script
+// with the WithScript option.
+func (w *wallet) ListVHTLCs(
+	ctx context.Context, opts ...VHTLCOption,
+) ([]vhtlc.VHTLCScript, error) {
+	if err := w.safeCheck(); err != nil {
+		return nil, err
+	}
+
+	o := defaultVhtlcOpts()
+	for _, opt := range opts {
+		if err := opt(o); err != nil {
+			return nil, err
+		}
+	}
+
+	var contracts []types.Contract
+	if len(o.scripts) > 0 {
+		found, err := w.contractManager.GetContracts(
+			ctx, contract.WithScripts(o.scripts),
+		)
+		if err != nil {
+			return nil, err
+		}
+		contracts = found
+	} else {
+		for _, contractType := range []types.ContractType{
+			types.ContractTypeVHTLC, types.ContractTypeNonInteractiveVHTLC,
+		} {
+			found, err := w.contractManager.GetContracts(ctx, contract.WithType(contractType))
+			if err != nil {
+				return nil, err
+			}
+			contracts = append(contracts, found...)
+		}
+	}
+
+	vhtlcs := make([]vhtlc.VHTLCScript, 0, len(contracts))
+	for _, vhtlcContract := range contracts {
+		// Skip anything that is not a vhtlc, eg. when filtering by the script of another
+		// contract type.
+		if vhtlcContract.Type != types.ContractTypeVHTLC &&
+			vhtlcContract.Type != types.ContractTypeNonInteractiveVHTLC {
+			continue
+		}
+
+		script, err := w.vhtlcScript(ctx, vhtlcContract)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to rebuild vhtlc script for contract %s: %w", vhtlcContract.Script, err,
+			)
+		}
+		vhtlcs = append(vhtlcs, *script)
+	}
+	return vhtlcs, nil
+}
+
 func (w *wallet) ClaimVHTLC(
 	ctx context.Context, vhtlcScript string, preimage vhtlc.Preimage, opts ...VHTLCOption,
 ) (string, error) {

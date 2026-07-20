@@ -237,6 +237,17 @@ func (s *service) IsLocked() bool {
 	return s.locked
 }
 
+func (s *service) GetXpub(_ context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.safeCheck(); err != nil {
+		return "", err
+	}
+
+	return s.keyProvider.GetXpub()
+}
+
 func (s *service) NextKeyId(_ context.Context, id string) (string, error) {
 	if len(id) <= 0 {
 		return toDerivationPath(0), nil

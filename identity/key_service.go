@@ -35,6 +35,21 @@ func newHDKeyService(masterKey *hdkeychain.ExtendedKey) *keyService {
 	}
 }
 
+func (s *keyService) GetXpub() (string, error) {
+	account, err := s.masterKey.Derive(defaultAccount)
+	if err != nil {
+		return "", err
+	}
+
+	// Neuter the extended key to strip the private key material: deriving a child of a private
+	// extended key yields another private one, and serializing it would leak the xprv.
+	xpub, err := account.Neuter()
+	if err != nil {
+		return "", err
+	}
+	return xpub.String(), nil
+}
+
 // GetNextKey derives and caches the next key pair based on the internal derivation index.
 func (s *keyService) GetNextKey() (*btcec.PrivateKey, *btcec.PublicKey, string, error) {
 	s.mu.Lock()

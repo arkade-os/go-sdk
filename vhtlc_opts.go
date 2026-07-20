@@ -25,8 +25,23 @@ func WithOutpoint(outpoint clienttypes.Outpoint) VHTLCOption {
 	}
 }
 
+// WithScripts allows to pass vhtlc scripts to the ListVHTLCs api.
+func WithScripts(scripts []string) VHTLCOption {
+	return func(o *vhtlcOpts) error {
+		if len(scripts) <= 0 {
+			return fmt.Errorf("scripts must not be empty")
+		}
+		if len(o.scripts) > 0 {
+			return fmt.Errorf("scripts already set")
+		}
+		o.scripts = scripts
+		return nil
+	}
+}
+
 type vhtlcOpts struct {
 	outpoint *clienttypes.Outpoint
+	scripts  []string
 }
 
 func defaultVhtlcOpts() *vhtlcOpts {
