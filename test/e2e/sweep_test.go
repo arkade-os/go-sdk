@@ -43,18 +43,16 @@ func TestCheckpointSweep(t *testing.T) {
 	require.NoError(t, err)
 
 	var leafVtxo clientTypes.Vtxo
-	timeout := time.After(15 * time.Second)
-	for leafVtxo.Amount == 0 {
+	require.Eventually(t, func() bool {
 		select {
 		case vtxoEvent := <-aliceVtxoCh:
-			if vtxoEvent.Type != types.VtxosAdded || len(vtxoEvent.Vtxos) == 0 {
-				continue
+			if vtxoEvent.Type == types.VtxosAdded && len(vtxoEvent.Vtxos) > 0 {
+				leafVtxo = vtxoEvent.Vtxos[0]
 			}
-			leafVtxo = vtxoEvent.Vtxos[0]
-		case <-timeout:
-			t.Fatal("timed out waiting for preconfirmed vtxo")
+		default:
 		}
-	}
+		return leafVtxo.Amount != 0
+	}, 15*time.Second, 100*time.Millisecond, "timed out waiting for preconfirmed vtxo")
 
 	// unroll the root VTXO by broadcasting its redeem branch. We deliberately
 	// do NOT broadcast the child ark tx, so the checkpoint output stays unspent
