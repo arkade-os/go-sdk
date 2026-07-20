@@ -16,29 +16,31 @@ INSERT INTO swap (
     vhtlc_script, funding_txid, redeem_txid, preimage,
     ln_preimage_hash, ln_invoice,
     chain_funding_txid, chain_redeem_txid, chain_address, chain_private_key,
-    chain_swap_tree
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    chain_destination_address, chain_server_public_key, chain_refund_locktime
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertSwapParams struct {
-	ID               string
-	FromCurrency     string
-	ToCurrency       string
-	Amount           int64
-	Status           int64
-	CreatedAt        int64
-	UpdatedAt        sql.NullInt64
-	VhtlcScript      string
-	FundingTxid      sql.NullString
-	RedeemTxid       sql.NullString
-	Preimage         sql.NullString
-	LnPreimageHash   sql.NullString
-	LnInvoice        sql.NullString
-	ChainFundingTxid sql.NullString
-	ChainRedeemTxid  sql.NullString
-	ChainAddress     sql.NullString
-	ChainPrivateKey  sql.NullString
-	ChainSwapTree    sql.NullString
+	ID                      string
+	FromCurrency            string
+	ToCurrency              string
+	Amount                  int64
+	Status                  int64
+	CreatedAt               int64
+	UpdatedAt               sql.NullInt64
+	VhtlcScript             string
+	FundingTxid             sql.NullString
+	RedeemTxid              sql.NullString
+	Preimage                sql.NullString
+	LnPreimageHash          sql.NullString
+	LnInvoice               sql.NullString
+	ChainFundingTxid        sql.NullString
+	ChainRedeemTxid         sql.NullString
+	ChainAddress            sql.NullString
+	ChainPrivateKey         sql.NullString
+	ChainDestinationAddress sql.NullString
+	ChainServerPublicKey    sql.NullString
+	ChainRefundLocktime     sql.NullInt64
 }
 
 func (q *Queries) InsertSwap(ctx context.Context, arg InsertSwapParams) error {
@@ -60,13 +62,64 @@ func (q *Queries) InsertSwap(ctx context.Context, arg InsertSwapParams) error {
 		arg.ChainRedeemTxid,
 		arg.ChainAddress,
 		arg.ChainPrivateKey,
-		arg.ChainSwapTree,
+		arg.ChainDestinationAddress,
+		arg.ChainServerPublicKey,
+		arg.ChainRefundLocktime,
 	)
 	return err
 }
 
+const selectAllSwaps = `-- name: SelectAllSwaps :many
+SELECT id, from_currency, to_currency, amount, status, created_at, updated_at, vhtlc_script, funding_txid, redeem_txid, preimage, ln_preimage_hash, ln_invoice, chain_funding_txid, chain_redeem_txid, chain_address, chain_private_key, chain_destination_address, chain_server_public_key, chain_refund_locktime FROM swap
+ORDER BY created_at ASC
+`
+
+func (q *Queries) SelectAllSwaps(ctx context.Context) ([]Swap, error) {
+	rows, err := q.db.QueryContext(ctx, selectAllSwaps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Swap
+	for rows.Next() {
+		var i Swap
+		if err := rows.Scan(
+			&i.ID,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.Amount,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VhtlcScript,
+			&i.FundingTxid,
+			&i.RedeemTxid,
+			&i.Preimage,
+			&i.LnPreimageHash,
+			&i.LnInvoice,
+			&i.ChainFundingTxid,
+			&i.ChainRedeemTxid,
+			&i.ChainAddress,
+			&i.ChainPrivateKey,
+			&i.ChainDestinationAddress,
+			&i.ChainServerPublicKey,
+			&i.ChainRefundLocktime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectSwap = `-- name: SelectSwap :one
-SELECT id, from_currency, to_currency, amount, status, created_at, updated_at, vhtlc_script, funding_txid, redeem_txid, preimage, ln_preimage_hash, ln_invoice, chain_funding_txid, chain_redeem_txid, chain_address, chain_private_key, chain_swap_tree FROM swap
+SELECT id, from_currency, to_currency, amount, status, created_at, updated_at, vhtlc_script, funding_txid, redeem_txid, preimage, ln_preimage_hash, ln_invoice, chain_funding_txid, chain_redeem_txid, chain_address, chain_private_key, chain_destination_address, chain_server_public_key, chain_refund_locktime FROM swap
 WHERE id = ?1
 `
 
@@ -91,9 +144,61 @@ func (q *Queries) SelectSwap(ctx context.Context, id string) (Swap, error) {
 		&i.ChainRedeemTxid,
 		&i.ChainAddress,
 		&i.ChainPrivateKey,
-		&i.ChainSwapTree,
+		&i.ChainDestinationAddress,
+		&i.ChainServerPublicKey,
+		&i.ChainRefundLocktime,
 	)
 	return i, err
+}
+
+const selectSwapsByStatus = `-- name: SelectSwapsByStatus :many
+SELECT id, from_currency, to_currency, amount, status, created_at, updated_at, vhtlc_script, funding_txid, redeem_txid, preimage, ln_preimage_hash, ln_invoice, chain_funding_txid, chain_redeem_txid, chain_address, chain_private_key, chain_destination_address, chain_server_public_key, chain_refund_locktime FROM swap
+WHERE status = ?1
+ORDER BY created_at ASC
+`
+
+func (q *Queries) SelectSwapsByStatus(ctx context.Context, status int64) ([]Swap, error) {
+	rows, err := q.db.QueryContext(ctx, selectSwapsByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Swap
+	for rows.Next() {
+		var i Swap
+		if err := rows.Scan(
+			&i.ID,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.Amount,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VhtlcScript,
+			&i.FundingTxid,
+			&i.RedeemTxid,
+			&i.Preimage,
+			&i.LnPreimageHash,
+			&i.LnInvoice,
+			&i.ChainFundingTxid,
+			&i.ChainRedeemTxid,
+			&i.ChainAddress,
+			&i.ChainPrivateKey,
+			&i.ChainDestinationAddress,
+			&i.ChainServerPublicKey,
+			&i.ChainRefundLocktime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateSwap = `-- name: UpdateSwap :execrows

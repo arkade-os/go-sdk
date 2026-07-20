@@ -58,6 +58,13 @@ type SwapManager struct {
 	// contract has been imported (with deterministic preimages, a reused key
 	// also means a duplicate payment hash rejected by Boltz).
 	contractMu sync.Mutex
+
+	// ctx is the manager's lifetime context: Close cancels it to abort the background
+	// operations (reverse-swap claim, chain-swap monitoring, startup recovery), and bgWg lets
+	// Close wait for them to exit before the store is closed.
+	ctx    context.Context
+	cancel context.CancelFunc
+	bgWg   sync.WaitGroup
 }
 
 func NewSwapManager(
@@ -68,6 +75,11 @@ func NewSwapManager(
 	}
 	if boltzSvc == nil {
 		return nil, fmt.Errorf("missing boltz client")
+	}
+	// The manager derives keys, signs and claims/refunds vhtlcs: it can't work with a locked
+	// wallet.
+	if wallet.IsLocked(context.Background()) {
+		return nil, fmt.Errorf("wallet must be unlocked")
 	}
 	o, err := applyOptions(opts...)
 	if err != nil {
@@ -104,6 +116,7 @@ func NewSwapManager(
 		return nil, fmt.Errorf("failed to init swap store: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	h := &SwapManager{
 		wallet:       wallet,
 		boltzSvc:     boltzSvc,
@@ -111,29 +124,59 @@ func NewSwapManager(
 		schedulerSvc: gocronscheduler.NewScheduler(wallet.Explorer(), o.pollInterval),
 		swapTimeout:  o.timeout,
 		config:       *cfg,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
+	// The scheduler drives the delayed unilateral refunds, it must run for the whole lifetime
+	// of the manager.
+	h.schedulerSvc.Start()
+
+	// Restore the swaps known to Boltz if the store is empty (ie. after a wallet restore),
+	// then terminate the swaps left in flight, without blocking the constructor.
+	h.bgWg.Go(func() {
+		h.restoreSwaps(h.ctx)
+		h.recoverPendingSwaps(h.ctx)
+	})
+
 	return h, nil
 }
 
+// Close aborts all background operations and releases the manager's resources. It's safe to
+// call more than once.
 func (h *SwapManager) Close() error {
-	if h == nil || h.store == nil {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	// Wait for the background operations to notice the cancellation and exit before tearing
+	// down the scheduler and the store they use.
+	h.waitForBackground(5 * time.Second)
+
+	if h.schedulerSvc != nil {
+		h.schedulerSvc.Stop()
+	}
+	if h.store == nil {
 		return nil
 	}
 	return h.store.Close()
+}
+
+func (h *SwapManager) waitForBackground(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		h.bgWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warn("timed out waiting for swap manager background operations to exit")
+	}
 }
 
 // GetSwap returns the swap with the given id from the store. It's the way to observe the
 // status of the swaps completed in background, like reverse and chain ones.
 func (h *SwapManager) GetSwap(ctx context.Context, swapId string) (*swaptypes.Swap, error) {
 	return h.store.Swaps().Get(ctx, swapId)
-}
-
-func (h *SwapManager) PayInvoice(ctx context.Context, invoice string) (*swaptypes.Swap, error) {
-	if len(invoice) <= 0 {
-		return nil, fmt.Errorf("missing invoice")
-	}
-
-	return h.submarineSwap(ctx, invoice)
 }
 
 func (h *SwapManager) SubmarineSwap(
@@ -173,7 +216,7 @@ func (h *SwapManager) ReverseSwap(ctx context.Context, amount uint64) (*swaptype
 	return h.reverseSwap(ctx, amount)
 }
 
-func (h *SwapManager) RefundSwap(
+func (h *SwapManager) RefundSubmarineSwap(
 	ctx context.Context, swapId string,
 ) (*swaptypes.Swap, *time.Time, error) {
 	swap, err := h.store.Swaps().Get(ctx, swapId)
@@ -181,34 +224,48 @@ func (h *SwapManager) RefundSwap(
 		return nil, nil, err
 	}
 
+	contractArgs, err := h.getSwapContractArgs(ctx, swap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return h.refundSwap(ctx, swap, contractArgs)
+}
+
+// getSwapContractArgs returns the vhtlc contract args of the given swap, resolving its contract
+// from the contract manager by the swap's vhtlc script.
+func (h *SwapManager) getSwapContractArgs(
+	ctx context.Context, swap *swaptypes.Swap,
+) (vhtlchandler.ContractArgs, error) {
+	var empty vhtlchandler.ContractArgs
+
 	scripts := []string{swap.VHTLCScript}
 	contracts, err := h.wallet.ContractManager().GetContracts(ctx, contract.WithScripts(scripts))
 	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"failed to get vhtlc contract %s for swap %s: %w", scripts[0], swapId, err,
+		return empty, fmt.Errorf(
+			"failed to get vhtlc contract %s for swap %s: %w", scripts[0], swap.Id, err,
 		)
 	}
 	if len(contracts) <= 0 {
-		return nil, nil, fmt.Errorf("vhtlc contract %s not found for swap %s", scripts[0], swapId)
+		return empty, fmt.Errorf("vhtlc contract %s not found for swap %s", scripts[0], swap.Id)
 	}
 	contract := contracts[0]
 
 	handler, err := h.wallet.ContractManager().GetHandler(ctx, contract)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get contract handler for swap %s: %w", swapId, err)
+		return empty, fmt.Errorf("failed to get contract handler for swap %s: %w", swap.Id, err)
 	}
 	args, err := handler.GetArgs(contract)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get contract args for swap %s: %w", swapId, err)
+		return empty, fmt.Errorf("failed to get contract args for swap %s: %w", swap.Id, err)
 	}
 	parsed, ok := args.(vhtlchandler.ContractArgs)
 	if !ok {
-		return nil, nil, fmt.Errorf(
+		return empty, fmt.Errorf(
 			"invalid contract args type: got %T, expected %T", args, vhtlchandler.ContractArgs{},
 		)
 	}
-
-	return h.refundSwap(ctx, swap, parsed)
+	return parsed, nil
 }
 
 func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swaptypes.Swap, error) {
@@ -519,8 +576,16 @@ func (h *SwapManager) reverseSwap(ctx context.Context, amount uint64) (*swaptype
 		return nil, err
 	}
 
-	go func(swap *swaptypes.Swap) {
-		if txid, err := h.waitAndClaim(invoiceExpiry, swap, preimage); err != nil {
+	h.bgWg.Go(func() {
+		txid, err := h.waitAndClaim(invoiceExpiry, swap, preimage)
+
+		// If the manager is shutting down, leave the swap pending for the next startup's
+		// recovery instead of marking it and writing to a store that's about to close.
+		if h.ctx.Err() != nil {
+			return
+		}
+
+		if err != nil {
 			swap.Status = int(SwapStatusFailed)
 			log.WithError(err).Error("failed to claim VHTLC")
 		} else {
@@ -532,7 +597,7 @@ func (h *SwapManager) reverseSwap(ctx context.Context, amount uint64) (*swaptype
 		if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
 			log.WithError(err).Error("failed to update persisted reverse swap")
 		}
-	}(swap)
+	})
 	return swap, nil
 }
 
@@ -561,7 +626,7 @@ func (h *SwapManager) waitAndClaim(
 	invoiceExpiry int, swap *swaptypes.Swap, preimage vhtlc.Preimage,
 ) (string, error) {
 	expiryDuration := time.Duration(invoiceExpiry) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), expiryDuration*2)
+	ctx, cancel := context.WithTimeout(h.ctx, expiryDuration*2)
 	defer cancel()
 
 	ws := h.boltzSvc.NewWebsocket()

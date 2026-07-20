@@ -4,8 +4,8 @@ INSERT INTO swap (
     vhtlc_script, funding_txid, redeem_txid, preimage,
     ln_preimage_hash, ln_invoice,
     chain_funding_txid, chain_redeem_txid, chain_address, chain_private_key,
-    chain_swap_tree
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    chain_destination_address, chain_server_public_key, chain_refund_locktime
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SelectSwap :one
 SELECT * FROM swap
@@ -22,3 +22,12 @@ SET
     chain_funding_txid = :chain_funding_txid,
     chain_redeem_txid = :chain_redeem_txid
 WHERE id = :id;
+
+-- name: SelectAllSwaps :many
+SELECT * FROM swap
+ORDER BY created_at ASC;
+
+-- name: SelectSwapsByStatus :many
+SELECT * FROM swap
+WHERE status = :status
+ORDER BY created_at ASC;

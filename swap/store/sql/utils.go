@@ -34,6 +34,20 @@ func unixTimeValue(value sql.NullInt64) time.Time {
 	return time.Unix(value.Int64, 0)
 }
 
+func nullableInt64(value int64) sql.NullInt64 {
+	if value == 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: value, Valid: true}
+}
+
+func int64Value(value sql.NullInt64) int64 {
+	if !value.Valid {
+		return 0
+	}
+	return value.Int64
+}
+
 func decodeNullableHex(value sql.NullString) ([]byte, error) {
 	if !value.Valid {
 		return nil, nil

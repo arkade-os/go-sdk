@@ -51,14 +51,13 @@ func TestSwapStore(t *testing.T) {
 					Amount:      7000,
 					Preimage:    make([]byte, 32),
 					ChainSwap: &types.ChainSwapInfo{
-						FundingTxid: "user-lockup-tx",
-						RedeemTxid:  "claim-tx",
-						Address:     "bcrt1qlockupaddress",
-						PrivateKey:  "btc-htlc-private-key",
-						SwapTree: boltz.SwapTree{
-							ClaimLeaf:  boltz.SwapTreeLeaf{Version: 192, Output: "claim-leaf-output"},
-							RefundLeaf: boltz.SwapTreeLeaf{Version: 192, Output: "refund-leaf-output"},
-						},
+						FundingTxid:        "user-lockup-tx",
+						RedeemTxid:         "claim-tx",
+						Address:            "bcrt1qlockupaddress",
+						PrivateKey:         "btc-htlc-private-key",
+						DestinationAddress: "bcrt1qdestinationaddress",
+						ServerPublicKey:    "02serverpubkey",
+						RefundLocktime:     123456,
 					},
 				},
 			},
@@ -113,6 +112,47 @@ func TestSwapStore(t *testing.T) {
 		missing.Id = "missing-swap"
 		require.Error(t, swapStore.Update(ctx, missing))
 	})
+
+	// Relies on the records added by the subtests above: ln-swap-1 and chain-swap-1 are
+	// pending, swap-to-update succeeded.
+	t.Run("list", func(t *testing.T) {
+		t.Run("all", func(t *testing.T) {
+			swaps, err := swapStore.List(ctx)
+			require.NoError(t, err)
+			require.ElementsMatch(
+				t, []string{"ln-swap-1", "chain-swap-1", "swap-to-update"}, swapIds(swaps),
+			)
+		})
+
+		t.Run("filtered by status", func(t *testing.T) {
+			pending, err := swapStore.List(ctx, int(swap.SwapStatusPending))
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{"ln-swap-1", "chain-swap-1"}, swapIds(pending))
+
+			succeeded, err := swapStore.List(ctx, int(swap.SwapStatusSuccess))
+			require.NoError(t, err)
+			require.Equal(t, []string{"swap-to-update"}, swapIds(succeeded))
+
+			failed, err := swapStore.List(ctx, int(swap.SwapStatusFailed))
+			require.NoError(t, err)
+			require.Empty(t, failed)
+		})
+
+		t.Run("multiple status filters are rejected", func(t *testing.T) {
+			_, err := swapStore.List(
+				ctx, int(swap.SwapStatusPending), int(swap.SwapStatusSuccess),
+			)
+			require.Error(t, err)
+		})
+	})
+}
+
+func swapIds(swaps []types.Swap) []string {
+	ids := make([]string, 0, len(swaps))
+	for _, s := range swaps {
+		ids = append(ids, s.Id)
+	}
+	return ids
 }
 
 func newStore(t *testing.T) types.Store {

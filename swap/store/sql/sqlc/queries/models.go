@@ -9,22 +9,24 @@ import (
 )
 
 type Swap struct {
-	ID               string
-	FromCurrency     string
-	ToCurrency       string
-	Amount           int64
-	Status           int64
-	CreatedAt        int64
-	UpdatedAt        sql.NullInt64
-	VhtlcScript      string
-	FundingTxid      sql.NullString
-	RedeemTxid       sql.NullString
-	Preimage         sql.NullString
-	LnPreimageHash   sql.NullString
-	LnInvoice        sql.NullString
-	ChainFundingTxid sql.NullString
-	ChainRedeemTxid  sql.NullString
-	ChainAddress     sql.NullString
-	ChainPrivateKey  sql.NullString
-	ChainSwapTree    sql.NullString
+	ID                      string
+	FromCurrency            string
+	ToCurrency              string
+	Amount                  int64
+	Status                  int64
+	CreatedAt               int64
+	UpdatedAt               sql.NullInt64
+	VhtlcScript             string
+	FundingTxid             sql.NullString
+	RedeemTxid              sql.NullString
+	Preimage                sql.NullString
+	LnPreimageHash          sql.NullString
+	LnInvoice               sql.NullString
+	ChainFundingTxid        sql.NullString
+	ChainRedeemTxid         sql.NullString
+	ChainAddress            sql.NullString
+	ChainPrivateKey         sql.NullString
+	ChainDestinationAddress sql.NullString
+	ChainServerPublicKey    sql.NullString
+	ChainRefundLocktime     sql.NullInt64
 }

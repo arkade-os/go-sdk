@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,15 +45,13 @@ func (r *swapStore) Add(ctx context.Context, swap types.Swap) error {
 		params.LnInvoice = nullableString(swap.LNSwap.Invoice)
 	}
 	if swap.ChainSwap != nil {
-		swapTree, err := json.Marshal(swap.ChainSwap.SwapTree)
-		if err != nil {
-			return fmt.Errorf("serialize swap tree for swap %s: %w", swap.Id, err)
-		}
 		params.ChainFundingTxid = nullableString(swap.ChainSwap.FundingTxid)
 		params.ChainRedeemTxid = nullableString(swap.ChainSwap.RedeemTxid)
 		params.ChainAddress = nullableString(swap.ChainSwap.Address)
 		params.ChainPrivateKey = nullableString(swap.ChainSwap.PrivateKey)
-		params.ChainSwapTree = nullableString(string(swapTree))
+		params.ChainDestinationAddress = nullableString(swap.ChainSwap.DestinationAddress)
+		params.ChainServerPublicKey = nullableString(swap.ChainSwap.ServerPublicKey)
+		params.ChainRefundLocktime = nullableInt64(int64(swap.ChainSwap.RefundLocktime))
 	}
 
 	if err := r.querier.InsertSwap(ctx, params); err != nil {
@@ -64,6 +61,33 @@ func (r *swapStore) Add(ctx context.Context, swap types.Swap) error {
 		return err
 	}
 	return nil
+}
+
+func (r *swapStore) List(ctx context.Context, status ...int) ([]types.Swap, error) {
+	if len(status) > 1 {
+		return nil, fmt.Errorf("at most one status filter can be provided")
+	}
+
+	var rows []queries.Swap
+	var err error
+	if len(status) > 0 {
+		rows, err = r.querier.SelectSwapsByStatus(ctx, int64(status[0]))
+	} else {
+		rows, err = r.querier.SelectAllSwaps(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	swaps := make([]types.Swap, 0, len(rows))
+	for _, row := range rows {
+		swap, err := readRow(row)
+		if err != nil {
+			return nil, err
+		}
+		swaps = append(swaps, *swap)
+	}
+	return swaps, nil
 }
 
 func (r *swapStore) Get(ctx context.Context, id string) (*types.Swap, error) {
@@ -136,17 +160,15 @@ func readRow(row queries.Swap) (*types.Swap, error) {
 		}
 	}
 
-	if row.ChainSwapTree.Valid {
-		var swapTree boltz.SwapTree
-		if err := json.Unmarshal([]byte(row.ChainSwapTree.String), &swapTree); err != nil {
-			return nil, fmt.Errorf("deserialize swap tree for swap %s: %w", row.ID, err)
-		}
+	if row.ChainAddress.Valid || row.ChainPrivateKey.Valid || row.ChainServerPublicKey.Valid {
 		swap.ChainSwap = &types.ChainSwapInfo{
-			FundingTxid: stringValue(row.ChainFundingTxid),
-			RedeemTxid:  stringValue(row.ChainRedeemTxid),
-			Address:     stringValue(row.ChainAddress),
-			PrivateKey:  stringValue(row.ChainPrivateKey),
-			SwapTree:    swapTree,
+			FundingTxid:        stringValue(row.ChainFundingTxid),
+			RedeemTxid:         stringValue(row.ChainRedeemTxid),
+			Address:            stringValue(row.ChainAddress),
+			PrivateKey:         stringValue(row.ChainPrivateKey),
+			DestinationAddress: stringValue(row.ChainDestinationAddress),
+			ServerPublicKey:    stringValue(row.ChainServerPublicKey),
+			RefundLocktime:     uint32(int64Value(row.ChainRefundLocktime)),
 		}
 	}
 

@@ -16,5 +16,7 @@ CREATE TABLE IF NOT EXISTS swap (
   chain_redeem_txid TEXT,
   chain_address TEXT,
   chain_private_key TEXT,
-  chain_swap_tree TEXT
+  chain_destination_address TEXT,
+  chain_server_public_key TEXT,
+  chain_refund_locktime INTEGER
 );

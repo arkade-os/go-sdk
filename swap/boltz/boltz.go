@@ -122,6 +122,13 @@ func (boltz *Api) RevealPreimage(swapId string, preimage string) (*RevealPreimag
 	return resp, nil
 }
 
+// GetSwapStatus returns the latest status of the swap with the given id. Boltz serves the same
+// payload the websocket pushes on subscription.
+func (boltz *Api) GetSwapStatus(swapId string) (*SwapStatusResponse, error) {
+	url := fmt.Sprintf("/swap/%s", swapId)
+	return sendGetRequest[SwapStatusResponse](boltz, url)
+}
+
 func (boltz *Api) GetSwapHistory(pubkey string) ([]Swap, error) {
 	url := "/swap/restore"
 

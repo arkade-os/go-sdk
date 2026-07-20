@@ -174,9 +174,11 @@ func (h *SwapManager) ArkadeToBtcChainSwap(
 		VHTLCScript: contract.Script,
 		Amount:      amount,
 		ChainSwap: &swaptypes.ChainSwapInfo{
-			Address:    swapResp.ClaimDetails.LockupAddress,
-			PrivateKey: hex.EncodeToString(claimKey.Serialize()),
-			SwapTree:   *swapResp.ClaimDetails.SwapTree,
+			Address:            swapResp.ClaimDetails.LockupAddress,
+			PrivateKey:         hex.EncodeToString(claimKey.Serialize()),
+			DestinationAddress: btcAddress,
+			ServerPublicKey:    swapResp.ClaimDetails.ServerPublicKey,
+			RefundLocktime:     uint32(swapResp.ClaimDetails.TimeoutBlockHeight),
 		},
 	}
 	if persistPreimage {
@@ -186,11 +188,16 @@ func (h *SwapManager) ArkadeToBtcChainSwap(
 		return nil, err
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), h.swapTimeout)
+	h.bgWg.Go(func() {
+		ctx, cancel := context.WithTimeout(h.ctx, h.swapTimeout)
 		defer cancel()
 
 		fail := func(err error, msg string) {
+			// If the manager is shutting down, leave the swap pending for the next startup's
+			// recovery instead of marking it and writing to a store that's about to close.
+			if h.ctx.Err() != nil {
+				return
+			}
 			log.WithError(err).Errorf("%s for swap %s", msg, swapResp.Id)
 			swap.Status = int(SwapStatusFailed)
 			if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
@@ -283,6 +290,12 @@ func (h *SwapManager) ArkadeToBtcChainSwap(
 					return
 				}
 			case <-ctx.Done():
+				// A shutdown cancellation leaves the swap pending for the next startup's
+				// recovery; only a genuine timeout fails it and schedules the refund.
+				if h.ctx.Err() != nil {
+					return
+				}
+
 				swap.Status = int(SwapStatusFailed)
 				if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
 					log.WithError(err).Errorf("failed to update swap %s", swapResp.Id)
@@ -299,7 +312,7 @@ func (h *SwapManager) ArkadeToBtcChainSwap(
 				return
 			}
 		}
-	}()
+	})
 
 	return swap, nil
 }
