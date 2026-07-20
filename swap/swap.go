@@ -1228,6 +1228,7 @@ func (h *SwapHandler) reverseSwap(
 		return nil, err
 	}
 
+	bgCtx := context.WithoutCancel(ctx)
 	go func(swapDetails Swap) {
 		if reedeemTxId, err := h.waitAndClaim(
 			invoiceExpiry, swapDetails.Id, preimage, vhtlcOpts,
@@ -1239,7 +1240,7 @@ func (h *SwapHandler) reverseSwap(
 			swapDetails.Status = SwapSuccess
 		}
 
-		if err := h.updatePersistedSwap(context.Background(), swapDetails); err != nil {
+		if err := h.updatePersistedSwap(bgCtx, swapDetails); err != nil {
 			log.WithError(err).Error("failed to update persisted reverse swap")
 		}
 
