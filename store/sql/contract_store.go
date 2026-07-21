@@ -132,6 +132,7 @@ func (v *contractStore) GetLatestActiveContract(
 
 	return &contract, nil
 }
+
 func (v *contractStore) UpdateContractState(
 	ctx context.Context, script string, state types.ContractState,
 ) error {
