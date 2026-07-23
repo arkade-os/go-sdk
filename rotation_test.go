@@ -236,6 +236,12 @@ func (f *fakeContractStore) GetLatestActiveContract(
 ) (*types.Contract, error) {
 	return nil, nil
 }
+func (f *fakeContractStore) DisableContracts(context.Context, []string) error {
+	return nil
+}
+func (f *fakeContractStore) EnableContracts(context.Context, []string) error {
+	return nil
+}
 func (f *fakeContractStore) Clean(context.Context) error { return nil }
 
 // fakeStore only exposes ContractStore for inactivation tests.

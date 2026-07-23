@@ -96,6 +96,7 @@ type Wallet interface {
 	) (string, error)
 	RefundVHTLC(ctx context.Context, script string, opts ...VHTLCOption) (string, string, error)
 	UnilateralRefundVHTLC(ctx context.Context, script string, opts ...VHTLCOption) (string, error)
+	DeleteVHTLCs(ctx context.Context, scripts []string) error
 
 	// ListVtxos returns one page of wallet VTXOs plus an opaque cursor for the
 	// next page. The cursor is empty when there are no more results; callers

@@ -124,5 +124,7 @@ type ContractStore interface {
 	GetActiveContractsByType(ctx context.Context, contractType ContractType) ([]Contract, error)
 	GetLatestActiveContract(ctx context.Context, contractType ContractType) (*Contract, error)
 	UpdateContractState(ctx context.Context, script string, state ContractState) error
+	DisableContracts(ctx context.Context, scripts []string) error
+	EnableContracts(ctx context.Context, scripts []string) error
 	Clean(ctx context.Context) error
 }

@@ -435,6 +435,78 @@ func TestContractStoreUpdateContractState(t *testing.T) {
 	})
 }
 
+func TestContractStoreEnableDisableContracts(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			// A and B are seeded active, C inactive.
+			seedContracts(t, s, testContractA, testContractB, testContractC)
+
+			t.Run("disable a single contract", func(t *testing.T) {
+				require.NoError(t, s.DisableContracts(ctx, []string{testContractA.Script}))
+				require.Equal(t, types.ContractStateInactive, contractState(t, s, testContractA.Script))
+				// Contracts not in the list are untouched.
+				require.Equal(t, types.ContractStateActive, contractState(t, s, testContractB.Script))
+			})
+
+			t.Run("enable a single contract", func(t *testing.T) {
+				require.NoError(t, s.EnableContracts(ctx, []string{testContractC.Script}))
+				require.Equal(t, types.ContractStateActive, contractState(t, s, testContractC.Script))
+			})
+
+			t.Run("disable multiple contracts", func(t *testing.T) {
+				require.NoError(t, s.DisableContracts(
+					ctx, []string{testContractA.Script, testContractB.Script},
+				))
+				require.Equal(t, types.ContractStateInactive, contractState(t, s, testContractA.Script))
+				require.Equal(t, types.ContractStateInactive, contractState(t, s, testContractB.Script))
+			})
+
+			t.Run("enable multiple contracts", func(t *testing.T) {
+				require.NoError(t, s.EnableContracts(
+					ctx, []string{testContractA.Script, testContractB.Script},
+				))
+				require.Equal(t, types.ContractStateActive, contractState(t, s, testContractA.Script))
+				require.Equal(t, types.ContractStateActive, contractState(t, s, testContractB.Script))
+			})
+			t.Run("empty scripts is a no-op", func(t *testing.T) {
+				ctx := t.Context()
+				require.NoError(t, s.EnableContracts(ctx, nil))
+				require.NoError(t, s.DisableContracts(ctx, []string{}))
+			})
+		})
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		const missingScript = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+		t.Run("single unknown script", func(t *testing.T) {
+			forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+				err := s.DisableContracts(t.Context(), []string{missingScript})
+				require.ErrorContains(t, err, "not found")
+			})
+		})
+
+		// The whole point of running a multi-script update in a transaction: if any script is
+		// missing the entire batch rolls back, so a valid script listed before a missing one must
+		// keep its original state rather than being left half-applied.
+		t.Run("multi-script batch rolls back when one script is missing", func(t *testing.T) {
+			forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+				ctx := t.Context()
+				seedContracts(t, s, testContractA)
+				require.Equal(t, types.ContractStateActive, contractState(t, s, testContractA.Script))
+
+				err := s.DisableContracts(ctx, []string{testContractA.Script, missingScript})
+				require.ErrorContains(t, err, "not found")
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractA.Script),
+					"the batch must roll back, leaving the valid contract untouched",
+				)
+			})
+		})
+	})
+}
+
 func TestContractStoreClean(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
@@ -520,4 +592,12 @@ func seedContracts(t *testing.T, s types.ContractStore, contracts ...types.Contr
 		index := getIndex(c.Params[ownerKeyIdParam])
 		require.NoError(t, s.AddContract(t.Context(), c, index))
 	}
+}
+
+func contractState(t *testing.T, s types.ContractStore, script string) types.ContractState {
+	t.Helper()
+	got, err := s.GetContractsByScripts(t.Context(), []string{script})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	return got[0].State
 }

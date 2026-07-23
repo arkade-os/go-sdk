@@ -39,9 +39,12 @@ func (w *wallet) CreateVHTLC(
 		return nil, err
 	}
 
-	contract, err := w.contractManager.NewContract(
-		ctx, types.ContractTypeVHTLC, contract.WithParams(args),
-	)
+	contractType := types.ContractTypeVHTLC
+	if args.NonInteractiveEmulator != nil && args.NonInteractiveReceiver != nil {
+		contractType = types.ContractTypeNonInteractiveVHTLC
+	}
+
+	contract, err := w.contractManager.NewContract(ctx, contractType, contract.WithParams(args))
 	if err != nil {
 		return nil, err
 	}
@@ -317,6 +320,13 @@ func (w *wallet) UnilateralRefundVHTLC(
 	}
 
 	return arkTxid, nil
+}
+
+func (w *wallet) DeleteVHTLCs(ctx context.Context, scripts []string) error {
+	if err := w.safeCheck(); err != nil {
+		return err
+	}
+	return w.store.ContractStore().DisableContracts(ctx, scripts)
 }
 
 // vhtlcSpendContext gathers everything needed to spend a vhtlc vtxo: the contract data, the
@@ -657,6 +667,32 @@ func (w *wallet) vhtlcScript(
 	if err != nil {
 		return nil, err
 	}
+
+	if contract.Type == types.ContractTypeNonInteractiveVHTLC {
+		parsed, ok := contractArgs.(vhtlchandler.NonInteractiveContractArgs)
+		if !ok {
+			return nil, fmt.Errorf(
+				"invalid contract args type: got %T, expected %T",
+				contractArgs, vhtlchandler.NonInteractiveContractArgs{},
+			)
+		}
+
+		return vhtlc.NewVHTLCScriptFromOpts(vhtlc.Opts{
+			Sender:                               parsed.Sender,
+			Receiver:                             parsed.Receiver,
+			Server:                               parsed.Signer,
+			PreimageHash:                         parsed.PreimageHash,
+			RefundLocktime:                       parsed.RefundLocktime,
+			UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
+			UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
+			UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+			NonInteractiveClaim: &vhtlc.NonInteractiveClaimOpts{
+				ReceiverPkScript: parsed.NonInteractiveReceiver,
+				EmulatorPubKey:   parsed.NonInteractiveEmulator,
+			},
+		})
+	}
+
 	parsed, ok := contractArgs.(vhtlchandler.ContractArgs)
 	if !ok {
 		return nil, fmt.Errorf(

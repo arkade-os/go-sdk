@@ -148,6 +148,14 @@ func (v *contractStore) UpdateContractState(
 	return nil
 }
 
+func (v *contractStore) EnableContracts(ctx context.Context, scripts []string) error {
+	return v.setContractsState(ctx, scripts, types.ContractStateActive)
+}
+
+func (v *contractStore) DisableContracts(ctx context.Context, scripts []string) error {
+	return v.setContractsState(ctx, scripts, types.ContractStateInactive)
+}
+
 func (v *contractStore) Clean(ctx context.Context) error {
 	v.lock.Lock()
 	defer v.lock.Unlock()
@@ -158,6 +166,37 @@ func (v *contractStore) Clean(ctx context.Context) error {
 	// nolint:all
 	v.db.ExecContext(ctx, "VACUUM")
 	return nil
+}
+
+// setContractsState sets the state of the given contracts. When more than one script is given the
+// updates run in a single transaction, so either all of them are applied or none is.
+func (v *contractStore) setContractsState(
+	ctx context.Context, scripts []string, state types.ContractState,
+) error {
+	if len(scripts) == 0 {
+		return nil
+	}
+
+	update := func(querier *queries.Queries) error {
+		for _, script := range scripts {
+			n, err := querier.UpdateContractState(ctx, queries.UpdateContractStateParams{
+				State:  string(state),
+				Script: script,
+			})
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return fmt.Errorf("contract %s not found", script)
+			}
+		}
+		return nil
+	}
+
+	if len(scripts) == 1 {
+		return update(v.querier)
+	}
+	return execTx(ctx, v.db, update)
 }
 
 func toContract(row queries.Contract) types.Contract {

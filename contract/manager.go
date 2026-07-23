@@ -213,6 +213,13 @@ func (m *contractManager) GetContracts(
 	}
 }
 
+func (m *contractManager) DisableContracts(ctx context.Context, scripts []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.store.DisableContracts(ctx, scripts)
+}
+
 func (m *contractManager) GetHandler(
 	_ context.Context, c types.Contract,
 ) (handlers.Handler, error) {
@@ -418,6 +425,7 @@ func (m *contractManager) newVHTLCContract(
 		}
 		keyId = keyRef.Id
 	}
+	fmt.Println("KEY REF FOR NEW CONTRACT", keyId)
 
 	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
 	if err != nil {
