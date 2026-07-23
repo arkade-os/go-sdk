@@ -64,7 +64,7 @@ func (w *wallet) IssueAsset(
 		return res, nil
 	}
 
-	rr, err := w.txHandler.handleTx(issuance)
+	rr, err := w.txHandler.HandleTx(issuance)
 	if err != nil {
 		return "", nil, err
 	}
@@ -130,7 +130,7 @@ func (w *wallet) ReissueAsset(
 		return res, nil
 	}
 
-	rr, err := w.txHandler.handleTx(reissuance)
+	rr, err := w.txHandler.HandleTx(reissuance)
 	if err != nil {
 		return "", err
 	}
@@ -196,7 +196,7 @@ func (w *wallet) BurnAsset(
 		return res, nil
 	}
 
-	rr, err := w.txHandler.handleTx(burn)
+	rr, err := w.txHandler.HandleTx(burn)
 	if err != nil {
 		return "", err
 	}
