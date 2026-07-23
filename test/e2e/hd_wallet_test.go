@@ -196,8 +196,8 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	ctx := t.Context()
 
-	aliceClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
-	bobClientHD := setupClient(t, "", sdk.WithoutAutoSettle())
+	aliceClientHD := setupClient(t, "", sdk.WithRefreshScheduleInterval(time.Hour))
+	bobClientHD := setupClient(t, "", sdk.WithRefreshScheduleInterval(time.Hour))
 
 	offchainAddrs := make([]string, 0, 2)
 	for range 2 {
@@ -241,7 +241,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 	generateBlocks(t, 1)
 	waitForExplorerHistory(t, bobClientHD, boardingAddrs)
 
-	aliceClientHD = setupClient(t, seed, sdk.WithoutAutoSettle())
+	aliceClientHD = setupClient(t, seed, sdk.WithRefreshScheduleInterval(time.Hour))
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {

@@ -141,21 +141,21 @@ func (s *service) ScheduleTaskAtTime(at time.Time, task func()) error {
 	return err
 }
 
-// ScheduleNextSettlement schedules a Settle() to run in the best market hour
-func (s *service) ScheduleNextSettlement(at time.Time, settleFunc func()) error {
+// ScheduleNextRefresh schedules a Settle() to run in the best market hour
+func (s *service) ScheduleNextRefresh(at time.Time, refreshFunc func()) error {
 	if at.IsZero() {
 		return fmt.Errorf("invalid schedule time")
 	}
 
 	delay := time.Until(at)
 
-	s.CancelNextSettlement()
+	s.CancelNextRefresh()
 
 	// If the requested time is already due (the vtxos are at/over their expiry),
 	// settle immediately instead of dropping the request. Run async so callers
 	// holding their own locks (e.g. the vtxo event listener) don't deadlock.
 	if delay <= 0 {
-		go settleFunc()
+		go refreshFunc()
 		return nil
 	}
 
@@ -174,7 +174,7 @@ func (s *service) ScheduleNextSettlement(at time.Time, settleFunc func()) error 
 		s.job = nil
 		s.mu.Unlock()
 
-		settleFunc()
+		refreshFunc()
 	})
 	if err != nil {
 		cancel()
@@ -187,8 +187,8 @@ func (s *service) ScheduleNextSettlement(at time.Time, settleFunc func()) error 
 	return err
 }
 
-// WhenNextSettlement returns the next scheduled settlement time
-func (s *service) WhenNextSettlement() time.Time {
+// WhenNextRefresh returns the next scheduled refresh time
+func (s *service) WhenNextRefresh() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -199,7 +199,7 @@ func (s *service) WhenNextSettlement() time.Time {
 	return s.job.NextRun()
 }
 
-func (s *service) CancelNextSettlement() {
+func (s *service) CancelNextRefresh() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

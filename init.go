@@ -3,9 +3,7 @@ package arksdk
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -196,7 +194,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		err := w.refreshDb(ctx)
 		if err == nil {
 			w.detectAndHandleSignerRotation(ctx)
-			w.scheduleNextSettlement()
+			w.scheduleNextRefresh()
 		}
 		w.syncCh <- err
 		close(w.syncCh)
@@ -205,6 +203,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network) })
 		w.bgWg.Go(func() { w.listenDbEvents(ctx) })
 		w.bgWg.Go(func() { w.periodicRefreshDb(ctx) })
+		w.bgWg.Go(func() { w.periodicScheduleNextRefresh(ctx) })
 	})
 
 	return nil
@@ -260,46 +259,99 @@ func (w *wallet) IsLocked(_ context.Context) bool {
 	return w.client.Identity().IsLocked()
 }
 
-func (w *wallet) scheduleNextSettlement() {
-	// If auto-settle is disabled, nothing to do
+// scheduleNextRefresh recomputes the next auto-refresh from the current vtxo set and
+// (re)schedules it. It runs at unlock, whenever the vtxo set changes, and periodically as a
+// safety net. If the earliest vtxo is already expired, it settles immediately to renew it
+// instead of scheduling a refresh in the past.
+func (w *wallet) scheduleNextRefresh() {
+	// If auto-settle is disabled, nothing to do.
 	if w.scheduler == nil {
 		return
 	}
 
-	nextSettlement := w.scheduler.GetTaskScheduledAt()
+	// Serialize concurrent callers (unlock, the periodic job, the tx listener) so the
+	// read-decide-schedule sequence below is atomic. The rare settle-now branch runs while
+	// holding the lock too, which is fine: settling default vtxos is infrequent.
+	w.scheduleMu.Lock()
+	defer w.scheduleMu.Unlock()
 
-	vtxos, err := w.store.VtxoStore().GetSpendableOrRecoverableVtxos(context.Background())
-	if err != nil {
-		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next settlement")
+	// A batch is in flight: its db writes aren't committed yet, so deciding now would be based
+	// on stale state (eg. a vtxo the settle is about to renew still looks about to expire). The
+	// scheduleNextRefresh call the settle triggers on completion reschedules with fresh state.
+	if w.txHandler != nil && w.txHandler.batchInFlight() {
 		return
 	}
 
-	// Nothing to do
+	// Only settle-eligible vtxos drive the schedule: vtxos the wallet can't settle (eg. vhtlc
+	// contract vtxos) must not be considered, otherwise an expired one Settle can't consume
+	// would wedge the auto-settle loop. Recoverable vtxos are included so already-expired own
+	// vtxos still trigger a renewal.
+	vtxos, err := w.getSpendableVtxos(context.Background(), true)
+	if err != nil {
+		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next refresh")
+		return
+	}
+	// Nothing to settle.
 	if len(vtxos) <= 0 {
 		return
 	}
 
-	sort.SliceStable(vtxos, func(i, j int) bool {
-		return vtxos[i].ExpiresAt.Before(vtxos[j].ExpiresAt)
-	})
-
-	// Reduce the real vtxo expiration date of 10%
-	expiry := time.Until(vtxos[0].ExpiresAt)
-	nextExpiration := time.Now().Add(expiry * 9 / 10)
-	if nextSettlement.IsZero() || nextExpiration.Before(nextSettlement) {
-		task := func() {
-			if _, err := w.Settle(context.Background()); err != nil {
-				if errors.Is(err, ErrNoFundsToSettle) {
-					log.Debugf("no vtxos to auto-settle, skipping")
-					return
-				}
-				log.WithError(err).Error("failed to auto-settle vtxos close to expiration")
-			}
-		}
-		if err := w.scheduler.ScheduleTask(task, nextExpiration); err != nil {
-			log.WithError(err).Warn("failed to schedule next settlement")
+	refreshVtxos := func() {
+		txid, err := w.Settle(context.Background())
+		if err != nil {
+			log.WithError(err).Error("failed to renew vtxos")
 			return
 		}
-		log.Debugf("scheduled next settlement at %s", nextExpiration.Format(time.RFC3339))
+		log.Debugf("refreshed vtxos in batch %s", txid)
+	}
+
+	// Find the earliest expiration across the current vtxo set.
+	earliest := vtxos[0].ExpiresAt
+	for _, vtxo := range vtxos[1:] {
+		if vtxo.ExpiresAt.Before(earliest) {
+			earliest = vtxo.ExpiresAt
+		}
+	}
+
+	// The earliest vtxo is already expired: settle now to renew it rather than scheduling a
+	// refresh in the past.
+	if !earliest.After(time.Now()) {
+		refreshVtxos()
+		return
+	}
+
+	// Schedule the refresh slightly before the earliest expiration (proportional lead), but
+	// only if it's sooner than the one already scheduled.
+	expiry := time.Until(earliest)
+	nextExpiration := time.Now().Add(expiry * 9 / 10)
+	nextRefresh := w.scheduler.GetTaskScheduledAt()
+	if !nextRefresh.IsZero() && !nextExpiration.Before(nextRefresh) {
+		return
+	}
+
+	if err := w.scheduler.ScheduleTask(refreshVtxos, nextExpiration); err != nil {
+		log.WithError(err).Warn("failed to schedule next refresh")
+		return
+	}
+	log.Debugf("scheduled next refresh at %s", nextExpiration.Format(time.RFC3339))
+}
+
+// periodicScheduleNextRefresh recomputes the next refresh from the full vtxo set at a
+// fixed interval, as a safety net: it recovers the auto-settle loop if a vtxo event was missed
+// or a previous refresh couldn't be scheduled (eg. an already-expired vtxo appeared while no
+// event was fired).
+func (w *wallet) periodicScheduleNextRefresh(ctx context.Context) {
+	if w.scheduler == nil || w.refreshVtxosScheduleInterval == 0 {
+		return
+	}
+	ticker := time.NewTicker(w.refreshVtxosScheduleInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			w.scheduleNextRefresh()
+		}
 	}
 }

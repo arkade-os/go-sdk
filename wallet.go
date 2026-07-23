@@ -62,18 +62,22 @@ type wallet struct {
 	bgWg          sync.WaitGroup
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
+	// scheduleMu serializes scheduleNextRefresh so its read-decide-schedule sequence is atomic
+	// across its concurrent callers (unlock, the periodic job, the tx listener).
+	scheduleMu *sync.Mutex
 
 	// stopCtx is the background context used by the auto-settle scheduler
 	// and other long-lived goroutines started in Unlock. It is cancelled
 	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
 	stopCtx context.Context
 
-	verbose           bool
-	refreshDbInterval time.Duration
-	lastUpdate        time.Time
-	hdGapLimit        uint32
-	network           arklib.Network
-	dustAmount        uint64
+	verbose                      bool
+	refreshDbInterval            time.Duration
+	refreshVtxosScheduleInterval time.Duration
+	lastUpdate                   time.Time
+	hdGapLimit                   uint32
+	network                      arklib.Network
+	dustAmount                   uint64
 
 	// latestSignerSet is the latest set of signer key + deprecated signers handled by the wallet.
 	// Used to determine if a migration of dunds is requird or not.
@@ -123,9 +127,6 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	if o.scheduler == nil {
 		o.scheduler = cronscheduler.NewScheduler()
 	}
-	if o.disableAutoSettle {
-		o.scheduler = nil
-	}
 
 	// Disable underlying finalization of pending txs as we are handling that ourselves
 	clientOpts := []clientwallet.ServiceOption{
@@ -150,19 +151,21 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:            cli,
-		verbose:           o.verbose,
-		store:             db,
-		clientStore:       clientDb,
-		syncMu:            &sync.Mutex{},
-		syncListeners:     newReadyListeners(),
-		syncCh:            make(chan error),
-		dbMu:              &sync.Mutex{},
-		logMu:             &sync.Mutex{},
-		refreshDbInterval: o.refreshDbInterval,
-		hdGapLimit:        o.hdGapLimit,
-		scheduler:         o.scheduler,
-		customHandlers:    o.customHandlers,
+		client:                       cli,
+		verbose:                      o.verbose,
+		store:                        db,
+		clientStore:                  clientDb,
+		syncMu:                       &sync.Mutex{},
+		syncListeners:                newReadyListeners(),
+		syncCh:                       make(chan error),
+		dbMu:                         &sync.Mutex{},
+		scheduleMu:                   &sync.Mutex{},
+		logMu:                        &sync.Mutex{},
+		refreshDbInterval:            o.refreshDbInterval,
+		refreshVtxosScheduleInterval: o.refreshScheduleInterval,
+		hdGapLimit:                   o.hdGapLimit,
+		scheduler:                    o.scheduler,
+		customHandlers:               o.customHandlers,
 	}, nil
 }
 
@@ -197,9 +200,6 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 
 	if o.scheduler == nil {
 		o.scheduler = cronscheduler.NewScheduler()
-	}
-	if o.disableAutoSettle {
-		o.scheduler = nil
 	}
 
 	// Disable underlying finalization of pending txs as we are handling that ourselves
@@ -263,20 +263,22 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:            cli,
-		verbose:           o.verbose,
-		store:             db,
-		clientStore:       clientDb,
-		syncMu:            &sync.Mutex{},
-		syncListeners:     newReadyListeners(),
-		syncCh:            make(chan error),
-		dbMu:              &sync.Mutex{},
-		logMu:             &sync.Mutex{},
-		refreshDbInterval: o.refreshDbInterval,
-		hdGapLimit:        o.hdGapLimit,
-		scheduler:         o.scheduler,
-		network:           cfgData.Network,
-		customHandlers:    o.customHandlers,
+		client:                       cli,
+		verbose:                      o.verbose,
+		store:                        db,
+		clientStore:                  clientDb,
+		syncMu:                       &sync.Mutex{},
+		syncListeners:                newReadyListeners(),
+		syncCh:                       make(chan error),
+		dbMu:                         &sync.Mutex{},
+		scheduleMu:                   &sync.Mutex{},
+		logMu:                        &sync.Mutex{},
+		refreshDbInterval:            o.refreshDbInterval,
+		refreshVtxosScheduleInterval: o.refreshScheduleInterval,
+		hdGapLimit:                   o.hdGapLimit,
+		scheduler:                    o.scheduler,
+		network:                      cfgData.Network,
+		customHandlers:               o.customHandlers,
 	}, nil
 }
 
@@ -484,10 +486,9 @@ func (w *wallet) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
 	return nil
 }
 
-// WhenNextSettlement returns the time at which the next automatic settlement
-// is scheduled to fire. It returns the zero time when auto-settle is disabled
-// or no settlement is currently scheduled.
-func (w *wallet) WhenNextSettlement() time.Time {
+// WhenNextRefresh returns the time at which the next automatic refresh is scheduled to fire.
+// It returns the zero time when auto-settle is disabled or no refresh is currently scheduled.
+func (w *wallet) WhenNextRefresh() time.Time {
 	if w.scheduler == nil {
 		return time.Time{}
 	}
@@ -542,6 +543,11 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 	for _, contract := range allContracts {
 		if contract.Type == types.ContractTypeBoarding {
 			boardingContracts = append(boardingContracts, contract)
+			continue
+		}
+		// TODO: fix me once contract watcher is implemented. For now we exclude tracking vhtlcs
+		// intentionally as the only logic capable of handling them is in the vhtlc apis.
+		if contract.Type != types.ContractTypeDefault {
 			continue
 		}
 		offchainContracts = append(offchainContracts, contract)
@@ -966,8 +972,13 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 				continue
 			}
 
+			// TODO: track all type of contracts. Now we intentionally track only default and
+			// exclude vhtlcs. Fix me once contract watcher is implemented
 			myScripts := make(map[string]struct{})
 			for _, contract := range contracts {
+				if contract.Type != types.ContractTypeDefault {
+					continue
+				}
 				myScripts[contract.Script] = struct{}{}
 			}
 
@@ -979,7 +990,7 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
-				w.scheduleNextSettlement()
+				w.scheduleNextRefresh()
 			}
 
 			if event.ArkTx != nil {
@@ -990,7 +1001,7 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
-				w.scheduleNextSettlement()
+				w.scheduleNextRefresh()
 			}
 
 			if event.SweepTx != nil {
@@ -1352,7 +1363,8 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			log.Debugf("refreshing db (last update %s)...", w.lastUpdate.Format(time.RFC3339))
+			nextRefresh := time.Now().Add(w.refreshDbInterval)
+			log.Debugf("refreshing db (next update at %s)...", nextRefresh.Format(time.RFC3339))
 			if err := w.refreshDb(ctx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
 				continue
@@ -1740,7 +1752,7 @@ func (w *wallet) vtxosToTxs(
 			continue
 		}
 
-		settleVtxos := findVtxosSpentInSettlement(vtxosLeftToCheck, vtxo)
+		settleVtxos := findVtxosSpentInBatch(vtxosLeftToCheck, vtxo)
 		settleAmount := reduceVtxosAmount(settleVtxos)
 		if vtxo.Amount <= settleAmount {
 			continue // settlement, ignore

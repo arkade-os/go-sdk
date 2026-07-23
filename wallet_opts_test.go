@@ -139,22 +139,6 @@ func TestWalletOptions(t *testing.T) {
 				wantErrContains: "scheduler already set",
 			},
 			{
-				name: "WithScheduler then WithoutAutoSettle",
-				opts: []arksdk.WalletOption{
-					arksdk.WithScheduler(&testScheduler{}),
-					arksdk.WithoutAutoSettle(),
-				},
-				wantErrContains: "cannot disable auto-settle when scheduler is set",
-			},
-			{
-				name: "WithoutAutoSettle then WithScheduler",
-				opts: []arksdk.WalletOption{
-					arksdk.WithoutAutoSettle(),
-					arksdk.WithScheduler(&testScheduler{}),
-				},
-				wantErrContains: "cannot set scheduler when auto-settle is disabled",
-			},
-			{
 				name: "WithContractHandler empty type",
 				opts: []arksdk.WalletOption{
 					arksdk.WithContractHandler("", &mockHandler{typ: "x"}),

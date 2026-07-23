@@ -425,7 +425,6 @@ func (m *contractManager) newVHTLCContract(
 		}
 		keyId = keyRef.Id
 	}
-	fmt.Println("KEY REF FOR NEW CONTRACT", keyId)
 
 	nextKeyId, err := m.keyProvider.NextKeyId(ctx, keyId)
 	if err != nil {

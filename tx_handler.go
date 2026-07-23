@@ -57,6 +57,15 @@ func (h *txHandler) stop() {
 	}
 }
 
+// batchInFlight reports whether a batch tx (settle or collab-exit) is currently active or
+// pending. Used by the vtxos refresh scheduler to avoid deciding on a vtxo set an in-flight settle
+// is about to change but hasn't committed yet.
+func (h *txHandler) batchInFlight() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lead != nil
+}
+
 // dispatch hands the free slot to the next operation: a pending batch tx takes
 // precedence, otherwise the oldest waiting spend tx runs. Caller must hold h.mu.
 func (h *txHandler) dispatch() {

@@ -114,8 +114,7 @@ type Wallet interface {
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
-	// WhenNextSettlement returns the time at which the next automatic settlement
-	// is scheduled to fire. Returns the zero time.Time when auto-settle is
-	// disabled or no settlement is currently scheduled.
-	WhenNextSettlement() time.Time
+	// WhenNextRefresh returns the time at which the next automatic refresh of vtxos is scheduled
+	// to fire.
+	WhenNextRefresh() time.Time
 }

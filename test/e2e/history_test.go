@@ -15,7 +15,8 @@ func TestTransactionHistory(t *testing.T) {
 	// Make use of a long db refresh interval to avoid that background operation to mess up
 	// with this test
 	opts := []arksdk.WalletOption{
-		arksdk.WithoutAutoSettle(), arksdk.WithRefreshDbInterval(5 * time.Minute),
+		arksdk.WithRefreshScheduleInterval(time.Hour),
+		arksdk.WithRefreshDbInterval(5 * time.Minute),
 	}
 	alice := setupClient(t, "", opts...)
 

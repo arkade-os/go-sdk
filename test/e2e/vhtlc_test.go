@@ -362,8 +362,9 @@ func TestClaimVHTLC(t *testing.T) {
 		// Verify balance is preserved (funds returned)
 		balanceAfter, err := alice.Balance(ctx)
 		require.NoError(t, err)
-		require.Equal(t, balanceBefore.OffchainBalance.Total, balanceAfter.OffchainBalance.Total,
-			"offchain balance should be preserved after claim settlement")
+		require.Equal(
+			t, int(balanceBefore.OffchainBalance.Total), int(balanceAfter.OffchainBalance.Total),
+		)
 	})
 }
 

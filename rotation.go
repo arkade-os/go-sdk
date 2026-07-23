@@ -146,7 +146,7 @@ func (w *wallet) migrateAllFunds(ctx context.Context, serverParams *client.Info)
 // After a successful chunk migraation, all "old" contracts are marked inactive. Failed chunks stay
 // active for retry.
 // Recoverable, subdust, and cutoff-expired funds are excluded and expected to be handled by the
-// next settlement if auto-settle is active or by a manual Settle/CollaborativeExit.
+// next refresh if auto-refresh is active or by a manual Settle/CollaborativeExit.
 func (w *wallet) migrateAllFundsInChunks(ctx context.Context, serverParams *client.Info) error {
 	currentHex, deprecated := deprecatedSignerSet(serverParams)
 

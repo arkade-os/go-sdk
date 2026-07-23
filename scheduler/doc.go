@@ -47,7 +47,7 @@
 //
 // # Auto-settle (Wallet consumer)
 //
-// See arksdk's init.go: scheduleNextSettlement. The Wallet injects a
+// See arksdk's init.go: scheduleNextRefresh. The Wallet injects a
 // scheduler at NewWallet time (defaulting to NewScheduler from
 // scheduler/gocron), starts it on unlock, schedules a Settle task at
 // ~90% of the earliest vtxo's remaining lifetime, and re-schedules

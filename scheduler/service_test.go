@@ -18,7 +18,7 @@ var schedulerTypes = map[string]func() scheduler.SchedulerService{
 func TestScheduleTask(t *testing.T) {
 	for schedulerType, newScheduler := range schedulerTypes {
 		t.Run(schedulerType, func(t *testing.T) {
-			t.Run("schedule next settlement", func(t *testing.T) {
+			t.Run("schedule next refresh", func(t *testing.T) {
 				svc := newScheduler()
 				svc.Start()
 				defer svc.Stop()
@@ -37,11 +37,11 @@ func TestScheduleTask(t *testing.T) {
 				err := svc.ScheduleTask(task, nextTime)
 				require.NoError(t, err)
 
-				// Verify next settlement time
-				nextSettlement := svc.GetTaskScheduledAt()
-				require.False(t, nextSettlement.IsZero())
-				require.True(t, nextSettlement.After(now))
-				require.True(t, nextSettlement.Before(
+				// Verify next refresh time
+				nextRefresh := svc.GetTaskScheduledAt()
+				require.False(t, nextRefresh.IsZero())
+				require.True(t, nextRefresh.After(now))
+				require.True(t, nextRefresh.Before(
 					now.Add(5*time.Second).Add(1*time.Millisecond),
 				))
 
@@ -63,7 +63,7 @@ func TestScheduleTask(t *testing.T) {
 
 			})
 
-			t.Run("schedule settlement in the past", func(t *testing.T) {
+			t.Run("schedule refresh in the past", func(t *testing.T) {
 				svc := newScheduler()
 				svc.Start()
 				defer svc.Stop()
@@ -80,7 +80,7 @@ func TestScheduleTask(t *testing.T) {
 				require.False(t, executed)
 			})
 
-			t.Run("schedule settlement for now", func(t *testing.T) {
+			t.Run("schedule refresh for now", func(t *testing.T) {
 				svc := newScheduler()
 				svc.Start()
 				defer svc.Stop()
@@ -125,17 +125,17 @@ func TestCancelScheduledTask(t *testing.T) {
 			err := svc.ScheduleTask(task, nextTime)
 			require.NoError(t, err)
 
-			// Verify next settlement time
-			nextSettlement := svc.GetTaskScheduledAt()
-			require.False(t, nextSettlement.IsZero())
-			require.True(t, nextSettlement.After(now))
-			require.True(t, nextSettlement.Before(now.Add(5*time.Second).Add(1*time.Millisecond)))
+			// Verify next refresh time
+			nextRefresh := svc.GetTaskScheduledAt()
+			require.False(t, nextRefresh.IsZero())
+			require.True(t, nextRefresh.After(now))
+			require.True(t, nextRefresh.Before(now.Add(5*time.Second).Add(1*time.Millisecond)))
 
 			time.Sleep(time.Second)
 
 			svc.CancelScheduledTask()
-			nextSettlement = svc.GetTaskScheduledAt()
-			require.True(t, nextSettlement.IsZero())
+			nextRefresh = svc.GetTaskScheduledAt()
+			require.True(t, nextRefresh.IsZero())
 
 			// Wait for the job to execute
 			select {

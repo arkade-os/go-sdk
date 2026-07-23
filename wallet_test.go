@@ -89,13 +89,13 @@ func TestLoadWallet(t *testing.T) {
 			datadir := t.TempDir()
 			seedIdentity(t, datadir)
 
-			nextSettlement := time.Now().Add(time.Hour)
+			nextRefresh := time.Now().Add(time.Hour)
 			c, err := arksdk.LoadWallet(datadir, arksdk.WithScheduler(&testScheduler{
-				scheduledAt: nextSettlement,
+				scheduledAt: nextRefresh,
 			}))
 			require.NoError(t, err)
 
-			require.Equal(t, nextSettlement, c.WhenNextSettlement())
+			require.Equal(t, nextRefresh, c.WhenNextRefresh())
 		})
 	})
 
@@ -140,22 +140,15 @@ func TestLoadWallet(t *testing.T) {
 	})
 }
 
-func TestWhenNextSettlement(t *testing.T) {
+func TestWhenNextRefresh(t *testing.T) {
 	t.Run("returns injected scheduler time", func(t *testing.T) {
-		nextSettlement := time.Now().Add(time.Hour)
+		nextRefresh := time.Now().Add(time.Hour)
 		c, err := arksdk.NewWallet(t.TempDir(), arksdk.WithScheduler(&testScheduler{
-			scheduledAt: nextSettlement,
+			scheduledAt: nextRefresh,
 		}))
 		require.NoError(t, err)
 
-		require.Equal(t, nextSettlement, c.WhenNextSettlement())
-	})
-
-	t.Run("returns zero when auto settle is disabled", func(t *testing.T) {
-		c, err := arksdk.NewWallet(t.TempDir(), arksdk.WithoutAutoSettle())
-		require.NoError(t, err)
-
-		require.True(t, c.WhenNextSettlement().IsZero())
+		require.Equal(t, nextRefresh, c.WhenNextRefresh())
 	})
 }
 

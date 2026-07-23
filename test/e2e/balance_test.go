@@ -13,7 +13,7 @@ import (
 func TestBalance(t *testing.T) {
 	t.Run("onchain (confirmed only)", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 
 		// Before any funding, all balances should be zero.
 		balance, err := alice.Balance(ctx)
@@ -90,8 +90,8 @@ func TestBalance(t *testing.T) {
 
 	t.Run("preconfirmed", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
-		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 		faucetOffchain(t, alice, 0.0005)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
@@ -146,8 +146,8 @@ func TestBalance(t *testing.T) {
 		"settled and preconfirmed",
 		func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupClient(t, "", arksdk.WithoutAutoSettle())
-			bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+			alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+			bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 			faucetOffchain(t, bob, 0.0005)
 			faucetOffchain(t, alice, 0.0005)
 
@@ -199,8 +199,8 @@ func TestBalance(t *testing.T) {
 
 	t.Run("recoverable (subdust)", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
-		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 		faucetOffchain(t, alice, 0.0005)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
@@ -247,8 +247,8 @@ func TestBalance(t *testing.T) {
 
 	t.Run("onchain", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
-		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 
 		faucetOffchain(t, alice, 0.0005)
 
@@ -302,7 +302,7 @@ func TestBalance(t *testing.T) {
 	t.Run("recoverable (swept)", func(t *testing.T) {
 		ctx := t.Context()
 
-		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 		faucetOffchain(t, alice, 0.0005)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)

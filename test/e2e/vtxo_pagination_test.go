@@ -380,7 +380,7 @@ func TestListVtxoPagination(t *testing.T) {
 
 // setupVtxoPaginationFixture builds Alice's pagination dataset:
 //   - 2 VTXOs are received first, then settled, leaving them spent.
-//   - the settlement creates 1 spendable VTXO.
+//   - the refresh creates 1 spendable VTXO.
 //   - 2 spendable VTXOs with assets are received next.
 //   - 7 more spendable VTXOs are received last.
 //
@@ -391,8 +391,8 @@ func setupVtxoPaginationFixture(t *testing.T) vtxoPaginationFixture {
 	t.Helper()
 
 	ctx := t.Context()
-	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
-	bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+	alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+	bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
 
 	faucetOffchain(t, bob, 0.02)
 
