@@ -36,6 +36,7 @@ const (
 	SwapStatusFailed
 
 	SwapTypeSubmarine = "submarine"
+	SwapTypeReverse   = "reverse"
 	SwapTypeChain     = "chain"
 
 	boltzReconnectBackoff = time.Second

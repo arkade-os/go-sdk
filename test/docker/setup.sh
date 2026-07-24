@@ -424,7 +424,26 @@ else
     echo "  ✅ paid invoices boltz-cln <-> cln"
 fi
 
-run_quiet docker restart boltz
+# Provision the Ark wallet (fulmine) BEFORE restarting boltz. Boltz's Rust sidecar (boltzr)
+# attaches the ARK wallet only if it can connect to fulmine once, at startup; that connection has
+# no retry. If fulmine has no wallet yet when boltzr boots, the ARK currency is left wallet-less
+# and /v2/swap/restore fails forever with "no wallet for ARK". So create+unlock fulmine first,
+# then restart boltz so boltzr re-runs that one-shot connection against a now-ready fulmine.
 provision_boltz_fulmine
+run_quiet docker restart boltz
+
+echo "waiting for Boltz to be ready after restart..."
+boltz_ready=0
+for i in {1..30}; do
+    if curl -sf http://127.0.0.1:9001/v2/swap/submarine >/dev/null 2>&1; then
+        boltz_ready=1
+        echo "  ✅ Boltz ready"
+        break
+    fi
+    sleep 2
+done
+if [ $boltz_ready -ne 1 ]; then
+    exit "  ❌ Boltz did not become ready after restart"
+fi
 
 echo "✅ setup complete"

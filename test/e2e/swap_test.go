@@ -254,7 +254,7 @@ func TestConcurrentSwaps(t *testing.T) {
 //  7. Call manager.RefundSubmarineSwap: Boltz co-signs the refund
 func TestRefundSubmarineSwap(t *testing.T) {
 	settleBoltzFulmine(t)
-	alice, datadir := setupSwapWallet(t)
+	alice, datadir := setupSwapWallet(t, "")
 	faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 	balanceBefore, err := alice.Balance(t.Context())
@@ -303,7 +303,7 @@ func TestRecoverPendingSwaps(t *testing.T) {
 	// the recovery, without any manual intervention.
 	t.Run("refunds a failed submarine swap on startup", func(t *testing.T) {
 		settleBoltzFulmine(t)
-		alice, datadir := setupSwapWallet(t)
+		alice, datadir := setupSwapWallet(t, "")
 		faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 		balanceBefore, err := alice.Balance(t.Context())
@@ -396,7 +396,7 @@ func TestRecoverPendingSwaps(t *testing.T) {
 	// manager flow funds and claims in one sub-second pass, leaving no interruptible window.
 	t.Run("claims a chain swap left pending on shutdown", func(t *testing.T) {
 		settleBoltzFulmine(t)
-		alice, datadir := setupSwapWallet(t)
+		alice, datadir := setupSwapWallet(t, "")
 		faucetOffchain(t, alice, 0.001) // 100,000 sats
 
 		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
@@ -427,6 +427,146 @@ func TestRecoverPendingSwaps(t *testing.T) {
 		receivedBtc, err := strconv.ParseFloat(strings.TrimSpace(received), 64)
 		require.NoError(t, err)
 		require.Greater(t, receivedBtc, 0.0, "BTC should have landed at the destination address")
+	})
+}
+
+// TestRestoreSwaps exercises the restore a SwapManager runs on startup when its store is empty,
+// ie. after a wallet restore: it reconstructs the swaps known to Boltz from our xpub, persists
+// them, and lets the recovery finish them.
+func TestRestoreSwaps(t *testing.T) {
+	// A submarine swap we funded that failed must be refunded after restoring the wallet from
+	// its seed into a fresh datadir, with no local swap or contract data left.
+	t.Run("refunds a failed submarine swap after a wallet restore", func(t *testing.T) {
+		settleBoltzFulmine(t)
+		original, datadir := setupSwapWallet(t, "")
+		faucetOffchain(t, original, 0.001) // 100,000 sats
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+		t.Cleanup(cancel)
+
+		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
+		sw := createBoltzSubmarineSwap(t, ctx, original, datadir, boltzSvc)
+
+		// Fail the swap on Boltz's side.
+		underfundAndWaitLockupFailed(t, ctx, original, sw)
+
+		// Restore the wallet from the same seed into a fresh datadir: its swap and contract
+		// stores are empty, as on a new device. The original swap key is m/0/0, which the
+		// restored wallet re-derives from the same seed.
+		seed, err := original.Dump(ctx)
+		require.NoError(t, err)
+		restored, _ := setupSwapWallet(t, seed)
+
+		// Creating the manager triggers the restore (empty store), which fetches the swap from
+		// Boltz by our xpub, rebuilds and imports the vhtlc contract, persists the swap, and
+		// then recovery refunds it.
+		manager := setupSwapManager(t, restored)
+
+		var refunded *swaptypes.Swap
+		require.Eventually(t, func() bool {
+			s, err := manager.GetSwap(ctx, sw.id)
+			if err != nil || s.Status != int(swap.SwapStatusFailed) || s.RedeemTxid == "" {
+				return false
+			}
+			refunded = s
+			return true
+		}, 90*time.Second, 2*time.Second, "restore + recovery should refund the failed swap")
+
+		time.Sleep(2 * time.Second)
+
+		requireVHTLCSpentBy(t, restored, sw.vhtlcScript, refunded.RedeemTxid)
+	})
+
+	// A reverse swap whose vhtlc Boltz funded but that was never claimed must be claimed after a
+	// wallet restore. Unlike the on-startup recovery, the restored store has no preimage: recovery
+	// must re-derive it deterministically from the restored receiver key, so this also exercises
+	// that the deterministic preimage survives a wallet restore.
+	t.Run("claims a funded reverse swap after a wallet restore", func(t *testing.T) {
+		settleBoltzFulmine(t)
+		original, _ := setupSwapWallet(t, "")
+		faucetOffchain(t, original, 0.001) // fee overhead for the claim
+
+		balanceBefore, err := original.Balance(t.Context())
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+		t.Cleanup(cancel)
+
+		// The first manager creates the reverse swap and is closed before the vhtlc is funded, as
+		// a crash mid-flight would leave it: unclaimed and with only Boltz aware of it.
+		manager1 := setupSwapManager(t, original)
+		reverseSwap, err := manager1.ReverseSwap(ctx, 4000)
+		require.NoError(t, err)
+		require.NotEmpty(t, reverseSwap.Id)
+		require.NotNil(t, reverseSwap.LNSwap)
+		require.NotEmpty(t, reverseSwap.LNSwap.Invoice)
+		require.NoError(t, manager1.Close())
+
+		// Pay the invoice: Boltz funds the vhtlc, but no manager is watching to claim it.
+		go func() { _ = lndPayInvoice(reverseSwap.LNSwap.Invoice) }()
+
+		pkScript, err := hex.DecodeString(reverseSwap.VHTLCScript)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			vtxos, err := getVHTLCFunds(t, original, pkScript)
+			return err == nil && len(vtxos) > 0
+		}, 60*time.Second, time.Second, "boltz should fund the reverse swap vhtlc")
+
+		// Restore the wallet from the same seed into a fresh datadir: empty swap and contract
+		// stores. The restore reconstructs the reverse swap from our xpub, and recovery claims the
+		// funded vhtlc, re-deriving the preimage from the restored receiver key.
+		seed, err := original.Dump(ctx)
+		require.NoError(t, err)
+		restored, _ := setupSwapWallet(t, seed)
+
+		manager2 := setupSwapManager(t, restored)
+		persisted := awaitPersistedSwap(t, manager2, reverseSwap.Id, swap.SwapStatusSuccess)
+		require.NotEmpty(t, persisted.RedeemTxid)
+
+		requireVHTLCSpentBy(t, restored, reverseSwap.VHTLCScript, persisted.RedeemTxid)
+
+		balanceAfter, err := restored.Balance(t.Context())
+		require.NoError(t, err)
+		require.Greater(t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
+			"the restored wallet should have received the reverse-swapped funds via recovery")
+	})
+
+	// A chain swap we funded that failed must be refunded after a wallet restore. Chain-swap
+	// restore is refund-only: the BTC-side claim key and destination address are ephemeral and
+	// lost on restore, so a failed (underfunded) Arkade lockup is the scenario recovery resolves.
+	t.Run("refunds a failed chain swap after a wallet restore", func(t *testing.T) {
+		settleBoltzFulmine(t)
+		original, _ := setupSwapWallet(t, "")
+		faucetOffchain(t, original, 0.001) // 100,000 sats
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+		t.Cleanup(cancel)
+
+		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
+		swapId := createFailedBoltzChainSwap(t, ctx, original, boltzSvc, 50000)
+
+		// Restore the wallet from the same seed into a fresh datadir: empty swap and contract
+		// stores. Restore reconstructs the chain swap (refund side only) from our xpub and
+		// recovery refunds the vhtlc we funded.
+		seed, err := original.Dump(ctx)
+		require.NoError(t, err)
+		restored, _ := setupSwapWallet(t, seed)
+
+		manager := setupSwapManager(t, restored)
+
+		var refunded *swaptypes.Swap
+		require.Eventually(t, func() bool {
+			s, err := manager.GetSwap(ctx, swapId)
+			if err != nil || s.Status != int(swap.SwapStatusFailed) || s.RedeemTxid == "" {
+				return false
+			}
+			refunded = s
+			return true
+		}, 90*time.Second, 2*time.Second, "restore + recovery should refund the failed chain swap")
+
+		time.Sleep(2 * time.Second)
+
+		requireVHTLCSpentBy(t, restored, refunded.VHTLCScript, refunded.RedeemTxid)
 	})
 }
 
@@ -527,6 +667,50 @@ func createBoltzChainSwap(
 	}
 }
 
+// createFailedBoltzChainSwap creates an Arkade -> BTC chain swap directly against the Boltz API
+// and funds its Arkade vhtlc with less than the expected amount, so Boltz fails the lockup. It
+// seeds no local swap record and imports no contract: the caller restores from the wallet seed
+// and lets the restore reconstruct the swap and its vhtlc. Returns the swap id.
+func createFailedBoltzChainSwap(
+	t *testing.T, ctx context.Context, alice sdk.Wallet, boltzSvc *boltz.Api, amount uint64,
+) string {
+	t.Helper()
+
+	// Our wallet key plays the refund (sender) role in the Arkade vhtlc; the claim key is the
+	// ephemeral key that would have claimed the BTC side.
+	keyId, err := alice.Identity().NextKeyId(ctx, "")
+	require.NoError(t, err)
+	keyRef, err := alice.Identity().GetKey(ctx, keyId)
+	require.NoError(t, err)
+
+	claimKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	preimage, _ := newPreimage(t)
+	shaHash, _ := preimage.Hash()
+
+	createResp, err := boltzSvc.CreateChainSwap(boltz.CreateChainSwapRequest{
+		From:            boltz.CurrencyArk,
+		To:              boltz.CurrencyBtc,
+		PreimageHash:    hex.EncodeToString(shaHash),
+		ClaimPublicKey:  hex.EncodeToString(claimKey.PubKey().SerializeCompressed()),
+		RefundPublicKey: hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
+		UserLockAmount:  amount,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, createResp.Id)
+
+	// Underfund the Arkade lockup: Boltz observes the amount mismatch and fails the swap, leaving
+	// the vhtlc we partially funded to be refunded.
+	_, err = alice.SendOffChain(ctx, []clientTypes.Receiver{
+		{To: createResp.LockupDetails.LockupAddress, Amount: amount - 100},
+	})
+	require.NoError(t, err)
+	time.Sleep(5 * time.Second)
+
+	return createResp.Id
+}
+
 // TestChainSwapArkToBtc exercises the Ark-to-BTC chain swap flow using real Boltz:
 // the manager funds a VHTLC, Boltz locks up BTC on-chain and the manager claims it to the
 // destination address. The completion is observed through the persisted swap.
@@ -570,14 +754,17 @@ type swapResult struct {
 
 // setupSwapWallet is like setupClient but returns also the wallet datadir, needed to open the
 // swap store the SwapManager persists to.
-func setupSwapWallet(t *testing.T) (sdk.Wallet, string) {
+// setupSwapWallet initializes a wallet against the test server. An empty seed generates a new
+// one; passing an existing seed restores that wallet into a fresh datadir (empty swap and
+// contract stores), as on a new device.
+func setupSwapWallet(t *testing.T, seed string) (sdk.Wallet, string) {
 	t.Helper()
 
 	datadir := t.TempDir()
 	arkClient, err := sdk.NewWallet(datadir)
 	require.NoError(t, err)
 
-	err = arkClient.Init(t.Context(), serverUrl, "", password)
+	err = arkClient.Init(t.Context(), serverUrl, seed, password)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
