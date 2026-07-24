@@ -141,21 +141,21 @@ func (s *service) ScheduleTaskAtTime(at time.Time, task func()) error {
 	return err
 }
 
-// ScheduleNextRefresh schedules a Settle() to run in the best market hour
-func (s *service) ScheduleNextRefresh(at time.Time, refreshFunc func()) error {
+// ScheduleNextRenewal schedules a Settle() to run in the best market hour
+func (s *service) ScheduleNextRenewal(at time.Time, renewFunc func()) error {
 	if at.IsZero() {
 		return fmt.Errorf("invalid schedule time")
 	}
 
 	delay := time.Until(at)
 
-	s.CancelNextRefresh()
+	s.CancelNextRenewal()
 
-	// If the requested time is already due (the vtxos are at/over their expiry),
-	// settle immediately instead of dropping the request. Run async so callers
-	// holding their own locks (e.g. the vtxo event listener) don't deadlock.
+	// If the requested time is already due (the vtxos are at/over their expiry), renew immediately
+	// instead of dropping the request. Run async so callers holding their own locks
+	// (e.g. the vtxo event listener) don't deadlock.
 	if delay <= 0 {
-		go refreshFunc()
+		go renewFunc()
 		return nil
 	}
 
@@ -174,7 +174,7 @@ func (s *service) ScheduleNextRefresh(at time.Time, refreshFunc func()) error {
 		s.job = nil
 		s.mu.Unlock()
 
-		refreshFunc()
+		renewFunc()
 	})
 	if err != nil {
 		cancel()
@@ -187,8 +187,8 @@ func (s *service) ScheduleNextRefresh(at time.Time, refreshFunc func()) error {
 	return err
 }
 
-// WhenNextRefresh returns the next scheduled refresh time
-func (s *service) WhenNextRefresh() time.Time {
+// WhenNextRenewal returns the next scheduled renewal time
+func (s *service) WhenNextRenewal() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -199,7 +199,7 @@ func (s *service) WhenNextRefresh() time.Time {
 	return s.job.NextRun()
 }
 
-func (s *service) CancelNextRefresh() {
+func (s *service) CancelNextRenewal() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

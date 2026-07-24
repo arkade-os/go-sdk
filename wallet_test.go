@@ -89,13 +89,13 @@ func TestLoadWallet(t *testing.T) {
 			datadir := t.TempDir()
 			seedIdentity(t, datadir)
 
-			nextRefresh := time.Now().Add(time.Hour)
+			nextRenewal := time.Now().Add(time.Hour)
 			c, err := arksdk.LoadWallet(datadir, arksdk.WithScheduler(&testScheduler{
-				scheduledAt: nextRefresh,
+				scheduledAt: nextRenewal,
 			}))
 			require.NoError(t, err)
 
-			require.Equal(t, nextRefresh, c.WhenNextRefresh())
+			require.Equal(t, nextRenewal, c.WhenNextRenewal())
 		})
 	})
 
@@ -140,15 +140,15 @@ func TestLoadWallet(t *testing.T) {
 	})
 }
 
-func TestWhenNextRefresh(t *testing.T) {
+func TestWhenNextRenewal(t *testing.T) {
 	t.Run("returns injected scheduler time", func(t *testing.T) {
-		nextRefresh := time.Now().Add(time.Hour)
+		nextRenewal := time.Now().Add(time.Hour)
 		c, err := arksdk.NewWallet(t.TempDir(), arksdk.WithScheduler(&testScheduler{
-			scheduledAt: nextRefresh,
+			scheduledAt: nextRenewal,
 		}))
 		require.NoError(t, err)
 
-		require.Equal(t, nextRefresh, c.WhenNextRefresh())
+		require.Equal(t, nextRenewal, c.WhenNextRenewal())
 	})
 }
 

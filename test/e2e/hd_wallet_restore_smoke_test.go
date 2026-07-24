@@ -253,7 +253,7 @@ func fundAndSendSmoke(
 	)
 	totUnspent := total
 	for i, addr := range addrs {
-		// Check bob's balance, if funds are close to expiry or recoverable a refresh is required
+		// Check bob's balance, if funds are close to expiry or recoverable a renewal is required
 		bobBalance, err := sender.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
@@ -269,7 +269,7 @@ func fundAndSendSmoke(
 			txid, err := sender.Settle(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, txid)
-			t.Logf("[send] refreshed bob's funds txid = %s", txid)
+			t.Logf("[send] renewed bob's funds txid = %s", txid)
 			generateBlocks(t, 1)
 		}
 

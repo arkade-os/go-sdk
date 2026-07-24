@@ -66,9 +66,9 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 			return "", err
 		}
 
-		// Persist within the critical section so the next queued operation
-		// sees the refreshed VTXOs before it runs. A deduping settle returns
-		// this same result without re-running, so it won't save twice.
+		// Persist within the critical section so the next queued operation sees the renewed VTXOs
+		// before it runs. A deduping settle returns this same result without re-running,
+		// so it won't save twice.
 		if err := w.saveBatchTransaction(ctx, *res); err != nil {
 			return "", err
 		}

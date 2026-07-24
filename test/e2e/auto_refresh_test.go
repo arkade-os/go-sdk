@@ -12,13 +12,13 @@ import (
 // so auto-settle should fire ~18s after the vtxo is created (10% margin before expiry).
 // All time bounds in this file derive from that.
 const (
-	// Generous bound for the refresh event so a slow CI run / scheduler
+	// Generous bound for the renewal event so a slow CI run / scheduler
 	// jitter doesn't flake the test. The 90% scheduling target is at ~18s,
 	// so 40s is double the worst case.
-	autoRefreshTimeout = 40 * time.Second
+	autoRenewalTimeout = 40 * time.Second
 )
 
-func TestAutoRefresh(t *testing.T) {
+func TestAutoRenewal(t *testing.T) {
 	// to test the auto-settle feature, we first shorten the vtxo tree expiry from 180 blocks
 	// (3 mins with a 1 sec blocktime) to 20 blocks (20s) to wait a maximum reasonable time.
 	setVtxoTreeExpiry(t, 20)
@@ -26,8 +26,8 @@ func TestAutoRefresh(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	// This test pins the common case of the auto-refresh wiring end-to-end: a wallet built with
-	// the default scheduler must refresh its vtxos before they expire, without any user action.
+	// This test pins the common case of the auto-renewal wiring end-to-end: a wallet built with
+	// the default scheduler must renew its vtxos before they expire, without any user action.
 	ctx := t.Context()
 	alice := setupClient(t, "")
 
@@ -49,22 +49,22 @@ func TestAutoRefresh(t *testing.T) {
 			"expected VtxosAdded from auto-settle, got %s", event.Type,
 		)
 		require.NotEmpty(t, event.Vtxos, "auto-settle event carried no vtxos")
-		// Every refreshed vtxo must expire strictly later than the original
+		// Every renewed vtxo must expire strictly later than the original
 		// — that's the whole point of the renewal.
 		for _, v := range event.Vtxos {
 			require.True(
 				t, v.ExpiresAt.After(initial.ExpiresAt),
-				"refreshed vtxo %s expires at %s; expected later than initial %s",
+				"renewed vtxo %s expires at %s; expected later than initial %s",
 				v.Outpoint,
 				v.ExpiresAt.Format(time.RFC3339),
 				initial.ExpiresAt.Format(time.RFC3339),
 			)
 		}
-	case <-time.After(autoRefreshTimeout):
+	case <-time.After(autoRenewalTimeout):
 		t.Fatalf(
-			"timed out after %s waiting for auto-settle to refresh vtxos "+
+			"timed out after %s waiting for auto-renewal to renew vtxos "+
 				"(initial expired at %s)",
-			autoRefreshTimeout, initial.ExpiresAt.Format(time.RFC3339),
+			autoRenewalTimeout, initial.ExpiresAt.Format(time.RFC3339),
 		)
 	}
 }

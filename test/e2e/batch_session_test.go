@@ -12,12 +12,12 @@ import (
 )
 
 func TestBatchSession(t *testing.T) {
-	// In this test Alice and Bob onboard their funds in the same commitment tx and then
-	// refresh their vtxos together in another commitment tx
-	t.Run("refresh vtxos", func(t *testing.T) {
+	// In this test Alice and Bob onboard their funds in the same batch and then renew their vtxos
+	// together in another batch
+	t.Run("renew vtxos", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
-		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 		aliceBoardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, bobUtxoEvent.Utxos[0].Outpoint, bobConfirmedUtxo.Outpoint)
 		require.Equal(t, aliceUtxoEvent.Utxos[0].Outpoint, aliceConfirmedUtxo.Outpoint)
 
-		// Alice and Bob refresh their VTXOs by joining another batch together
+		// Alice and Bob renew their VTXOs by joining another batch together
 		wg.Add(2)
 		go func() {
 			aliceCommitmentTx, aliceBatchErr = alice.Settle(ctx)
@@ -142,10 +142,10 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		require.Len(t, bobVtxoEvent.Vtxos, 1)
-		aliceRefreshVtxo := aliceVtxoEvent.Vtxos[0]
-		bobRefreshVtxo := bobVtxoEvent.Vtxos[0]
-		require.Equal(t, 21000, int(aliceRefreshVtxo.Amount))
-		require.Equal(t, 21000, int(bobRefreshVtxo.Amount))
+		aliceRenewedVtxo := aliceVtxoEvent.Vtxos[0]
+		bobRenewedVtxo := bobVtxoEvent.Vtxos[0]
+		require.Equal(t, 21000, int(aliceRenewedVtxo.Amount))
+		require.Equal(t, 21000, int(bobRenewedVtxo.Amount))
 
 		// the event channel should he notified about the spent vtxos
 		aliceVtxoEvent = <-aliceVtxoCh
@@ -176,7 +176,7 @@ func TestBatchSession(t *testing.T) {
 	// they can be redeeemed only once
 	t.Run("redeem notes", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 		offchainAddr, err := alice.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, offchainAddr)
@@ -226,7 +226,7 @@ func TestBatchSession(t *testing.T) {
 	// renews a vtxo and a recoverable (expired) vtxo
 	t.Run("onboard and renew expired funds", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 		boardingAddr, err := alice.NewBoardingAddress(ctx)
 		require.NoError(t, err)

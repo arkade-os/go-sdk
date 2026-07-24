@@ -114,7 +114,7 @@ type Wallet interface {
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
-	// WhenNextRefresh returns the time at which the next automatic refresh of vtxos is scheduled
+	// WhenNextRenewal returns the time at which the next automatic renewal of vtxos is scheduled
 	// to fire.
-	WhenNextRefresh() time.Time
+	WhenNextRenewal() time.Time
 }

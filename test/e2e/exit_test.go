@@ -18,8 +18,8 @@ func TestCollaborativeExit(t *testing.T) {
 	// In this test Alice sends to Bob's onchain address by producing a (VTXO) change
 	t.Run("with change", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
-		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 		// Faucet Alice
 		faucetOffchain(t, alice, 0.001)
@@ -89,8 +89,8 @@ func TestCollaborativeExit(t *testing.T) {
 	// In this test Alice sends all to Bob'c onchain address without (VTXO) change
 	t.Run("without change", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
-		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 		// Faucet Alice
 		faucetOffchain(t, alice, 0.00021)
@@ -158,7 +158,7 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Alice owns a leaf VTXO and unrolls it onchain
 	t.Run("leaf vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 		aliceVtxoCh := alice.GetVtxoEventChannel(ctx)
 
@@ -207,7 +207,7 @@ func TestUnilateralExit(t *testing.T) {
 		// Give time to arkd and explorer to detect onchain activity.
 		time.Sleep(25 * time.Second)
 
-		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
 		bobOnchainAddr, err := bob.NewBoardingAddress(ctx)
@@ -234,11 +234,11 @@ func TestUnilateralExit(t *testing.T) {
 	// In this test Bob receives from Alice a VTXO offchain and unrolls it onchain
 	t.Run("preconfirmed vtxo", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 		faucetOffchain(t, alice, 0.001)
 
-		bob := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 		bobOnchainAddr, err := bob.NewOnchainAddress(ctx)
 		require.NoError(t, err)
 		require.NotEmpty(t, bobOnchainAddr)
@@ -296,7 +296,7 @@ func TestUnilateralExit(t *testing.T) {
 
 		time.Sleep(20 * time.Second)
 
-		carol := setupClient(t, "", arksdk.WithRefreshScheduleInterval(time.Hour))
+		carol := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 		carolUtxoCh := carol.GetUtxoEventChannel(ctx)
 
 		carolOnchainAddr, err := carol.NewBoardingAddress(ctx)

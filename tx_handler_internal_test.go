@@ -355,7 +355,7 @@ func TestTxHandler(t *testing.T) {
 		},
 	)
 
-	t.Run("two settles queued behind a send dedup to a single refresh", func(t *testing.T) {
+	t.Run("two settles queued behind a send dedup to a single renewal", func(t *testing.T) {
 		h := newTestTxHandler(t)
 
 		// Send holds the slot.
@@ -403,7 +403,7 @@ func TestTxHandler(t *testing.T) {
 		require.NoError(t, errs[1])
 		require.Equal(
 			t, int32(1), settleRuns.Load(),
-			"only one refresh must run; the second refresh must dedup",
+			"only one renewal must run; the second renewal must dedup",
 		)
 		require.NotEmpty(t, got[0])
 		require.Equal(t, got[0], got[1], "both settles must return the same result")

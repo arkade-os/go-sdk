@@ -107,7 +107,7 @@ func TestSignerRotationRuntimeSmoke(t *testing.T) {
 		}
 		return true
 	}, 3*time.Minute, 2*time.Second,
-		"live wallet should migrate after the next periodic refresh")
+		"live wallet should migrate after the next periodic renewal")
 
 	ensureFundsAreMigrated(t, alice, currentSigner, expected)
 	ensureContractsAreMigrated(t, alice, oldSigner, currentSigner)

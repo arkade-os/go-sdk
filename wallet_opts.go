@@ -13,7 +13,7 @@ import (
 
 const (
 	minDbRefreshInterval       = 30 * time.Second
-	minRefreshScheduleInterval = 30 * time.Second
+	minRenewalScheduleInterval = 30 * time.Second
 	minGapLimit                = 20
 	defaultMaxMigrationInputs  = 50
 )
@@ -44,21 +44,21 @@ func WithRefreshDbInterval(d time.Duration) WalletOption {
 	}
 }
 
-// WithRefreshScheduleInterval sets the interval of the background job that recomputes and
-// reschedules the next auto-refresh from the current vtxo set. Must be at least 30s.
-// Can only be set once. If not set, it defaults to 30s. Ignored when auto-settle is disabled.
-func WithRefreshScheduleInterval(d time.Duration) WalletOption {
+// WithRenewalScheduleInterval sets the interval of the background job that recomputes and
+// reschedules the next auto-renewal from the current vtxo set. Must be at least 30s.
+// Can only be set once. If not set, it defaults to 30s.
+func WithRenewalScheduleInterval(d time.Duration) WalletOption {
 	return func(o *walletOptions) error {
-		if o.refreshScheduleIntervalSet {
-			return fmt.Errorf("refresh schedule interval already set")
+		if o.renewalScheduleIntervalSet {
+			return fmt.Errorf("renewal schedule interval already set")
 		}
-		if d < minRefreshScheduleInterval {
+		if d < minRenewalScheduleInterval {
 			return fmt.Errorf(
-				"refresh schedule interval must be at least %s", minRefreshScheduleInterval,
+				"renewal schedule interval must be at least %s", minRenewalScheduleInterval,
 			)
 		}
-		o.refreshScheduleInterval = d
-		o.refreshScheduleIntervalSet = true
+		o.renewalScheduleInterval = d
+		o.renewalScheduleIntervalSet = true
 		return nil
 	}
 }
@@ -159,8 +159,8 @@ func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 type walletOptions struct {
 	refreshDbIntervalSet       bool
 	refreshDbInterval          time.Duration
-	refreshScheduleIntervalSet bool
-	refreshScheduleInterval    time.Duration
+	renewalScheduleIntervalSet bool
+	renewalScheduleInterval    time.Duration
 	verbose                    bool
 	hdGapLimit                 uint32
 	hdGapLimitSet              bool
@@ -170,11 +170,11 @@ type walletOptions struct {
 }
 
 // newDefaultWalletOptions returns a zero-value walletOptions with default hdGapLimit (20),
-// refreshDbInterval (30s) and refreshScheduleInterval (30s). These values cannot be zero-ed.
+// refreshDbInterval (30s) and renewalScheduleInterval (30s). These values cannot be zero-ed.
 func newDefaultWalletOptions() *walletOptions {
 	return &walletOptions{
 		hdGapLimit:              minGapLimit,
 		refreshDbInterval:       minDbRefreshInterval,
-		refreshScheduleInterval: minRefreshScheduleInterval,
+		renewalScheduleInterval: minRenewalScheduleInterval,
 	}
 }

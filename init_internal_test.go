@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestScheduleNextRefresh(t *testing.T) {
+func TestScheduleNextRenewal(t *testing.T) {
 	// With auto-settle disabled (nil scheduler) it must be a safe no-op.
 	t.Run("no-op when scheduler is disabled", func(t *testing.T) {
 		w := &wallet{scheduleMu: &sync.Mutex{}}
-		require.NotPanics(t, w.scheduleNextRefresh)
+		require.NotPanics(t, w.scheduleNextRenewal)
 	})
 
 	// While a batch tx is in flight, the vtxo set is about to change but the change isn't
@@ -30,7 +30,7 @@ func TestScheduleNextRefresh(t *testing.T) {
 			scheduleMu: &sync.Mutex{},
 		}
 
-		w.scheduleNextRefresh()
+		w.scheduleNextRenewal()
 
 		require.True(t, th.batchInFlight())
 		require.Zero(t, sched.calls(), "must not schedule while a batch is in flight")
@@ -55,7 +55,7 @@ func TestScheduleNextRefresh(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				w.scheduleNextRefresh()
+				w.scheduleNextRenewal()
 			}()
 		}
 		wg.Wait()

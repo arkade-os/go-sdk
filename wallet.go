@@ -62,7 +62,7 @@ type wallet struct {
 	bgWg          sync.WaitGroup
 	dbMu          *sync.Mutex
 	logMu         *sync.Mutex
-	// scheduleMu serializes scheduleNextRefresh so its read-decide-schedule sequence is atomic
+	// scheduleMu serializes scheduleNextRenewal so its read-decide-schedule sequence is atomic
 	// across its concurrent callers (unlock, the periodic job, the tx listener).
 	scheduleMu *sync.Mutex
 
@@ -71,13 +71,13 @@ type wallet struct {
 	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
 	stopCtx context.Context
 
-	verbose                      bool
-	refreshDbInterval            time.Duration
-	refreshVtxosScheduleInterval time.Duration
-	lastUpdate                   time.Time
-	hdGapLimit                   uint32
-	network                      arklib.Network
-	dustAmount                   uint64
+	verbose                    bool
+	refreshDbInterval          time.Duration
+	renewVtxosScheduleInterval time.Duration
+	lastUpdate                 time.Time
+	hdGapLimit                 uint32
+	network                    arklib.Network
+	dustAmount                 uint64
 
 	// latestSignerSet is the latest set of signer key + deprecated signers handled by the wallet.
 	// Used to determine if a migration of dunds is requird or not.
@@ -151,21 +151,21 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:                       cli,
-		verbose:                      o.verbose,
-		store:                        db,
-		clientStore:                  clientDb,
-		syncMu:                       &sync.Mutex{},
-		syncListeners:                newReadyListeners(),
-		syncCh:                       make(chan error),
-		dbMu:                         &sync.Mutex{},
-		scheduleMu:                   &sync.Mutex{},
-		logMu:                        &sync.Mutex{},
-		refreshDbInterval:            o.refreshDbInterval,
-		refreshVtxosScheduleInterval: o.refreshScheduleInterval,
-		hdGapLimit:                   o.hdGapLimit,
-		scheduler:                    o.scheduler,
-		customHandlers:               o.customHandlers,
+		client:                     cli,
+		verbose:                    o.verbose,
+		store:                      db,
+		clientStore:                clientDb,
+		syncMu:                     &sync.Mutex{},
+		syncListeners:              newReadyListeners(),
+		syncCh:                     make(chan error),
+		dbMu:                       &sync.Mutex{},
+		scheduleMu:                 &sync.Mutex{},
+		logMu:                      &sync.Mutex{},
+		refreshDbInterval:          o.refreshDbInterval,
+		renewVtxosScheduleInterval: o.renewalScheduleInterval,
+		hdGapLimit:                 o.hdGapLimit,
+		scheduler:                  o.scheduler,
+		customHandlers:             o.customHandlers,
 	}, nil
 }
 
@@ -263,22 +263,22 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 	}
 
 	return &wallet{
-		client:                       cli,
-		verbose:                      o.verbose,
-		store:                        db,
-		clientStore:                  clientDb,
-		syncMu:                       &sync.Mutex{},
-		syncListeners:                newReadyListeners(),
-		syncCh:                       make(chan error),
-		dbMu:                         &sync.Mutex{},
-		scheduleMu:                   &sync.Mutex{},
-		logMu:                        &sync.Mutex{},
-		refreshDbInterval:            o.refreshDbInterval,
-		refreshVtxosScheduleInterval: o.refreshScheduleInterval,
-		hdGapLimit:                   o.hdGapLimit,
-		scheduler:                    o.scheduler,
-		network:                      cfgData.Network,
-		customHandlers:               o.customHandlers,
+		client:                     cli,
+		verbose:                    o.verbose,
+		store:                      db,
+		clientStore:                clientDb,
+		syncMu:                     &sync.Mutex{},
+		syncListeners:              newReadyListeners(),
+		syncCh:                     make(chan error),
+		dbMu:                       &sync.Mutex{},
+		scheduleMu:                 &sync.Mutex{},
+		logMu:                      &sync.Mutex{},
+		refreshDbInterval:          o.refreshDbInterval,
+		renewVtxosScheduleInterval: o.renewalScheduleInterval,
+		hdGapLimit:                 o.hdGapLimit,
+		scheduler:                  o.scheduler,
+		network:                    cfgData.Network,
+		customHandlers:             o.customHandlers,
 	}, nil
 }
 
@@ -412,7 +412,7 @@ func (w *wallet) Stop() {
 		}
 
 		// Wait for the background workers spawned by Unlock (initial sync, listeners,
-		// periodic refresh) to exit before tearing down the services they use: stopping
+		// periodic db refresh) to exit before tearing down the services they use: stopping
 		// the explorer while the sync routine is still starting it is a data race.
 		// This must also happen before closing the store, otherwise an in-flight handler
 		// write can race the Close and leave SQLite WAL/Badger vlog tempfiles behind.
@@ -424,7 +424,7 @@ func (w *wallet) Stop() {
 			w.Explorer().Stop()
 		}
 		// Tear down the auto-settle scheduler before the store closes,
-		// otherwise an already-scheduled refresh task can fire after Stop()
+		// otherwise an already-scheduled renwewal task can fire after Stop()
 		// and try to begin a transaction on a closed DB. Mirrors what Lock()
 		// already does.
 		if w.scheduler != nil {
@@ -486,9 +486,8 @@ func (w *wallet) GetUtxoEventChannel(_ context.Context) <-chan types.UtxoEvent {
 	return nil
 }
 
-// WhenNextRefresh returns the time at which the next automatic refresh is scheduled to fire.
-// It returns the zero time when auto-settle is disabled or no refresh is currently scheduled.
-func (w *wallet) WhenNextRefresh() time.Time {
+// WhenNextRenewal returns the time at which the next automatic renewal is scheduled to fire.
+func (w *wallet) WhenNextRenewal() time.Time {
 	if w.scheduler == nil {
 		return time.Time{}
 	}
@@ -990,7 +989,7 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 					log.WithError(err).Error("failed to process commitment tx")
 					continue
 				}
-				w.scheduleNextRefresh()
+				w.scheduleNextRenewal()
 			}
 
 			if event.ArkTx != nil {
@@ -1001,7 +1000,7 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 					log.WithError(err).Error("failed to process ark tx")
 					continue
 				}
-				w.scheduleNextRefresh()
+				w.scheduleNextRenewal()
 			}
 
 			if event.SweepTx != nil {
@@ -1744,7 +1743,7 @@ func (w *wallet) vtxosToTxs(
 	// Receivals
 
 	// All vtxos are receivals unless:
-	// - they resulted from a settlement (either boarding or refresh)
+	// - they resulted from a settlement (either boarding or renewal)
 	// - they are the change of a spend tx or a collaborative exit
 	vtxosLeftToCheck := append([]clienttypes.Vtxo{}, spent...)
 	for _, vtxo := range append(spendable, spent...) {
@@ -1787,7 +1786,7 @@ func (w *wallet) vtxosToTxs(
 
 	// Sendings
 
-	// All spent vtxos are payments unless they are settlements of boarding utxos or refreshes
+	// All spent vtxos are payments unless they are settlements of boarding utxos or renewals
 
 	// aggregate settled vtxos by "settledBy" (commitment txid)
 	vtxosBySettledBy := make(map[string][]clienttypes.Vtxo)
