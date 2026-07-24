@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	clientexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer"
 	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
@@ -18,6 +20,8 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
+
+const HeaderVersion = "go-sdk/0.10.1"
 
 var (
 	defaultExplorerUrl = map[string]string{
@@ -37,7 +41,7 @@ func (w *wallet) Init(
 		return ErrNotInitialized
 	}
 
-	transportClient, err := grpcclient.NewClient(serverUrl)
+	transportClient, err := grpcclient.NewClient(serverUrl, HeaderVersion)
 	if err != nil {
 		return err
 	}
@@ -89,6 +93,7 @@ func (w *wallet) Init(
 
 	w.network = network
 	w.dustAmount = info.Dust
+	w.lastSignerSet = signerSet(info)
 
 	return nil
 }
@@ -107,6 +112,11 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		return err
 	}
 
+	cfgData, err := w.client.GetConfigData(ctx)
+	if err != nil {
+		return err
+	}
+
 	w.logMu.Lock()
 	log.SetLevel(log.DebugLevel)
 	if !w.verbose {
@@ -114,6 +124,10 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 	}
 	w.logMu.Unlock()
 
+	mgrOpts := make([]contract.ManagerOption, 0, len(w.customHandlers))
+	for t, h := range w.customHandlers {
+		mgrOpts = append(mgrOpts, contract.WithHandler(t, h))
+	}
 	mgr, err := contract.NewManager(contract.Args{
 		Store:       w.store.ContractStore(),
 		KeyProvider: w.Identity(),
@@ -121,7 +135,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		Indexer:     w.Indexer(),
 		Explorer:    w.Explorer(),
 		Network:     w.network,
-	})
+	}, mgrOpts...)
 	if err != nil {
 		if lockErr := w.Identity().Lock(ctx); lockErr != nil {
 			return fmt.Errorf(
@@ -131,6 +145,25 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		return fmt.Errorf("failed to init contract manager: %w", err)
 	}
 
+	deprecatedSigners := make([]client.DeprecatedSigner, 0, len(cfgData.DeprecatedSigners))
+	for _, signer := range cfgData.DeprecatedSigners {
+		var cutoff int64
+		if !signer.CutoffDate.IsZero() {
+			cutoff = signer.CutoffDate.Unix()
+		}
+		deprecatedSigners = append(deprecatedSigners, client.DeprecatedSigner{
+			PubKey:     hex.EncodeToString(signer.PubKey.SerializeCompressed()),
+			CutoffDate: cutoff,
+		})
+	}
+	serverParams := &client.Info{
+		SignerPubKey:            hex.EncodeToString(cfgData.SignerPubKey.SerializeCompressed()),
+		DeprecatedSignerPubKeys: deprecatedSigners,
+	}
+
+	w.dustAmount = cfgData.Dust
+	w.network = cfgData.Network
+	w.lastSignerSet = signerSet(serverParams)
 	w.contractManager = mgr
 	w.resetSyncStateForUnlock()
 	w.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()
@@ -144,6 +177,8 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	w.stopFn = cancel
+	w.stopCtx = bgCtx
+	w.txHandler = newTxHandler()
 
 	w.bgWg.Go(func() {
 		w.Explorer().Start()
@@ -167,6 +202,9 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		// the user aware of this so he can proceed with a manual finalization
 		if _, err := w.finalizePendingTxs(ctx, nil); err != nil {
 			log.WithError(err).Warn("failed to finalize pending txs")
+		} else {
+			// TODO: drop me and handle wait in finalizePendingTxs
+			time.Sleep(time.Second)
 		}
 
 		err := w.refreshDb(ctx)
@@ -176,6 +214,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		explorerCh := w.Explorer().GetAddressesEvents()
 		if err == nil {
 			w.scheduleNextSettlement()
+			w.detectAndHandleSignerRotation(ctx)
 		}
 		w.syncCh <- err
 		close(w.syncCh)
@@ -194,6 +233,12 @@ func (w *wallet) Lock(ctx context.Context) error {
 		return err
 	}
 
+	// Abort any queued tx operations before tearing down shared state, so a
+	// waiter can't resume and run against a nil contractManager / stopCtx.
+	if w.txHandler != nil {
+		w.txHandler.stop()
+	}
+
 	if w.stopFn != nil {
 		w.stopFn()
 	}
@@ -201,6 +246,7 @@ func (w *wallet) Lock(ctx context.Context) error {
 	if w.scheduler != nil {
 		w.scheduler.Stop()
 	}
+	w.stopCtx = nil
 
 	if w.contractManager != nil {
 		w.contractManager.Close()
@@ -257,7 +303,7 @@ func (w *wallet) scheduleNextSettlement() {
 
 	nextSettlement := w.scheduler.GetTaskScheduledAt()
 
-	vtxos, err := w.store.VtxoStore().GetSpendableVtxos(context.Background())
+	vtxos, err := w.store.VtxoStore().GetSpendableOrRecoverableVtxos(context.Background())
 	if err != nil {
 		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next settlement")
 		return

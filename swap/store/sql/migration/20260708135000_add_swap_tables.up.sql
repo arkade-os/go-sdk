@@ -1,0 +1,30 @@
+CREATE TABLE IF NOT EXISTS swap (
+  id TEXT PRIMARY KEY,
+  amount INTEGER NOT NULL,
+  timestamp INTEGER NOT NULL,
+  to_currency TEXT NOT NULL,
+  from_currency TEXT NOT NULL,
+  status INTEGER NOT NULL CHECK(status IN(0,1,2)),
+  invoice TEXT NOT NULL,
+  funding_tx_id TEXT,
+  redeem_tx_id TEXT,
+  vhtlc_contract_script TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chain_swap (
+  id TEXT PRIMARY KEY,
+  from_currency TEXT NOT NULL,
+  to_currency TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  status INTEGER NOT NULL CHECK(status IN(0,1,2,3,4,5,6,7,8)),
+  user_lockup_tx_id TEXT,
+  server_lockup_tx_id TEXT,
+  claim_tx_id TEXT,
+  refund_tx_id TEXT,
+  user_btc_lockup_address TEXT,
+  btc_htlc_private_key TEXT,
+  error_message TEXT,
+  boltz_create_response_json TEXT,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);

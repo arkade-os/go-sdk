@@ -53,15 +53,18 @@ func NewHandler(
 	}
 }
 
-func (h *defaultHandler) NewContract(
-	ctx context.Context, keyRef identity.KeyRef,
-) (*types.Contract, error) {
-	info, err := h.getInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server info: %w", err)
+func (h *defaultHandler) NewContract(ctx context.Context, args any) (*types.Contract, error) {
+	keyRef, ok := args.(identity.KeyRef)
+	if !ok {
+		return nil, fmt.Errorf("invalid params type: expected identity.KeyRef")
 	}
 
-	buf, err := hex.DecodeString(info.SignerPubKey)
+	serverParams, err := h.getInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server params: %w", err)
+	}
+
+	buf, err := hex.DecodeString(serverParams.SignerPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode signer pubkey: invalid format")
 	}
@@ -70,9 +73,9 @@ func (h *defaultHandler) NewContract(
 		return nil, fmt.Errorf("failed to parse signer pubkey: %w", err)
 	}
 
-	delay := info.UnilateralExitDelay
+	delay := serverParams.UnilateralExitDelay
 	if h.isOnchain {
-		delay = info.BoardingExitDelay
+		delay = serverParams.BoardingExitDelay
 	}
 	exitDelay := arklib.RelativeLocktime{
 		Type:  arklib.LocktimeTypeSecond,
@@ -127,7 +130,7 @@ func (h *defaultHandler) NewContract(
 	contractType := types.ContractTypeBoarding
 	if !h.isOnchain {
 		contractType = types.ContractTypeDefault
-		params[checkpointExitPathParam] = info.CheckpointTapscript
+		params[checkpointExitPathParam] = serverParams.CheckpointTapscript
 	}
 
 	return &types.Contract{
@@ -270,6 +273,36 @@ func (h *defaultHandler) GetTapscripts(contract types.Contract) ([]string, error
 		return nil, err
 	}
 	return rawScript.Encode()
+}
+
+// GetArgs returns the key reference by value so the result can be fed
+// directly back into NewContract, which asserts identity.KeyRef.
+func (h *defaultHandler) GetArgs(contract types.Contract) (any, error) {
+	keyRef, err := h.GetKeyRef(contract)
+	if err != nil {
+		return nil, err
+	}
+	return *keyRef, nil
+}
+
+func (h *defaultHandler) GetCheckpointExitPath(contract types.Contract) ([]byte, error) {
+	if len(contract.Params) <= 0 {
+		return nil, fmt.Errorf("contract %s has no parameters", contract.Script)
+	}
+	checkpointExitPath, ok := contract.Params[checkpointExitPathParam]
+	if !ok {
+		return nil, fmt.Errorf("contract %s is missing checkpoint exit path", contract.Script)
+	}
+	if len(checkpointExitPath) <= 0 {
+		return nil, fmt.Errorf("contract %s has empty checkpoint exit path", contract.Script)
+	}
+	buf, err := hex.DecodeString(checkpointExitPath)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"contract %s has invalid checkpoint exit path format", contract.Script,
+		)
+	}
+	return buf, nil
 }
 
 func (h *defaultHandler) getScript(

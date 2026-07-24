@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS chain_swap;
+DROP TABLE IF EXISTS swap;

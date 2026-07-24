@@ -11,6 +11,7 @@ import (
 )
 
 func TestHDWalletAddressMethodsAllocateFreshKeys(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	hdWallet := setupClient(t, "")
@@ -100,7 +101,9 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 	// Scenario 3: Alice restores from seed and discovers all used keys on startup.
 	aliceClientHD = setupClient(t, seed, sdk.WithGapLimit(50))
 
-	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
+	restoredSpendable, _, err := aliceClientHD.ListVtxos(ctx, sdk.WithSpendableOnly())
+	require.NoError(t, err)
+	restoredSpent, _, err := aliceClientHD.ListVtxos(ctx, sdk.WithSpentOnly())
 	require.NoError(t, err)
 	require.Len(t, restoredSpent, 0)
 	require.Len(t, restoredSpendable, 2)
@@ -140,13 +143,13 @@ func TestHDWalletRecoversFundsAtRestore(t *testing.T) {
 func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 	ctx := t.Context()
 
-	const gapLimit = uint32(5)
+	const gapLimit = uint32(20)
 
 	aliceClientHD := setupClient(t, "", sdk.WithGapLimit(gapLimit))
 	bobClientHD := setupClient(t, "")
 
-	addresses := make([]string, 0, 11)
-	for range 11 {
+	addresses := make([]string, 0, 31)
+	for range 31 {
 		addr, err := aliceClientHD.NewOffchainAddress(ctx)
 		require.NoError(t, err)
 		addresses = append(addresses, addr)
@@ -170,14 +173,16 @@ func TestHDWalletDoesNotRecoverVtxoBeyondConfiguredGapLimit(t *testing.T) {
 	aliceClientHD = nil
 
 	_, err = bobClientHD.SendOffChain(ctx, []clientTypes.Receiver{{
-		To:     addresses[10],
+		To:     addresses[30],
 		Amount: 16_000,
 	}})
 	require.NoError(t, err)
 
 	aliceClientHD = setupClient(t, seed, sdk.WithGapLimit(gapLimit))
 
-	restoredSpendable, restoredSpent, err := aliceClientHD.ListVtxos(ctx)
+	restoredSpendable, _, err := aliceClientHD.ListVtxos(ctx, sdk.WithSpendableOnly())
+	require.NoError(t, err)
+	restoredSpent, _, err := aliceClientHD.ListVtxos(ctx, sdk.WithSpentOnly())
 	require.NoError(t, err)
 	require.Len(t, restoredSpent, 0)
 	require.Len(t, restoredSpendable, 1)
@@ -240,7 +245,11 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 
 	const wantOffchainTotal = uint64(50_000)
 	require.Eventually(t, func() bool {
-		spendable, spent, err := aliceClientHD.ListVtxos(ctx)
+		spendable, _, err := aliceClientHD.ListVtxos(ctx, sdk.WithSpendableOnly())
+		if err != nil {
+			return false
+		}
+		spent, _, err := aliceClientHD.ListVtxos(ctx, sdk.WithSpentOnly())
 		if err != nil {
 			return false
 		}
@@ -257,7 +266,7 @@ func TestHDWalletRestoresMixedOnchainAndOffchainState(t *testing.T) {
 		}
 
 		return balance.OffchainBalance.Total == wantOffchainTotal &&
-			balance.OnchainBalance.SpendableAmount == wantOnchainSpendable
+			balance.OnchainBalance.Total == wantOnchainSpendable
 	}, 30*time.Second, 500*time.Millisecond)
 }
 
@@ -422,7 +431,7 @@ func waitForSpendableVtxos(
 	var spendable []clientTypes.Vtxo
 	require.Eventually(t, func() bool {
 		var err error
-		spendable, _, err = client.ListVtxos(t.Context())
+		spendable, _, err = client.ListVtxos(t.Context(), sdk.WithSpendableOnly())
 		if err != nil {
 			return false
 		}

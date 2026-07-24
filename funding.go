@@ -132,24 +132,6 @@ func (w *wallet) Balance(ctx context.Context) (*types.Balance, error) {
 	}, nil
 }
 
-func (w *wallet) ListSpendableVtxos(ctx context.Context) ([]clienttypes.Vtxo, error) {
-	if err := w.safeCheck(); err != nil {
-		return nil, err
-	}
-
-	return w.store.VtxoStore().GetSpendableVtxos(ctx)
-}
-
-func (w *wallet) ListVtxos(
-	ctx context.Context,
-) ([]clienttypes.Vtxo, []clienttypes.Vtxo, error) {
-	if err := w.safeCheck(); err != nil {
-		return nil, nil, err
-	}
-
-	return w.store.VtxoStore().GetAllVtxos(ctx)
-}
-
 func (w *wallet) NotifyIncomingFunds(
 	ctx context.Context, addr string,
 ) ([]clienttypes.Vtxo, error) {
@@ -159,8 +141,45 @@ func (w *wallet) NotifyIncomingFunds(
 	return w.client.NotifyIncomingFunds(ctx, addr)
 }
 
-func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
-	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault)
+// notifyTracked subscribes to incoming funds at addr in the background and
+// returns a channel that fires once the indexer reports a vtxo there (or
+// errors), together with a cancel func to release the subscription if the
+// caller ends up not waiting on it (e.g. the op produced no output to addr).
+//
+// Operations start this before submitting a tx and wait on it before releasing
+// the txHandler slot, so the next queued operation can spend the resulting
+// vtxo without the server rejecting it with VTXO_NOT_FOUND while the indexer is
+// still catching up. The subscription is started before submission so the
+// notification can't be missed.
+func (w *wallet) notifyTracked(
+	ctx context.Context, addr string,
+) (<-chan error, context.CancelFunc) {
+	subCtx, cancel := context.WithCancel(ctx)
+	ch := make(chan error, 1)
+	go func() {
+		_, err := w.client.NotifyIncomingFunds(subCtx, addr)
+		ch <- err
+	}()
+	return ch, cancel
+}
+
+func waitTracked(ctx context.Context, tracked <-chan error) error {
+	if tracked == nil {
+		return nil
+	}
+
+	select {
+	case err := <-tracked:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (w *wallet) newOffchainAddress(
+	ctx context.Context, opts ...contract.ContractOption,
+) (string, error) {
+	contract, err := w.contractManager.NewContract(ctx, types.ContractTypeDefault, opts...)
 	if err != nil {
 		return "", err
 	}
@@ -171,7 +190,7 @@ func (w *wallet) newOffchainAddress(ctx context.Context) (string, error) {
 func (w *wallet) getOffchainBalance(
 	ctx context.Context,
 ) (*types.OffchainBalance, map[string]uint64, error) {
-	vtxos, _, err := w.store.VtxoStore().GetAllVtxos(ctx)
+	vtxos, err := w.store.VtxoStore().GetSpendableOrRecoverableVtxos(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -184,10 +203,6 @@ func (w *wallet) getOffchainBalance(
 		amountByExpiration  = make(map[int64]uint64)
 	)
 	for _, vtxo := range vtxos {
-		if vtxo.Spent || vtxo.Unrolled {
-			continue
-		}
-
 		// Classify VTXO by state. Priority: Recoverable > Preconfirmed > default.
 		switch {
 		case vtxo.IsRecoverable():
@@ -229,6 +244,61 @@ func (w *wallet) getOffchainBalance(
 		NextExpiration: getFancyTimeExpiration(nextExpiration),
 	}
 	return balance, assetsBalance, nil
+}
+
+func (w *wallet) ListVtxos(
+	ctx context.Context, opts ...ListVtxosOption,
+) ([]clienttypes.Vtxo, string, error) {
+	if err := w.safeCheck(); err != nil {
+		return nil, "", err
+	}
+
+	o := defaultListVtxosOpts()
+	for _, opt := range opts {
+		if err := opt(o); err != nil {
+			return nil, "", err
+		}
+	}
+
+	currentFilterHash := filterHash(o)
+
+	var after *types.Cursor
+	if o.cursor != "" {
+		c, err := decodeCursor(o.cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		if c.FilterHash != currentFilterHash {
+			return nil, "", ErrCursorFilterMismatch
+		}
+		after = &types.Cursor{
+			CreatedAt: c.CreatedAt,
+			Txid:      c.Txid,
+			VOut:      c.VOut,
+		}
+	}
+
+	vtxos, cursor, err := w.store.VtxoStore().GetVtxos(ctx, types.GetVtxoFilter{
+		Status:  o.status,
+		AssetID: o.assetID,
+		Script:  o.script,
+		After:   after,
+		Limit:   o.limit,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	var encodedCursor string
+	if cursor != nil {
+		encodedCursor = encodeCursor(vtxoCursor{
+			CreatedAt:  cursor.CreatedAt,
+			Txid:       cursor.Txid,
+			VOut:       cursor.VOut,
+			FilterHash: currentFilterHash,
+		})
+	}
+	return vtxos, encodedCursor, nil
 }
 
 func (w *wallet) getOnchainBalance(ctx context.Context) (*types.OnchainBalance, error) {

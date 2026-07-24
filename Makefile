@@ -1,4 +1,4 @@
-.PHONY: test vet lint migrate sqlc regtest regtestdown integrationtest smoketest bump-client-lib bump-ark-lib bump-api-spec
+.PHONY: test vet lint migrate sqlc swapsqlc regtest regtestdown integrationtest smokehd keyrotation keyrotationrestart keyrotationruntime bump-client-lib bump-ark-lib bump-api-spec
 
 GOLANGCI_LINT ?= $(shell \
 	echo "docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.9.0 golangci-lint"; \
@@ -42,11 +42,14 @@ sqlc:
 	@echo "gen sql..."
 	@docker run --rm -v ./store/sql:/src -w /src sqlc/sqlc generate
 
+## swapsqlc: gen swap sql
+swapsqlc:
+	@echo "gen swap sql..."
+	@docker run --rm -v ./swap/store/sql:/src -w /src sqlc/sqlc generate
+
 regtest:
 	@echo "Starting regtest..."
-	@docker compose -f test/docker/docker-compose.yml down
-	@docker compose -f test/docker/docker-compose.yml up -d --build
-	@go run test/docker/setup.go
+	@bash test/docker/setup.sh
 
 regtestdown:
 	@echo "Stopping regtest..."
@@ -55,12 +58,18 @@ regtestdown:
 integrationtest:
 	@ARK_ELECTRUM_URL=$${ARK_ELECTRUM_URL:-tcp://127.0.0.1:50000} ARK_ESPLORA_URL=$${ARK_ESPLORA_URL:-http://localhost:3000} go test -v -count=1 -race -timeout 40m ./test/e2e
 
-## smoketest: runs long-running e2e smoke tests (skipped in CI). Smoke
-## test files are gated behind the "smoke" build tag and tests follow the
-## TestSmoke* naming convention; CI doesn't pass the tag, so they never
-## get compiled there.
-smoketest:
-	@go test -v -count=1 -timeout 60m -tags=smoke -run 'Smoke' ./test/e2e
+## smokehd: runs the HD wallet restore smoke test. Optional:
+## SMOKE_TIER=N (1-999) | Nk (thousands) | Nm (millions), defaults to 1k.
+smokehd:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSmokeHDWalletRestoreAtScale$$' ./test/e2e
+
+## keyrotationrestart: runs the signer key rotation restart smoke test.
+keyrotationrestart:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRestartSmoke$$' ./test/e2e
+
+## keyrotationruntime: runs the signer key rotation runtime smoke test.
+keyrotationruntime:
+	@go test -v -count=1 -timeout 300m -tags=smoke -run '^TestSignerRotationRuntimeSmoke$$' ./test/e2e
 
 ## bump-client-lib: update client-lib to a specific commit/tag and tidy modules
 bump-client-lib:

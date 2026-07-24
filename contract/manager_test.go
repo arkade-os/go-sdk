@@ -1,19 +1,36 @@
 package contract_test
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"maps"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 const (
 	ownerKeyIdParam = "ownerKeyId"
+
+	// VHTLC contract param keys, mirrored from the vhtlc handler package
+	// where they are unexported.
+	senderKeyIdParam            = "senderKeyId"
+	receiverKeyIdParam          = "receiverKeyId"
+	nonInteractiveReceiverParam = "nonInteractiveReceiver"
+	nonInteractiveEmulatorParam = "nonInteractiveEmulator"
 )
 
 func TestManagerNewContract(t *testing.T) {
@@ -46,8 +63,86 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, types.ContractTypeBoarding, c.Type)
 			require.Contains(t, c.Address, "bcrt1p")
 
-			persisted, err := store.GetContractsByType(
+			persisted, err := store.GetActiveContractsByType(
 				t.Context(), types.ContractTypeBoarding,
+			)
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+			require.Equal(t, c.Script, persisted[0].Script)
+		})
+
+		t.Run("vhtlc persisted", func(t *testing.T) {
+			t.Run("as sender", func(t *testing.T) {
+				mgr, store := newTestManager(t)
+
+				c, err := mgr.NewContract(
+					t.Context(), types.ContractTypeVHTLC,
+					contract.WithParams(newTestVHTLCContractArgs(t)),
+				)
+				require.NoError(t, err)
+				require.NotNil(t, c)
+				require.Equal(t, types.ContractTypeVHTLC, c.Type)
+				require.Equal(t, types.ContractStateActive, c.State)
+				require.NotEmpty(t, c.Script)
+				require.NotEmpty(t, c.Address)
+				// The args carry an external receiver only, so the wallet fills
+				// the sender role with its first fresh key.
+				require.Equal(t, "m/0/0", c.Params[senderKeyIdParam])
+				require.NotContains(t, c.Params, receiverKeyIdParam)
+
+				persisted, err := store.GetActiveContractsByType(
+					t.Context(), types.ContractTypeVHTLC,
+				)
+				require.NoError(t, err)
+				require.Len(t, persisted, 1)
+				require.Equal(t, c.Script, persisted[0].Script)
+			})
+			t.Run("as receiver", func(t *testing.T) {
+				mgr, store := newTestManager(t)
+
+				args := newTestVHTLCContractArgs(t)
+				args.Sender = newTestPubKey(t)
+				args.Receiver = nil
+				c, err := mgr.NewContract(
+					t.Context(), types.ContractTypeVHTLC, contract.WithParams(args),
+				)
+				require.NoError(t, err)
+				require.NotNil(t, c)
+				require.Equal(t, types.ContractTypeVHTLC, c.Type)
+				require.Equal(t, types.ContractStateActive, c.State)
+				require.NotEmpty(t, c.Script)
+				require.NotEmpty(t, c.Address)
+				// The args carry an external sender only, so the wallet fills
+				// the receiver role with its first fresh key.
+				require.Equal(t, "m/0/0", c.Params[receiverKeyIdParam])
+				require.NotContains(t, c.Params, senderKeyIdParam)
+
+				persisted, err := store.GetActiveContractsByType(
+					t.Context(), types.ContractTypeVHTLC,
+				)
+				require.NoError(t, err)
+				require.Len(t, persisted, 1)
+				require.Equal(t, c.Script, persisted[0].Script)
+			})
+		})
+
+		t.Run("non-interactive vhtlc persisted", func(t *testing.T) {
+			mgr, store := newTestManager(t)
+
+			c, err := mgr.NewContract(
+				t.Context(), types.ContractTypeNonInteractiveVHTLC,
+				contract.WithParams(newTestNonInteractiveVHTLCContractArgs(t)),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			require.Equal(t, types.ContractTypeNonInteractiveVHTLC, c.Type)
+			require.Equal(t, types.ContractStateActive, c.State)
+			require.Equal(t, "m/0/0", c.Params[senderKeyIdParam])
+			require.NotEmpty(t, c.Params[nonInteractiveReceiverParam])
+			require.NotEmpty(t, c.Params[nonInteractiveEmulatorParam])
+
+			persisted, err := store.GetActiveContractsByType(
+				t.Context(), types.ContractTypeNonInteractiveVHTLC,
 			)
 			require.NoError(t, err)
 			require.Len(t, persisted, 1)
@@ -69,6 +164,35 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "my-label", persisted[0].Label)
 		})
 
+		t.Run("with server params forces cache update", func(t *testing.T) {
+			env, mgr, _ := newTestManagerWithEnv(t)
+
+			first, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.Equal(t, 1, env.transport.callCount())
+
+			rotatedSigner := newTestPubKey(t)
+			rotatedInfo := &client.Info{
+				SignerPubKey:        hex.EncodeToString(rotatedSigner.SerializeCompressed()),
+				UnilateralExitDelay: testUnilateralExitDelay,
+				BoardingExitDelay:   testBoardingExitDelay,
+				CheckpointTapscript: testCheckpointTapscript,
+			}
+			second, err := mgr.NewContract(
+				t.Context(),
+				types.ContractTypeDefault,
+				contract.WithServerParams(rotatedInfo),
+			)
+			require.NoError(t, err)
+			require.Equal(t, 1, env.transport.callCount())
+			require.NotEqual(t, first.Params["signerKey"], second.Params["signerKey"])
+			require.Equal(
+				t,
+				hex.EncodeToString(schnorr.SerializePubKey(rotatedSigner)),
+				second.Params["signerKey"],
+			)
+		})
+
 		t.Run("sequential offchain calls advance the key index", func(t *testing.T) {
 			mgr, _ := newTestManager(t)
 
@@ -82,6 +206,79 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "m/0/0", c0.Params[ownerKeyIdParam])
 			require.Equal(t, "m/0/1", c1.Params[ownerKeyIdParam])
 			require.Equal(t, "m/0/2", c2.Params[ownerKeyIdParam])
+		})
+
+		t.Run("sequential boarding calls advance the key index", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			c0, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+			require.NoError(t, err)
+			c1, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+			require.NoError(t, err)
+			c2, err := mgr.NewContract(t.Context(), types.ContractTypeBoarding)
+			require.NoError(t, err)
+
+			require.Equal(t, "m/0/0", c0.Params[ownerKeyIdParam])
+			require.Equal(t, "m/0/1", c1.Params[ownerKeyIdParam])
+			require.Equal(t, "m/0/2", c2.Params[ownerKeyIdParam])
+		})
+
+		t.Run("sequential vhtlc calls advance the key index", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			c0, err := mgr.NewContract(
+				t.Context(), types.ContractTypeVHTLC,
+				contract.WithParams(newTestVHTLCContractArgs(t)),
+			)
+			require.NoError(t, err)
+			c1, err := mgr.NewContract(
+				t.Context(), types.ContractTypeVHTLC,
+				contract.WithParams(newTestVHTLCContractArgs(t)),
+			)
+			require.NoError(t, err)
+			c2, err := mgr.NewContract(
+				t.Context(), types.ContractTypeVHTLC,
+				contract.WithParams(newTestVHTLCContractArgs(t)),
+			)
+			require.NoError(t, err)
+
+			require.Equal(t, "m/0/0", c0.Params[senderKeyIdParam])
+			require.Equal(t, "m/0/1", c1.Params[senderKeyIdParam])
+			require.Equal(t, "m/0/2", c2.Params[senderKeyIdParam])
+		})
+
+		t.Run("concurrent calls produce unique contracts", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+
+			const n = 10
+			type result struct {
+				c   *types.Contract
+				err error
+			}
+			results := make(chan result, n)
+
+			var wg sync.WaitGroup
+			wg.Add(n)
+			for range n {
+				go func() {
+					defer wg.Done()
+					c, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
+					results <- result{c: c, err: err}
+				}()
+			}
+			wg.Wait()
+			close(results)
+
+			scripts := make(map[string]struct{}, n)
+			keyIds := make(map[string]struct{}, n)
+			for r := range results {
+				require.NoError(t, r.err)
+				require.NotNil(t, r.c)
+				scripts[r.c.Script] = struct{}{}
+				keyIds[r.c.Params[ownerKeyIdParam]] = struct{}{}
+			}
+			require.Len(t, scripts, n, "every concurrent call must produce a unique script")
+			require.Len(t, keyIds, n, "every concurrent call must produce a unique key id")
 		})
 	})
 
@@ -99,8 +296,8 @@ func TestManagerNewContract(t *testing.T) {
 			},
 			{
 				name:            "unsupported contract type",
-				contractType:    types.ContractType("vhtlc"),
-				wantErrContains: "unsupported contract type",
+				contractType:    types.ContractType("custom"),
+				wantErrContains: "no handler registered for contract type",
 			},
 			{
 				name:         "conflicting label option",
@@ -109,6 +306,81 @@ func TestManagerNewContract(t *testing.T) {
 					contract.WithLabel("a"), contract.WithLabel("b"),
 				},
 				wantErrContains: "label option is already set",
+			},
+			{
+				name:            "vhtlc without params option",
+				contractType:    types.ContractTypeVHTLC,
+				wantErrContains: "invalid contract args type",
+			},
+			{
+				name:         "vhtlc with wrong params type",
+				contractType: types.ContractTypeVHTLC,
+				opts: []contract.ContractOption{
+					contract.WithParams("bogus"),
+				},
+				wantErrContains: "invalid contract args type",
+			},
+			{
+				name:         "vhtlc without sender and receiver",
+				contractType: types.ContractTypeVHTLC,
+				opts: []contract.ContractOption{
+					contract.WithParams(func() contract.VHTLCContractArgs {
+						args := newTestVHTLCContractArgs(t)
+						args.Receiver = nil
+						return args
+					}()),
+				},
+				wantErrContains: "missing external sender or receiver",
+			},
+			{
+				// Both roles taken by external keys leaves no role for the
+				// wallet, so the args validation must reject them upfront.
+				name:         "vhtlc with both sender and receiver external",
+				contractType: types.ContractTypeVHTLC,
+				opts: []contract.ContractOption{
+					contract.WithParams(func() contract.VHTLCContractArgs {
+						args := newTestVHTLCContractArgs(t)
+						args.Sender = newTestPubKey(t)
+						return args
+					}()),
+				},
+				wantErrContains: "sender and receiver must not be both specified",
+			},
+			{
+				name:         "vhtlc missing preimage hash",
+				contractType: types.ContractTypeVHTLC,
+				opts: []contract.ContractOption{
+					contract.WithParams(func() contract.VHTLCContractArgs {
+						args := newTestVHTLCContractArgs(t)
+						args.PreimageHash = nil
+						return args
+					}()),
+				},
+				wantErrContains: "missing preimage hash",
+			},
+			{
+				name:         "non-interactive vhtlc missing receiver script",
+				contractType: types.ContractTypeNonInteractiveVHTLC,
+				opts: []contract.ContractOption{
+					contract.WithParams(func() contract.VHTLCContractArgs {
+						args := newTestNonInteractiveVHTLCContractArgs(t)
+						args.NonInteractiveReceiver = nil
+						return args
+					}()),
+				},
+				wantErrContains: "missing non-interactive receiver script",
+			},
+			{
+				name:         "non-interactive vhtlc missing emulator",
+				contractType: types.ContractTypeNonInteractiveVHTLC,
+				opts: []contract.ContractOption{
+					contract.WithParams(func() contract.VHTLCContractArgs {
+						args := newTestNonInteractiveVHTLCContractArgs(t)
+						args.NonInteractiveEmulator = nil
+						return args
+					}()),
+				},
+				wantErrContains: "missing non-interactive emulator",
 			},
 		}
 		for _, f := range fixtures {
@@ -119,16 +391,6 @@ func TestManagerNewContract(t *testing.T) {
 			})
 		}
 	})
-}
-
-func TestManagerGetSupportedContractTypes(t *testing.T) {
-	mgr, _ := newTestManager(t)
-	supported := mgr.GetSupportedContractTypes(t.Context())
-	require.ElementsMatch(
-		t,
-		[]types.ContractType{types.ContractTypeDefault, types.ContractTypeBoarding},
-		supported,
-	)
 }
 
 func TestManagerGetContracts(t *testing.T) {
@@ -258,8 +520,8 @@ func TestManagerGetHandler(t *testing.T) {
 
 	t.Run("invalid", func(t *testing.T) {
 		mgr, _ := newTestManager(t)
-		handler, err := mgr.GetHandler(t.Context(), types.Contract{Type: "vhtlc"})
-		require.ErrorContains(t, err, "unsupported contract type")
+		handler, err := mgr.GetHandler(t.Context(), types.Contract{Type: "custom"})
+		require.ErrorContains(t, err, "no handler registered for contract type")
 		require.Nil(t, handler)
 	})
 }
@@ -508,6 +770,141 @@ func TestManagerClean(t *testing.T) {
 		// Cleaning an already-clean store must be a no-op.
 		require.NoError(t, mgr.Clean(t.Context()))
 	})
+}
+
+func TestManagerWithCustomHandlers(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		t.Run("built-ins only", func(t *testing.T) {
+			mgr, _ := newTestManager(t)
+			expectedTypes := []types.ContractType{
+				types.ContractTypeBoarding,
+				types.ContractTypeDefault,
+				types.ContractTypeNonInteractiveVHTLC,
+				types.ContractTypeVHTLC,
+			}
+			got := mgr.Registry().SupportedTypes()
+			require.Equal(t, expectedTypes, got)
+		})
+
+		t.Run("with custom handler merged", func(t *testing.T) {
+			h := &mockedHandler{}
+			mockHandler(h, "custom")
+			mgr := newTestManagerWithHandlers(t, contract.WithHandler("custom", h))
+			expectedTypes := []types.ContractType{
+				types.ContractTypeBoarding,
+				types.ContractType("custom"),
+				types.ContractTypeDefault,
+				types.ContractTypeNonInteractiveVHTLC,
+				types.ContractTypeVHTLC,
+			}
+			got := mgr.Registry().SupportedTypes()
+			require.Equal(t, expectedTypes, got)
+		})
+
+		t.Run("NewContract dispatches to custom handler and persists", func(t *testing.T) {
+			const customType = types.ContractType("custom")
+			// Fresh wallet: first key is m/0/0. Wire the handler to return a
+			// contract whose params reference that keyId so GetKeyRef can
+			// resolve back to a valid HD key for the keyProvider.
+			const expectedKeyId = "m/0/0"
+			expected := &types.Contract{
+				Type:    customType,
+				State:   types.ContractStateActive,
+				Script:  "custom-test-script",
+				Address: "custom-test-addr",
+				Params:  map[string]string{ownerKeyIdParam: expectedKeyId},
+			}
+			h := &mockedHandler{}
+			// First match wins — specific .On registrations must precede mockHandler.
+			h.On("NewContract", mock.Anything, mock.MatchedBy(func(k identity.KeyRef) bool {
+				return k.Id == expectedKeyId
+			})).Return(expected, nil)
+			h.On("GetKeyRef", mock.Anything).Return(&identity.KeyRef{Id: expectedKeyId}, nil)
+			mockHandler(h, customType)
+			mgr := newTestManagerWithHandlers(t, contract.WithHandler(customType, h))
+
+			c, err := mgr.NewContract(t.Context(), customType)
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			require.Equal(t, customType, c.Type)
+			require.Equal(t, types.ContractStateActive, c.State)
+			require.Equal(t, expectedKeyId, c.Params[ownerKeyIdParam])
+			require.Equal(t, expected.Script, c.Script)
+			require.Equal(t, expected.Address, c.Address)
+
+			// Persisted exactly once and queryable by the custom type.
+			persisted, err := mgr.GetContracts(t.Context(), contract.WithType(customType))
+			require.NoError(t, err)
+			require.Len(t, persisted, 1)
+			require.Equal(t, c.Script, persisted[0].Script)
+
+			// And the manager actually dispatched to our handler.
+			h.AssertCalled(t, "NewContract", mock.Anything, mock.Anything)
+		})
+
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		t.Run("reserved contract type", func(t *testing.T) {
+			h := &mockedHandler{}
+			mockHandler(h, types.ContractTypeDefault)
+			mgr, err := contract.NewManager(
+				newValidTestArgs(t),
+				contract.WithHandler(types.ContractTypeDefault, h),
+			)
+			require.ErrorContains(t, err, "reserved by a built-in handler")
+			require.Nil(t, mgr)
+		})
+	})
+
+	t.Run("registry is the same instance returned by GetHandler delegation", func(t *testing.T) {
+		h := &mockedHandler{}
+		mockHandler(h, "custom")
+		mgr := newTestManagerWithHandlers(t, contract.WithHandler("custom", h))
+		direct, err := mgr.Registry().GetHandler(types.ContractType("custom"))
+		require.NoError(t, err)
+		viaManager, err := mgr.GetHandler(
+			t.Context(),
+			types.Contract{Type: types.ContractType("custom")},
+		)
+		require.NoError(t, err)
+		require.Same(t, direct, viaManager)
+	})
+}
+
+// newTestVHTLCContractArgs returns manager-level VHTLC args with an external
+// receiver only, so the wallet fills the sender role. The unilateral delays
+// are >= the mock server's UnilateralExitDelay so handler validation passes.
+func newTestVHTLCContractArgs(t *testing.T) contract.VHTLCContractArgs {
+	t.Helper()
+	preimage := make([]byte, 32)
+	_, err := rand.Read(preimage)
+	require.NoError(t, err)
+
+	return contract.VHTLCContractArgs{
+		Receiver:       newTestPubKey(t),
+		PreimageHash:   btcutil.Hash160(preimage),
+		RefundLocktime: arklib.AbsoluteLocktime(1577836800),
+		UnilateralClaimDelay: arklib.RelativeLocktime{
+			Type: arklib.LocktimeTypeSecond, Value: 512,
+		},
+		UnilateralRefundDelay: arklib.RelativeLocktime{
+			Type: arklib.LocktimeTypeSecond, Value: 1024,
+		},
+		UnilateralRefundWithoutReceiverDelay: arklib.RelativeLocktime{
+			Type: arklib.LocktimeTypeSecond, Value: 2048,
+		},
+	}
+}
+
+func newTestNonInteractiveVHTLCContractArgs(t *testing.T) contract.VHTLCContractArgs {
+	t.Helper()
+	args := newTestVHTLCContractArgs(t)
+	pkScript, err := txscript.PayToTaprootScript(newTestPubKey(t))
+	require.NoError(t, err)
+	args.NonInteractiveReceiver = pkScript
+	args.NonInteractiveEmulator = newTestPubKey(t)
+	return args
 }
 
 func newOffchainContract(t *testing.T, mgr contract.Manager) types.Contract {

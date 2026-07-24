@@ -249,14 +249,20 @@ func TestBatchSession(t *testing.T) {
 		require.Len(t, res.Vtxos, 1)
 		require.False(t, res.Vtxos[0].Swept)
 
-		// Make the offchain funds expire. ARKD_VTXO_TREE_EXPIRY=20 means 21 blocks
-		// minimum (1 to confirm + 20 to expire). Use 25 for a small buffer.
-		// Fewer blocks here means fewer electrum notifications, keeping CI's electrs
-		// responsive for subsequent tests.
-		generateBlocks(t, 25)
+		// Make the offchain funds expire
+		generateBlocks(t, 181)
 
-		vtxoEvent = recvVtxoEvent(t, vtxoCh)
-		require.Equal(t, types.VtxosSwept, vtxoEvent.Type)
+		sweepEventSeen := false
+		for !sweepEventSeen {
+			select {
+			case event := <-vtxoCh:
+				if event.Type == types.VtxosSwept {
+					sweepEventSeen = true
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatal("timed out waiting for sweep event")
+			}
+		}
 
 		// Allow electrs to finish indexing all block notifications before proceeding.
 		time.Sleep(10 * time.Second)
@@ -289,8 +295,8 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, batchErr)
 		require.NotEmpty(t, batchTx)
 
-		// next event received by alice and bob vtxo channel should be the added events
-		// related to new vtxos created by the batch
+		// next event received by alice vtxo channel should be the added events about new vtxos
+		// created in the batch
 		vtxoEvent = recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 1)

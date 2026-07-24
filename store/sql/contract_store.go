@@ -104,10 +104,10 @@ func (v *contractStore) GetContractsByState(
 	return contracts, nil
 }
 
-func (v *contractStore) GetContractsByType(
+func (v *contractStore) GetActiveContractsByType(
 	ctx context.Context, contractType types.ContractType,
 ) ([]types.Contract, error) {
-	rows, err := v.querier.SelectContractsByType(ctx, string(contractType))
+	rows, err := v.querier.SelectActiveContractsByType(ctx, string(contractType))
 	if err != nil {
 		return nil, err
 	}
@@ -118,10 +118,10 @@ func (v *contractStore) GetContractsByType(
 	return contracts, nil
 }
 
-func (v *contractStore) GetLatestContract(
+func (v *contractStore) GetLatestActiveContract(
 	ctx context.Context, contractType types.ContractType,
 ) (*types.Contract, error) {
-	row, err := v.querier.SelectLatestContractByType(ctx, string(contractType))
+	row, err := v.querier.SelectLatestActiveContractByType(ctx, string(contractType))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

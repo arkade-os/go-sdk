@@ -43,6 +43,7 @@ type Wallet interface {
 	Client() client.Client
 	ContractManager() contract.Manager
 
+	GetConfigData(ctx context.Context) (*clienttypes.Config, error)
 	Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) error
 	IsLocked(ctx context.Context) bool
 	Unlock(ctx context.Context, password string) error
@@ -66,7 +67,9 @@ type Wallet interface {
 	BurnAsset(
 		ctx context.Context, assetID string, amount uint64,
 	) (string, error)
-	SendOffChain(ctx context.Context, receivers []clienttypes.Receiver) (string, error)
+	SendOffChain(
+		ctx context.Context, receivers []clienttypes.Receiver, opts ...SendOffChainOption,
+	) (string, error)
 	RegisterIntent(
 		ctx context.Context,
 		vtxos []clienttypes.Vtxo, boardingUtxos []clienttypes.Utxo, notes []string,
@@ -84,8 +87,12 @@ type Wallet interface {
 	CompleteUnroll(ctx context.Context, to string) (string, error)
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
-	ListVtxos(ctx context.Context) (spendable, spent []clienttypes.Vtxo, err error)
-	ListSpendableVtxos(ctx context.Context) ([]clienttypes.Vtxo, error)
+
+	// ListVtxos returns one page of wallet VTXOs plus an opaque cursor for the
+	// next page. The cursor is empty when there are no more results; callers
+	// should pass a non-empty cursor back with WithCursor without parsing it.
+	ListVtxos(ctx context.Context, opts ...ListVtxosOption) ([]clienttypes.Vtxo, string, error)
+
 	Dump(ctx context.Context) (seed string, err error)
 	GetTransactionHistory(ctx context.Context) ([]clienttypes.Transaction, error)
 	GetTransactionEventChannel(ctx context.Context) <-chan types.TransactionEvent
