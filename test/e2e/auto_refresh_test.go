@@ -15,10 +15,7 @@ const (
 	// Generous bound for the refresh event so a slow CI run / scheduler
 	// jitter doesn't flake the test. The 90% scheduling target is at ~18s,
 	// so 40s is double the worst case.
-	autoSettleRefreshTimeout = 40 * time.Second
-	// For the disabled-feature case we wait long enough that the scheduled
-	// time would have come and gone if the feature were on.
-	autoSettleDisabledWait = 30 * time.Second
+	autoRefreshTimeout = 40 * time.Second
 )
 
 func TestAutoRefresh(t *testing.T) {
@@ -63,12 +60,11 @@ func TestAutoRefresh(t *testing.T) {
 				initial.ExpiresAt.Format(time.RFC3339),
 			)
 		}
-	case <-time.After(autoSettleRefreshTimeout):
+	case <-time.After(autoRefreshTimeout):
 		t.Fatalf(
 			"timed out after %s waiting for auto-settle to refresh vtxos "+
 				"(initial expired at %s)",
-			autoSettleRefreshTimeout,
-			initial.ExpiresAt.Format(time.RFC3339),
+			autoRefreshTimeout, initial.ExpiresAt.Format(time.RFC3339),
 		)
 	}
 }

@@ -623,14 +623,20 @@ func createBoltzChainSwap(
 	vhtlcHandler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
 	require.NoError(t, err)
 	vhtlcContract, err := vhtlcHandler.NewContract(ctx, vhtlchandler.ContractArgs{
-		SenderKeyId:                          keyId,
-		Sender:                               keyRef.PubKey,
-		Receiver:                             receiverPub,
-		PreimageHash:                         hash160,
-		RefundLocktime:                       arklib.AbsoluteLocktime(timeouts.Refund),
-		UnilateralClaimDelay:                 boltzRelativeLocktime(uint32(timeouts.UnilateralClaim)),
-		UnilateralRefundDelay:                boltzRelativeLocktime(uint32(timeouts.UnilateralRefund)),
-		UnilateralRefundWithoutReceiverDelay: boltzRelativeLocktime(uint32(timeouts.UnilateralRefundWithoutReceiver)),
+		SenderKeyId:    keyId,
+		Sender:         keyRef.PubKey,
+		Receiver:       receiverPub,
+		PreimageHash:   hash160,
+		RefundLocktime: arklib.AbsoluteLocktime(timeouts.Refund),
+		UnilateralClaimDelay: boltzRelativeLocktime(
+			uint32(timeouts.UnilateralClaim),
+		),
+		UnilateralRefundDelay: boltzRelativeLocktime(
+			uint32(timeouts.UnilateralRefund),
+		),
+		UnilateralRefundWithoutReceiverDelay: boltzRelativeLocktime(
+			uint32(timeouts.UnilateralRefundWithoutReceiver),
+		),
 	})
 	require.NoError(t, err)
 	require.Equal(t, createResp.LockupDetails.LockupAddress, vhtlcContract.Address,

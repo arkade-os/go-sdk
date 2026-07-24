@@ -139,7 +139,9 @@ func (w *wallet) ClaimVHTLC(
 		)
 	}
 
-	if txid, done, err := w.redeemPendingOrRecoverableVHTLC(ctx, spend, preimage); done || err != nil {
+	if txid, done, err := w.redeemPendingOrRecoverableVHTLC(
+		ctx, spend, preimage,
+	); done || err != nil {
 		return txid, err
 	}
 

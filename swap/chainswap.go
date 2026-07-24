@@ -306,7 +306,9 @@ func (h *SwapManager) ArkadeToBtcChainSwap(
 						"trying to schedule a unilrateral refund before aborting...", swapResp.Id,
 				)
 				if err := h.scheduleUnilateralRefund(ctx, swap, parsed.RefundLocktime); err != nil {
-					log.WithError(err).Errorf("failed to schedule refund of swap %s unilaterally", swapResp.Id)
+					log.WithError(err).Errorf(
+						"failed to schedule refund of swap %s unilaterally", swapResp.Id,
+					)
 				}
 
 				return

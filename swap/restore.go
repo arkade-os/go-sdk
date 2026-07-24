@@ -107,7 +107,9 @@ func (h *SwapManager) restoreSwap(ctx context.Context, restored boltz.Swap) erro
 		// Only Arkade -> BTC chain swaps are supported: we funded the vhtlc and can refund it.
 		// The BTC side is claimed with an ephemeral key that can't be restored from the seed.
 		if restored.From != boltz.CurrencyArk {
-			return fmt.Errorf("unsupported chain swap direction: %s -> %s", restored.From, restored.To)
+			return fmt.Errorf(
+				"unsupported chain swap direction: %s -> %s", restored.From, restored.To,
+			)
 		}
 		details = restored.RefundDetails
 	default:

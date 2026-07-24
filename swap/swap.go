@@ -448,7 +448,9 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 						"trying to schedule a unilrateral refund before aborting...", swapResp.Id,
 				)
 				if err := h.scheduleUnilateralRefund(ctx, swap, parsed.RefundLocktime); err != nil {
-					log.WithError(err).Errorf("failed to schedule refund of swap %s unilaterally", swapResp.Id)
+					log.WithError(err).Errorf(
+						"failed to schedule refund of swap %s unilaterally", swapResp.Id,
+					)
 				}
 			}()
 
@@ -734,7 +736,10 @@ func (h *SwapManager) collaborativeRefund(
 		return nil, fmt.Errorf("failed to decode refund tx signed by boltz: %s", err)
 	}
 
-	cosignedCheckpointPtx, err := psbt.NewFromRawBytes(strings.NewReader(refundResp.Checkpoint), true)
+	cosignedCheckpointPtx, err := psbt.NewFromRawBytes(
+		strings.NewReader(refundResp.Checkpoint),
+		true,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode refund checkpoint tx signed by boltz: %s", err)
 	}

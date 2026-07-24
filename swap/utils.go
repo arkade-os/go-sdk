@@ -9,7 +9,6 @@ import (
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -266,13 +265,4 @@ func retry(
 			<-time.After(interval)
 		}
 	}
-}
-
-func getEventTopics(vtxos []clientTypes.VtxoWithTapTree, signerPubkey string) []string {
-	topics := make([]string, 0, len(vtxos)+1)
-	for _, vtxo := range vtxos {
-		topics = append(topics, vtxo.Outpoint.String())
-	}
-	topics = append(topics, signerPubkey)
-	return topics
 }
