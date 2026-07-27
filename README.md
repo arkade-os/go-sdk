@@ -26,7 +26,6 @@ Both accept one required parameter plus optional wallet options:
   - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to 20 and must be at least 20.
   - `WithIdentity(svc identity.Identity)` — inject a custom key-management implementation. By default the SDK creates an HD identity (BIP86) backed by the persistent datadir; see the `identity` package for the default implementation.
   - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-settle. Defaults to a gocron-backed in-process scheduler.
-  - `WithoutAutoSettle()` — disable the background auto-settle loop entirely. By default the wallet schedules a Settle at ~90% of each spendable vtxo's remaining lifetime and re-schedules as fresher vtxos arrive.
 
 ```go
 import arksdk (

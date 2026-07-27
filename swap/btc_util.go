@@ -68,7 +68,7 @@ func constructClaimTransaction(
 	}
 
 	feeAmount := uint64(math.Ceil(float64(vbytes)*feeRate) + 100)
-	if params.lockupAmount-feeAmount <= dustAmount {
+	if feeAmount >= params.lockupAmount || params.lockupAmount-feeAmount <= dustAmount {
 		return nil, fmt.Errorf("not enough funds to cover network fees")
 	}
 

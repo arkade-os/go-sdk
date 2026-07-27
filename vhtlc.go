@@ -134,7 +134,7 @@ func (w *wallet) ClaimVHTLC(
 	_, preimageHash := preimage.Hash()
 	if !bytes.Equal(preimageHash, spend.vhtlcOpts.PreimageHash) {
 		return "", fmt.Errorf(
-			"invalid preimage hash: got %x, expected %x",
+			"invalid preimage hash: expected %x, got %x",
 			spend.vhtlcOpts.PreimageHash, preimageHash,
 		)
 	}

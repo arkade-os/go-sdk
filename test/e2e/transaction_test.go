@@ -572,8 +572,8 @@ func TestOffchainTx(t *testing.T) {
 func TestConcurrentTxs(t *testing.T) {
 	ctx := t.Context()
 
-	// WithoutAutoSettle so the scheduler doesn't inject a settle that would
-	// interfere with the ordering we're asserting.
+	// Use a long interval for the periodic next-renewal scheduler to not interfere with the
+	// ordering we're asserting.
 	alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 	bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 

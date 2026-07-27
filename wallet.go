@@ -660,6 +660,18 @@ func (w *wallet) refreshDb(ctx context.Context) error {
 	default:
 	}
 
+	// The onchain explorer lags: a boarding utxo may look unspent right after its settle, so
+	// seeding commitmentTxsToIgnore to prevent adding a duplicated record in db.
+	allTxs, err := w.store.TransactionStore().GetAllTransactions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, tx := range allTxs {
+		if tx.BoardingTxid != "" && tx.SettledBy != "" {
+			commitmentTxsToIgnore[tx.SettledBy] = struct{}{}
+		}
+	}
+
 	// TODO tx packet handling ?
 	offchainHistory, err := w.vtxosToTxs(ctx, spendableVtxos, spentVtxos, commitmentTxsToIgnore)
 	if err != nil {

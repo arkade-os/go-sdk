@@ -79,7 +79,10 @@ func TestSignerRotationRestartSmoke(t *testing.T) {
 func TestSignerRotationRuntimeSmoke(t *testing.T) {
 	ctx := t.Context()
 
-	alice := setupClient(t, "", arksdk.WithRefreshDbInterval(30*time.Second), arksdk.WithoutAutoSettle(), arksdk.WithVerbose())
+	alice := setupClient(
+		t, "", arksdk.WithRefreshDbInterval(30*time.Second),
+		arksdk.WithRenewalScheduleInterval(time.Hour), arksdk.WithVerbose(),
+	)
 	expected, oldSigner := fundSignerRotationWallet(t, alice)
 
 	logBluef(t, "funded live wallet under signer %s", oldSigner)

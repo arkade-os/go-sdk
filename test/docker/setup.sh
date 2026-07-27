@@ -435,7 +435,7 @@ run_quiet docker restart boltz
 echo "waiting for Boltz to be ready after restart..."
 boltz_ready=0
 for i in {1..30}; do
-    if curl -sf http://127.0.0.1:9001/v2/swap/submarine >/dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:9001/v2/version >/dev/null 2>&1; then
         boltz_ready=1
         echo "  ✅ Boltz ready"
         break

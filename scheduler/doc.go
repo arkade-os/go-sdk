@@ -45,19 +45,17 @@
 //   - The service is safe to use across goroutines; a single mutex
 //     guards every public method.
 //
-// # Auto-settle (Wallet consumer)
+// # Auto-renewal (Wallet consumer)
 //
 // See arksdk's init.go: scheduleNextRenewal. The Wallet injects a
 // scheduler at NewWallet time (defaulting to NewScheduler from
 // scheduler/gocron), starts it on unlock, schedules a Settle task at
 // ~90% of the earliest vtxo's remaining lifetime, and re-schedules
-// every time a fresh Ark tx event arrives — the last-writer-wins
+// every time a fresh offchain or batch tx event arrives — the last-writer-wins
 // behavior ensures the most recent expiry estimate always wins. Stop
 // on the Wallet tears down the scheduler before closing the underlying
 // store so a late-firing task can't hit a closed DB.
 //
-// Callers that don't want auto-settle pass arksdk.WithoutAutoSettle()
-// at construction; the Wallet then nils out the scheduler entirely.
 // Callers that want a custom scheduler (e.g. a remote / cluster-aware
 // implementation) pass arksdk.WithScheduler(custom).
 package scheduler

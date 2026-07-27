@@ -35,7 +35,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 
 	t.Logf("=== START tier=%d gapLimit=%d amountSat=%d ===", N, smokeGapLimit, smokeAmountSat)
 
-	alice, aliceDatadir := setupSmokeClient(t, "", arksdk.WithoutAutoSettle())
+	alice, aliceDatadir := setupSmokeClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 	t.Logf("alice datadir: %s", aliceDatadir)
 
 	seed, err := alice.Dump(ctx)
@@ -43,7 +43,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 	require.NotEmpty(t, seed)
 	t.Logf("alice mnemonic: %s", seed)
 
-	bob, bobDatadir := setupSmokeClient(t, "", arksdk.WithoutAutoSettle())
+	bob, bobDatadir := setupSmokeClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 	t.Logf("bob datadir: %s", bobDatadir)
 
 	addrs := make([]string, N)
@@ -111,9 +111,9 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 
 	t.Logf("[restore warm] LoadWallet from %s...", aliceDatadir)
 	restoreStart := time.Now()
-	restoredAlice := loadSmokeClient(t, aliceDatadir,
-		arksdk.WithGapLimit(smokeGapLimit),
-		arksdk.WithoutAutoSettle(),
+	restoredAlice := loadSmokeClient(
+		t, aliceDatadir,
+		arksdk.WithGapLimit(smokeGapLimit), arksdk.WithRenewalScheduleInterval(time.Hour),
 	)
 	t.Logf("[restore warm] LoadWallet ok in %v", time.Since(restoreStart).Truncate(time.Millisecond))
 
@@ -125,7 +125,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 	t.Log("[restore seed] from mnemonic into fresh datadir...")
 	seedRestoreStart := time.Now()
 	seedRestoredAlice, seedDatadir := setupSmokeClient(
-		t, seed, arksdk.WithGapLimit(smokeGapLimit), arksdk.WithoutAutoSettle(),
+		t, seed, arksdk.WithGapLimit(smokeGapLimit), arksdk.WithRenewalScheduleInterval(time.Hour),
 	)
 	t.Logf(
 		"[restore seed] new datadir=%s; LoadWallet ok in %v",
