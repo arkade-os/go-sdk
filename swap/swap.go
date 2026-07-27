@@ -40,19 +40,22 @@ const (
 	SwapTypeChain     = "chain"
 
 	boltzReconnectBackoff = time.Second
+	// refundTimeout bounds the network operations of a refund driven by the manager:
+	// a collaborative refund round with Boltz and the server, or the broadcast of a
+	// unilateral/btc refund fired by the scheduler.
+	refundTimeout = 2 * time.Minute
 )
-
-var ErrorNoVtxosFound = fmt.Errorf("no vtxos found for the given vhtlc opts")
 
 type SwapStatus int
 
 type SwapManager struct {
-	wallet       arksdk.Wallet
-	boltzSvc     *boltz.Api
-	store        swaptypes.Store
-	schedulerSvc swaptypes.Scheduler
-	swapTimeout  time.Duration
-	config       clientTypes.Config
+	wallet           arksdk.Wallet
+	boltzSvc         *boltz.Api
+	store            swaptypes.Store
+	schedulerSvc     swaptypes.Scheduler
+	lnSwapTimeout    time.Duration
+	chainSwapTimeout time.Duration
+	config           clientTypes.Config
 	// contractMu serializes the key-reservation → ImportContract span across
 	// concurrent swap creations: getNewKey derives the next key from the
 	// latest persisted contract, so it must not run again until the previous
@@ -119,14 +122,15 @@ func NewSwapManager(
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &SwapManager{
-		wallet:       wallet,
-		boltzSvc:     boltzSvc,
-		store:        store,
-		schedulerSvc: gocronscheduler.NewScheduler(wallet.Explorer(), o.pollInterval),
-		swapTimeout:  o.timeout,
-		config:       *cfg,
-		ctx:          ctx,
-		cancel:       cancel,
+		wallet:           wallet,
+		boltzSvc:         boltzSvc,
+		store:            store,
+		schedulerSvc:     gocronscheduler.NewScheduler(wallet.Explorer(), o.pollInterval),
+		lnSwapTimeout:    o.lnSwapTimeout,
+		chainSwapTimeout: o.chainSwapTimeout,
+		config:           *cfg,
+		ctx:              ctx,
+		cancel:           cancel,
 	}
 	// The scheduler drives the delayed unilateral refunds, it must run for the whole lifetime
 	// of the manager.
@@ -142,44 +146,15 @@ func NewSwapManager(
 	return h, nil
 }
 
-// Close aborts all background operations and releases the manager's resources. It's safe to
-// call more than once.
-func (h *SwapManager) Close() error {
-	if h.cancel != nil {
-		h.cancel()
-	}
-	// Wait for the background operations to notice the cancellation and exit before tearing
-	// down the scheduler and the store they use.
-	h.waitForBackground(5 * time.Second)
-
-	if h.schedulerSvc != nil {
-		h.schedulerSvc.Stop()
-	}
-	if h.store == nil {
-		return nil
-	}
-	return h.store.Close()
-}
-
-func (h *SwapManager) waitForBackground(timeout time.Duration) {
-	done := make(chan struct{})
-	go func() {
-		h.bgWg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(timeout):
-		log.Warn("timed out waiting for swap manager background operations to exit")
-	}
-}
-
 // GetSwap returns the swap with the given id from the store. It's the way to observe the
 // status of the swaps completed in background, like reverse and chain ones.
 func (h *SwapManager) GetSwap(ctx context.Context, swapId string) (*swaptypes.Swap, error) {
 	return h.store.Swaps().Get(ctx, swapId)
 }
 
+// SubmarineSwap pays a Lightning invoice from Arkade funds: it funds a vhtlc that Boltz claims to
+// settle the invoice. A BOLT12 offer is accepted too and turned into an invoice via Boltz first.
+// It runs synchronously and returns the swap in its terminal state (success or failed).
 func (h *SwapManager) SubmarineSwap(
 	ctx context.Context, invoice string,
 ) (*swaptypes.Swap, error) {
@@ -213,10 +188,19 @@ func (h *SwapManager) SubmarineSwap(
 	return h.submarineSwap(ctx, inv)
 }
 
+// ReverseSwap receives amount sats onto Aradek from Lightning: it returns a swap carrying a
+// Lightning invoice the caller must get paid. Once it's paid Boltz funds the vhtlc and the manager
+// claims it in the background, so the swap completes after this returns — observe it via GetSwap.
 func (h *SwapManager) ReverseSwap(ctx context.Context, amount uint64) (*swaptypes.Swap, error) {
 	return h.reverseSwap(ctx, amount)
 }
 
+// RefundSubmarineSwap refunds a failed submarine swap by id. It first attempts a collaborative
+// refund with Boltz; failing that, it schedules the trustless unilateral refund at the vhtlc's
+// refund locktime and returns the time it will fire. The returned time is nil when the swap was
+// refunded collaboratively.
+// This is meant to be used as fallback as the manager takes care of handling the refund
+// automatically in SubmarineSwap.
 func (h *SwapManager) RefundSubmarineSwap(
 	ctx context.Context, swapId string,
 ) (*swaptypes.Swap, *time.Time, error) {
@@ -230,7 +214,39 @@ func (h *SwapManager) RefundSubmarineSwap(
 		return nil, nil, err
 	}
 
-	return h.refundSwap(ctx, swap, contractArgs)
+	return h.refundSwap(swap, contractArgs)
+}
+
+// Close aborts all background operations and releases the manager's resources. It's safe to
+// call more than once.
+func (h *SwapManager) Close() error {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	// Wait for the background operations to notice the cancellation and exit before tearing
+	// down the scheduler and the store they use.
+	h.waitForBackground(5 * time.Second)
+
+	if h.schedulerSvc != nil {
+		h.schedulerSvc.Stop()
+	}
+	if h.store == nil {
+		return nil
+	}
+	return h.store.Close()
+}
+
+func (h *SwapManager) waitForBackground(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		h.bgWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warn("timed out waiting for swap manager background operations to exit")
+	}
 }
 
 // getSwapContractArgs returns the vhtlc contract args of the given swap, resolving its contract
@@ -306,7 +322,7 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 		To:              boltz.CurrencyBtc,
 		Invoice:         invoice,
 		RefundPublicKey: hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
-		PaymentTimeout:  uint32(h.swapTimeout.Seconds()),
+		PaymentTimeout:  uint32(h.lnSwapTimeout.Seconds()),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to request submarine swap: %v", err)
@@ -359,6 +375,29 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 
 	ws := h.boltzSvc.NewWebsocket()
 	if err := ws.ConnectAndSubscribe(ctx, []string{swapResp.Id}, 5*time.Second); err != nil {
+		// ConnectAndSubscribe can fail with the connection open (subscription failed).
+		_ = ws.Close()
+		return nil, err
+	}
+	defer func() { _ = ws.Close() }()
+
+	swap := &swaptypes.Swap{
+		Id:          swapResp.Id,
+		From:        boltz.CurrencyArk,
+		To:          boltz.CurrencyBtc,
+		CreatedAt:   time.Now(),
+		Status:      int(SwapStatusPending),
+		VHTLCScript: contract.Script,
+		Amount:      swapResp.ExpectedAmount,
+		LNSwap: &swaptypes.LNSwapInfo{
+			Invoice:      invoice,
+			PreimageHash: preimageHash,
+		},
+	}
+	// Persist the swap before funding the vhtlc: a crash in between must leave a record
+	// behind for the startup recovery, since restoring from Boltz only happens when the
+	// store is completely empty.
+	if err := h.persistSwap(ctx, *swap); err != nil {
 		return nil, err
 	}
 
@@ -377,28 +416,19 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 		return true, nil
 	}); err != nil {
 		log.WithError(err).Error("failed to pay to vHTLC address")
+		swap.Status = int(SwapStatusFailed)
+		if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+			log.WithError(err).Errorf("failed to update swap %s", swapResp.Id)
+		}
 		return nil, fmt.Errorf("something went wrong, please retry")
 	}
 
-	swap := &swaptypes.Swap{
-		Id:          swapResp.Id,
-		From:        boltz.CurrencyArk,
-		To:          boltz.CurrencyBtc,
-		CreatedAt:   time.Now(),
-		Status:      int(SwapStatusPending),
-		VHTLCScript: contract.Script,
-		Amount:      swapResp.ExpectedAmount,
-		FundingTxid: txid,
-		LNSwap: &swaptypes.LNSwapInfo{
-			Invoice:      invoice,
-			PreimageHash: preimageHash,
-		},
-	}
-	if err := h.persistSwap(ctx, *swap); err != nil {
+	swap.FundingTxid = txid
+	if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
 		return nil, err
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, h.swapTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, h.lnSwapTimeout)
 	defer cancel()
 	ctx = timeoutCtx
 
@@ -419,7 +449,7 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 
 			switch boltz.ParseEvent(update.Status) {
 			case boltz.TransactionLockupFailed, boltz.InvoiceFailedToPay:
-				updatedSwap, _, err := h.refundSwap(context.Background(), swap, parsed)
+				updatedSwap, _, err := h.refundSwap(swap, parsed)
 				if err != nil {
 					log.WithError(err).Errorf(
 						"submarine swap %s failed with status %s and we failed to refund it",
@@ -447,7 +477,7 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 					"process aborted while waiting for updates for swap %s, "+
 						"trying to schedule a unilrateral refund before aborting...", swapResp.Id,
 				)
-				if err := h.scheduleUnilateralRefund(ctx, swap, parsed.RefundLocktime); err != nil {
+				if err := h.scheduleUnilateralRefund(swap, parsed.RefundLocktime); err != nil {
 					log.WithError(err).Errorf(
 						"failed to schedule refund of swap %s unilaterally", swapResp.Id,
 					)
@@ -480,7 +510,7 @@ func (h *SwapManager) reverseSwap(ctx context.Context, amount uint64) (*swaptype
 	// If the identity supports schnorr signing, use it to generate a deterministic preimage,
 	// otherwise use a random preimage
 	schnorrSigner, ok := keyProvider.(PreimageSigner)
-	persistPreimage := ok
+	persistPreimage := !ok
 	var preimage vhtlc.Preimage
 	if ok {
 		preimage, err = DerivePreimage(ctx, schnorrSigner, *keyRef)
@@ -605,8 +635,14 @@ func (h *SwapManager) reverseSwap(ctx context.Context, amount uint64) (*swaptype
 }
 
 func (h *SwapManager) refundSwap(
-	ctx context.Context, swap *swaptypes.Swap, contractArgs vhtlchandler.ContractArgs,
+	swap *swaptypes.Swap, contractArgs vhtlchandler.ContractArgs,
 ) (*swaptypes.Swap, *time.Time, error) {
+	// The refund is often driven by a flow whose context just expired or failed: run it with
+	// a fresh window bounded by the manager lifetime instead, so it's not cut short by the
+	// caller but can't outlive Close either.
+	ctx, cancel := context.WithTimeout(h.ctx, refundTimeout)
+	defer cancel()
+
 	pubkeys := []*btcec.PublicKey{contractArgs.Sender, contractArgs.Receiver, contractArgs.Signer}
 
 	// if withReceiver is enabled, boltz should sign the transactions
@@ -618,7 +654,7 @@ func (h *SwapManager) refundSwap(
 	log.WithError(err).Debugf(
 		"failed to refund swap %s collaboratively, scheduling unilateral refund...", swap.Id,
 	)
-	if err := h.scheduleUnilateralRefund(ctx, swap, contractArgs.RefundLocktime); err != nil {
+	if err := h.scheduleUnilateralRefund(swap, contractArgs.RefundLocktime); err != nil {
 		return nil, nil, err
 	}
 	scheduledAt := time.Now().Add(time.Duration(contractArgs.RefundLocktime) * time.Second)
@@ -811,9 +847,15 @@ func (h *SwapManager) collaborativeRefund(
 }
 
 func (h *SwapManager) scheduleUnilateralRefund(
-	ctx context.Context, swap *swaptypes.Swap, refundLocktime arklib.AbsoluteLocktime,
+	swap *swaptypes.Swap, refundLocktime arklib.AbsoluteLocktime,
 ) error {
 	refund := func() {
+		// The scheduler fires this at refundLocktime, long after the caller returned, so the
+		// request context that scheduled it is dead by now. Use the manager lifetime context,
+		// bounded by a timeout started here so a stuck refund can't run unbounded.
+		ctx, cancel := context.WithTimeout(h.ctx, refundTimeout)
+		defer cancel()
+
 		txid, err := h.wallet.UnilateralRefundVHTLC(ctx, swap.VHTLCScript)
 		if err != nil {
 			log.WithError(err).Errorf("failed to refund swap %s", swap.Id)
@@ -849,7 +891,7 @@ func (h *SwapManager) getNewKey(
 	store := h.wallet.Store().ContractStore()
 	keyProvider := h.wallet.Identity()
 
-	latestContract, err := store.GetLatestActiveContract(ctx, types.ContractTypeVHTLC)
+	latestContract, err := store.GetLatestContract(ctx, types.ContractTypeVHTLC)
 	if err != nil {
 		return nil, err
 	}

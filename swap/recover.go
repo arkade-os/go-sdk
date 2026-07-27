@@ -33,11 +33,25 @@ func (h *SwapManager) recoverPendingSwaps(ctx context.Context) {
 	}
 	for i := range failedSwaps {
 		swap := failedSwaps[i]
-		if swap.RedeemTxid != "" || swap.From != boltz.CurrencyArk {
+		if swap.From == boltz.CurrencyArk {
+			if swap.RedeemTxid != "" {
+				continue
+			}
+			if err := h.recoverRefund(ctx, &swap); err != nil {
+				log.WithError(err).Warnf("swap recovery: failed to refund failed swap %s", swap.Id)
+			}
 			continue
 		}
-		if err := h.recoverRefund(ctx, &swap); err != nil {
-			log.WithError(err).Warnf("swap recovery: failed to refund failed swap %s", swap.Id)
+		// Failed Btc -> Arkade chain swaps: the scheduled refund of the btc lockup doesn't
+		// survive a restart, re-schedule it if the lockup was funded and never redeemed.
+		if swap.ChainSwap == nil || swap.ChainSwap.FundingTxid == "" ||
+			swap.ChainSwap.RedeemTxid != "" {
+			continue
+		}
+		if err := h.recoverBtcRefund(ctx, &swap); err != nil {
+			log.WithError(err).Warnf(
+				"swap recovery: failed to refund btc lockup of failed swap %s", swap.Id,
+			)
 		}
 	}
 
@@ -139,6 +153,10 @@ func (h *SwapManager) recoverChainSwap(
 	ctx context.Context, swap *swaptypes.Swap, status *boltz.SwapStatusResponse,
 	event boltz.SwapUpdateEvent,
 ) error {
+	if swap.From == boltz.CurrencyBtc {
+		return h.recoverBtcToArkadeChainSwap(ctx, swap, event)
+	}
+
 	switch event {
 	case boltz.TransactionClaimed:
 		swap.Status = int(SwapStatusSuccess)
@@ -215,6 +233,58 @@ func (h *SwapManager) recoverChainSwapClaim(
 	return h.persistUpdatedSwap(ctx, *swap)
 }
 
+// recoverBtcToArkadeChainSwap claims the vhtlc Boltz funded, if any. If the swap failed, it
+// re-schedules the refund of the btc lockup we funded, if any: the ephemeral refund key
+// survives the restart in the swap record, the scheduled refund task doesn't.
+func (h *SwapManager) recoverBtcToArkadeChainSwap(
+	ctx context.Context, swap *swaptypes.Swap, event boltz.SwapUpdateEvent,
+) error {
+	switch event {
+	case boltz.TransactionServerMempoool, boltz.TransactionServerConfirmed:
+		preimage, err := h.swapPreimage(ctx, swap)
+		if err != nil {
+			return err
+		}
+		txid, err := h.wallet.ClaimVHTLC(ctx, swap.VHTLCScript, preimage)
+		if err != nil {
+			return fmt.Errorf("failed to claim vhtlc: %w", err)
+		}
+		swap.Status = int(SwapStatusSuccess)
+		swap.RedeemTxid = txid
+		log.Debugf("swap recovery: chain swap %s claimed with tx %s", swap.Id, txid)
+		return h.persistUpdatedSwap(ctx, *swap)
+	case boltz.TransactionClaimed:
+		// Already claimed before the restart, only the store was left behind.
+		swap.Status = int(SwapStatusSuccess)
+		return h.persistUpdatedSwap(ctx, *swap)
+	case boltz.SwapExpired, boltz.TransactionFailed, boltz.TransactionLockupFailed:
+		swap.Status = int(SwapStatusFailed)
+		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+			return err
+		}
+		if swap.ChainSwap.FundingTxid == "" {
+			return nil
+		}
+		return h.recoverBtcRefund(ctx, swap)
+	default:
+		log.Debugf(
+			"swap recovery: chain swap %s not actionable in status %d, leaving pending",
+			swap.Id, event,
+		)
+		return nil
+	}
+}
+
+// recoverBtcRefund schedules the refund of the btc lockup of a failed Btc -> Arkade chain swap
+// at the block height its locktime expires. The task fires immediately if it's already past.
+func (h *SwapManager) recoverBtcRefund(ctx context.Context, swap *swaptypes.Swap) error {
+	htlcScript, refundKey, err := h.getSwapHtlc(ctx, swap)
+	if err != nil {
+		return err
+	}
+	return h.scheduleBtcRefund(swap, htlcScript, refundKey)
+}
+
 // recoverRefund refunds the vhtlc funding the given swap. If the refund locktime has already
 // expired, it goes straight for the trustless unilateral refund; otherwise it tries the
 // collaborative refund first and schedules the unilateral one only as a fallback.
@@ -230,10 +300,10 @@ func (h *SwapManager) recoverRefund(ctx context.Context, swap *swaptypes.Swap) e
 	}
 	if expired {
 		// scheduleUnilateralRefund fires the refund immediately when the locktime is past.
-		return h.scheduleUnilateralRefund(ctx, swap, contractArgs.RefundLocktime)
+		return h.scheduleUnilateralRefund(swap, contractArgs.RefundLocktime)
 	}
 
-	if _, _, err := h.refundSwap(ctx, swap, contractArgs); err != nil {
+	if _, _, err := h.refundSwap(swap, contractArgs); err != nil {
 		return fmt.Errorf("failed to refund: %w", err)
 	}
 	return nil

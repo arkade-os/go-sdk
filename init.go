@@ -268,6 +268,15 @@ func (w *wallet) scheduleNextRenewal() {
 		return
 	}
 
+	// Snapshot the wallet lifetime context: it's cancelled by Lock/Stop (and nilled right
+	// after), so an in-flight renewal aborts promptly instead of running against a wallet
+	// that's tearing down, and a renewal task firing during the teardown doesn't read a nil
+	// context.
+	ctx := w.stopCtx
+	if ctx == nil {
+		return
+	}
+
 	// Serialize concurrent callers (unlock, the periodic job, the tx listener) so the
 	// read-decide-schedule sequence below is atomic. The rare settle-now branch runs while
 	// holding the lock too, which is fine: settling default vtxos is infrequent.
@@ -285,7 +294,7 @@ func (w *wallet) scheduleNextRenewal() {
 	// contract vtxos) must not be considered, otherwise an expired one Settle can't consume
 	// would wedge the auto-settle loop. Recoverable vtxos are included so already-expired own
 	// vtxos still trigger a renewal.
-	vtxos, err := w.getSpendableVtxos(context.Background(), true)
+	vtxos, err := w.getSpendableVtxos(ctx, true)
 	if err != nil {
 		log.WithError(err).Warn("failed to get spendable vtxos while scheduling next renewal")
 		return
@@ -296,7 +305,7 @@ func (w *wallet) scheduleNextRenewal() {
 	}
 
 	renewVtxos := func() {
-		txid, err := w.Settle(context.Background())
+		txid, err := w.Settle(ctx)
 		if err != nil {
 			log.WithError(err).Error("failed to renew vtxos")
 			return
@@ -313,16 +322,18 @@ func (w *wallet) scheduleNextRenewal() {
 	}
 
 	// The earliest vtxo is already expired: settle now to renew it rather than scheduling a
-	// renewal in the past.
-	if !earliest.After(time.Now()) {
+	// renewal in the past. The same clock reading drives the lead computation below, so the
+	// expiry can't slip into the past between this check and the scheduling.
+	now := time.Now()
+	if !earliest.After(now) {
 		renewVtxos()
 		return
 	}
 
 	// Schedule the renewal slightly before the earliest expiration (proportional lead), but
 	// only if it's sooner than the one already scheduled.
-	expiry := time.Until(earliest)
-	nextExpiration := time.Now().Add(expiry * 9 / 10)
+	expiry := earliest.Sub(now)
+	nextExpiration := now.Add(expiry / 10 * 9)
 	nextRenewal := w.scheduler.GetTaskScheduledAt()
 	if !nextRenewal.IsZero() && !nextExpiration.Before(nextRenewal) {
 		return

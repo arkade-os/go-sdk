@@ -31,9 +31,11 @@ const (
 	unilateralClaimDelayParam                 = "unilateralClaimDelay"
 	unilateralRefundDelayParam                = "unilateralRefundDelay"
 	unilateralRefundWithoutReceiverDelayParam = "unilateralRefundWithoutReceiverDelay"
-	nonInteractiveReceiverParam               = "nonInteractiveReceiver"
-	nonInteractiveEmulatorParam               = "nonInteractiveEmulator"
-	checkpointExitPathParam                   = "checkpointExitPath"
+	// IMPORTANT: if this changes (it should not), the same should be done to the vhtlc store
+	// implementaions!
+	nonInteractiveReceiverParam = "nonInteractiveReceiver"
+	nonInteractiveEmulatorParam = "nonInteractiveEmulator"
+	checkpointExitPathParam     = "checkpointExitPath"
 )
 
 // handler is the shared stateless contract handler for VHTLC scripts.

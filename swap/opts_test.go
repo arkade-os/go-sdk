@@ -18,8 +18,12 @@ func TestSwapManagerOptions(t *testing.T) {
 				name: "no options",
 			},
 			{
-				name: "WithTimeout",
-				opts: []swap.Option{swap.WithTimeout(30 * time.Second)},
+				name: "WithLnSwapTimeout",
+				opts: []swap.Option{swap.WithLnSwapTimeout(30 * time.Second)},
+			},
+			{
+				name: "WithChainSwapTimeout",
+				opts: []swap.Option{swap.WithChainSwapTimeout(time.Hour)},
 			},
 			{
 				name: "WithPollInterval",
@@ -30,9 +34,10 @@ func TestSwapManagerOptions(t *testing.T) {
 				opts: []swap.Option{swap.WithVerbose()},
 			},
 			{
-				name: "WithTimeout and WithPollInterval",
+				name: "all options",
 				opts: []swap.Option{
-					swap.WithTimeout(30 * time.Second),
+					swap.WithLnSwapTimeout(30 * time.Second),
+					swap.WithChainSwapTimeout(time.Hour),
 					swap.WithPollInterval(time.Second),
 				},
 			},
@@ -58,22 +63,40 @@ func TestSwapManagerOptions(t *testing.T) {
 				wantErrContains: "swap option cannot be nil",
 			},
 			{
-				name:            "WithTimeout zero",
-				opts:            []swap.Option{swap.WithTimeout(0)},
-				wantErrContains: "timeout must not be empty",
+				name:            "WithLnSwapTimeout zero",
+				opts:            []swap.Option{swap.WithLnSwapTimeout(0)},
+				wantErrContains: "ln swap timeout must not be empty",
 			},
 			{
-				name:            "WithTimeout negative",
-				opts:            []swap.Option{swap.WithTimeout(-time.Second)},
-				wantErrContains: "timeout must not be empty",
+				name:            "WithLnSwapTimeout negative",
+				opts:            []swap.Option{swap.WithLnSwapTimeout(-time.Second)},
+				wantErrContains: "ln swap timeout must not be empty",
 			},
 			{
-				name: "WithTimeout twice",
+				name: "WithLnSwapTimeout twice",
 				opts: []swap.Option{
-					swap.WithTimeout(30 * time.Second),
-					swap.WithTimeout(30 * time.Second),
+					swap.WithLnSwapTimeout(30 * time.Second),
+					swap.WithLnSwapTimeout(30 * time.Second),
 				},
-				wantErrContains: "timeout already set",
+				wantErrContains: "ln swap timeout already set",
+			},
+			{
+				name:            "WithChainSwapTimeout zero",
+				opts:            []swap.Option{swap.WithChainSwapTimeout(0)},
+				wantErrContains: "chain swap timeout must not be empty",
+			},
+			{
+				name:            "WithChainSwapTimeout negative",
+				opts:            []swap.Option{swap.WithChainSwapTimeout(-time.Second)},
+				wantErrContains: "chain swap timeout must not be empty",
+			},
+			{
+				name: "WithChainSwapTimeout twice",
+				opts: []swap.Option{
+					swap.WithChainSwapTimeout(time.Hour),
+					swap.WithChainSwapTimeout(time.Hour),
+				},
+				wantErrContains: "chain swap timeout already set",
 			},
 			{
 				name:            "WithPollInterval zero",

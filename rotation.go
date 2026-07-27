@@ -52,20 +52,20 @@ func (w *wallet) detectAndHandleSignerRotation(ctx context.Context) {
 
 // needsMigration returns whether a migration is needed for the fetched signer set:
 // - if w.lastSignerSet is set and doesn't match the fetched one, a migration is needed.
-// - if w.lastSignerSet is unset, but the latest active contract (default or boarding) makes use of
+// - if w.lastSignerSet is unset, but the latest contract (default or boarding) makes use of
 // a different signer pubkey, a migration is needed.
 func (w *wallet) needsMigration(ctx context.Context, signerSet, signer string) bool {
 	if len(w.lastSignerSet) > 0 {
 		return w.lastSignerSet != signerSet
 	}
 
-	contract, err := w.store.ContractStore().GetLatestActiveContract(ctx, types.ContractTypeDefault)
+	contract, err := w.store.ContractStore().GetLatestContract(ctx, types.ContractTypeDefault)
 	if err != nil {
 		log.WithError(err).Warn("failed to get latest default contract")
 		return false
 	}
 	if contract == nil {
-		contract, err = w.store.ContractStore().GetLatestActiveContract(
+		contract, err = w.store.ContractStore().GetLatestContract(
 			ctx, types.ContractTypeBoarding,
 		)
 		if err != nil {

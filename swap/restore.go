@@ -37,6 +37,20 @@ func (h *SwapManager) restoreSwaps(ctx context.Context) {
 		return
 	}
 
+	// An empty swap store alone doesn't mean a wallet restore: it's also the very first
+	// startup of a brand new wallet. The wallet is unlocked (and so has already restored its
+	// own contracts) by the time the manager is created, so an empty contract store confirms
+	// the first startup, where there's nothing to restore and no reason to disclose our xpub
+	// to Boltz.
+	contracts, err := h.wallet.Store().ContractStore().ListContracts(ctx)
+	if err != nil {
+		log.WithError(err).Error("swap restore: failed to list wallet contracts")
+		return
+	}
+	if len(contracts) <= 0 {
+		return
+	}
+
 	request, err := h.restoreRequest(ctx)
 	if err != nil {
 		log.WithError(err).Error("swap restore: failed to build restore request")

@@ -21,19 +21,26 @@ type Store interface {
 }
 
 type Swap struct {
-	Id          string
-	From        boltz.Currency
-	To          boltz.Currency
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Id        string
+	From      boltz.Currency
+	To        boltz.Currency
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// Status can be either pending, success or failure
 	Status      int
 	VHTLCScript string
-	Amount      uint64
+	// Amount in sats
+	Amount uint64
+	// The txid of the funding transaction, if any.
 	FundingTxid string
-	RedeemTxid  string
-	Preimage    []byte
-	LNSwap      *LNSwapInfo
-	ChainSwap   *ChainSwapInfo
+	// The txid of the claim or refund transaction, if any.
+	RedeemTxid string
+	// The preimage is stored only in case it can't be derived (no usage of hd identity)
+	Preimage []byte
+	// Info about the submarine or reverse swap, nil if this is a chainswap
+	LNSwap *LNSwapInfo
+	// Info about the chain swap, nil if this is a submarine/reverse swap
+	ChainSwap *ChainSwapInfo
 }
 
 type LNSwapInfo struct {
@@ -42,10 +49,14 @@ type LNSwapInfo struct {
 }
 
 type ChainSwapInfo struct {
+	// The txid of the funding transaction, if any.
 	FundingTxid string
-	RedeemTxid  string
-	Address     string
-	// PrivateKey is our ephemeral BTC HTLC claim key.
+	// The txid of the claim or refund transaction, if any.
+	RedeemTxid string
+	// The HTLC address (onchain) to fund
+	Address string
+	// PrivateKey is our ephemeral key locking the HTLC: the claim key in an Arkade -> BTC
+	// swap, the refund key in a BTC -> Arkade one.
 	PrivateKey string
 	// DestinationAddress is the onchain address the claimed BTC is sent to. Only we know it
 	// (Boltz doesn't), so it must be persisted to recover the claim of an Arkade -> BTC chain
@@ -56,5 +67,6 @@ type ChainSwapInfo struct {
 	// must be persisted: the swap tree only carries the x-only key, which is not enough to
 	// recompute the MuSig2 taproot output.
 	ServerPublicKey string
-	RefundLocktime  uint32
+	// The absolute locktime for refund
+	RefundLocktime uint32
 }

@@ -328,7 +328,7 @@ func (w *wallet) DeleteVHTLCs(ctx context.Context, scripts []string) error {
 	if err := w.safeCheck(); err != nil {
 		return err
 	}
-	return w.store.ContractStore().DisableContracts(ctx, scripts)
+	return w.contractManager.DisableContracts(ctx, scripts)
 }
 
 // vhtlcSpendContext gathers everything needed to spend a vhtlc vtxo: the contract data, the
@@ -393,11 +393,19 @@ func (w *wallet) resolveVHTLCSpend(
 	if err != nil {
 		return nil, err
 	}
-	parsed, ok := args.(vhtlchandler.ContractArgs)
-	if !ok {
+	// GetArgs returns ContractArgs for interactive vhtlcs and NonInteractiveContractArgs for
+	// non-interactive ones; the latter embeds the former but is a distinct type, so it isn't
+	// assertable to ContractArgs. Handle both and read the (promoted) ReceiverKeyId from either.
+	var receiverKeyId string
+	switch a := args.(type) {
+	case vhtlchandler.ContractArgs:
+		receiverKeyId = a.ReceiverKeyId
+	case vhtlchandler.NonInteractiveContractArgs:
+		receiverKeyId = a.ReceiverKeyId
+	default:
 		return nil, fmt.Errorf(
-			"invalid contract args type: got %T, expected %T",
-			args, vhtlchandler.ContractArgs{},
+			"invalid contract args type: got %T, expected %T or %T",
+			args, vhtlchandler.ContractArgs{}, vhtlchandler.NonInteractiveContractArgs{},
 		)
 	}
 
@@ -408,7 +416,7 @@ func (w *wallet) resolveVHTLCSpend(
 		signerKey:          signerKey,
 		vtxo:               vtxo,
 		pending:            pending,
-		isReceiver:         len(parsed.ReceiverKeyId) > 0,
+		isReceiver:         len(receiverKeyId) > 0,
 	}, nil
 }
 
@@ -451,7 +459,7 @@ func (w *wallet) redeemPendingOrRecoverableVHTLC(
 			return "", true, fmt.Errorf("failed to settle recoverable vhtlc: %w", err)
 		}
 
-		log.Infof("recoverable vhtlc settled in round %s", txid)
+		log.Infof("recoverable vhtlc settled in batch %s", txid)
 		return txid, true, nil
 	}
 
@@ -632,7 +640,7 @@ func (w *wallet) settleVHTLC(
 		return "", fmt.Errorf("batch session failed: %w", err)
 	}
 
-	log.Debugf("successfully settled vhtlc in round %s", txid)
+	log.Debugf("successfully settled vhtlc in batch %s", txid)
 	return txid, nil
 }
 

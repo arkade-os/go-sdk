@@ -19,8 +19,6 @@ type heightTask struct {
 type service struct {
 	scheduler            *gocron.Scheduler
 	explorer             explorer.Explorer
-	job                  *gocron.Job
-	stopJob              func()
 	mu                   *sync.Mutex
 	blockCancel          context.CancelFunc
 	tasks                []*heightTask
@@ -31,7 +29,12 @@ func NewScheduler(
 	explorerSvc explorer.Explorer, pollInterval time.Duration,
 ) types.Scheduler {
 	svc := gocron.NewScheduler(time.UTC)
-	return &service{svc, explorerSvc, nil, nil, &sync.Mutex{}, nil, nil, pollInterval}
+	return &service{
+		scheduler:            svc,
+		explorer:             explorerSvc,
+		mu:                   &sync.Mutex{},
+		explorerPollInterval: pollInterval,
+	}
 }
 
 func (s *service) Start() {
@@ -81,11 +84,9 @@ func (s *service) Stop() {
 	defer s.mu.Unlock()
 
 	if s.scheduler != nil {
-		s.scheduler.Remove(s.job)
 		s.scheduler.Stop()
 		s.scheduler.Clear()
 
-		s.job = nil
 		s.tasks = make([]*heightTask, 0)
 	}
 
@@ -96,7 +97,7 @@ func (s *service) Stop() {
 }
 
 func (s *service) ScheduleTaskAtHeight(target uint32, task func()) error {
-	if target <= 0 {
+	if target == 0 {
 		return fmt.Errorf("invalid height: %d", target)
 	}
 
@@ -129,85 +130,6 @@ func (s *service) ScheduleTaskAtTime(at time.Time, task func()) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(func() {
-		task()
-		s.mu.Lock()
-		defer s.mu.Unlock()
-	})
-	if err != nil {
-		return err
-	}
-
+	_, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(task)
 	return err
-}
-
-// ScheduleNextRenewal schedules a Settle() to run in the best market hour
-func (s *service) ScheduleNextRenewal(at time.Time, renewFunc func()) error {
-	if at.IsZero() {
-		return fmt.Errorf("invalid schedule time")
-	}
-
-	delay := time.Until(at)
-
-	s.CancelNextRenewal()
-
-	// If the requested time is already due (the vtxos are at/over their expiry), renew immediately
-	// instead of dropping the request. Run async so callers holding their own locks
-	// (e.g. the vtxo event listener) don't deadlock.
-	if delay <= 0 {
-		go renewFunc()
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	job, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(func() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		s.mu.Lock()
-		s.scheduler.Remove(s.job)
-		s.job = nil
-		s.mu.Unlock()
-
-		renewFunc()
-	})
-	if err != nil {
-		cancel()
-		return err
-	}
-
-	s.job = job
-	s.stopJob = cancel
-
-	return err
-}
-
-// WhenNextRenewal returns the next scheduled renewal time
-func (s *service) WhenNextRenewal() time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.job == nil {
-		return time.Time{}
-	}
-
-	return s.job.NextRun()
-}
-
-func (s *service) CancelNextRenewal() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.job == nil {
-		return
-	}
-
-	s.stopJob()
-	s.scheduler.Remove(s.job)
-	s.job = nil
 }

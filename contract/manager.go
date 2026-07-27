@@ -258,7 +258,7 @@ func (m *contractManager) scanContracts(
 	ctx context.Context, contractType types.ContractType,
 	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
 ) error {
-	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -364,7 +364,7 @@ scan:
 func (m *contractManager) newDefaultContract(
 	ctx context.Context, contractType types.ContractType, handler handlers.Handler,
 ) (*types.Contract, error) {
-	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +410,7 @@ func (m *contractManager) newVHTLCContract(
 		return nil, fmt.Errorf("invalid contract args: %w", err)
 	}
 
-	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}

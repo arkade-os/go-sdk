@@ -443,7 +443,8 @@ for i in {1..30}; do
     sleep 2
 done
 if [ $boltz_ready -ne 1 ]; then
-    exit "  ❌ Boltz did not become ready after restart"
+    echo "  ❌ Boltz did not become ready after restart"
+    exit 1
 fi
 
 echo "✅ setup complete"

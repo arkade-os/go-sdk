@@ -16,28 +16,49 @@ func ApplyOptions(options ...Option) error {
 }
 
 const (
-	defaultTimeout      = 15 * time.Second
-	defaultPollInterval = 5 * time.Second
+	// LN payments settle in seconds once Boltz attempts them, a couple of minutes is a
+	// generous deadline for the whole submarine flow.
+	defaultLnSwapTimeout = 2 * time.Minute
+	// Chain swaps involve onchain lockups: a BTC -> Arkade one waits for the caller to fund
+	// the lockup address and for the funding to confirm, which can take a while.
+	defaultChainSwapTimeout = 30 * time.Minute
+	defaultPollInterval     = 5 * time.Second
 )
 
-// WithOutpoint makes the VHTLC APIs spend the given vtxo instead of the oldest one funding the
-// contract.
-func WithTimeout(timeout time.Duration) Option {
+// WithLnSwapTimeout allows to customize the deadline for the execution of LN (submarine)
+// swaps. It's also the deadline Boltz is given to settle the invoice.
+func WithLnSwapTimeout(timeout time.Duration) Option {
 	return func(o *opts) error {
 		if timeout <= 0 {
-			return fmt.Errorf("timeout must not be empty")
+			return fmt.Errorf("ln swap timeout must not be empty")
 		}
-		if o.timeoutSet {
-			return fmt.Errorf("timeout already set")
+		if o.lnSwapTimeoutSet {
+			return fmt.Errorf("ln swap timeout already set")
 		}
-		o.timeoutSet = true
-		o.timeout = timeout
+		o.lnSwapTimeoutSet = true
+		o.lnSwapTimeout = timeout
+		return nil
+	}
+}
+
+// WithChainSwapTimeout allows to customize the deadline for the execution of chain swaps,
+// including the time given to the caller to fund the BTC lockup of a BTC -> Arkade one.
+func WithChainSwapTimeout(timeout time.Duration) Option {
+	return func(o *opts) error {
+		if timeout <= 0 {
+			return fmt.Errorf("chain swap timeout must not be empty")
+		}
+		if o.chainSwapTimeoutSet {
+			return fmt.Errorf("chain swap timeout already set")
+		}
+		o.chainSwapTimeoutSet = true
+		o.chainSwapTimeout = timeout
 		return nil
 	}
 }
 
 // WithPollInterval can be used to customize the SwapManager polling interval
-// to fetch the chain tip.
+// to periodically fetch the chain tip.
 func WithPollInterval(interval time.Duration) Option {
 	return func(o *opts) error {
 		if interval <= 0 {
@@ -64,19 +85,25 @@ func WithVerbose() Option {
 }
 
 type opts struct {
-	timeout         time.Duration
-	timeoutSet      bool
-	pollInterval    time.Duration
-	pollIntervalSet bool
-	verbose         bool
+	lnSwapTimeout       time.Duration
+	lnSwapTimeoutSet    bool
+	chainSwapTimeout    time.Duration
+	chainSwapTimeoutSet bool
+	pollInterval        time.Duration
+	pollIntervalSet     bool
+	verbose             bool
 }
 
-func defaulOpts() *opts {
-	return &opts{timeout: defaultTimeout, pollInterval: defaultPollInterval}
+func defaultOpts() *opts {
+	return &opts{
+		lnSwapTimeout:    defaultLnSwapTimeout,
+		chainSwapTimeout: defaultChainSwapTimeout,
+		pollInterval:     defaultPollInterval,
+	}
 }
 
 func applyOptions(options ...Option) (*opts, error) {
-	o := defaulOpts()
+	o := defaultOpts()
 	for _, opt := range options {
 		if opt == nil {
 			return nil, fmt.Errorf("swap option cannot be nil")
