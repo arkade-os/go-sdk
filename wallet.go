@@ -45,7 +45,10 @@ var (
 )
 
 type wallet struct {
-	client          clientwallet.Wallet
+	client clientwallet.Wallet
+	// infoCache backs the caching client returned by Client(): one wallet-level GetInfo
+	// cache shared by every consumer (contract handlers, batch sessions, rotation).
+	infoCache       *infoCache
 	clientStore     clienttypes.Store
 	store           types.Store
 	contractManager contract.Manager
@@ -152,6 +155,7 @@ func NewWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 
 	return &wallet{
 		client:                     cli,
+		infoCache:                  newInfoCache(o.infoCacheTTL),
 		verbose:                    o.verbose,
 		store:                      db,
 		clientStore:                clientDb,
@@ -264,6 +268,7 @@ func LoadWallet(datadir string, opts ...WalletOption) (Wallet, error) {
 
 	return &wallet{
 		client:                     cli,
+		infoCache:                  newInfoCache(o.infoCacheTTL),
 		verbose:                    o.verbose,
 		store:                      db,
 		clientStore:                clientDb,
@@ -311,7 +316,12 @@ func (w *wallet) Client() client.Client {
 	if w.client == nil {
 		return nil
 	}
-	return w.client.Client()
+	cli := w.client.Client()
+	if cli == nil {
+		return nil
+	}
+	// Serve GetInfo from the wallet-level cache, shared by every consumer of the client.
+	return newCachingClient(cli, w.infoCache)
 }
 
 func (w *wallet) Identity() identity.Identity {

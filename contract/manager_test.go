@@ -164,7 +164,9 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, "my-label", persisted[0].Label)
 		})
 
-		t.Run("with server params forces cache update", func(t *testing.T) {
+		t.Run("picks up rotated server params", func(t *testing.T) {
+			// GetInfo caching lives at wallet level, outside the manager: a rotated
+			// signer reported by the transport must be reflected by the next contract.
 			env, mgr, _ := newTestManagerWithEnv(t)
 
 			first, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
@@ -172,19 +174,15 @@ func TestManagerNewContract(t *testing.T) {
 			require.Equal(t, 1, env.transport.callCount())
 
 			rotatedSigner := newTestPubKey(t)
-			rotatedInfo := &client.Info{
+			env.transport.info = &client.Info{
 				SignerPubKey:        hex.EncodeToString(rotatedSigner.SerializeCompressed()),
 				UnilateralExitDelay: testUnilateralExitDelay,
 				BoardingExitDelay:   testBoardingExitDelay,
 				CheckpointTapscript: testCheckpointTapscript,
 			}
-			second, err := mgr.NewContract(
-				t.Context(),
-				types.ContractTypeDefault,
-				contract.WithServerParams(rotatedInfo),
-			)
+			second, err := mgr.NewContract(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
-			require.Equal(t, 1, env.transport.callCount())
+			require.Equal(t, 2, env.transport.callCount())
 			require.NotEqual(t, first.Params["signerKey"], second.Params["signerKey"])
 			require.Equal(
 				t,

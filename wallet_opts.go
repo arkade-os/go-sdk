@@ -63,6 +63,23 @@ func WithRenewalScheduleInterval(d time.Duration) WalletOption {
 	}
 }
 
+// WithServerParamsCacheTTL sets how long the wallet reuses a cached GetInfo response before
+// hitting the server again. Must be at least 1m.
+// Can only be set once. If not set, it defaults to 5m.
+func WithServerParamsCacheTTL(d time.Duration) WalletOption {
+	return func(o *walletOptions) error {
+		if o.infoCacheTTLSet {
+			return fmt.Errorf("server params cache ttl already set")
+		}
+		if d < minInfoCacheTTL {
+			return fmt.Errorf("server params cache ttl must be at least %s", minInfoCacheTTL)
+		}
+		o.infoCacheTTL = d
+		o.infoCacheTTLSet = true
+		return nil
+	}
+}
+
 // WithVerbose enables verbose logging.
 func WithVerbose() WalletOption {
 	return func(o *walletOptions) error {
@@ -161,6 +178,8 @@ type walletOptions struct {
 	refreshDbInterval          time.Duration
 	renewalScheduleIntervalSet bool
 	renewalScheduleInterval    time.Duration
+	infoCacheTTLSet            bool
+	infoCacheTTL               time.Duration
 	verbose                    bool
 	hdGapLimit                 uint32
 	hdGapLimitSet              bool
@@ -176,5 +195,6 @@ func newDefaultWalletOptions() *walletOptions {
 		hdGapLimit:              minGapLimit,
 		refreshDbInterval:       minDbRefreshInterval,
 		renewalScheduleInterval: minRenewalScheduleInterval,
+		infoCacheTTL:            defaultInfoCacheTTL,
 	}
 }

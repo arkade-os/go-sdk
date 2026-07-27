@@ -25,11 +25,9 @@
 //     which the manager uses to find the next free derivation index
 //     without scanning the entire row set.
 //
-//   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
-//     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to the built-in handlers that need
-//     server info (default, boarding, vhtlc) so they share a single
-//     GetInfo cache. The htlc built-in does not need server info.
+//   - args.Client is handed to the built-in handlers that need server
+//     info (default, boarding, vhtlc) as-is: the wallet already serves
+//     its GetInfo from a wallet-level cache, so they all share it.
 //     Handlers added by callers via [WithHandler] are constructed outside
 //     the manager and own their own client wiring — see the Extending
 //     section below.

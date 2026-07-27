@@ -236,7 +236,7 @@ func (w *wallet) migrateFunds(
 	ctx context.Context, vtxos []clienttypes.VtxoWithTapTree, serverParams *client.Info,
 ) (string, error) {
 	migrate := func() (any, error) {
-		destAddr, err := w.newOffchainAddress(ctx, contract.WithServerParams(serverParams))
+		destAddr, err := w.newOffchainAddress(ctx)
 		if err != nil {
 			return nil, err
 		}

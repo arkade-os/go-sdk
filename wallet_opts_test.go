@@ -35,6 +35,14 @@ func TestWalletOptions(t *testing.T) {
 				opts: []arksdk.WalletOption{arksdk.WithRefreshDbInterval(60 * time.Second)},
 			},
 			{
+				name: "WithServerParamsCacheTTL min",
+				opts: []arksdk.WalletOption{arksdk.WithServerParamsCacheTTL(time.Minute)},
+			},
+			{
+				name: "WithServerParamsCacheTTL typical",
+				opts: []arksdk.WalletOption{arksdk.WithServerParamsCacheTTL(10 * time.Minute)},
+			},
+			{
 				name: "WithVerbose",
 				opts: []arksdk.WalletOption{arksdk.WithVerbose()},
 			},
@@ -96,6 +104,19 @@ func TestWalletOptions(t *testing.T) {
 					arksdk.WithRefreshDbInterval(40 * time.Second),
 				},
 				wantErrContains: "refresh db interval already set",
+			},
+			{
+				name:            "WithServerParamsCacheTTL too small",
+				opts:            []arksdk.WalletOption{arksdk.WithServerParamsCacheTTL(30 * time.Second)},
+				wantErrContains: "server params cache ttl must be at least 1m",
+			},
+			{
+				name: "WithServerParamsCacheTTL twice",
+				opts: []arksdk.WalletOption{
+					arksdk.WithServerParamsCacheTTL(time.Minute),
+					arksdk.WithServerParamsCacheTTL(time.Minute),
+				},
+				wantErrContains: "server params cache ttl already set",
 			},
 			{
 				name:            "WithGapLimit zero",
