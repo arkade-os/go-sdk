@@ -42,29 +42,35 @@ func TestAutoRenewal(t *testing.T) {
 	// event — anything we receive from here on is the result of auto-renewal.
 	vtxoCh := alice.GetVtxoEventChannel(ctx)
 
-	select {
-	case event := <-vtxoCh:
-		require.Equal(
-			t, types.VtxosAdded, event.Type,
-			"expected VtxosAdded from auto-renewal, got %s", event.Type,
-		)
-		require.NotEmpty(t, event.Vtxos, "auto-renewal event carried no vtxos")
-		// Every renewed vtxo must expire strictly later than the original
-		// — that's the whole point of the renewal.
-		for _, v := range event.Vtxos {
-			require.True(
-				t, v.ExpiresAt.After(initial.ExpiresAt),
-				"renewed vtxo %s expires at %s; expected later than initial %s",
-				v.Outpoint,
-				v.ExpiresAt.Format(time.RFC3339),
-				initial.ExpiresAt.Format(time.RFC3339),
+	deadline := time.After(autoRenewalTimeout)
+	for {
+		select {
+		case event := <-vtxoCh:
+			// The settle emits VtxosAdded and VtxoSettled from separate goroutines, so
+			// delivery order is not guaranteed: skip anything that isn't the renewal's
+			// VtxosAdded.
+			if event.Type != types.VtxosAdded {
+				continue
+			}
+			require.NotEmpty(t, event.Vtxos, "auto-renewal event carried no vtxos")
+			// Every renewed vtxo must expire strictly later than the original
+			// — that's the whole point of the renewal.
+			for _, v := range event.Vtxos {
+				require.True(
+					t, v.ExpiresAt.After(initial.ExpiresAt),
+					"renewed vtxo %s expires at %s; expected later than initial %s",
+					v.Outpoint,
+					v.ExpiresAt.Format(time.RFC3339),
+					initial.ExpiresAt.Format(time.RFC3339),
+				)
+			}
+			return
+		case <-deadline:
+			t.Fatalf(
+				"timed out after %s waiting for auto-renewal to renew vtxos "+
+					"(initial expired at %s)",
+				autoRenewalTimeout, initial.ExpiresAt.Format(time.RFC3339),
 			)
 		}
-	case <-time.After(autoRenewalTimeout):
-		t.Fatalf(
-			"timed out after %s waiting for auto-renewal to renew vtxos "+
-				"(initial expired at %s)",
-			autoRenewalTimeout, initial.ExpiresAt.Format(time.RFC3339),
-		)
 	}
 }

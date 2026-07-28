@@ -307,6 +307,11 @@ func (w *wallet) scheduleNextRenewal() {
 	renewVtxos := func() {
 		txid, err := w.Settle(ctx)
 		if err != nil {
+			// The wallet is locking or stopping: the renewal was aborted on purpose, nothing
+			// failed worth reporting.
+			if ctx.Err() != nil {
+				return
+			}
 			log.WithError(err).Error("failed to renew vtxos")
 			return
 		}

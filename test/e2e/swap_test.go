@@ -1047,6 +1047,7 @@ func settleBoltzFulmine(t *testing.T) {
 	}
 	// nolint
 	resp.Body.Close()
+	generateBlocks(t, 1)
 }
 
 // boltzSubmarineSwap holds the pieces of a submarine swap created directly against the Boltz
