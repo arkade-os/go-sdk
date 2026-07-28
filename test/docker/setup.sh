@@ -239,13 +239,17 @@ if [ $? -ne 0 ] || [ -z "$addr" ]; then
     exit "  ❌ failed to get wallet address"
 fi
 
+# Every boltz-fulmine settle (one per swap test) makes arkd front ~1 BTC in a commitment tx
+# that stays locked until the batch is swept ~180 blocks later: with less than ~1 BTC available
+# arkd aborts boltz-fulmine's rounds with "not enough liquidity" and swap tests stall. Fund
+# enough to survive a whole e2e run.
 funded_count=0
 for i in {1..21}; do
-    err=$(nigiri faucet $addr)
+    err=$(nigiri faucet $addr 5)
     if [ $? -ne 0 ]; then
         exit "  ❌ failed to fund (status=$status) (err=$err)"
     fi
-    funded_count=$((funded_count + 1))
+    funded_count=$((funded_count + 5))
     sleep 1
 done
 echo "  ✅ funded onchain with $funded_count BTC"
