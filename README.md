@@ -25,7 +25,7 @@ Both accept one required parameter plus optional wallet options:
   - `WithVerbose()` — enables verbose logging.
   - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to 20 and must be at least 20.
   - `WithIdentity(svc identity.Identity)` — inject a custom key-management implementation. By default the SDK creates an HD identity (BIP86) backed by the persistent datadir; see the `identity` package for the default implementation.
-  - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-settle. Defaults to a gocron-backed in-process scheduler.
+  - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-renewal. Defaults to a gocron-backed in-process scheduler.
 
 ```go
 import arksdk (

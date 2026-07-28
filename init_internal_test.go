@@ -9,7 +9,6 @@ import (
 )
 
 func TestScheduleNextRenewal(t *testing.T) {
-	// With auto-settle disabled (nil scheduler) it must be a safe no-op.
 	t.Run("no-op when scheduler is disabled", func(t *testing.T) {
 		w := &wallet{scheduleMu: &sync.Mutex{}}
 		require.NotPanics(t, w.scheduleNextRenewal)

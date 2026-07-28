@@ -154,7 +154,7 @@ func (h *SwapManager) recoverChainSwap(
 	event boltz.SwapUpdateEvent,
 ) error {
 	if swap.From == boltz.CurrencyBtc {
-		return h.recoverBtcToArkadeChainSwap(ctx, swap, event)
+		return h.recoverBtcToArkadeChainSwap(ctx, swap, status, event)
 	}
 
 	switch event {
@@ -237,7 +237,8 @@ func (h *SwapManager) recoverChainSwapClaim(
 // re-schedules the refund of the btc lockup we funded, if any: the ephemeral refund key
 // survives the restart in the swap record, the scheduled refund task doesn't.
 func (h *SwapManager) recoverBtcToArkadeChainSwap(
-	ctx context.Context, swap *swaptypes.Swap, event boltz.SwapUpdateEvent,
+	ctx context.Context, swap *swaptypes.Swap, status *boltz.SwapStatusResponse,
+	event boltz.SwapUpdateEvent,
 ) error {
 	switch event {
 	case boltz.TransactionServerMempoool, boltz.TransactionServerConfirmed:
@@ -257,6 +258,16 @@ func (h *SwapManager) recoverBtcToArkadeChainSwap(
 		// Already claimed before the restart, only the store was left behind.
 		swap.Status = int(SwapStatusSuccess)
 		return h.persistUpdatedSwap(ctx, *swap)
+	case boltz.TransactionMempool, boltz.TransactionConfirmed:
+		// Our btc lockup is waiting for Boltz to fund the vhtlc: nothing actionable yet, but
+		// backfill the lockup txid if the ws update carrying it was missed — Boltz watches
+		// the lockup address itself and reports the tx with these statuses, and the refund
+		// relies on it if the swap later fails. The failure statuses carry no tx instead.
+		if swap.ChainSwap.FundingTxid == "" && status.Transaction.Id != "" {
+			swap.ChainSwap.FundingTxid = status.Transaction.Id
+			return h.persistUpdatedSwap(ctx, *swap)
+		}
+		return nil
 	case boltz.SwapExpired, boltz.TransactionFailed, boltz.TransactionLockupFailed:
 		swap.Status = int(SwapStatusFailed)
 		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
@@ -335,8 +346,14 @@ func (h *SwapManager) swapPreimage(
 	if err != nil {
 		return nil, err
 	}
-	if contractArgs.ReceiverKeyId == "" {
-		return nil, fmt.Errorf("we are not the receiver of the vhtlc, cannot derive preimage")
+	// The preimage was derived from our key of the vhtlc at creation: the receiver one for
+	// reverse and Btc -> Arkade chain swaps, the sender one for Arkade -> Btc chain swaps.
+	keyId, pubkey := contractArgs.ReceiverKeyId, contractArgs.Receiver
+	if keyId == "" {
+		keyId, pubkey = contractArgs.SenderKeyId, contractArgs.Sender
+	}
+	if keyId == "" {
+		return nil, fmt.Errorf("no wallet key in the vhtlc, cannot derive preimage")
 	}
 
 	signer, ok := h.wallet.Identity().(PreimageSigner)
@@ -345,7 +362,7 @@ func (h *SwapManager) swapPreimage(
 	}
 
 	return DerivePreimage(ctx, signer, identity.KeyRef{
-		Id:     contractArgs.ReceiverKeyId,
-		PubKey: contractArgs.Receiver,
+		Id:     keyId,
+		PubKey: pubkey,
 	})
 }

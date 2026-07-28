@@ -29,6 +29,7 @@ func TestNewWallet(t *testing.T) {
 				client, err := arksdk.NewWallet(f.datadir)
 				require.NoError(t, err)
 				require.NotNil(t, client)
+				t.Cleanup(client.Stop)
 			})
 		}
 	})
@@ -94,6 +95,7 @@ func TestLoadWallet(t *testing.T) {
 				scheduledAt: nextRenewal,
 			}))
 			require.NoError(t, err)
+			t.Cleanup(c.Stop)
 
 			require.Equal(t, nextRenewal, c.WhenNextRenewal())
 		})
@@ -147,6 +149,7 @@ func TestWhenNextRenewal(t *testing.T) {
 			scheduledAt: nextRenewal,
 		}))
 		require.NoError(t, err)
+		t.Cleanup(c.Stop)
 
 		require.Equal(t, nextRenewal, c.WhenNextRenewal())
 	})
@@ -180,6 +183,7 @@ func seedIdentity(t *testing.T, datadir string) {
 
 	c, err := arksdk.NewWallet(datadir)
 	require.NoError(t, err)
+	t.Cleanup(c.Stop)
 
 	mnemonic, err := c.Identity().Create(t.Context(), arklib.BitcoinRegTest, "password", "")
 	require.NoError(t, err)

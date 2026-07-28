@@ -292,7 +292,7 @@ func (w *wallet) scheduleNextRenewal() {
 
 	// Only settle-eligible vtxos drive the schedule: vtxos the wallet can't settle (eg. vhtlc
 	// contract vtxos) must not be considered, otherwise an expired one Settle can't consume
-	// would wedge the auto-settle loop. Recoverable vtxos are included so already-expired own
+	// would wedge the auto-renewal loop. Recoverable vtxos are included so already-expired own
 	// vtxos still trigger a renewal.
 	vtxos, err := w.getSpendableVtxos(ctx, true)
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 )
 
 // regtest is configured with a vtxo lifetime of ~20s (20 blocks at 1s blocktime),
-// so auto-settle should fire ~18s after the vtxo is created (10% margin before expiry).
+// so auto-renewal should fire ~18s after the vtxo is created (10% margin before expiry).
 // All time bounds in this file derive from that.
 const (
 	// Generous bound for the renewal event so a slow CI run / scheduler
@@ -19,7 +19,7 @@ const (
 )
 
 func TestAutoRenewal(t *testing.T) {
-	// to test the auto-settle feature, we first shorten the vtxo tree expiry from 180 blocks
+	// to test the auto-renewal feature, we first shorten the vtxo tree expiry from 180 blocks
 	// (3 mins with a 1 sec blocktime) to 20 blocks (20s) to wait a maximum reasonable time.
 	setVtxoTreeExpiry(t, 20)
 	t.Cleanup(func() { setVtxoTreeExpiry(t, 180) })
@@ -39,16 +39,16 @@ func TestAutoRenewal(t *testing.T) {
 	)
 
 	// Subscribe AFTER the faucet so we don't pick up the initial VtxosAdded
-	// event — anything we receive from here on is the result of auto-settle.
+	// event — anything we receive from here on is the result of auto-renewal.
 	vtxoCh := alice.GetVtxoEventChannel(ctx)
 
 	select {
 	case event := <-vtxoCh:
 		require.Equal(
 			t, types.VtxosAdded, event.Type,
-			"expected VtxosAdded from auto-settle, got %s", event.Type,
+			"expected VtxosAdded from auto-renewal, got %s", event.Type,
 		)
-		require.NotEmpty(t, event.Vtxos, "auto-settle event carried no vtxos")
+		require.NotEmpty(t, event.Vtxos, "auto-renewal event carried no vtxos")
 		// Every renewed vtxo must expire strictly later than the original
 		// — that's the whole point of the renewal.
 		for _, v := range event.Vtxos {

@@ -16,6 +16,9 @@ func ApplyBatchSessionOptions(opts ...BatchSessionOption) error {
 	return err
 }
 
+// WithRetries sets the total number of batch attempts of the session, ie. how many times the
+// whole batch flow is run before giving up, not the number of extra runs after the first:
+// WithRetries(1) is equivalent to the default single attempt.
 func WithRetries(num int) BatchSessionOption {
 	return func(o *batchSessionOptions) error {
 		if o.retryNum > 0 {

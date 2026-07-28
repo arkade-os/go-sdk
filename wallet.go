@@ -69,7 +69,7 @@ type wallet struct {
 	// across its concurrent callers (unlock, the periodic job, the tx listener).
 	scheduleMu *sync.Mutex
 
-	// stopCtx is the background context used by the auto-settle scheduler
+	// stopCtx is the background context used by the auto-renewal scheduler
 	// and other long-lived goroutines started in Unlock. It is cancelled
 	// in Lock/Stop via stopFn so any in-flight wait returns promptly.
 	stopCtx context.Context
@@ -428,12 +428,16 @@ func (w *wallet) Stop() {
 		// write can race the Close and leave SQLite WAL/Badger vlog tempfiles behind.
 		w.waitForBackground(5 * time.Second)
 
-		w.client.Stop()
+		// A wallet that was never initialized has no transport behind the client service,
+		// whose Stop dereferences it unguarded: skip it to keep Stop safe at any time.
+		if w.client.Client() != nil {
+			w.client.Stop()
+		}
 
 		if w.Explorer() != nil {
 			w.Explorer().Stop()
 		}
-		// Tear down the auto-settle scheduler before the store closes,
+		// Tear down the auto-renewal scheduler before the store closes,
 		// otherwise an already-scheduled renwewal task can fire after Stop()
 		// and try to begin a transaction on a closed DB. Mirrors what Lock()
 		// already does.

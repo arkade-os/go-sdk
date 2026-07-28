@@ -639,8 +639,13 @@ func createBoltzChainSwap(
 	claimKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	preimage, hash160 := newPreimage(t)
-	shaHash, _ := preimage.Hash()
+	// Derive the preimage deterministically from the sender key exactly like the manager
+	// does: the swap record is seeded without it, so the recovery must re-derive it.
+	signer, ok := alice.Identity().(swap.PreimageSigner)
+	require.True(t, ok, "the wallet identity must support preimage derivation")
+	preimage, err := swap.DerivePreimage(ctx, signer, *keyRef)
+	require.NoError(t, err)
+	shaHash, hash160 := preimage.Hash()
 
 	createResp, err := boltzSvc.CreateChainSwap(boltz.CreateChainSwapRequest{
 		From:            boltz.CurrencyArk,
@@ -689,7 +694,6 @@ func createBoltzChainSwap(
 		Status:      int(swap.SwapStatusPending),
 		VHTLCScript: vhtlcContract.Script,
 		Amount:      amount,
-		Preimage:    preimage,
 		ChainSwap: &swaptypes.ChainSwapInfo{
 			Address:            createResp.ClaimDetails.LockupAddress,
 			PrivateKey:         hex.EncodeToString(claimKey.Serialize()),
@@ -1183,9 +1187,10 @@ type boltzBtcToArkadeChainSwap struct {
 }
 
 // createBoltzBtcToArkadeChainSwap creates a BTC -> Arkade chain swap directly against the Boltz
-// API (bypassing the SwapManager), imports the Arkade vhtlc (we are its receiver), seeds a
-// pending swap record and funds the BTC lockup address with fundAmount sats, confirmed with a
-// block. Funding less than the swap amount makes Boltz fail the lockup, leaving the BTC to be
+// API (bypassing the SwapManager), imports the Arkade vhtlc (we are its receiver), funds the
+// BTC lockup address with fundAmount sats (confirmed with a block) and then seeds a pending
+// swap record: the record carries the funding txid, so it can only be written after funding.
+// Funding less than the swap amount makes Boltz fail the lockup, leaving the BTC to be
 // refunded.
 func createBoltzBtcToArkadeChainSwap(
 	t *testing.T, ctx context.Context, alice sdk.Wallet, datadir string, boltzSvc *boltz.Api,
@@ -1203,8 +1208,14 @@ func createBoltzBtcToArkadeChainSwap(
 	refundKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	preimage, hash160 := newPreimage(t)
-	shaHash, _ := preimage.Hash()
+	// Derive the preimage deterministically from the receiver key exactly like the manager
+	// does: the swap record is seeded without it, so the recovery and the refund must
+	// re-derive it.
+	signer, ok := alice.Identity().(swap.PreimageSigner)
+	require.True(t, ok, "the wallet identity must support preimage derivation")
+	preimage, err := swap.DerivePreimage(ctx, signer, *keyRef)
+	require.NoError(t, err)
+	shaHash, hash160 := preimage.Hash()
 
 	createResp, err := boltzSvc.CreateChainSwap(boltz.CreateChainSwapRequest{
 		From:            boltz.CurrencyBtc,
@@ -1264,7 +1275,6 @@ func createBoltzBtcToArkadeChainSwap(
 		Status:      int(swap.SwapStatusPending),
 		VHTLCScript: vhtlcContract.Script,
 		Amount:      amount,
-		Preimage:    preimage,
 		ChainSwap: &swaptypes.ChainSwapInfo{
 			FundingTxid:     fundingTxid,
 			Address:         btcAddress,

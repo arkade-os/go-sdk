@@ -106,8 +106,10 @@ func TestWalletOptions(t *testing.T) {
 				wantErrContains: "refresh db interval already set",
 			},
 			{
-				name:            "WithServerParamsCacheTTL too small",
-				opts:            []arksdk.WalletOption{arksdk.WithServerParamsCacheTTL(30 * time.Second)},
+				name: "WithServerParamsCacheTTL too small",
+				opts: []arksdk.WalletOption{
+					arksdk.WithServerParamsCacheTTL(30 * time.Second),
+				},
 				wantErrContains: "server params cache ttl must be at least 1m",
 			},
 			{

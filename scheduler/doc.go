@@ -1,6 +1,6 @@
 // Package scheduler provides a tiny "at-most-one task in flight"
 // scheduler interface, with a gocron-backed implementation in
-// scheduler/gocron. The SDK uses it to drive the auto-settle feature
+// scheduler/gocron. The SDK uses it to drive the auto-renewal feature
 // (one settle scheduled per wallet, rescheduled as fresher vtxos arrive),
 // but the interface is intentionally generic — anything that needs
 // "run this func at a future timestamp, cancellable, re-arm-able" can

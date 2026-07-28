@@ -524,7 +524,7 @@ func classifyVtxos(
 		switch si.state {
 		case signerActive:
 		case signerToMigrate:
-			// Skip recoverable or subdust vtxos, they will be handled by the auto-settle or via
+			// Skip recoverable or subdust vtxos, they will be handled by the auto-renewal or via
 			// the next manual Settle/CollaborativeExit.
 			if v.IsRecoverable() || (dustAmount > 0 && v.Amount < dustAmount) {
 				continue

@@ -67,6 +67,11 @@ func constructClaimTransaction(
 		return nil, err
 	}
 
+	// The vsize is computed on the tx before its witness is attached (the input is signed
+	// after the fee is set), so the estimate undershoots by the witness size: ~17 vbytes for
+	// a key-path spend, more for a script-path one revealing the preimage. The flat 100 sats
+	// margin covers the missing witness and the fee-rate rounding.
+	// TODO: Fix this and do proper fee-estimation.
 	feeAmount := uint64(math.Ceil(float64(vbytes)*feeRate) + 100)
 	if feeAmount >= params.lockupAmount || params.lockupAmount-feeAmount <= dustAmount {
 		return nil, fmt.Errorf("not enough funds to cover network fees")

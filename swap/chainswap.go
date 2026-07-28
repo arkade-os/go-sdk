@@ -685,9 +685,22 @@ func (h *SwapManager) RefundChainSwap(
 	}
 
 	if swap.ChainSwap.FundingTxid == "" {
-		return nil, nil, fmt.Errorf(
-			"btc lockup of swap %s was never funded, nothing to refund", swapId,
-		)
+		// The lockup txid is recorded by the ws watcher, which the funding may have outlived:
+		// a lockup funded after the swap timed out was never seen by anyone. The htlc address
+		// is persisted, ask the explorer before giving up.
+		utxos, err := h.wallet.Explorer().GetUtxos([]string{swap.ChainSwap.Address})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to look up btc lockup of swap %s: %w", swapId, err)
+		}
+		if len(utxos) <= 0 {
+			return nil, nil, fmt.Errorf(
+				"btc lockup of swap %s was never funded, nothing to refund", swapId,
+			)
+		}
+		swap.ChainSwap.FundingTxid = utxos[0].Txid
+		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+			return nil, nil, err
+		}
 	}
 	if swap.ChainSwap.RedeemTxid != "" {
 		return nil, nil, fmt.Errorf(
