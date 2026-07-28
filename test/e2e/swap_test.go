@@ -826,6 +826,26 @@ func TestChainSwapBtcToArkade(t *testing.T) {
 	require.NoError(t, err)
 	generateBlocks(t, 1)
 
+	// Boltz funds the vhtlc through a settle round while we wait: without new blocks its
+	// commitment tx never confirms and the swap stalls until the timeout. Locally background
+	// activity mines often enough to hide this, on CI nobody else does, so keep mining
+	// best-effort until the swap completes.
+	minerDone := make(chan struct{})
+	t.Cleanup(func() { close(minerDone) })
+	go func() {
+		for {
+			select {
+			case <-minerDone:
+				return
+			case <-time.After(10 * time.Second):
+				// Can't use generateBlocks because if it ever failed, it would cause a panic in
+				// test suit as we can't call t.FailNow in a goroutine.
+				// nolint
+				runCommand("nigiri", "rpc", "generate", "1")
+			}
+		}
+	}()
+
 	persisted := awaitPersistedSwap(t, manager, chainSwap.Id, swap.SwapStatusSuccess)
 	require.NotEmpty(t, persisted.RedeemTxid)
 	require.NotNil(t, persisted.ChainSwap)
