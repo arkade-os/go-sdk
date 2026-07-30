@@ -1054,6 +1054,9 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 		ctx, contract.WithType(types.ContractTypeBoarding),
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		log.WithError(err).Error("failed to get contracts for boarding addresses")
 		return
 	}
@@ -1062,6 +1065,9 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 		ctx, contract.WithType(types.ContractTypeDefault),
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		log.WithError(err).Error("failed to get contracts for offchain addresses")
 		return
 	}
