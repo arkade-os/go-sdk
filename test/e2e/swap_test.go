@@ -296,12 +296,248 @@ func TestRefundSubmarineSwap(t *testing.T) {
 		"offchain balance should be preserved after the refund")
 }
 
-// TestRecoverPendingSwaps exercises the recovery a SwapManager runs at startup for the swaps a
+func TestChainSwap(t *testing.T) {
+	// The manager funds a VHTLC, Boltz locks up BTC on-chain and the manager claims it to the
+	// destination address. The completion is observed through the persisted swap.
+	t.Run("arkade to btc", func(t *testing.T) {
+		settleBoltzFulmine(t)
+		alice := setupClient(t, "")
+		faucetOffchain(t, alice, 0.001) // 100,000 sats
+
+		manager := setupSwapManager(t, alice)
+
+		btcAddress, err := runCommand("nigiri", "rpc", "getnewaddress")
+		require.NoError(t, err)
+		require.NotEmpty(t, btcAddress)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+		t.Cleanup(cancel)
+
+		chainSwap, err := manager.ArkadeToBtcChainSwap(ctx, btcAddress, 50000)
+		require.NoError(t, err)
+		require.NotNil(t, chainSwap)
+		require.NotEmpty(t, chainSwap.Id)
+
+		persisted := awaitPersistedSwap(t, manager, chainSwap.Id, swap.SwapStatusSuccess)
+		require.NotNil(t, persisted.ChainSwap)
+		require.NotEmpty(t, persisted.ChainSwap.RedeemTxid)
+
+		// The point of the swap is receiving BTC onchain: verify the claim tx paid the
+		// destination address (still unconfirmed, hence minconf=0).
+		received, err := runCommand("nigiri", "rpc", "getreceivedbyaddress", btcAddress, "0")
+		require.NoError(t, err)
+		receivedBtc, err := strconv.ParseFloat(strings.TrimSpace(received), 64)
+		require.NoError(t, err)
+		require.Greater(t, receivedBtc, 0.0, "BTC should have landed at the destination address")
+	})
+
+	// The manager creates the swap, the test funds the BTC lockup address onchain, Boltz funds a
+	// VHTLC that the manager claims in background.
+	// The completion is observed through the persisted swap.
+	t.Run("btc to arkade", func(t *testing.T) {
+		settleBoltzFulmine(t)
+		alice := setupClient(t, "")
+		// Alice needs some initial funds for the VHTLC fee overhead
+		faucetOffchain(t, alice, 0.001)
+
+		manager := setupSwapManager(t, alice)
+
+		balanceBefore, err := alice.Balance(t.Context())
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+		t.Cleanup(cancel)
+
+		chainSwap, err := manager.BtcToArkadeChainSwap(ctx, 50000)
+		require.NoError(t, err)
+		require.NotNil(t, chainSwap)
+		require.NotEmpty(t, chainSwap.Id)
+		require.NotNil(t, chainSwap.ChainSwap)
+		require.NotEmpty(t, chainSwap.ChainSwap.Address)
+
+		// Fund the BTC lockup address with the swap amount and confirm it: Boltz then funds the
+		// vhtlc the manager claims in background.
+		_, err = runCommand(
+			"nigiri", "rpc", "sendtoaddress", chainSwap.ChainSwap.Address, "0.00050000",
+		)
+		require.NoError(t, err)
+		generateBlocks(t, 1)
+
+		// Boltz funds the vhtlc through a settle round while we wait: without new blocks its
+		// commitment tx never confirms and the swap stalls until the timeout. Locally background
+		// activity mines often enough to hide this, on CI nobody else does, so keep mining
+		// best-effort until the swap completes.
+		minerDone := make(chan struct{})
+		t.Cleanup(func() { close(minerDone) })
+		go func() {
+			for {
+				select {
+				case <-minerDone:
+					return
+				case <-time.After(10 * time.Second):
+					// Can't use generateBlocks because if it ever failed, it would cause a panic in
+					// test suit as we can't call t.FailNow in a goroutine.
+					// nolint
+					runCommand("nigiri", "rpc", "generate", "1")
+				}
+			}
+		}()
+
+		persisted := awaitPersistedSwap(t, manager, chainSwap.Id, swap.SwapStatusSuccess)
+		require.NotEmpty(t, persisted.RedeemTxid)
+		require.NotNil(t, persisted.ChainSwap)
+		require.NotEmpty(t, persisted.ChainSwap.FundingTxid)
+
+		requireVHTLCSpentBy(t, alice, persisted.VHTLCScript, persisted.RedeemTxid)
+
+		// The point of the swap is receiving offchain funds: verify the balance increased.
+		balanceAfter, err := alice.Balance(t.Context())
+		require.NoError(t, err)
+		require.Greater(
+			t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
+			"alice should have received the swapped funds offchain")
+	})
+}
+
+// TestChainSwapQuoteRenegotiation exercises the renegotiation path of the BTC-to-Arkade chain
+// swap: a lockup funded with the wrong amount makes Boltz reject it with
+// transaction.lockupFailed, the manager fetches and accepts the new quote in background, and
+// the swap completes with the renegotiated amounts. Both wrong directions are renegotiable:
+// Boltz reduces the server lockup for an underfunded one and raises it for an overfunded one.
+func TestChainSwapQuoteRenegotiation(t *testing.T) {
+	tests := []struct {
+		name         string
+		fundedAmount string
+	}{
+		{name: "underfunded lockup", fundedAmount: "0.00045000"},
+		{name: "overfunded lockup", fundedAmount: "0.00055000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settleBoltzFulmine(t)
+			alice := setupClient(t, "")
+			// Alice needs some initial funds for the VHTLC fee overhead
+			faucetOffchain(t, alice, 0.001)
+
+			manager := setupSwapManager(t, alice)
+
+			balanceBefore, err := alice.Balance(t.Context())
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+			t.Cleanup(cancel)
+
+			chainSwap, err := manager.BtcToArkadeChainSwap(ctx, 50000)
+			require.NoError(t, err)
+			require.NotNil(t, chainSwap)
+			require.NotEmpty(t, chainSwap.Id)
+			require.NotNil(t, chainSwap.ChainSwap)
+			require.NotEmpty(t, chainSwap.ChainSwap.Address)
+
+			// Fund the BTC lockup with the wrong amount and confirm it: Boltz rejects it and the
+			// manager renegotiates before the swap proceeds as usual.
+			_, err = runCommand(
+				"nigiri", "rpc", "sendtoaddress", chainSwap.ChainSwap.Address, tt.fundedAmount,
+			)
+			require.NoError(t, err)
+			generateBlocks(t, 1)
+
+			// Boltz funds the vhtlc through a settle round while we wait: without new blocks its
+			// commitment tx never confirms and the swap stalls until the timeout. Locally
+			// background activity mines often enough to hide this, on CI nobody else does, so
+			// keep mining best-effort until the swap completes.
+			minerDone := make(chan struct{})
+			t.Cleanup(func() { close(minerDone) })
+			go func() {
+				for {
+					select {
+					case <-minerDone:
+						return
+					case <-time.After(10 * time.Second):
+						// Can't use generateBlocks because if it ever failed, it would cause a
+						// panic in test suit as we can't call t.FailNow in a goroutine.
+						// nolint
+						runCommand("nigiri", "rpc", "generate", "1")
+					}
+				}
+			}()
+
+			persisted := awaitPersistedSwap(t, manager, chainSwap.Id, swap.SwapStatusSuccess)
+			require.NotEmpty(t, persisted.RedeemTxid)
+			require.NotNil(t, persisted.ChainSwap)
+			require.NotEmpty(t, persisted.ChainSwap.FundingTxid)
+
+			requireVHTLCSpentBy(t, alice, persisted.VHTLCScript, persisted.RedeemTxid)
+
+			// The point of the swap is receiving offchain funds: verify the balance increased.
+			balanceAfter, err := alice.Balance(t.Context())
+			require.NoError(t, err)
+			require.Greater(
+				t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
+				"alice should have received the swapped funds offchain",
+			)
+		})
+	}
+}
+
+// TestRefundChainSwap exercises the manual refund of a BTC -> Ark chain swap whose BTC lockup
+// Boltz failed (underfunded): before the HTLC locktime expires the refund can only be scheduled;
+// once the expiry height is mined the scheduled task broadcasts the script-path refund of the
+// btc lockup to a boarding address.
+func TestRefundChainSwap(t *testing.T) {
+	settleBoltzFulmine(t)
+	alice, datadir := setupSwapWallet(t, "")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+	t.Cleanup(cancel)
+
+	// The manager is created first so that its startup restore and recovery observe an empty
+	// store and don't race with the manual refund below.
+	manager := setupSwapManager(t, alice)
+
+	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
+	// Underfund the BTC lockup: with no manager loop accepting the renegotiated quote, Boltz
+	// fails the lockup and the swap can only be refunded.
+	cs := createBoltzBtcToArkadeChainSwap(t, ctx, alice, datadir, boltzSvc, 50000, 40000)
+
+	// Before the locktime expires the refund can only be scheduled at the expiry height.
+	refunded, scheduledAt, err := manager.RefundChainSwap(ctx, cs.id)
+	require.NoError(t, err)
+	require.NotNil(t, refunded)
+	require.NotNil(t, scheduledAt, "refund should be scheduled, the locktime is not expired")
+	require.Empty(t, refunded.ChainSwap.RedeemTxid)
+	require.Equal(t, int(swap.SwapStatusFailed), refunded.Status)
+
+	// Mine past the HTLC locktime: the scheduled task fires and broadcasts the refund.
+	heightStr, err := runCommand("nigiri", "rpc", "getblockcount")
+	require.NoError(t, err)
+	height, err := strconv.Atoi(strings.TrimSpace(heightStr))
+	require.NoError(t, err)
+	locktime := int(refunded.ChainSwap.RefundLocktime)
+	require.Greater(t, locktime, height, "the htlc locktime should not be expired yet")
+	generateBlocks(t, locktime-height+1)
+
+	var redeemTxid string
+	require.Eventually(t, func() bool {
+		s, err := manager.GetSwap(ctx, cs.id)
+		if err != nil || s.ChainSwap.RedeemTxid == "" {
+			return false
+		}
+		redeemTxid = s.ChainSwap.RedeemTxid
+		return true
+	}, 60*time.Second, 2*time.Second, "the scheduled task should broadcast the refund")
+
+	// The refund tx made it to the mempool: the script-path spend of the refund leaf is valid.
+	_, err = runCommand("nigiri", "rpc", "getrawtransaction", redeemTxid)
+	require.NoError(t, err)
+}
+
+// TestRecoverSwaps exercises the recovery a SwapManager runs at startup for the swaps a
 // previous run left behind.
-func TestRecoverPendingSwaps(t *testing.T) {
+func TestRecoverSwaps(t *testing.T) {
 	// A submarine swap we funded that failed while no manager was running must be refunded by
 	// the recovery, without any manual intervention.
-	t.Run("refunds a failed submarine swap on startup", func(t *testing.T) {
+	t.Run("refunds a failed submarine swap after wallet restart", func(t *testing.T) {
 		settleBoltzFulmine(t)
 		alice, datadir := setupSwapWallet(t, "")
 		faucetOffchain(t, alice, 0.001) // 100,000 sats
@@ -345,7 +581,7 @@ func TestRecoverPendingSwaps(t *testing.T) {
 
 	// A reverse swap whose vhtlc Boltz funded but that was left unclaimed when the manager
 	// stopped must be claimed by the recovery of the next manager.
-	t.Run("claims a funded reverse swap left pending on shutdown", func(t *testing.T) {
+	t.Run("claims a pending reverse swap after wallet restart", func(t *testing.T) {
 		settleBoltzFulmine(t)
 		alice := setupClient(t, "")
 		faucetOffchain(t, alice, 0.001) // fee overhead for the claim
@@ -394,7 +630,7 @@ func TestRecoverPendingSwaps(t *testing.T) {
 	// but that was never claimed, must be claimed by the recovery on the next manager startup.
 	// The swap is created directly against the Boltz API so that no manager claims it: the
 	// manager flow funds and claims in one sub-second pass, leaving no interruptible window.
-	t.Run("claims a chain swap left pending on shutdown", func(t *testing.T) {
+	t.Run("claims a pending arkade to btc chain swap after wallet restart", func(t *testing.T) {
 		settleBoltzFulmine(t)
 		alice, datadir := setupSwapWallet(t, "")
 		faucetOffchain(t, alice, 0.001) // 100,000 sats
@@ -432,7 +668,7 @@ func TestRecoverPendingSwaps(t *testing.T) {
 	// A BTC -> Arkade chain swap whose btc lockup we funded and for which Boltz funded the
 	// vhtlc, but that was never claimed, must be claimed by the recovery on the next manager
 	// startup.
-	t.Run("claims a btc to arkade chain swap left pending on shutdown", func(t *testing.T) {
+	t.Run("claims a pending btc to arkade chain swap after wallet restart", func(t *testing.T) {
 		settleBoltzFulmine(t)
 		alice, datadir := setupSwapWallet(t, "")
 		faucetOffchain(t, alice, 0.001) // fee overhead for the claim
@@ -465,6 +701,45 @@ func TestRecoverPendingSwaps(t *testing.T) {
 		require.NoError(t, err)
 		require.Greater(t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
 			"alice should have received the swapped funds via recovery")
+	})
+
+	// A BTC -> Arkade chain swap whose btc lockup Boltz rejected for a wrong amount must be
+	// renegotiated by the recovery on the next manager startup, like the live flow would have,
+	// and then completed with the new quote.
+	t.Run("renegotiates a failed btc to arkade chain swap after wallet restart", func(t *testing.T) {
+		settleBoltzFulmine(t)
+		alice, datadir := setupSwapWallet(t, "")
+		faucetOffchain(t, alice, 0.001) // fee overhead for the claim
+
+		balanceBefore, err := alice.Balance(t.Context())
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+		t.Cleanup(cancel)
+
+		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
+		// Underfund the lockup: with no manager running, nobody accepts the renegotiated quote
+		// and the swap sits in the lockup-failed state until recovery picks it up.
+		cs := createBoltzBtcToArkadeChainSwap(t, ctx, alice, datadir, boltzSvc, 50000, 40000)
+
+		require.Eventually(t, func() bool {
+			status, err := boltzSvc.GetSwapStatus(cs.id)
+			return err == nil &&
+				boltz.ParseEvent(status.Status) == boltz.TransactionLockupFailed
+		}, 60*time.Second, 2*time.Second, "boltz should reject the underfunded lockup")
+
+		// A fresh manager renegotiates the swap on startup and claims the vhtlc Boltz funds
+		// with the new quote.
+		manager := setupSwapManager(t, alice)
+		persisted := awaitPersistedSwap(t, manager, cs.id, swap.SwapStatusSuccess)
+		require.NotEmpty(t, persisted.RedeemTxid)
+
+		requireVHTLCSpentBy(t, alice, cs.vhtlcScript, persisted.RedeemTxid)
+
+		balanceAfter, err := alice.Balance(t.Context())
+		require.NoError(t, err)
+		require.Greater(t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
+			"alice should have received the renegotiated funds via recovery")
 	})
 }
 
@@ -572,7 +847,7 @@ func TestRestoreSwaps(t *testing.T) {
 	// A chain swap we funded that failed must be refunded after a wallet restore. Chain-swap
 	// restore is refund-only: the BTC-side claim key and destination address are ephemeral and
 	// lost on restore, so a failed (underfunded) Arkade lockup is the scenario recovery resolves.
-	t.Run("refunds a failed chain swap after a wallet restore", func(t *testing.T) {
+	t.Run("refunds a failed arkade to btc chain swap after a wallet restore", func(t *testing.T) {
 		settleBoltzFulmine(t)
 		original, _ := setupSwapWallet(t, "")
 		faucetOffchain(t, original, 0.001) // 100,000 sats
@@ -757,159 +1032,6 @@ func createFailedBoltzChainSwap(
 	time.Sleep(5 * time.Second)
 
 	return createResp.Id
-}
-
-// TestChainSwapArkToBtc exercises the Ark-to-BTC chain swap flow using real Boltz:
-// the manager funds a VHTLC, Boltz locks up BTC on-chain and the manager claims it to the
-// destination address. The completion is observed through the persisted swap.
-func TestChainSwapArkToBtc(t *testing.T) {
-	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
-	faucetOffchain(t, alice, 0.001) // 100,000 sats
-
-	manager := setupSwapManager(t, alice)
-
-	btcAddress, err := runCommand("nigiri", "rpc", "getnewaddress")
-	require.NoError(t, err)
-	require.NotEmpty(t, btcAddress)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
-	t.Cleanup(cancel)
-
-	chainSwap, err := manager.ArkadeToBtcChainSwap(ctx, btcAddress, 50000)
-	require.NoError(t, err)
-	require.NotNil(t, chainSwap)
-	require.NotEmpty(t, chainSwap.Id)
-
-	persisted := awaitPersistedSwap(t, manager, chainSwap.Id, swap.SwapStatusSuccess)
-	require.NotNil(t, persisted.ChainSwap)
-	require.NotEmpty(t, persisted.ChainSwap.RedeemTxid)
-
-	// The point of the swap is receiving BTC onchain: verify the claim tx paid the
-	// destination address (still unconfirmed, hence minconf=0).
-	received, err := runCommand("nigiri", "rpc", "getreceivedbyaddress", btcAddress, "0")
-	require.NoError(t, err)
-	receivedBtc, err := strconv.ParseFloat(strings.TrimSpace(received), 64)
-	require.NoError(t, err)
-	require.Greater(t, receivedBtc, 0.0, "BTC should have landed at the destination address")
-}
-
-// TestChainSwapBtcToArkade exercises the BTC-to-Arkade chain swap: the manager creates the swap,
-// the test funds the BTC lockup address onchain, Boltz funds a VHTLC that the manager claims in
-// background. The completion is observed through the persisted swap.
-func TestChainSwapBtcToArkade(t *testing.T) {
-	settleBoltzFulmine(t)
-	alice := setupClient(t, "")
-	// Alice needs some initial funds for the VHTLC fee overhead
-	faucetOffchain(t, alice, 0.001)
-
-	manager := setupSwapManager(t, alice)
-
-	balanceBefore, err := alice.Balance(t.Context())
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
-	t.Cleanup(cancel)
-
-	chainSwap, err := manager.BtcToArkadeChainSwap(ctx, 50000)
-	require.NoError(t, err)
-	require.NotNil(t, chainSwap)
-	require.NotEmpty(t, chainSwap.Id)
-	require.NotNil(t, chainSwap.ChainSwap)
-	require.NotEmpty(t, chainSwap.ChainSwap.Address)
-
-	// Fund the BTC lockup address with the swap amount and confirm it: Boltz then funds the
-	// vhtlc the manager claims in background.
-	_, err = runCommand(
-		"nigiri", "rpc", "sendtoaddress", chainSwap.ChainSwap.Address, "0.00050000",
-	)
-	require.NoError(t, err)
-	generateBlocks(t, 1)
-
-	// Boltz funds the vhtlc through a settle round while we wait: without new blocks its
-	// commitment tx never confirms and the swap stalls until the timeout. Locally background
-	// activity mines often enough to hide this, on CI nobody else does, so keep mining
-	// best-effort until the swap completes.
-	minerDone := make(chan struct{})
-	t.Cleanup(func() { close(minerDone) })
-	go func() {
-		for {
-			select {
-			case <-minerDone:
-				return
-			case <-time.After(10 * time.Second):
-				// Can't use generateBlocks because if it ever failed, it would cause a panic in
-				// test suit as we can't call t.FailNow in a goroutine.
-				// nolint
-				runCommand("nigiri", "rpc", "generate", "1")
-			}
-		}
-	}()
-
-	persisted := awaitPersistedSwap(t, manager, chainSwap.Id, swap.SwapStatusSuccess)
-	require.NotEmpty(t, persisted.RedeemTxid)
-	require.NotNil(t, persisted.ChainSwap)
-	require.NotEmpty(t, persisted.ChainSwap.FundingTxid)
-
-	requireVHTLCSpentBy(t, alice, persisted.VHTLCScript, persisted.RedeemTxid)
-
-	// The point of the swap is receiving offchain funds: verify the balance increased.
-	balanceAfter, err := alice.Balance(t.Context())
-	require.NoError(t, err)
-	require.Greater(t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
-		"alice should have received the swapped funds offchain")
-}
-
-// TestRefundChainSwap exercises the manual refund of a BTC -> Ark chain swap whose BTC lockup
-// Boltz failed (underfunded): before the HTLC locktime expires the refund can only be scheduled;
-// once the expiry height is mined the scheduled task broadcasts the script-path refund of the
-// btc lockup to a boarding address.
-func TestRefundChainSwap(t *testing.T) {
-	settleBoltzFulmine(t)
-	alice, datadir := setupSwapWallet(t, "")
-
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
-	t.Cleanup(cancel)
-
-	// The manager is created first so that its startup restore and recovery observe an empty
-	// store and don't race with the manual refund below.
-	manager := setupSwapManager(t, alice)
-
-	boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-	// Underfund the BTC lockup: with no manager loop accepting the renegotiated quote, Boltz
-	// fails the lockup and the swap can only be refunded.
-	cs := createBoltzBtcToArkadeChainSwap(t, ctx, alice, datadir, boltzSvc, 50000, 40000)
-
-	// Before the locktime expires the refund can only be scheduled at the expiry height.
-	refunded, scheduledAt, err := manager.RefundChainSwap(ctx, cs.id)
-	require.NoError(t, err)
-	require.NotNil(t, refunded)
-	require.NotNil(t, scheduledAt, "refund should be scheduled, the locktime is not expired")
-	require.Empty(t, refunded.ChainSwap.RedeemTxid)
-	require.Equal(t, int(swap.SwapStatusFailed), refunded.Status)
-
-	// Mine past the HTLC locktime: the scheduled task fires and broadcasts the refund.
-	heightStr, err := runCommand("nigiri", "rpc", "getblockcount")
-	require.NoError(t, err)
-	height, err := strconv.Atoi(strings.TrimSpace(heightStr))
-	require.NoError(t, err)
-	locktime := int(refunded.ChainSwap.RefundLocktime)
-	require.Greater(t, locktime, height, "the htlc locktime should not be expired yet")
-	generateBlocks(t, locktime-height+1)
-
-	var redeemTxid string
-	require.Eventually(t, func() bool {
-		s, err := manager.GetSwap(ctx, cs.id)
-		if err != nil || s.ChainSwap.RedeemTxid == "" {
-			return false
-		}
-		redeemTxid = s.ChainSwap.RedeemTxid
-		return true
-	}, 60*time.Second, 2*time.Second, "the scheduled task should broadcast the refund")
-
-	// The refund tx made it to the mempool: the script-path spend of the refund leaf is valid.
-	_, err = runCommand("nigiri", "rpc", "getrawtransaction", redeemTxid)
-	require.NoError(t, err)
 }
 
 // swapResult carries the outcome of a swap performed in a goroutine by the concurrency tests.

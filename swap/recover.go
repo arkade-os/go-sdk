@@ -148,7 +148,7 @@ func (h *SwapManager) recoverSubmarineSwap(
 
 // recoverChainSwap marks a claimed chain swap as successful, or refunds the vhtlc we funded if
 // the swap failed. When Boltz has locked up the BTC, it claims it to the persisted destination
-// address.
+// address. A lockup Boltz rejected for a wrong amount is renegotiated rather than refunded.
 func (h *SwapManager) recoverChainSwap(
 	ctx context.Context, swap *swaptypes.Swap, status *boltz.SwapStatusResponse,
 	event boltz.SwapUpdateEvent,
@@ -161,7 +161,18 @@ func (h *SwapManager) recoverChainSwap(
 	case boltz.TransactionClaimed:
 		swap.Status = int(SwapStatusSuccess)
 		return h.persistUpdatedSwap(ctx, *swap)
-	case boltz.SwapExpired, boltz.TransactionFailed, boltz.TransactionLockupFailed:
+	case boltz.TransactionLockupFailed:
+		// The lockup amount didn't match: renegotiate as the pre-restart ws flow would have,
+		// falling back to the refund only when Boltz no longer offers a quote.
+		err := h.renegotiateChainSwap(swap)
+		if err == nil {
+			return nil
+		}
+		log.WithError(err).Debugf(
+			"swap recovery: cannot renegotiate chain swap %s, refunding", swap.Id,
+		)
+		fallthrough
+	case boltz.SwapExpired, boltz.TransactionFailed:
 		return h.recoverRefund(ctx, swap)
 	case boltz.TransactionServerMempoool:
 		return h.recoverChainSwapClaim(ctx, swap, status)
@@ -235,7 +246,8 @@ func (h *SwapManager) recoverChainSwapClaim(
 
 // recoverBtcToArkadeChainSwap claims the vhtlc Boltz funded, if any. If the swap failed, it
 // re-schedules the refund of the btc lockup we funded, if any: the ephemeral refund key
-// survives the restart in the swap record, the scheduled refund task doesn't.
+// survives the restart in the swap record, the scheduled refund task doesn't. A lockup Boltz
+// rejected for a wrong amount is renegotiated rather than refunded.
 func (h *SwapManager) recoverBtcToArkadeChainSwap(
 	ctx context.Context, swap *swaptypes.Swap, status *boltz.SwapStatusResponse,
 	event boltz.SwapUpdateEvent,
@@ -268,7 +280,18 @@ func (h *SwapManager) recoverBtcToArkadeChainSwap(
 			return h.persistUpdatedSwap(ctx, *swap)
 		}
 		return nil
-	case boltz.SwapExpired, boltz.TransactionFailed, boltz.TransactionLockupFailed:
+	case boltz.TransactionLockupFailed:
+		// The lockup amount didn't match: renegotiate as the pre-restart ws flow would have,
+		// falling back to the refund only when Boltz no longer offers a quote.
+		err := h.renegotiateChainSwap(swap)
+		if err == nil {
+			return nil
+		}
+		log.WithError(err).Debugf(
+			"swap recovery: cannot renegotiate chain swap %s, refunding", swap.Id,
+		)
+		fallthrough
+	case boltz.SwapExpired, boltz.TransactionFailed:
 		swap.Status = int(SwapStatusFailed)
 		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
 			return err
@@ -294,6 +317,64 @@ func (h *SwapManager) recoverBtcRefund(ctx context.Context, swap *swaptypes.Swap
 		return err
 	}
 	return h.scheduleBtcRefund(swap, htlcScript, refundKey)
+}
+
+// renegotiateChainSwap accepts the quote Boltz offers for a chain swap whose lockup amount
+// didn't match, restoring at recovery the renegotiation the live ws flow performs. It errors
+// when Boltz doesn't offer a quote (anymore), eg. because the swap expired or a refund was
+// already signed. On acceptance Boltz re-processes the lockup asynchronously, so a background
+// watcher polls the swap status and re-drives the recovery until a terminal state is reached.
+func (h *SwapManager) renegotiateChainSwap(swap *swaptypes.Swap) error {
+	quote, err := h.boltzSvc.GetChainSwapQuote(swap.Id)
+	if err != nil {
+		return fmt.Errorf("failed to get quote: %w", err)
+	}
+	if err := h.boltzSvc.AcceptChainSwapQuote(swap.Id, *quote); err != nil {
+		return fmt.Errorf("failed to accept quote: %w", err)
+	}
+	log.Debugf("swap recovery: accepted new quote for chain swap %s", swap.Id)
+
+	h.bgWg.Go(func() {
+		ctx, cancel := context.WithTimeout(h.ctx, h.chainSwapTimeout)
+		defer cancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+
+			status, err := h.boltzSvc.GetSwapStatus(swap.Id)
+			if err != nil {
+				log.WithError(err).Debugf(
+					"swap recovery: failed to get status of renegotiated swap %s", swap.Id,
+				)
+				continue
+			}
+			event := boltz.ParseEvent(status.Status)
+			// The quote was accepted already: a lockup still marked failed just hasn't been
+			// re-processed by Boltz yet. Dispatching it would renegotiate again.
+			if event == boltz.TransactionLockupFailed {
+				continue
+			}
+
+			if err := h.recoverChainSwap(ctx, swap, status, event); err != nil {
+				log.WithError(err).Warnf(
+					"swap recovery: failed to progress renegotiated swap %s", swap.Id,
+				)
+				continue
+			}
+			switch event {
+			case boltz.TransactionMempool, boltz.TransactionConfirmed:
+				// The lockup was accepted back, keep watching for the server lockup.
+				continue
+			default:
+				return
+			}
+		}
+	})
+	return nil
 }
 
 // recoverRefund refunds the vhtlc funding the given swap. If the refund locktime has already
