@@ -706,41 +706,48 @@ func TestRecoverSwaps(t *testing.T) {
 	// A BTC -> Arkade chain swap whose btc lockup Boltz rejected for a wrong amount must be
 	// renegotiated by the recovery on the next manager startup, like the live flow would have,
 	// and then completed with the new quote.
-	t.Run("renegotiates a failed btc to arkade chain swap after wallet restart", func(t *testing.T) {
-		settleBoltzFulmine(t)
-		alice, datadir := setupSwapWallet(t, "")
-		faucetOffchain(t, alice, 0.001) // fee overhead for the claim
+	t.Run(
+		"renegotiates a failed btc to arkade chain swap after wallet restart",
+		func(t *testing.T) {
+			settleBoltzFulmine(t)
+			alice, datadir := setupSwapWallet(t, "")
+			faucetOffchain(t, alice, 0.001) // fee overhead for the claim
 
-		balanceBefore, err := alice.Balance(t.Context())
-		require.NoError(t, err)
+			balanceBefore, err := alice.Balance(t.Context())
+			require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
-		t.Cleanup(cancel)
+			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+			t.Cleanup(cancel)
 
-		boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
-		// Underfund the lockup: with no manager running, nobody accepts the renegotiated quote
-		// and the swap sits in the lockup-failed state until recovery picks it up.
-		cs := createBoltzBtcToArkadeChainSwap(t, ctx, alice, datadir, boltzSvc, 50000, 40000)
+			boltzSvc := &boltz.Api{URL: boltzUrl, WSURL: boltzWsUrl}
+			// Underfund the lockup: with no manager running, nobody accepts the renegotiated quote
+			// and the swap sits in the lockup-failed state until recovery picks it up.
+			cs := createBoltzBtcToArkadeChainSwap(t, ctx, alice, datadir, boltzSvc, 50000, 40000)
 
-		require.Eventually(t, func() bool {
-			status, err := boltzSvc.GetSwapStatus(cs.id)
-			return err == nil &&
-				boltz.ParseEvent(status.Status) == boltz.TransactionLockupFailed
-		}, 60*time.Second, 2*time.Second, "boltz should reject the underfunded lockup")
+			require.Eventually(t, func() bool {
+				status, err := boltzSvc.GetSwapStatus(cs.id)
+				return err == nil &&
+					boltz.ParseEvent(status.Status) == boltz.TransactionLockupFailed
+			}, 60*time.Second, 2*time.Second, "boltz should reject the underfunded lockup")
 
-		// A fresh manager renegotiates the swap on startup and claims the vhtlc Boltz funds
-		// with the new quote.
-		manager := setupSwapManager(t, alice)
-		persisted := awaitPersistedSwap(t, manager, cs.id, swap.SwapStatusSuccess)
-		require.NotEmpty(t, persisted.RedeemTxid)
+			// A fresh manager renegotiates the swap on startup and claims the vhtlc Boltz funds
+			// with the new quote.
+			manager := setupSwapManager(t, alice)
+			persisted := awaitPersistedSwap(t, manager, cs.id, swap.SwapStatusSuccess)
+			require.NotEmpty(t, persisted.RedeemTxid)
 
-		requireVHTLCSpentBy(t, alice, cs.vhtlcScript, persisted.RedeemTxid)
+			requireVHTLCSpentBy(t, alice, cs.vhtlcScript, persisted.RedeemTxid)
 
-		balanceAfter, err := alice.Balance(t.Context())
-		require.NoError(t, err)
-		require.Greater(t, balanceAfter.OffchainBalance.Total, balanceBefore.OffchainBalance.Total,
-			"alice should have received the renegotiated funds via recovery")
-	})
+			balanceAfter, err := alice.Balance(t.Context())
+			require.NoError(t, err)
+			require.Greater(
+				t,
+				balanceAfter.OffchainBalance.Total,
+				balanceBefore.OffchainBalance.Total,
+				"alice should have received the renegotiated funds via recovery",
+			)
+		},
+	)
 }
 
 // TestRestoreSwaps exercises the restore a SwapManager runs on startup when its store is empty,
