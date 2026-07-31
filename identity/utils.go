@@ -30,6 +30,12 @@ func getBIP86RootPath(network *chaincfg.Params) []uint32 {
 	}
 }
 
+// parseDerivationIndex normalizes a key id to the {account, index} pair the key service
+// derives at. Only the terminal index identifies a key: every key lives under the single
+// unhardened account m/0, so any leading segments ("m/", an account number) are deliberately
+// ignored and "5", "0/5", "m/5" and "m/0/5" all resolve to the same key. Key ids are produced
+// internally by toDerivationPath and persisted in contract params — this normalization keeps
+// them stable across the historical formats, it is not meant to validate user input.
 func parseDerivationIndex(keyId string) ([]uint32, error) {
 	if keyId == "" {
 		return nil, fmt.Errorf("key id is required")
@@ -98,7 +104,11 @@ func decryptAES256(encrypted, password []byte) ([]byte, error) {
 	if len(password) == 0 {
 		return nil, fmt.Errorf("missing password")
 	}
-	if len(encrypted) < 32 {
+	// Layout: gcm nonce (12) || ciphertext || gcm tag (16) || pbkdf2 salt (32). Reject
+	// anything that can't possibly decrypt before the key derivation below: it's
+	// deliberately expensive (600k PBKDF2 rounds) and must not run on garbage input.
+	const minEncryptedLen = 12 + 16 + 32
+	if len(encrypted) < minEncryptedLen {
 		return nil, fmt.Errorf("encrypted data too short")
 	}
 

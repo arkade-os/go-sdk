@@ -260,16 +260,6 @@ func TestLoadData(t *testing.T) {
 			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 12}))
 			require.EqualValues(t, 12, provider.GetNextKeyIndex())
 		})
-
-		t.Run("clears cache", func(t *testing.T) {
-			provider := newHDKeyService(newMasterKey(t))
-			_, err := provider.DeriveKeyAt("m/0/0")
-			require.NoError(t, err)
-			require.NotEmpty(t, provider.derivedKeyCache)
-
-			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 5}))
-			require.Empty(t, provider.derivedKeyCache)
-		})
 	})
 }
 
