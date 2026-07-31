@@ -34,6 +34,10 @@ const (
 	SwapStatusPending
 	SwapStatusSuccess
 	SwapStatusFailed
+	// SwapStatusRenegotiating marks a chain swap whose rejected lockup quote was already
+	// accepted with Boltz: recovery must resume watching it, never accept a quote again as Boltz
+	// would reject that.
+	SwapStatusRenegotiating
 
 	SwapTypeSubmarine = "submarine"
 	SwapTypeReverse   = "reverse"
@@ -472,17 +476,17 @@ func (h *SwapManager) submarineSwap(ctx context.Context, invoice string) (*swapt
 			if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
 				return nil, err
 			}
-			go func() {
+			h.bgWg.Go(func() {
 				log.Debugf(
 					"process aborted while waiting for updates for swap %s, "+
-						"trying to schedule a unilrateral refund before aborting...", swapResp.Id,
+						"trying to schedule a unilateral refund before aborting...", swapResp.Id,
 				)
 				if err := h.scheduleUnilateralRefund(swap, parsed.RefundLocktime); err != nil {
 					log.WithError(err).Errorf(
 						"failed to schedule refund of swap %s unilaterally", swapResp.Id,
 					)
 				}
-			}()
+			})
 
 			return swap, nil
 		}
@@ -948,6 +952,12 @@ func (h *SwapManager) persistSwap(ctx context.Context, swap swaptypes.Swap) erro
 	return nil
 }
 
+// persistUpdatedSwap writes the swap back to the store. Context convention: the event loops
+// driving swaps in background pass context.Background() on terminal-state writes — a status
+// reached on the Boltz side must be recorded even when the flow's own context just expired or
+// was cancelled, or the store would lie about the swap forever. Recovery paths pass their
+// recovery context instead: it's the manager lifetime, and Close tears the store down only
+// after waiting for them.
 func (h *SwapManager) persistUpdatedSwap(ctx context.Context, swap swaptypes.Swap) error {
 	if err := h.store.Swaps().Update(ctx, swap); err != nil {
 		return err

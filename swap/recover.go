@@ -55,6 +55,18 @@ func (h *SwapManager) recoverPendingSwaps(ctx context.Context) {
 		}
 	}
 
+	// Chain swaps left mid-renegotiation: the quote was already accepted before the shutdown,
+	// resume the watcher without accepting it again (Boltz rejects a second acceptance, which
+	// would needlessly route the swap to the refund path).
+	renegotiatingSwaps, err := h.store.Swaps().List(ctx, int(SwapStatusRenegotiating))
+	if err != nil {
+		log.WithError(err).Error("swap recovery: failed to list renegotiating swaps")
+		return
+	}
+	for i := range renegotiatingSwaps {
+		h.watchRenegotiatedSwap(&renegotiatingSwaps[i])
+	}
+
 	pendingSwaps, err := h.store.Swaps().List(ctx, int(SwapStatusPending))
 	if err != nil {
 		log.WithError(err).Error("swap recovery: failed to list pending swaps")
@@ -164,7 +176,7 @@ func (h *SwapManager) recoverChainSwap(
 	case boltz.TransactionLockupFailed:
 		// The lockup amount didn't match: renegotiate as the pre-restart ws flow would have,
 		// falling back to the refund only when Boltz no longer offers a quote.
-		err := h.renegotiateChainSwap(swap)
+		err := h.renegotiateChainSwap(ctx, swap)
 		if err == nil {
 			return nil
 		}
@@ -283,7 +295,7 @@ func (h *SwapManager) recoverBtcToArkadeChainSwap(
 	case boltz.TransactionLockupFailed:
 		// The lockup amount didn't match: renegotiate as the pre-restart ws flow would have,
 		// falling back to the refund only when Boltz no longer offers a quote.
-		err := h.renegotiateChainSwap(swap)
+		err := h.renegotiateChainSwap(ctx, swap)
 		if err == nil {
 			return nil
 		}
@@ -322,9 +334,11 @@ func (h *SwapManager) recoverBtcRefund(ctx context.Context, swap *swaptypes.Swap
 // renegotiateChainSwap accepts the quote Boltz offers for a chain swap whose lockup amount
 // didn't match, restoring at recovery the renegotiation the live ws flow performs. It errors
 // when Boltz doesn't offer a quote (anymore), eg. because the swap expired or a refund was
-// already signed. On acceptance Boltz re-processes the lockup asynchronously, so a background
-// watcher polls the swap status and re-drives the recovery until a terminal state is reached.
-func (h *SwapManager) renegotiateChainSwap(swap *swaptypes.Swap) error {
+// already signed. The acceptance is persisted as SwapStatusRenegotiating before returning: a
+// restart happening while Boltz re-processes the lockup must resume the watcher, not accept
+// the quote a second time — Boltz rejects that and the error would route a swap on track to
+// complete into the refund path.
+func (h *SwapManager) renegotiateChainSwap(ctx context.Context, swap *swaptypes.Swap) error {
 	quote, err := h.boltzSvc.GetChainSwapQuote(swap.Id)
 	if err != nil {
 		return fmt.Errorf("failed to get quote: %w", err)
@@ -334,6 +348,21 @@ func (h *SwapManager) renegotiateChainSwap(swap *swaptypes.Swap) error {
 	}
 	log.Debugf("swap recovery: accepted new quote for chain swap %s", swap.Id)
 
+	swap.Status = int(SwapStatusRenegotiating)
+	if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+		return fmt.Errorf("failed to persist renegotiating status: %w", err)
+	}
+
+	h.watchRenegotiatedSwap(swap)
+	return nil
+}
+
+// watchRenegotiatedSwap polls the status of a chain swap whose renegotiated quote was accepted
+// and re-drives the recovery on every update until a terminal state is reached, bounded by the
+// chain swap timeout. Boltz re-processes the accepted lockup asynchronously and recovery has no
+// websocket, hence the polling. The swap record is owned exclusively by this watcher: the
+// manager is a singleton per wallet and recovery spawns at most one watcher per swap id.
+func (h *SwapManager) watchRenegotiatedSwap(swap *swaptypes.Swap) {
 	h.bgWg.Go(func() {
 		ctx, cancel := context.WithTimeout(h.ctx, h.chainSwapTimeout)
 		defer cancel()
@@ -374,7 +403,6 @@ func (h *SwapManager) renegotiateChainSwap(swap *swaptypes.Swap) error {
 			}
 		}
 	})
-	return nil
 }
 
 // recoverRefund refunds the vhtlc funding the given swap. If the refund locktime has already

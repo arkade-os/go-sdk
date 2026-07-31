@@ -728,7 +728,10 @@ func (h *SwapManager) RefundChainSwap(
 		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
 			return nil, nil, err
 		}
-		// Approximate the expiry time from the remaining blocks (~10' each).
+		// The returned time is informational only: the scheduled task fires on block height,
+		// not on this clock. Approximate it from the remaining blocks with the mainnet 10'
+		// target — on regtest or a fee-spiky mainnet stretch the real moment will differ,
+		// but the refund still fires exactly at the locktime height.
 		scheduledAt := time.Now().Add(time.Duration(locktime-height) * 10 * time.Minute)
 		return swap, &scheduledAt, nil
 	}

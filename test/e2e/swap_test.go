@@ -1102,7 +1102,8 @@ func awaitPersistedSwap(
 	var persisted *swaptypes.Swap
 	require.Eventually(t, func() bool {
 		record, err := manager.GetSwap(context.Background(), id)
-		if err != nil || record.Status == int(swap.SwapStatusPending) {
+		if err != nil || record.Status == int(swap.SwapStatusPending) ||
+			record.Status == int(swap.SwapStatusRenegotiating) {
 			return false
 		}
 		persisted = record

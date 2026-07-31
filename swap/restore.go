@@ -33,6 +33,8 @@ func (h *SwapManager) restoreSwaps(ctx context.Context) {
 		return
 	}
 	// Restore only makes sense on an empty store: any local data means we never lost it.
+	// This also makes a double import impossible: the first restored record makes the store
+	// non-empty, so a later startup can never re-import on top of restored data.
 	if len(existing) > 0 {
 		return
 	}
