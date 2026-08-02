@@ -119,10 +119,7 @@ func getFancyTimeExpiration(nextExpiration int64) string {
 	return fancyTimeExpiration
 }
 
-func findVtxosSpentInSettlement(
-	vtxos []clienttypes.Vtxo,
-	vtxo clienttypes.Vtxo,
-) []clienttypes.Vtxo {
+func findVtxosSpentInBatch(vtxos []clienttypes.Vtxo, vtxo clienttypes.Vtxo) []clienttypes.Vtxo {
 	if vtxo.Preconfirmed {
 		return nil
 	}

@@ -35,7 +35,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 
 	t.Logf("=== START tier=%d gapLimit=%d amountSat=%d ===", N, smokeGapLimit, smokeAmountSat)
 
-	alice, aliceDatadir := setupSmokeClient(t, "", arksdk.WithoutAutoSettle())
+	alice, aliceDatadir := setupSmokeClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 	t.Logf("alice datadir: %s", aliceDatadir)
 
 	seed, err := alice.Dump(ctx)
@@ -43,7 +43,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 	require.NotEmpty(t, seed)
 	t.Logf("alice mnemonic: %s", seed)
 
-	bob, bobDatadir := setupSmokeClient(t, "", arksdk.WithoutAutoSettle())
+	bob, bobDatadir := setupSmokeClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 	t.Logf("bob datadir: %s", bobDatadir)
 
 	addrs := make([]string, N)
@@ -111,9 +111,9 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 
 	t.Logf("[restore warm] LoadWallet from %s...", aliceDatadir)
 	restoreStart := time.Now()
-	restoredAlice := loadSmokeClient(t, aliceDatadir,
-		arksdk.WithGapLimit(smokeGapLimit),
-		arksdk.WithoutAutoSettle(),
+	restoredAlice := loadSmokeClient(
+		t, aliceDatadir,
+		arksdk.WithGapLimit(smokeGapLimit), arksdk.WithRenewalScheduleInterval(time.Hour),
 	)
 	t.Logf("[restore warm] LoadWallet ok in %v", time.Since(restoreStart).Truncate(time.Millisecond))
 
@@ -125,7 +125,7 @@ func TestSmokeHDWalletRestoreAtScale(t *testing.T) {
 	t.Log("[restore seed] from mnemonic into fresh datadir...")
 	seedRestoreStart := time.Now()
 	seedRestoredAlice, seedDatadir := setupSmokeClient(
-		t, seed, arksdk.WithGapLimit(smokeGapLimit), arksdk.WithoutAutoSettle(),
+		t, seed, arksdk.WithGapLimit(smokeGapLimit), arksdk.WithRenewalScheduleInterval(time.Hour),
 	)
 	t.Logf(
 		"[restore seed] new datadir=%s; LoadWallet ok in %v",
@@ -253,7 +253,7 @@ func fundAndSendSmoke(
 	)
 	totUnspent := total
 	for i, addr := range addrs {
-		// Check bob's balance, if funds are close to expiry or recoverable a refresh is required
+		// Check bob's balance, if funds are close to expiry or recoverable a renewal is required
 		bobBalance, err := sender.Balance(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, bobBalance)
@@ -269,7 +269,7 @@ func fundAndSendSmoke(
 			txid, err := sender.Settle(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, txid)
-			t.Logf("[send] refreshed bob's funds txid = %s", txid)
+			t.Logf("[send] renewed bob's funds txid = %s", txid)
 			generateBlocks(t, 1)
 		}
 

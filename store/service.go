@@ -24,6 +24,7 @@ const (
 )
 
 type service struct {
+	config        types.StoreConfig
 	db            *sql.DB
 	utxoStore     types.UtxoStore
 	vtxoStore     types.VtxoStore
@@ -32,21 +33,15 @@ type service struct {
 	contractStore types.ContractStore
 }
 
-type Config struct {
-	StoreType string
-	Args      any
-}
-
-func NewStore(storeConfig Config) (types.Store, error) {
-	if storeConfig.StoreType != types.SQLStore {
+func NewStore(config types.StoreConfig) (types.Store, error) {
+	if config.StoreType != types.SQLStore {
 		return nil, fmt.Errorf("unknown store type")
 	}
 
-	dir, ok := storeConfig.Args.(string)
+	dir, ok := config.Args.(string)
 	if !ok {
 		return nil, fmt.Errorf(
-			"invalid config args for sqlite store: expected string datadir, got %T",
-			storeConfig.Args,
+			"invalid config args for sqlite store: expected string datadir, got %T", config.Args,
 		)
 	}
 
@@ -91,6 +86,7 @@ func NewStore(storeConfig Config) (types.Store, error) {
 	contractStore := sqlstore.NewContractStore(db)
 
 	return &service{
+		config:        config,
 		db:            db,
 		utxoStore:     utxoStore,
 		vtxoStore:     vtxoStore,
@@ -98,6 +94,10 @@ func NewStore(storeConfig Config) (types.Store, error) {
 		assetStore:    assetStore,
 		contractStore: contractStore,
 	}, nil
+}
+
+func (s *service) GetConfig() types.StoreConfig {
+	return s.config
 }
 
 func (s *service) UtxoStore() types.UtxoStore {

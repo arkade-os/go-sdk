@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	minDbRefreshInterval      = 30 * time.Second
-	minGapLimit               = 20
-	defaultMaxMigrationInputs = 50
+	minDbRefreshInterval       = 30 * time.Second
+	minRenewalScheduleInterval = 30 * time.Second
+	minGapLimit                = 20
+	defaultMaxMigrationInputs  = 50
 )
 
 type WalletOption func(*walletOptions) error
@@ -39,6 +40,42 @@ func WithRefreshDbInterval(d time.Duration) WalletOption {
 		}
 		o.refreshDbInterval = d
 		o.refreshDbIntervalSet = true
+		return nil
+	}
+}
+
+// WithRenewalScheduleInterval sets the interval of the background job that recomputes and
+// reschedules the next auto-renewal from the current vtxo set. Must be at least 30s.
+// Can only be set once. If not set, it defaults to 30s.
+func WithRenewalScheduleInterval(d time.Duration) WalletOption {
+	return func(o *walletOptions) error {
+		if o.renewalScheduleIntervalSet {
+			return fmt.Errorf("renewal schedule interval already set")
+		}
+		if d < minRenewalScheduleInterval {
+			return fmt.Errorf(
+				"renewal schedule interval must be at least %s", minRenewalScheduleInterval,
+			)
+		}
+		o.renewalScheduleInterval = d
+		o.renewalScheduleIntervalSet = true
+		return nil
+	}
+}
+
+// WithServerParamsCacheTTL sets how long the wallet reuses a cached GetInfo response before
+// hitting the server again. Must be at least 1m.
+// Can only be set once. If not set, it defaults to 5m.
+func WithServerParamsCacheTTL(d time.Duration) WalletOption {
+	return func(o *walletOptions) error {
+		if o.infoCacheTTLSet {
+			return fmt.Errorf("server params cache ttl already set")
+		}
+		if d < minInfoCacheTTL {
+			return fmt.Errorf("server params cache ttl must be at least %s", minInfoCacheTTL)
+		}
+		o.infoCacheTTL = d
+		o.infoCacheTTLSet = true
 		return nil
 	}
 }
@@ -92,21 +129,7 @@ func WithScheduler(svc scheduler.SchedulerService) WalletOption {
 		if o.scheduler != nil {
 			return fmt.Errorf("scheduler already set")
 		}
-		if o.disableAutoSettle {
-			return fmt.Errorf("cannot set scheduler when auto-settle is disabled")
-		}
 		o.scheduler = svc
-		return nil
-	}
-}
-
-// WithoutAutoSettle disables the auto-settle feature.
-func WithoutAutoSettle() WalletOption {
-	return func(o *walletOptions) error {
-		if o.scheduler != nil {
-			return fmt.Errorf("cannot disable auto-settle when scheduler is set")
-		}
-		o.disableAutoSettle = true
 		return nil
 	}
 }
@@ -151,22 +174,27 @@ func applyWalletOptions(opts ...WalletOption) (*walletOptions, error) {
 }
 
 type walletOptions struct {
-	refreshDbIntervalSet bool
-	refreshDbInterval    time.Duration
-	verbose              bool
-	hdGapLimit           uint32
-	hdGapLimitSet        bool
-	identity             identity.Identity
-	scheduler            scheduler.SchedulerService
-	disableAutoSettle    bool
-	customHandlers       map[types.ContractType]handlers.Handler
+	refreshDbIntervalSet       bool
+	refreshDbInterval          time.Duration
+	renewalScheduleIntervalSet bool
+	renewalScheduleInterval    time.Duration
+	infoCacheTTLSet            bool
+	infoCacheTTL               time.Duration
+	verbose                    bool
+	hdGapLimit                 uint32
+	hdGapLimitSet              bool
+	identity                   identity.Identity
+	scheduler                  scheduler.SchedulerService
+	customHandlers             map[types.ContractType]handlers.Handler
 }
 
-// newDefaultWalletOptions returns a zero-value walletOptions with default hdGapLimit (20) and
-// refreshDbInterval (30s). These values cannot be zero-ed.
+// newDefaultWalletOptions returns a zero-value walletOptions with default hdGapLimit (20),
+// refreshDbInterval (30s) and renewalScheduleInterval (30s). These values cannot be zero-ed.
 func newDefaultWalletOptions() *walletOptions {
 	return &walletOptions{
-		hdGapLimit:        minGapLimit,
-		refreshDbInterval: minDbRefreshInterval,
+		hdGapLimit:              minGapLimit,
+		refreshDbInterval:       minDbRefreshInterval,
+		renewalScheduleInterval: minRenewalScheduleInterval,
+		infoCacheTTL:            defaultInfoCacheTTL,
 	}
 }

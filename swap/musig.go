@@ -162,6 +162,11 @@ func ParsePartialSignatureScalar32(sigHex string) (*musig2.PartialSignature, err
 	if overflow := ps.S.SetByteSlice(b); overflow {
 		return nil, fmt.Errorf("partial sig scalar overflow")
 	}
+	// S=0 is never a valid partial signature: letting it through would only surface later as
+	// an invalid combined signature, far from the counterparty response that caused it.
+	if ps.S.IsZero() {
+		return nil, fmt.Errorf("partial sig scalar is zero")
+	}
 
 	return ps, nil
 }

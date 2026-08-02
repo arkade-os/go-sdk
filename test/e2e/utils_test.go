@@ -2,7 +2,6 @@ package e2e_test
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +12,9 @@ import (
 	"testing"
 	"time"
 
-	singlekeywallet "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey"
-	inmemorystore "github.com/arkade-os/arkd/pkg/client-lib/identity/singlekey/store/inmemory"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	sdk "github.com/arkade-os/go-sdk"
-	"github.com/arkade-os/go-sdk/swap"
-	"github.com/arkade-os/go-sdk/swap/boltz"
 	"github.com/arkade-os/go-sdk/types"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,19 +29,7 @@ const (
 func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
 	t.Helper()
 
-	arkClient, _ := setupClientWithDatadir(t, seed, opts...)
-	return arkClient
-}
-
-func setupClientWithDatadir(
-	t *testing.T,
-	seed string,
-	opts ...sdk.WalletOption,
-) (sdk.Wallet, string) {
-	t.Helper()
-
-	datadir := t.TempDir()
-	arkClient, err := sdk.NewWallet(datadir, opts...)
+	arkClient, err := sdk.NewWallet(t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	err = arkClient.Init(t.Context(), serverUrl, seed, password)
@@ -62,54 +44,7 @@ func setupClientWithDatadir(
 
 	t.Cleanup(arkClient.Stop)
 
-	return arkClient, datadir
-}
-
-// setupSwapClient creates a wallet with a single-key identity for swap/vhtlc
-// tests that need direct access to the private key for manual PSBT signing.
-func setupSwapClient(t *testing.T) (sdk.Wallet, *btcec.PrivateKey) {
-	t.Helper()
-
-	w, privkey, _ := setupSwapClientWithDatadir(t)
-	return w, privkey
-}
-
-func setupSwapClientWithDatadir(t *testing.T) (sdk.Wallet, *btcec.PrivateKey, string) {
-	t.Helper()
-
-	privkey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	store, err := inmemorystore.NewStore()
-	require.NoError(t, err)
-	singleKey, err := singlekeywallet.NewIdentity(store)
-	require.NoError(t, err)
-
-	seed := hex.EncodeToString(privkey.Serialize())
-	w, datadir := setupClientWithDatadir(t, seed,
-		sdk.WithIdentity(singleKey),
-	)
-
-	return w, privkey, datadir
-}
-
-func setupSwapHandler(
-	t *testing.T,
-	wallet sdk.Wallet,
-	boltzSvc *boltz.Api,
-	timeout uint32,
-	datadir string,
-) *swap.SwapHandler {
-	t.Helper()
-
-	handler, err := swap.NewSwapHandler(wallet, boltzSvc, explorerUrl, timeout, datadir)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		// nolint
-		handler.Close()
-	})
-
-	return handler
+	return arkClient
 }
 
 func faucetOnchain(t *testing.T, address string, amount float64) {
@@ -310,15 +245,23 @@ func lndPayInvoice(invoice string) error {
 	return err
 }
 
-// --- Thread-safe error collection ---
+// lndInvoiceState returns the state ("OPEN", "SETTLED", ...) of the invoice with the given
+// payment hash.
+func lndInvoiceState(rHash string) (string, error) {
+	out, err := runCommand(
+		"docker", "exec", "lnd",
+		"lncli", "--network=regtest",
+		"lookupinvoice", rHash,
+	)
+	if err != nil {
+		return "", fmt.Errorf("lnd lookupinvoice: %w", err)
+	}
 
-type concurrentErrors struct {
-	mu   sync.Mutex
-	errs []error
-}
-
-func (e *concurrentErrors) add(err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.errs = append(e.errs, err)
+	var resp struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return "", fmt.Errorf("parse lnd lookupinvoice response: %w (raw: %s)", err, out)
+	}
+	return resp.State, nil
 }

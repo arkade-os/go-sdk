@@ -5,447 +5,36 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	vhtlchandler "github.com/arkade-os/go-sdk/contract/handlers/vhtlc"
-	hdidentity "github.com/arkade-os/go-sdk/identity"
+	"github.com/arkade-os/go-sdk/htlc"
 	"github.com/arkade-os/go-sdk/swap/boltz"
+	swaptypes "github.com/arkade-os/go-sdk/swap/types"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+
 	log "github.com/sirupsen/logrus"
 )
 
-type ChainSwapStatus int
-
-const (
-	// Pending states
-	ChainSwapPending ChainSwapStatus = iota
-	ChainSwapUserLocked
-	ChainSwapServerLocked
-
-	// Success states
-	ChainSwapClaimed
-
-	// Failed states
-	ChainSwapUserLockedFailed
-	ChainSwapFailed
-	ChainSwapRefundFailed
-	ChainSwapRefunded
-	ChainSwapRefundedUnilaterally
-)
-
-type ChainSwap struct {
-	mu sync.RWMutex
-
-	Id       string
-	Amount   uint64
-	Preimage []byte
-
-	UserBtcLockupAddress string
-	BTCHTLCPrivateKey    string
-
-	VhtlcOpts vhtlc.Opts
-
-	UserLockTxid   string
-	ServerLockTxid string
-	ClaimTxid      string
-	RefundTxid     string
-
-	Timestamp int64
-	Status    ChainSwapStatus
-	Error     string
-
-	SwapRespJson string
-	IsArkToBtc   bool
-
-	// onEvent is called when swap state transitions occur
-	// Emits typed events that the service layer can handle
-	onEvent ChainSwapEventCallback
-}
-
-// GetStatus returns the current status in a thread-safe way.
-func (s *ChainSwap) GetStatus() ChainSwapStatus {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Status
-}
-
-// GetError returns the current error in a thread-safe way.
-func (s *ChainSwap) GetError() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Error
-}
-
-// GetClaimTxid returns the claim txid in a thread-safe way.
-func (s *ChainSwap) GetClaimTxid() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.ClaimTxid
-}
-
-// GetRefundTxid returns the refund txid in a thread-safe way.
-func (s *ChainSwap) GetRefundTxid() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.RefundTxid
-}
-
-// GetServerLockTxid returns the server lock txid in a thread-safe way.
-func (s *ChainSwap) GetServerLockTxid() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.ServerLockTxid
-}
-
-func NewChainSwap(
-	id string,
-	amount uint64,
-	preimage []byte,
-	vhtlcOpts *vhtlc.Opts,
-	swapRespJson string,
-	isArkToBtc bool,
-	userBtcLockupAddress string,
-	btcHTLCPrivateKey string,
-	eventCallback ChainSwapEventCallback,
-) (*ChainSwap, error) {
-	if id == "" {
-		return nil, errors.New("id cannot be empty")
-	}
-
-	if amount == 0 {
-		return nil, errors.New("amount cannot be 0")
-	}
-
-	if vhtlcOpts == nil {
-		return nil, errors.New("vhtlcOpts cannot be nil")
-	}
-
-	if preimage == nil {
-		return nil, errors.New("preimage cannot be nil")
-	}
-
-	if btcHTLCPrivateKey == "" {
-		return nil, errors.New("btcHTLCPrivateKey cannot be empty")
-	}
-
-	ch := &ChainSwap{
-		Id:                   id,
-		Timestamp:            time.Now().Unix(),
-		Status:               ChainSwapPending,
-		Amount:               amount,
-		Preimage:             preimage,
-		VhtlcOpts:            *vhtlcOpts,
-		SwapRespJson:         swapRespJson,
-		IsArkToBtc:           isArkToBtc,
-		UserBtcLockupAddress: userBtcLockupAddress,
-		BTCHTLCPrivateKey:    btcHTLCPrivateKey,
-		onEvent:              eventCallback,
-	}
-
-	if eventCallback != nil {
-		eventCallback(CreateEvent{
-			Id:                   id,
-			Timestamp:            ch.Timestamp,
-			Status:               ChainSwapPending,
-			Amount:               amount,
-			Preimage:             preimage,
-			VhtlcOpts:            *vhtlcOpts,
-			SwapRespJson:         swapRespJson,
-			IsArkToBtc:           isArkToBtc,
-			UserBtcLockupAddress: userBtcLockupAddress,
-			BTCHTLCPrivateKey:    btcHTLCPrivateKey,
-		})
-	}
-
-	return ch, nil
-}
-
-func (s *ChainSwap) UserLock(txid string) {
-	s.mu.Lock()
-	s.UserLockTxid = txid
-	s.Status = ChainSwapUserLocked
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(UserLockEvent{
-			SwapID: s.Id,
-			TxID:   txid,
-		})
-	}
-}
-
-func (s *ChainSwap) ServerLock(txid string) {
-	s.mu.Lock()
-	s.ServerLockTxid = txid
-	s.Status = ChainSwapServerLocked
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(ServerLockEvent{
-			SwapID: s.Id,
-			TxID:   txid,
-		})
-	}
-}
-
-func (s *ChainSwap) Claim(txid string) {
-	s.mu.Lock()
-	s.ClaimTxid = txid
-	s.Status = ChainSwapClaimed
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(ClaimEvent{
-			SwapID: s.Id,
-			TxID:   txid,
-		})
-	}
-}
-
-func (s *ChainSwap) Refund(txid string) {
-	s.mu.Lock()
-	s.RefundTxid = txid
-	s.Status = ChainSwapRefunded
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(RefundEvent{
-			SwapID: s.Id,
-			TxID:   txid,
-		})
-	}
-}
-
-func (s *ChainSwap) RefundUnilaterally(txid string) {
-	s.mu.Lock()
-	s.RefundTxid = txid
-	s.Status = ChainSwapRefundedUnilaterally
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(RefundEventUnilaterally{
-			SwapID: s.Id,
-			TxID:   txid,
-		})
-	}
-}
-
-func (s *ChainSwap) Fail(err string) {
-	s.mu.Lock()
-	s.Status = ChainSwapFailed
-	s.Error = err
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(FailEvent{
-			SwapID: s.Id,
-			Error:  err,
-		})
-	}
-}
-
-func (s *ChainSwap) RefundFailed(err string) {
-	s.mu.Lock()
-	s.Status = ChainSwapRefundFailed
-	s.Error = err
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(RefundFailedEvent{
-			SwapID: s.Id,
-			Error:  err,
-		})
-	}
-}
-
-func (s *ChainSwap) UserLockedFailed(err string) {
-	s.mu.Lock()
-	s.Status = ChainSwapUserLockedFailed
-	s.Error = err
-	s.mu.Unlock()
-
-	if s.onEvent != nil {
-		s.onEvent(UserLockFailedEvent{
-			SwapID: s.Id,
-			Error:  err,
-		})
-	}
-}
-
-// ChainSwapEvent is a marker interface for typed domain events
-// Each event type represents a specific state transition with its own data
-type ChainSwapEvent interface {
-	isChainSwapEvent()
-}
-
-// UserLockEvent is emitted when user locks funds (Ark VTXO or BTC UTXO)
-type UserLockEvent struct {
-	SwapID string
-	TxID   string
-}
-
-func (UserLockEvent) isChainSwapEvent() {}
-
-// ServerLockEvent is emitted when server (Boltz) locks funds
-type ServerLockEvent struct {
-	SwapID string
-	TxID   string
-}
-
-func (ServerLockEvent) isChainSwapEvent() {}
-
-// ClaimEvent is emitted when swap is successfully claimed
-type ClaimEvent struct {
-	SwapID string
-	TxID   string
-}
-
-func (ClaimEvent) isChainSwapEvent() {}
-
-// RefundEvent is emitted when swap is refunded
-type RefundEvent struct {
-	SwapID string
-	TxID   string
-}
-
-func (RefundEvent) isChainSwapEvent() {}
-
-// RefundEventUnilaterally is emitted when swap is refunded
-type RefundEventUnilaterally struct {
-	SwapID string
-	TxID   string
-}
-
-type CreateEvent struct {
-	Id                   string
-	Amount               uint64
-	Preimage             []byte
-	VhtlcOpts            vhtlc.Opts
-	Timestamp            int64
-	Status               ChainSwapStatus
-	SwapRespJson         string
-	IsArkToBtc           bool
-	UserBtcLockupAddress string
-	BTCHTLCPrivateKey    string
-}
-
-func (CreateEvent) isChainSwapEvent() {}
-
-func (RefundEventUnilaterally) isChainSwapEvent() {}
-
-// FailEvent is emitted when swap fails
-type FailEvent struct {
-	SwapID string
-	Error  string
-}
-
-func (FailEvent) isChainSwapEvent() {}
-
-// RefundFailedEvent is emitted when refund attempt fails
-type RefundFailedEvent struct {
-	SwapID string
-	Error  string
-}
-
-func (RefundFailedEvent) isChainSwapEvent() {}
-
-// UserLockFailedEvent is emitted when user lock fails
-type UserLockFailedEvent struct {
-	SwapID string
-	Error  string
-}
-
-func (UserLockFailedEvent) isChainSwapEvent() {}
-
-// ChainSwapEventCallback is called whenever a chain swap event occurs
-type ChainSwapEventCallback func(event ChainSwapEvent)
-
-// ChainSwapArkToBtc performs an Ark → Bitcoin on-chain atomic swap
-// This is the main entry point for swapping Ark VTXOs to Bitcoin on-chain
-// Send ARK VTXO -> Receive BTC UTXO
-// Boltz locks BTC UTXO and it sends details on how user can claim it in claimDetails and where to send ARK VTXO in lockupDetails
-// claimLeaf(claimDetials) is used by user to cooperative claim BTC tx
-// LockupDetails should container VHTLC address where Boltz's Fulmine is receiver
-// 1. generate preimage
-// 2. POST /swap/chain: preimageHash, claimPubKey, refundPubKey
-//
-//	{
-//		"id": "KEBsfLtqhsmA",
-//		"claimDetails": {
-//			"serverPublicKey": "02a9750704fdf536a573472938b4457be73e75513ff5ba3d017b2d73e070055026",
-//			"amount": 2797,
-//			"lockupAddress": "bcrt1pyz4djuc8eqn9na9s5l5lqg24uawv5ycaw6a3r9vaz0w3ewen7maq7ldt8q",
-//			"timeoutBlockHeight": 542,
-//			"swapTree": {
-//				"claimLeaf": {
-//					"version": 192,
-//					"output": "82012088a914608bc8a727928e8aa18c7a2489c003deb47ff08388207599756afc49ebf5a6f3ac5848ef0afe934edd7b669bca02029acf10cc7f83acac"
-//				},
-//				"refundLeaf": {
-//					"version": 192,
-//					"output": "20a9750704fdf536a573472938b4457be73e75513ff5ba3d017b2d73e070055026ad021e02b1"
-//				}
-//			}
-//		},
-//		"lockupDetails": {
-//			"serverPublicKey": "025067f8c4f61cf3bcbf131edbe0256d890332d2cdba64355a4153db1101e84cd0",
-//			"amount": 3000,
-//			"lockupAddress": "tark1qz4a0tydelxxun8w62zz3zjk36sr6aqrs58gmne23r9ea37jwx9awtw542kccdpm6nsuwfdw808r56humw46hqrrrg8dsem5v6hqu5d97zgl6c",
-//			"timeoutBlockHeight": 1769647586,
-//			"timeouts": {
-//				"refund": 1769647586,
-//				"unilateralClaim": 6144,
-//				"unilateralRefund": 6144,
-//				"unilateralRefundWithoutReceiver": 12288
-//			}
-//		}
-//	}
-//
-// what user needs to validate?
-// - from claimDetails validate claimLeaf ? maybe we dont needs since for us it is important that we can refund vhtlc , validate HTLC
-// - from lockupDetails validate(recreate) vhtlc address
-// claimPubKey and preimage are used to claim BTC tx
-// refundPubKey is used to refund ARK VTXO tx after timeout if something goes wrong
-//  3. SendOffchain -> send VTXO to address claimable by Boltz Fulmine(receiverPubKey)
-//  4. Once Boltz notices VTXO, it will send(lock) coins on BTC mainnet - BTC lockup TX
-//  5. Boltz send server.mempool and server.confimed events via WebSocket and we than decide when to claim
-//     5.1 Cooperative claim so Boltz doesnt need to scan mainchain for preimage
-//     5.2 Unilateral claim if Boltz not responsive
-//  6. User Refunds in case something goes wrong, we should schedule unilateral refund?
-//     6.1 Try Cooperative Refund
-//     6.2 Try Unilateral Refund
-//  7. Quote mechanism: What if user sends(locks) less amount than what he announced in swap request?
-//     in transaction.lockupfailed get quote and accept quote
-func (h *SwapHandler) ChainSwapArkToBtc(
-	ctx context.Context,
-	amount uint64,
-	btcDestinationAddress string,
-	network *chaincfg.Params,
-	eventCallback ChainSwapEventCallback,
-	unilateralRefundCallback func(swapId string, opts vhtlc.Opts) error,
-) (*ChainSwap, error) {
-	log.Infof("Initiating Ark → BTC chain swap for %d sats to %s", amount, btcDestinationAddress)
-
-	arkToBtc := true
-
-	btcClaimKey, err := btcec.NewPrivateKey()
+func (h *SwapManager) ArkadeToBtcChainSwap(
+	ctx context.Context, btcAddress string, amount uint64,
+) (*swaptypes.Swap, error) {
+	claimKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ephemeral claim key for HTLC: %w", err)
 	}
 
-	keyProvider := h.arkWallet.Identity()
-	contractManager := h.arkWallet.ContractManager()
+	keyProvider := h.wallet.Identity()
+	contractManager := h.wallet.ContractManager()
 	handler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
 	if err != nil {
 		return nil, err
@@ -461,15 +50,11 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 
 	// If the identity supports schnorr signing, use it to generate a deterministic preimage,
 	// otherwise use a random preimage
-	schnorrSigner, ok := keyProvider.(hdidentity.KeyedPreimageSigner)
-	var preimage []byte
+	preimageSigner, ok := keyProvider.(PreimageSigner)
+	persistPreimage := !ok
+	var preimage vhtlc.Preimage
 	if ok {
-		keyIndex, err := keyProvider.GetKeyIndex(ctx, keyRef.Id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get key index for contract: %w", err)
-		}
-
-		preimage, err = genPreimage(ctx, schnorrSigner, *keyRef, keyIndex)
+		preimage, err = DerivePreimage(ctx, preimageSigner, *keyRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate deterministic preimage: %w", err)
 		}
@@ -480,18 +65,16 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		}
 	}
 
-	preimageHashSHA256, preimageHashHASH160 := preimageHashes(preimage)
+	preimageHashSHA256, preimageHashHASH160 := preimage.Hash()
 
-	createReq := boltz.CreateChainSwapRequest{
+	swapResp, err := h.boltzSvc.CreateChainSwap(boltz.CreateChainSwapRequest{
 		From:            boltz.CurrencyArk,
 		To:              boltz.CurrencyBtc,
-		PreimageHash:    hex.EncodeToString(preimageHashSHA256[:]),
-		ClaimPublicKey:  hex.EncodeToString(btcClaimKey.PubKey().SerializeCompressed()),
+		PreimageHash:    hex.EncodeToString(preimageHashSHA256),
+		ClaimPublicKey:  hex.EncodeToString(claimKey.PubKey().SerializeCompressed()),
 		RefundPublicKey: hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
 		UserLockAmount:  amount,
-	}
-
-	swapResp, err := h.boltzSvc.CreateChainSwap(createReq)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap with Boltz: %w", err)
 	}
@@ -528,53 +111,48 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 		)
 	}
 
-	// validate proposed BTC script so that we are sure that we can claim BTC UTXO before we send VTXO
-	if err := validateBtcClaimOrRefundPossible(
-		swapResp.GetSwapTree(arkToBtc),
-		arkToBtc,
-		swapResp.ClaimDetails.ServerPublicKey,
-		btcClaimKey.PubKey(),
-		preimageHashHASH160,
-		nil,
-		0,
-	); err != nil {
-		return nil, fmt.Errorf("invalid HTLC: %w", err)
-	}
-
-	log.Infof("Created chain swap %s with Boltz", swapResp.Id)
-
-	if err := validateBtcLockupAddress(
-		network,
-		swapResp.ClaimDetails.LockupAddress,
-		swapResp.ClaimDetails.ServerPublicKey,
-		btcClaimKey.PubKey(),
-		swapResp.GetSwapTree(arkToBtc),
-	); err != nil {
-		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
-	}
-
-	// Persist the VHTLC contract
 	args, err := handler.GetArgs(*contract)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get contract args for swap %s: %w", swapResp.Id, err)
 	}
 	parsed, ok := args.(vhtlchandler.ContractArgs)
 	if !ok {
 		return nil, fmt.Errorf(
-			"invalid contract args type: got %T, expected %T",
-			args, vhtlchandler.ContractArgs{},
+			"invalid contract args type for swap %s: got %T, expected %T",
+			swapResp.Id, args, vhtlchandler.ContractArgs{},
 		)
 	}
 
-	vhtlcOpts := vhtlc.Opts{
-		Sender:                               parsed.Sender,
-		Receiver:                             parsed.Receiver,
-		Server:                               parsed.Signer,
-		PreimageHash:                         parsed.PreimageHash,
-		RefundLocktime:                       parsed.RefundLocktime,
-		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
-		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
-		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+	// Rebuild the BTC HTLC and verify its address matches the one got from Boltz, so that we
+	// are sure that we can claim the BTC UTXO before we send the VTXO. Done directly instead
+	// of via the contract manager because HTLCs are locked by ephemeral keys instead of wallet
+	// ones, so the receiver doesn't need to be online to receive.
+	refundKey, err := parsePubkey(swapResp.ClaimDetails.ServerPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refund pubkey for swap %s: %w", swapResp.Id, err)
+	}
+
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(htlc.Opts{
+		ClaimKey:       claimKey.PubKey(),
+		RefundKey:      refundKey,
+		PreimageHash:   preimageHashHASH160,
+		RefundLocktime: arklib.AbsoluteLocktime(swapResp.ClaimDetails.TimeoutBlockHeight),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to rebuild htlc for swap %s: %w", swapResp.Id, err)
+	}
+
+	// Boltz is the sender of the BTC HTLC in this direction, its key comes first in the
+	// MuSig2 aggregation of the taproot internal key.
+	htlcAddress, err := htlcScript.Address(networkNameToParams(h.config.Network.Name), true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode htlc address for swap %s: %w", swapResp.Id, err)
+	}
+	if htlcAddress != swapResp.ClaimDetails.LockupAddress {
+		return nil, fmt.Errorf(
+			"htlc address mismatch: rebuilt %s, got %s from boltz",
+			htlcAddress, swapResp.ClaimDetails.LockupAddress,
+		)
 	}
 
 	if err := contractManager.ImportContract(ctx, *contract); err != nil {
@@ -582,135 +160,206 @@ func (h *SwapHandler) ChainSwapArkToBtc(
 	}
 	unlockContractMu()
 
-	swapRespJson, err := json.Marshal(swapResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal swap response from boltz: %w", err)
-	}
-
-	chainSwap, err := NewChainSwap(
-		swapResp.Id,
-		amount,
-		preimage,
-		&vhtlcOpts,
-		string(swapRespJson),
-		arkToBtc,
-		btcDestinationAddress,
-		hex.EncodeToString(btcClaimKey.Serialize()),
-		eventCallback,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chain swap: %w", err)
-	}
-	if err := h.persistChainSwap(
-		ctx, chainSwap, boltz.CurrencyArk, boltz.CurrencyBtc,
-	); err != nil {
+	ws := h.boltzSvc.NewWebsocket()
+	if err := ws.ConnectAndSubscribe(ctx, []string{swapResp.Id}, 5*time.Second); err != nil {
+		// ConnectAndSubscribe can fail with the connection open (subscription failed).
+		_ = ws.Close()
 		return nil, err
 	}
 
-	chainSwap.onEvent = h.persistChainSwapEventCallback(eventCallback)
+	swap := &swaptypes.Swap{
+		Id:          swapResp.Id,
+		From:        boltz.CurrencyArk,
+		To:          boltz.CurrencyBtc,
+		CreatedAt:   time.Now(),
+		Status:      int(SwapStatusPending),
+		VHTLCScript: contract.Script,
+		Amount:      amount,
+		ChainSwap: &swaptypes.ChainSwapInfo{
+			Address:            swapResp.ClaimDetails.LockupAddress,
+			PrivateKey:         hex.EncodeToString(claimKey.Serialize()),
+			DestinationAddress: btcAddress,
+			ServerPublicKey:    swapResp.ClaimDetails.ServerPublicKey,
+			RefundLocktime:     uint32(swapResp.ClaimDetails.TimeoutBlockHeight),
+		},
+	}
+	if persistPreimage {
+		swap.Preimage = preimage
+	}
+	if err := h.persistSwap(ctx, *swap); err != nil {
+		_ = ws.Close()
+		return nil, err
+	}
 
-	monitorCtx := chainSwapMonitorContext(ctx)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Errorf("panic in monitorAndClaimArkToBtcSwap: %v", r)
+	// The websocket is consumed by the goroutine below, it's in charge of closing it too.
+	h.bgWg.Go(func() {
+		ctx, cancel := context.WithTimeout(h.ctx, h.chainSwapTimeout)
+		defer cancel()
+		defer func() { _ = ws.Close() }()
+
+		fail := func(err error, msg string) {
+			// If the manager is shutting down, leave the swap pending for the next startup's
+			// recovery instead of marking it and writing to a store that's about to close.
+			if h.ctx.Err() != nil {
+				return
 			}
-		}()
+			log.WithError(err).Errorf("%s for swap %s", msg, swapResp.Id)
+			swap.Status = int(SwapStatusFailed)
+			if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+				log.WithError(err).Errorf("failed to update swap %s", swapResp.Id)
+			}
+		}
 
-		h.monitorAndClaimArkToBtcSwap(
-			monitorCtx,
-			network,
-			eventCallback,
-			unilateralRefundCallback,
-			btcClaimKey,
-			preimage,
-			btcDestinationAddress,
-			swapResp,
-			chainSwap,
-		)
-	}()
+		quoteAccepted := false
+		for {
+			select {
+			case update, ok := <-ws.Updates:
+				if !ok {
+					nextWs, err := h.reconnectBoltzWebsocket(ctx, ws, swapResp.Id)
+					if err != nil {
+						fail(err, "failed to reconnect websocket")
+						return
+					}
+					if nextWs == nil {
+						continue
+					}
+					ws = nextWs
+					continue
+				}
 
-	return chainSwap, nil
+				switch boltz.ParseEvent(update.Status) {
+				case boltz.SwapCreated:
+					// Boltz accepted the swap, fund the VHTLC to start it.
+					txid, err := h.wallet.SendOffChain(ctx, []clientTypes.Receiver{{
+						To:     swapResp.LockupDetails.LockupAddress,
+						Amount: swap.Amount,
+					}})
+					if err != nil {
+						fail(err, "failed to fund vhtlc")
+						return
+					}
+
+					swap.FundingTxid = txid
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+						return
+					}
+				case boltz.TransactionLockupFailed:
+					// Our lockup doesn't match the swap amount, fetch and accept a new quote.
+					// Boltz may send this event more than once, react to it only once.
+					if quoteAccepted {
+						continue
+					}
+					quote, err := h.boltzSvc.GetChainSwapQuote(swapResp.Id)
+					if err != nil {
+						fail(err, "lockup failed and we failed to get a new quote")
+						return
+					}
+					if err := h.boltzSvc.AcceptChainSwapQuote(swapResp.Id, *quote); err != nil {
+						fail(err, "lockup failed and we failed to accept the new quote")
+						return
+					}
+					quoteAccepted = true
+				case boltz.TransactionServerMempoool:
+					// Boltz locked up the BTC, claim it to the destination address.
+					swap.ChainSwap.FundingTxid = update.Transaction.Id
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+						return
+					}
+
+					claimTxid, err := h.claimBtcLockup(
+						swapResp.Id, htlcScript, claimKey, preimage, btcAddress,
+						update.Transaction.Hex,
+					)
+					if err != nil {
+						fail(err, "failed to claim btc lockup")
+						return
+					}
+
+					swap.Status = int(SwapStatusSuccess)
+					swap.ChainSwap.RedeemTxid = claimTxid
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+					}
+					return
+				case boltz.SwapExpired, boltz.TransactionFailed:
+					// Boltz can't complete the swap, refund the VHTLC collaboratively or
+					// schedule a unilateral refund as fallback.
+					if _, _, err := h.refundSwap(swap, parsed); err != nil {
+						fail(err, fmt.Sprintf(
+							"swap failed with status %s and we failed to refund it",
+							update.Status,
+						))
+					}
+					return
+				}
+			case <-ctx.Done():
+				// A shutdown cancellation leaves the swap pending for the next startup's
+				// recovery; only a genuine timeout fails it and schedules the refund.
+				if h.ctx.Err() != nil {
+					return
+				}
+
+				swap.Status = int(SwapStatusFailed)
+				if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+					log.WithError(err).Errorf("failed to update swap %s", swapResp.Id)
+				}
+
+				log.Debugf(
+					"process aborted while waiting for updates for swap %s, "+
+						"trying to schedule a unilrateral refund before aborting...", swapResp.Id,
+				)
+				if err := h.scheduleUnilateralRefund(swap, parsed.RefundLocktime); err != nil {
+					log.WithError(err).Errorf(
+						"failed to schedule refund of swap %s unilaterally", swapResp.Id,
+					)
+				}
+
+				return
+			}
+		}
+	})
+
+	return swap, nil
 }
 
-//	ChainSwapBtcToArk performs a Bitcoin on-chain → Ark atomic swap
-//
-// This is the reverse direction: user locks BTC on-chain, receives Ark VTXOs
-// Send BTC -> Receive VTXO
-//
-//	{
-//		"id": "rZfDV8vtQ5Jk",
-//		"claimDetails": {
-//			"serverPublicKey": "025067f8c4f61cf3bcbf131edbe0256d890332d2cdba64355a4153db1101e84cd0",
-//			"amount": 2801,
-//			"lockupAddress": "tark1qz4a0tydelxxun8w62zz3zjk36sr6aqrs58gmne23r9ea37jwx9a0g5xczda6llpnevn3gnw3muwwnw9cze8988g0j2dvhssdfqkkg8n4jt5ln",
-//			"timeoutBlockHeight": 1769678334,
-//			"timeouts": {
-//				"refund": 1769678334,
-//				"unilateralClaim": 6144,
-//				"unilateralRefund": 6144,
-//				"unilateralRefundWithoutReceiver": 12288
-//			}
-//		},
-//		"lockupDetails": {
-//			"serverPublicKey": "028923258347dd79d51195e2054d9f92a6c4cfcbce86a92e3b9e2f7b51a0750d2b",
-//			"amount": 3000,
-//			"lockupAddress": "bcrt1pugmgfs2zx4w48w2cgnsvvrhpdy0zlntdz8gch2rz6tafnm8v8ewqm5mpjg",
-//			"timeoutBlockHeight": 760,
-//			"swapTree": {
-//				"claimLeaf": {
-//					"version": 192,
-//					"output": "82012088a9140f49a45d0bea33b5be812590dc8d284a0ebe195c88208923258347dd79d51195e2054d9f92a6c4cfcbce86a92e3b9e2f7b51a0750d2bac"
-//				},
-//				"refundLeaf": {
-//					"version": 192,
-//					"output": "207599756afc49ebf5a6f3ac5848ef0afe934edd7b669bca02029acf10cc7f83acad02f802b1"
-//				}
-//			},
-//		}
-//	}
-func (h *SwapHandler) ChainSwapBtcToArk(
-	ctx context.Context,
-	amount uint64,
-	network *chaincfg.Params,
-	eventCallback ChainSwapEventCallback,
-) (*ChainSwap, error) {
-	log.Infof("Initiating BTC → Ark chain swap for %d sats", amount)
-
-	arkToBtc := false
-
-	btcRefundKey, err := btcec.NewPrivateKey()
+// BtcToArkadeChainSwap receives amount sats onto Arkade from onchain BTC: it returns a swap
+// carrying the BTC address (swap.ChainSwap.Address) the caller must fund with the swap amount.
+// Once the lockup is detected Boltz funds a vhtlc that the manager claims in the background, so
+// the swap completes after this returns — observe it via GetSwap.
+// The BTC HTLC is locked by an ephemeral key persisted with the swap: if the swap fails, the
+// manager refunds the lockup to a boarding address once the HTLC locktime expires.
+func (h *SwapManager) BtcToArkadeChainSwap(
+	ctx context.Context, amount uint64,
+) (*swaptypes.Swap, error) {
+	refundKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ephemeral refund key for HTLC: %w", err)
 	}
 
-	keyProvider := h.arkWallet.Identity()
-	contractManager := h.arkWallet.ContractManager()
+	keyProvider := h.wallet.Identity()
+	contractManager := h.wallet.ContractManager()
 	handler, err := contractManager.Registry().GetHandler(types.ContractTypeVHTLC)
 	if err != nil {
 		return nil, err
 	}
-
 	h.contractMu.Lock()
 	unlockContractMu := sync.OnceFunc(h.contractMu.Unlock)
 	defer unlockContractMu()
 
 	keyRef, err := h.getNewKey(ctx, handler)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get new key: %w", err)
 	}
 
 	// If the identity supports schnorr signing, use it to generate a deterministic preimage,
 	// otherwise use a random preimage
-	schnorrSigner, ok := keyProvider.(hdidentity.KeyedPreimageSigner)
-	var preimage []byte
+	preimageSigner, ok := keyProvider.(PreimageSigner)
+	persistPreimage := !ok
+	var preimage vhtlc.Preimage
 	if ok {
-		keyIndex, err := keyProvider.GetKeyIndex(ctx, keyRef.Id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get key index for contract: %w", err)
-		}
-
-		preimage, err = genPreimage(ctx, schnorrSigner, *keyRef, keyIndex)
+		preimage, err = DerivePreimage(ctx, preimageSigner, *keyRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate deterministic preimage: %w", err)
 		}
@@ -720,18 +369,17 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 			return nil, fmt.Errorf("failed to generate random preimage: %w", err)
 		}
 	}
-	preimageHashSHA256, preimageHashHASH160 := preimageHashes(preimage)
 
-	createReq := boltz.CreateChainSwapRequest{
+	preimageHashSHA256, preimageHashHASH160 := preimage.Hash()
+
+	swapResp, err := h.boltzSvc.CreateChainSwap(boltz.CreateChainSwapRequest{
 		From:            boltz.CurrencyBtc,
 		To:              boltz.CurrencyArk,
-		PreimageHash:    hex.EncodeToString(preimageHashSHA256[:]),
+		PreimageHash:    hex.EncodeToString(preimageHashSHA256),
 		ClaimPublicKey:  hex.EncodeToString(keyRef.PubKey.SerializeCompressed()),
-		RefundPublicKey: hex.EncodeToString(btcRefundKey.PubKey().SerializeCompressed()),
+		RefundPublicKey: hex.EncodeToString(refundKey.PubKey().SerializeCompressed()),
 		UserLockAmount:  amount,
-	}
-
-	swapResp, err := h.boltzSvc.CreateChainSwap(createReq)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain swap with Boltz: %w", err)
 	}
@@ -768,49 +416,36 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 		)
 	}
 
-	if err := validateBtcClaimOrRefundPossible(
-		swapResp.GetSwapTree(arkToBtc),
-		arkToBtc,
-		"",
-		nil,
-		nil,
-		btcRefundKey.PubKey(),
-		uint32(swapResp.LockupDetails.TimeoutBlockHeight),
-	); err != nil {
-		return nil, fmt.Errorf("invalid BTC HTLC refund path: %w", err)
-	}
-	if err := validateBtcLockupAddress(
-		network,
-		swapResp.LockupDetails.LockupAddress,
-		swapResp.LockupDetails.ServerPublicKey,
-		btcRefundKey.PubKey(),
-		swapResp.GetSwapTree(arkToBtc),
-	); err != nil {
-		return nil, fmt.Errorf("BTC lockup address validation failed: %w", err)
-	}
-
-	// Persist the VHTLC contract
-	args, err := handler.GetArgs(*contract)
+	// Rebuild the BTC HTLC and verify its address matches the one got from Boltz, so that we
+	// are sure that we can refund the BTC UTXO if the swap fails. Done directly instead of via
+	// the contract manager because HTLCs are locked by ephemeral keys instead of wallet ones,
+	// so the receiver doesn't need to be online to receive.
+	claimKey, err := parsePubkey(swapResp.LockupDetails.ServerPublicKey)
 	if err != nil {
-		return nil, err
-	}
-	parsed, ok := args.(vhtlchandler.ContractArgs)
-	if !ok {
-		return nil, fmt.Errorf(
-			"invalid contract args type: got %T, expected %T",
-			args, vhtlchandler.ContractArgs{},
-		)
+		return nil, fmt.Errorf("invalid claim pubkey for swap %s: %w", swapResp.Id, err)
 	}
 
-	vhtlcOpts := vhtlc.Opts{
-		Sender:                               parsed.Sender,
-		Receiver:                             parsed.Receiver,
-		Server:                               parsed.Signer,
-		PreimageHash:                         parsed.PreimageHash,
-		RefundLocktime:                       parsed.RefundLocktime,
-		UnilateralClaimDelay:                 parsed.UnilateralClaimDelay,
-		UnilateralRefundDelay:                parsed.UnilateralRefundDelay,
-		UnilateralRefundWithoutReceiverDelay: parsed.UnilateralRefundWithoutReceiverDelay,
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(htlc.Opts{
+		ClaimKey:       claimKey,
+		RefundKey:      refundKey.PubKey(),
+		PreimageHash:   preimageHashHASH160,
+		RefundLocktime: arklib.AbsoluteLocktime(swapResp.LockupDetails.TimeoutBlockHeight),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to rebuild htlc for swap %s: %w", swapResp.Id, err)
+	}
+
+	// Boltz is the receiver of the BTC HTLC in this direction, its key comes first in the
+	// MuSig2 aggregation of the taproot internal key.
+	htlcAddress, err := htlcScript.Address(networkNameToParams(h.config.Network.Name), false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode htlc address for swap %s: %w", swapResp.Id, err)
+	}
+	if htlcAddress != swapResp.LockupDetails.LockupAddress {
+		return nil, fmt.Errorf(
+			"htlc address mismatch: rebuilt %s, got %s from boltz",
+			htlcAddress, swapResp.LockupDetails.LockupAddress,
+		)
 	}
 
 	if err := contractManager.ImportContract(ctx, *contract); err != nil {
@@ -818,413 +453,732 @@ func (h *SwapHandler) ChainSwapBtcToArk(
 	}
 	unlockContractMu()
 
-	log.Infof("Created BTC→ARK chain swap %s with Boltz", swapResp.Id)
-	log.Infof(
-		"Please send %d sats to: %s",
-		swapResp.LockupDetails.Amount,
-		swapResp.LockupDetails.LockupAddress,
-	)
-
-	swapRespJson, err := json.Marshal(swapResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal swap response from boltz: %w", err)
-	}
-
-	chainSwap, err := NewChainSwap(
-		swapResp.Id,
-		amount,
-		preimage,
-		&vhtlcOpts,
-		string(swapRespJson),
-		arkToBtc,
-		swapResp.LockupDetails.LockupAddress,
-		hex.EncodeToString(btcRefundKey.Serialize()),
-		eventCallback,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chain swap: %w", err)
-	}
-	if err := h.persistChainSwap(
-		ctx, chainSwap, boltz.CurrencyBtc, boltz.CurrencyArk,
-	); err != nil {
+	ws := h.boltzSvc.NewWebsocket()
+	if err := ws.ConnectAndSubscribe(ctx, []string{swapResp.Id}, 5*time.Second); err != nil {
+		// ConnectAndSubscribe can fail with the connection open (subscription failed).
+		_ = ws.Close()
 		return nil, err
 	}
-	chainSwap.onEvent = h.persistChainSwapEventCallback(eventCallback)
 
-	log.Debugf("Cached swap response for swap %s (used during active monitoring)", swapResp.Id)
+	swap := &swaptypes.Swap{
+		Id:          swapResp.Id,
+		From:        boltz.CurrencyBtc,
+		To:          boltz.CurrencyArk,
+		CreatedAt:   time.Now(),
+		Status:      int(SwapStatusPending),
+		VHTLCScript: contract.Script,
+		Amount:      amount,
+		ChainSwap: &swaptypes.ChainSwapInfo{
+			Address:         swapResp.LockupDetails.LockupAddress,
+			PrivateKey:      hex.EncodeToString(refundKey.Serialize()),
+			ServerPublicKey: swapResp.LockupDetails.ServerPublicKey,
+			RefundLocktime:  uint32(swapResp.LockupDetails.TimeoutBlockHeight),
+		},
+	}
+	if persistPreimage {
+		swap.Preimage = preimage
+	}
+	if err := h.persistSwap(ctx, *swap); err != nil {
+		_ = ws.Close()
+		return nil, err
+	}
 
-	monitorCtx := chainSwapMonitorContext(ctx)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Errorf("panic in monitorBtcToArkChainSwap: %v", r)
+	// The websocket is consumed by the goroutine below, it's in charge of closing it too.
+	h.bgWg.Go(func() {
+		ctx, cancel := context.WithTimeout(h.ctx, h.chainSwapTimeout)
+		defer cancel()
+		defer func() { _ = ws.Close() }()
+
+		fail := func(err error, msg string) {
+			// If the manager is shutting down, leave the swap pending for the next startup's
+			// recovery instead of marking it and writing to a store that's about to close.
+			if h.ctx.Err() != nil {
+				return
 			}
-		}()
-
-		h.monitorBtcToArkChainSwap(
-			monitorCtx,
-			eventCallback,
-			preimage,
-			btcRefundKey,
-			swapResp,
-			chainSwap,
-		)
-	}()
-
-	return chainSwap, nil
-}
-
-func (h *SwapHandler) RefundArkToBTCSwap(
-	ctx context.Context,
-	swapId string,
-	vhtlcOpts vhtlc.Opts,
-	unilateralRefundCallback func(swapId string, opts vhtlc.Opts) error,
-) (string, error) {
-	refundTxid, err := h.RefundSwap(
-		context.Background(), SwapTypeChain, swapId, true, vhtlcOpts, nil,
-	)
-	if err != nil {
-		log.WithError(err).Error("failed to refund swap collaboratively")
-
-		if callbackErr := unilateralRefundCallback(
-			swapId, vhtlcOpts,
-		); callbackErr != nil {
-			return "", callbackErr
+			log.WithError(err).Errorf("%s for swap %s", msg, swapResp.Id)
+			swap.Status = int(SwapStatusFailed)
+			if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+				log.WithError(err).Errorf("failed to update swap %s", swapResp.Id)
+			}
 		}
 
-		return "", nil
-	}
+		quoteAccepted := false
+		for {
+			select {
+			case update, ok := <-ws.Updates:
+				if !ok {
+					nextWs, err := h.reconnectBoltzWebsocket(ctx, ws, swapResp.Id)
+					if err != nil {
+						fail(err, "failed to reconnect websocket")
+						return
+					}
+					if nextWs == nil {
+						continue
+					}
+					ws = nextWs
+					continue
+				}
 
-	return refundTxid, nil
+				switch boltz.ParseEvent(update.Status) {
+				case boltz.SwapCreated:
+					// Boltz accepted the swap, the caller must fund the btc lockup address.
+					log.Debugf(
+						"swap %s created, waiting for the btc lockup to be funded", swapResp.Id,
+					)
+				case boltz.TransactionMempool, boltz.TransactionConfirmed:
+					// Our btc lockup was detected, persist its txid.
+					if swap.ChainSwap.FundingTxid == update.Transaction.Id {
+						continue
+					}
+					swap.ChainSwap.FundingTxid = update.Transaction.Id
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+						return
+					}
+				case boltz.TransactionLockupFailed:
+					// Our lockup doesn't match the swap amount, fetch and accept a new quote.
+					// Boltz may send this event more than once, react to it only once.
+					if quoteAccepted {
+						continue
+					}
+					quote, err := h.boltzSvc.GetChainSwapQuote(swapResp.Id)
+					if err != nil {
+						fail(err, "lockup failed and we failed to get a new quote")
+						return
+					}
+					if err := h.boltzSvc.AcceptChainSwapQuote(swapResp.Id, *quote); err != nil {
+						fail(err, "lockup failed and we failed to accept the new quote")
+						return
+					}
+					quoteAccepted = true
+				case boltz.TransactionServerMempoool:
+					// Boltz funded the vhtlc, claim it by revealing the preimage.
+					swap.FundingTxid = update.Transaction.Id
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+						return
+					}
+
+					var claimTxid string
+					if err := retry(
+						ctx, 200*time.Millisecond,
+						func(ctx context.Context) (bool, error) {
+							var err error
+							claimTxid, err = h.wallet.ClaimVHTLC(ctx, swap.VHTLCScript, preimage)
+							if err != nil {
+								return false, err
+							}
+							return true, nil
+						},
+					); err != nil {
+						fail(err, "failed to claim vhtlc")
+						return
+					}
+
+					swap.Status = int(SwapStatusSuccess)
+					swap.RedeemTxid = claimTxid
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+						return
+					}
+
+					// Cooperatively sign Boltz's claim of the btc lockup so they can spend the
+					// cheaper key path. Boltz builds its claim tx only after it sees the preimage
+					// revealed by our claim, so retry for a while. Non-critical: they can claim
+					// via script path with the revealed preimage.
+					cosignCtx, cosignCancel := context.WithTimeout(ctx, 30*time.Second)
+					if err := retry(
+						cosignCtx, time.Second,
+						func(context.Context) (bool, error) {
+							if err := h.signBoltzBtcClaim(
+								swapResp.Id, htlcScript, refundKey,
+							); err != nil {
+								return false, err
+							}
+							return true, nil
+						},
+					); err != nil {
+						log.WithError(err).Warnf(
+							"failed to cosign boltz btc claim for swap %s", swapResp.Id,
+						)
+					}
+					cosignCancel()
+					return
+				case boltz.SwapExpired, boltz.TransactionFailed:
+					// Boltz can't complete the swap, refund the btc lockup once its locktime
+					// expires, if we ever funded it.
+					swap.Status = int(SwapStatusFailed)
+					if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+						fail(err, "failed to update swap")
+						return
+					}
+					if swap.ChainSwap.FundingTxid == "" {
+						return
+					}
+					if err := h.scheduleBtcRefund(swap, htlcScript, refundKey); err != nil {
+						fail(err, fmt.Sprintf(
+							"swap failed with status %s and we failed to schedule the btc refund",
+							update.Status,
+						))
+					}
+					return
+				}
+			case <-ctx.Done():
+				// A shutdown cancellation leaves the swap pending for the next startup's
+				// recovery; only a genuine timeout fails it and schedules the refund.
+				if h.ctx.Err() != nil {
+					return
+				}
+
+				swap.Status = int(SwapStatusFailed)
+				if err := h.persistUpdatedSwap(context.Background(), *swap); err != nil {
+					log.WithError(err).Errorf("failed to update swap %s", swapResp.Id)
+				}
+
+				if swap.ChainSwap.FundingTxid == "" {
+					return
+				}
+				log.Debugf(
+					"process aborted while waiting for updates for swap %s, "+
+						"trying to schedule the refund of the btc lockup before aborting...",
+					swapResp.Id,
+				)
+				if err := h.scheduleBtcRefund(swap, htlcScript, refundKey); err != nil {
+					log.WithError(err).Errorf(
+						"failed to schedule refund of swap %s", swapResp.Id,
+					)
+				}
+
+				return
+			}
+		}
+	})
+
+	return swap, nil
 }
 
-// RefundBtcToArkSwap performs a BTC→ARK refund by:
-// 1. Reading swap data from the ChainSwap struct (populated by service layer from DB)
-// 2. Checking if CLTV timeout has passed
-// 3. Creating and signing a refund transaction spending the lockup UTXO via script-path
-// 4. Sending BTC to fulmine boarding address
-// 5. Broadcasting the transaction
-// 6. Waiting for confirmation
-// 7. Calling Settle() to board the BTC as VTXO
-//
-// This function is called when a BTC→ARK swap fails and needs to be refunded.
-// The BTC is claimed from the lockup address using the refund script path (CLTV timeout)
-// and sent to a fulmine boarding address, then settled to become a VTXO.
-//
-// The swap data is persisted in the DB by the service layer and passed in via the
-// ChainSwap struct (BoltzCreateResponseJSON and UserLockupTxHex fields).
-// Refunds work even after service restart and even if Boltz API is unavailable.
-func (h *SwapHandler) RefundBtcToArkSwap(
-	ctx context.Context,
-	swapId string,
-	amount uint64,
-	userLockupTxid string,
-	boltzSwapRespJson string,
+// RefundChainSwap refunds a failed chain swap by id. For an Arkade -> BTC swap it refunds the
+// vhtlc we funded: first collaboratively with Boltz, falling back to scheduling the trustless
+// unilateral refund at the vhtlc's refund locktime. For a BTC -> Arkade swap it refunds the btc
+// lockup to a boarding address: immediately if the HTLC locktime already expired, otherwise the
+// refund is scheduled at the expiry height. The returned time is the moment a scheduled refund
+// will fire, nil when the swap was refunded right away.
+// This is meant to be used as fallback as the manager takes care of handling the refund
+// automatically in ArkadeToBtcChainSwap and BtcToArkadeChainSwap.
+func (h *SwapManager) RefundChainSwap(
+	ctx context.Context, swapId string,
+) (*swaptypes.Swap, *time.Time, error) {
+	swap, err := h.store.Swaps().Get(ctx, swapId)
+	if err != nil {
+		return nil, nil, err
+	}
+	if swap.ChainSwap == nil {
+		return nil, nil, fmt.Errorf("swap %s is not a chain swap", swapId)
+	}
+
+	if swap.From == boltz.CurrencyArk {
+		contractArgs, err := h.getSwapContractArgs(ctx, swap)
+		if err != nil {
+			return nil, nil, err
+		}
+		return h.refundSwap(swap, contractArgs)
+	}
+
+	if swap.ChainSwap.FundingTxid == "" {
+		// The lockup txid is recorded by the ws watcher, which the funding may have outlived:
+		// a lockup funded after the swap timed out was never seen by anyone. The htlc address
+		// is persisted, ask the explorer before giving up.
+		utxos, err := h.wallet.Explorer().GetUtxos([]string{swap.ChainSwap.Address})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to look up btc lockup of swap %s: %w", swapId, err)
+		}
+		if len(utxos) <= 0 {
+			return nil, nil, fmt.Errorf(
+				"btc lockup of swap %s was never funded, nothing to refund", swapId,
+			)
+		}
+		swap.ChainSwap.FundingTxid = utxos[0].Txid
+		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+			return nil, nil, err
+		}
+	}
+	if swap.ChainSwap.RedeemTxid != "" {
+		return nil, nil, fmt.Errorf(
+			"btc lockup of swap %s already redeemed with tx %s",
+			swapId, swap.ChainSwap.RedeemTxid,
+		)
+	}
+
+	htlcScript, refundKey, err := h.getSwapHtlc(ctx, swap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	swap.Status = int(SwapStatusFailed)
+
+	locktime := int64(htlcScript.RefundLocktime)
+	height, err := h.wallet.Explorer().GetBlockHeight()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get block height: %w", err)
+	}
+	if height < locktime {
+		if err := h.scheduleBtcRefund(swap, htlcScript, refundKey); err != nil {
+			return nil, nil, err
+		}
+		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+			return nil, nil, err
+		}
+		// The returned time is informational only: the scheduled task fires on block height,
+		// not on this clock. Approximate it from the remaining blocks with the mainnet 10'
+		// target — on regtest or a fee-spiky mainnet stretch the real moment will differ,
+		// but the refund still fires exactly at the locktime height.
+		scheduledAt := time.Now().Add(time.Duration(locktime-height) * 10 * time.Minute)
+		return swap, &scheduledAt, nil
+	}
+
+	txid, err := h.refundBtcLockup(ctx, swap, htlcScript, refundKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	swap.ChainSwap.RedeemTxid = txid
+	if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+		return nil, nil, err
+	}
+	return swap, nil, nil
+}
+
+// claimBtcLockup claims the BTC locked up by Boltz to the destination address. It first tries
+// a cooperative MuSig2 key-path spend, then falls back to a script-path spend of the claim
+// leaf revealing the preimage.
+func (h *SwapManager) claimBtcLockup(
+	swapId string, htlcScript *htlc.HTLCScript, claimKey *btcec.PrivateKey,
+	preimage []byte, btcAddress, lockupTxHex string,
 ) (string, error) {
-	log.Infof("Starting BTC→ARK refund for swap %s", swapId)
+	explorerSvc := h.wallet.Explorer()
 
-	if userLockupTxid == "" {
-		return "", errors.New("userLockupTxid empty")
-	}
-
-	if boltzSwapRespJson == "" {
-		return "", errors.New("boltzSwapRespJson empty")
-	}
-
-	userLockupTxHex, err := h.explorerClient.GetTransaction(userLockupTxid)
+	lockupTx, err := deserializeTransaction(lockupTxHex)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch lockup transaction from explorer: %w", err)
+		return "", fmt.Errorf("failed to decode lockup tx: %w", err)
 	}
-
-	log.Infof("User lockup txid: %s", userLockupTxid)
-
-	var swapResp boltz.CreateChainSwapResponse
-	if err := json.Unmarshal([]byte(boltzSwapRespJson), &swapResp); err != nil {
-		return "", fmt.Errorf("failed to deserialize Boltz response: %w", err)
-	}
-
-	if swapResp.LockupDetails.SwapTree == nil {
-		return "", fmt.Errorf("swap tree not found in Boltz response for swap %s", swapId)
-	}
-
-	if swapResp.LockupDetails.LockupAddress == "" {
-		return "", fmt.Errorf("lockup address not found in Boltz response for swap %s", swapId)
-	}
-
-	swapTree := *swapResp.LockupDetails.SwapTree
-	record, err := h.store.ChainSwaps().Get(ctx, swapId)
+	lockupPkScript, err := htlcScript.PkScript(true)
 	if err != nil {
-		return "", fmt.Errorf("load chain swap %s: %w", swapId, err)
-	}
-	if record.BTCHTLCPrivateKey == "" {
-		return "", fmt.Errorf("missing BTC HTLC private key for swap %s", swapId)
-	}
-	htlcKeyBytes, err := hex.DecodeString(record.BTCHTLCPrivateKey)
-	if err != nil {
-		return "", fmt.Errorf("decode BTC HTLC private key for swap %s: %w", swapId, err)
-	}
-	htlcKey, _ := btcec.PrivKeyFromBytes(htlcKeyBytes)
-
-	lockupTx, err := deserializeTransaction(userLockupTxHex)
-	if err != nil {
-		return "", fmt.Errorf("failed to deserialize user lockup tx: %w", err)
+		return "", fmt.Errorf("failed to get htlc output script: %w", err)
 	}
 
-	networkParams := networkNameToParams(h.config.Network.Name)
-	lockupVout, lockupAmount, err := findOutputForAddress(
-		lockupTx,
-		swapResp.LockupDetails.LockupAddress,
-		networkParams,
+	vout := -1
+	var lockupAmount uint64
+	for i, out := range lockupTx.TxOut {
+		if bytes.Equal(out.PkScript, lockupPkScript) {
+			vout, lockupAmount = i, uint64(out.Value)
+			break
+		}
+	}
+	if vout < 0 {
+		return "", fmt.Errorf("htlc output not found in lockup tx %s", lockupTx.TxHash())
+	}
+
+	claimTx, err := constructClaimTransaction(explorerSvc, h.config.Dust, claimTransactionParams{
+		lockupTxid:      lockupTx.TxHash().String(),
+		lockupVout:      uint32(vout),
+		lockupAmount:    lockupAmount,
+		destinationAddr: btcAddress,
+		network:         networkNameToParams(h.config.Network.Name),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to construct claim tx: %w", err)
+	}
+
+	prevOutFetcher := NewPrevOutputFetcher(
+		&wire.TxOut{Value: int64(lockupAmount), PkScript: lockupPkScript},
+		claimTx.TxIn[0].PreviousOutPoint,
+	)
+
+	witness, err := h.signClaimCooperative(
+		swapId, htlcScript, claimKey, preimage, claimTx, prevOutFetcher,
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to find lockup output in user tx: %w", err)
-	}
-
-	if amount > 0 && lockupAmount < amount {
-		log.Warnf(
-			"user lockup output amount (%d sats) is below requested swap amount (%d sats)",
-			lockupAmount,
-			amount,
+		log.WithError(err).Warnf(
+			"failed to sign claim tx for swap %s cooperatively, "+
+				"falling back to script-path spend", swapId,
 		)
+		witness, err = signClaimScriptPath(htlcScript, claimKey, preimage, claimTx, prevOutFetcher)
+		if err != nil {
+			return "", err
+		}
 	}
+	claimTx.TxIn[0].Witness = witness
 
-	refundComponents, err := ValidateRefundLeafScript(swapTree.RefundLeaf.Output)
+	claimTxHex, err := serializeTransaction(claimTx)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse refund script: %w", err)
+		return "", fmt.Errorf("failed to serialize claim tx: %w", err)
 	}
-
-	log.Infof("Refund script parsed - timeout: %d blocks, refund pubkey: %x",
-		refundComponents.Timeout, refundComponents.RefundPubKey)
-
-	currentHeight, err := h.explorerClient.GetCurrentBlockHeight()
+	txid, err := explorerSvc.Broadcast(claimTxHex)
 	if err != nil {
-		return "", fmt.Errorf("failed to get current block height: %w", err)
+		return "", fmt.Errorf("failed to broadcast claim tx: %w", err)
+	}
+	return txid, nil
+}
+
+// signClaimCooperative computes the key-path witness of the claim tx by exchanging MuSig2
+// nonces and partial signatures with Boltz, revealing the preimage to let them claim the
+// VHTLC on their side.
+func (h *SwapManager) signClaimCooperative(
+	swapId string, htlcScript *htlc.HTLCScript, claimKey *btcec.PrivateKey, preimage []byte,
+	claimTx *wire.MsgTx, prevOutFetcher txscript.PrevOutputFetcher,
+) (wire.TxWitness, error) {
+	musigSession, err := newLocalMuSig2Session(claimKey, htlcScript.RefundKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create musig2 session: %w", err)
+	}
+	ourNonce, err := musigSession.GenerateNonce()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	requiredHeight := int(refundComponents.Timeout)
-	if currentHeight < uint32(requiredHeight) {
-		blocksRemaining := requiredHeight - int(currentHeight)
-		return "", fmt.Errorf(
-			"CLTV timeout not yet reached: current block %d, required %d (wait %d more blocks, ~%d minutes)",
-			currentHeight,
-			requiredHeight,
-			blocksRemaining,
-			blocksRemaining*10,
-		)
+	claimTxHex, err := serializeTransaction(claimTx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize claim tx: %w", err)
 	}
 
-	log.Infof("CLTV timeout reached at block %d (required %d)", currentHeight, requiredHeight)
+	boltzResp, err := h.boltzSvc.SubmitChainSwapClaim(swapId, boltz.ChainSwapClaimRequest{
+		Preimage: hex.EncodeToString(preimage),
+		ToSign: boltz.ToSign{
+			Nonce:   SerializePubNonce(ourNonce),
+			ClaimTx: claimTxHex,
+			Index:   0,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit claim to boltz: %w", err)
+	}
 
-	boardingAddr, err := h.arkWallet.NewBoardingAddress(ctx)
+	boltzNonce, err := ParsePubNonce(boltzResp.PubNonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse boltz nonce: %w", err)
+	}
+	boltzPartialSig, err := ParsePartialSignatureScalar32(boltzResp.PartialSignature)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse boltz partial sig: %w", err)
+	}
+
+	msg, err := TaprootMessage(claimTx, 0, prevOutFetcher)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute taproot message: %w", err)
+	}
+
+	combinedNonce, err := musigSession.AggregateNonces(boltzNonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate nonces: %w", err)
+	}
+
+	merkleRoot := htlcScript.MerkleRoot()
+	ourPartialSig, err := musigSession.PartialSign(combinedNonce, msg, merkleRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make our partial sig: %w", err)
+	}
+	if ourPartialSig.R == nil {
+		return nil, fmt.Errorf("missing nonce point in our partial sig")
+	}
+
+	finalSig, err := CombineFinalSig(
+		ourPartialSig.R,
+		[]*musig2.PartialSignature{ourPartialSig, boltzPartialSig},
+		musigSession.Keys(), msg, merkleRoot,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to combine sigs: %w", err)
+	}
+
+	tweakedKey, err := ComputeTweakedOutputKey(musigSession.Keys(), merkleRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute tweaked key: %w", err)
+	}
+	if err := VerifyFinalSig(msg, finalSig, tweakedKey); err != nil {
+		return nil, fmt.Errorf("failed to verify final sig: %w", err)
+	}
+
+	return wire.TxWitness{finalSig.Serialize()}, nil
+}
+
+// signClaimScriptPath computes the script-path witness of the claim tx by signing the claim
+// leaf with the ephemeral claim key and revealing the preimage in the witness.
+func signClaimScriptPath(
+	htlcScript *htlc.HTLCScript, claimKey *btcec.PrivateKey, preimage []byte,
+	claimTx *wire.MsgTx, prevOutFetcher txscript.PrevOutputFetcher,
+) (wire.TxWitness, error) {
+	tapscript, err := htlcScript.ClaimTapscript(true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get claim tapscript: %w", err)
+	}
+
+	sigHashes := txscript.NewTxSigHashes(claimTx, prevOutFetcher)
+	sigHash, err := txscript.CalcTapscriptSignaturehash(
+		sigHashes, txscript.SigHashDefault, claimTx, 0, prevOutFetcher,
+		txscript.NewBaseTapLeaf(tapscript.RevealedScript),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute tapscript sighash: %w", err)
+	}
+
+	var msg [32]byte
+	copy(msg[:], sigHash)
+	sig, err := signLocalSchnorr(claimKey, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign claim tx: %w", err)
+	}
+
+	ctrlBlock, err := tapscript.ControlBlock.ToBytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize control block: %w", err)
+	}
+
+	return wire.TxWitness{
+		sig.Serialize(), preimage, tapscript.RevealedScript, ctrlBlock,
+	}, nil
+}
+
+// refundBtcLockup refunds the BTC we locked up for a failed Btc -> Arkade chain swap to a fresh
+// boarding address via a script-path spend of the refund leaf. It can be broadcast only after
+// the HTLC locktime expired. The refunded funds can then be settled to become vtxos.
+func (h *SwapManager) refundBtcLockup(
+	ctx context.Context, swap *swaptypes.Swap, htlcScript *htlc.HTLCScript,
+	refundKey *btcec.PrivateKey,
+) (string, error) {
+	explorerSvc := h.wallet.Explorer()
+
+	lockupTxHex, err := explorerSvc.GetTxHex(swap.ChainSwap.FundingTxid)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch lockup tx: %w", err)
+	}
+	lockupTx, err := deserializeTransaction(lockupTxHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode lockup tx: %w", err)
+	}
+	lockupPkScript, err := htlcScript.PkScript(false)
+	if err != nil {
+		return "", fmt.Errorf("failed to get htlc output script: %w", err)
+	}
+
+	vout := -1
+	var lockupAmount uint64
+	for i, out := range lockupTx.TxOut {
+		if bytes.Equal(out.PkScript, lockupPkScript) {
+			vout, lockupAmount = i, uint64(out.Value)
+			break
+		}
+	}
+	if vout < 0 {
+		return "", fmt.Errorf("htlc output not found in lockup tx %s", lockupTx.TxHash())
+	}
+
+	// The refund goes to a boarding address so it can be settled to become vtxos.
+	boardingAddr, err := h.wallet.NewBoardingAddress(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get boarding address: %w", err)
 	}
 
-	log.Infof("Boarding address: %s", boardingAddr)
+	refundTx, err := constructClaimTransaction(explorerSvc, h.config.Dust, claimTransactionParams{
+		lockupTxid:      lockupTx.TxHash().String(),
+		lockupVout:      uint32(vout),
+		lockupAmount:    lockupAmount,
+		destinationAddr: boardingAddr,
+		network:         networkNameToParams(h.config.Network.Name),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to construct refund tx: %w", err)
+	}
+	// The refund leaf checks a CLTV: the tx locktime must be set to it and the input sequence
+	// must not be final for the check to pass.
+	refundTx.LockTime = uint32(htlcScript.RefundLocktime)
+	refundTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum - 1
 
-	claimTx, err := constructClaimTransaction(
-		h.explorerClient,
-		h.config.Dust,
-		ClaimTransactionParams{
-			LockupTxid:      userLockupTxid,
-			LockupVout:      lockupVout,
-			LockupAmount:    lockupAmount,
-			DestinationAddr: boardingAddr,
-			Network:         networkParams,
-		},
+	prevOutFetcher := NewPrevOutputFetcher(
+		&wire.TxOut{Value: int64(lockupAmount), PkScript: lockupPkScript},
+		refundTx.TxIn[0].PreviousOutPoint,
 	)
-	if err != nil {
-		return "", fmt.Errorf("failed to construct claim transaction: %w", err)
-	}
-	claimTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum - 1
 
-	refundScript, err := hex.DecodeString(swapTree.RefundLeaf.Output)
+	witness, err := signRefundScriptPath(htlcScript, refundKey, refundTx, prevOutFetcher)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode refund script: %w", err)
+		return "", err
 	}
+	refundTx.TxIn[0].Witness = witness
 
-	serverPubKey, err := parsePubkey(swapResp.LockupDetails.ServerPublicKey)
+	refundTxHex, err := serializeTransaction(refundTx)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse server public key: %w", err)
+		return "", fmt.Errorf("failed to serialize refund tx: %w", err)
 	}
-
-	allPubKeys := []*btcec.PublicKey{serverPubKey, htlcKey.PubKey()}
-	aggregateKey, _, _, err := musig2.AggregateKeys(allPubKeys, false)
+	txid, err := explorerSvc.Broadcast(refundTxHex)
 	if err != nil {
-		return "", fmt.Errorf("failed to aggregate keys: %w", err)
+		return "", fmt.Errorf("failed to broadcast refund tx: %w", err)
 	}
-	internalKey := aggregateKey.FinalKey
+	return txid, nil
+}
 
-	controlBlock, err := createControlBlockFromSwapTree(
-		internalKey,
-		swapTree,
-		false, /* isClaimPath = refund path */
-	)
+// signRefundScriptPath computes the script-path witness of the refund tx by signing the refund
+// leaf with the ephemeral refund key.
+func signRefundScriptPath(
+	htlcScript *htlc.HTLCScript, refundKey *btcec.PrivateKey,
+	refundTx *wire.MsgTx, prevOutFetcher txscript.PrevOutputFetcher,
+) (wire.TxWitness, error) {
+	tapscript, err := htlcScript.RefundTapscript(false)
 	if err != nil {
-		return "", fmt.Errorf("failed to create control block: %w", err)
+		return nil, fmt.Errorf("failed to get refund tapscript: %w", err)
 	}
 
-	claimTx.LockTime = refundComponents.Timeout
-
-	prevOutFetcher, err := parsePrevoutFetcher(userLockupTxHex, claimTx, 0)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse prevout fetcher: %w", err)
-	}
-
-	refundLeaf := txscript.NewBaseTapLeaf(refundScript)
+	sigHashes := txscript.NewTxSigHashes(refundTx, prevOutFetcher)
 	sigHash, err := txscript.CalcTapscriptSignaturehash(
-		txscript.NewTxSigHashes(claimTx, prevOutFetcher),
-		txscript.SigHashDefault,
-		claimTx,
-		0,
-		prevOutFetcher,
-		refundLeaf,
+		sigHashes, txscript.SigHashDefault, refundTx, 0, prevOutFetcher,
+		txscript.NewBaseTapLeaf(tapscript.RevealedScript),
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to calculate sighash: %w", err)
+		return nil, fmt.Errorf("failed to compute tapscript sighash: %w", err)
 	}
 
-	var sigHashBytes [32]byte
-	copy(sigHashBytes[:], sigHash)
-
-	signature, err := signLocalSchnorr(htlcKey, sigHashBytes)
+	var msg [32]byte
+	copy(msg[:], sigHash)
+	sig, err := signLocalSchnorr(refundKey, msg)
 	if err != nil {
-		return "", fmt.Errorf("failed to sign refund transaction: %w", err)
+		return nil, fmt.Errorf("failed to sign refund tx: %w", err)
 	}
 
-	claimTx.TxIn[0].Witness = [][]byte{
-		signature.Serialize(),
-		refundScript,
-		controlBlock,
-	}
-
-	var claimTxBuf bytes.Buffer
-	if err := claimTx.Serialize(&claimTxBuf); err != nil {
-		return "", fmt.Errorf("failed to serialize claim tx: %w", err)
-	}
-	log.Infof("claim tx hex: %s", hex.EncodeToString(claimTxBuf.Bytes()))
-
-	claimTxid, err := h.explorerClient.BroadcastTransaction(claimTx)
+	ctrlBlock, err := tapscript.ControlBlock.ToBytes()
 	if err != nil {
-		return "", fmt.Errorf("failed to broadcast refund transaction: %w", err)
+		return nil, fmt.Errorf("failed to serialize control block: %w", err)
 	}
 
-	log.Infof("Refund transaction broadcast: %s", claimTxid)
-	log.Infof("BTC sent to boarding address %s, waiting for confirmation...", boardingAddr)
+	return wire.TxWitness{sig.Serialize(), tapscript.RevealedScript, ctrlBlock}, nil
+}
 
-	confirmed := false
-	maxWaitTime := 2 * time.Hour
-	startTime := time.Now()
-	pollInterval := 30 * time.Second
+// scheduleBtcRefund schedules the refund of the btc lockup of a failed Btc -> Arkade chain swap
+// at the block height its locktime expires. The task fires immediately if the locktime is
+// already past.
+func (h *SwapManager) scheduleBtcRefund(
+	swap *swaptypes.Swap, htlcScript *htlc.HTLCScript, refundKey *btcec.PrivateKey,
+) error {
+	refund := func() {
+		// The scheduler fires this at the HTLC locktime, long after the caller returned, so the
+		// request context that scheduled it is dead by now. Use the manager lifetime context,
+		// bounded by a timeout started here so a stuck refund can't run unbounded.
+		ctx, cancel := context.WithTimeout(h.ctx, refundTimeout)
+		defer cancel()
 
-	for time.Since(startTime) < maxWaitTime {
-		txStatus, err := h.explorerClient.GetTransactionStatus(claimTxid)
+		txid, err := h.refundBtcLockup(ctx, swap, htlcScript, refundKey)
 		if err != nil {
-			log.WithError(err).Warnf("Failed to get transaction status, will retry")
-			if err := waitForRefundPollInterval(ctx, pollInterval); err != nil {
-				return "", fmt.Errorf("refund confirmation polling cancelled: %w", err)
-			}
-			continue
+			log.WithError(err).Errorf("failed to refund btc lockup of swap %s", swap.Id)
+			return
 		}
 
-		if txStatus.Confirmed {
-			log.Infof(
-				"Refund transaction %s confirmed at block %d",
-				claimTxid,
-				txStatus.BlockHeight,
-			)
-			confirmed = true
-			break
+		swap.ChainSwap.RedeemTxid = txid
+		if err := h.persistUpdatedSwap(ctx, *swap); err != nil {
+			log.WithError(err).Errorf("failed to update refunded swap %s", swap.Id)
+			return
 		}
-
-		log.Debugf(
-			"Waiting for refund transaction confirmation... (elapsed: %v)",
-			time.Since(startTime),
-		)
-		if err := waitForRefundPollInterval(ctx, pollInterval); err != nil {
-			return "", fmt.Errorf("refund confirmation polling cancelled: %w", err)
-		}
+		log.Debugf("btc lockup of swap %s refunded with tx %s", swap.Id, txid)
 	}
 
-	if !confirmed {
-		// Return success anyway - the BTC is in the boarding address
-		log.Warnf(
-			"Refund transaction %s not confirmed within %v, but BTC is in boarding address %s",
-			claimTxid,
-			maxWaitTime,
-			boardingAddr,
-		)
-		return claimTxid, nil
+	locktime := uint32(htlcScript.RefundLocktime)
+	if err := h.schedulerSvc.ScheduleTaskAtHeight(locktime, refund); err != nil {
+		return fmt.Errorf("failed to schedule btc refund of swap %s: %w", swap.Id, err)
 	}
+	log.Debugf("scheduled btc refund of swap %s at height %d", swap.Id, locktime)
+	return nil
+}
 
-	log.Infof("Calling Settle() to board BTC as VTXO...")
-	settleTxid, err := h.arkWallet.Settle(ctx)
+// signBoltzBtcClaim provides our partial signature for Boltz to claim the btc lockup of a
+// Btc -> Arkade chain swap via the cheaper key-path spend, by exchanging MuSig2 nonces and
+// partial signatures over the sighash of their claim tx.
+func (h *SwapManager) signBoltzBtcClaim(
+	swapId string, htlcScript *htlc.HTLCScript, refundKey *btcec.PrivateKey,
+) error {
+	claimDetails, err := h.boltzSvc.GetChainSwapClaimDetails(swapId)
 	if err != nil {
-		// Log but don't fail - the BTC is now in the boarding address
-		log.WithError(err).
-			Warnf("Settle() failed, but BTC is safely in boarding address %s", boardingAddr)
-		log.Infof("You can manually settle later to complete the boarding process")
-		return claimTxid, nil
+		return fmt.Errorf("failed to get claim details: %w", err)
 	}
 
-	log.Infof("Settle transaction: %s", settleTxid)
-	log.Infof("BTC successfully refunded and boarded as VTXO!")
-
-	return claimTxid, nil
-}
-
-func waitForRefundPollInterval(ctx context.Context, interval time.Duration) error {
-	timer := time.NewTimer(interval)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-// networkNameToParams converts arklib network name to chaincfg.Params
-func networkNameToParams(networkName string) *chaincfg.Params {
-	switch networkName {
-	case arklib.Bitcoin.Name:
-		return &chaincfg.MainNetParams
-	case arklib.BitcoinTestNet.Name:
-		return &chaincfg.TestNet3Params
-	case arklib.BitcoinRegTest.Name:
-		return &chaincfg.RegressionNetParams
-	case arklib.BitcoinSigNet.Name, arklib.BitcoinMutinyNet.Name:
-		return &chaincfg.SigNetParams
-	default:
-		return &chaincfg.RegressionNetParams
-	}
-}
-
-// parsePrevoutFetcher creates a prevout fetcher for transaction signing
-func parsePrevoutFetcher(
-	lockupTxHex string,
-	claimTx *wire.MsgTx,
-	inputIndex int,
-) (txscript.PrevOutputFetcher, error) {
-	lockupTx, err := deserializeTransaction(lockupTxHex)
+	boltzPubkey, err := parsePubkey(claimDetails.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize lockup tx: %w", err)
+		return fmt.Errorf("failed to parse boltz pubkey: %w", err)
 	}
 
-	prevOut := claimTx.TxIn[inputIndex].PreviousOutPoint
-	if int(prevOut.Index) >= len(lockupTx.TxOut) {
-		return nil, fmt.Errorf(
-			"invalid prevout index %d (lockup tx has %d outputs)",
-			prevOut.Index,
-			len(lockupTx.TxOut),
-		)
+	musigSession, err := newLocalMuSig2Session(refundKey, boltzPubkey)
+	if err != nil {
+		return fmt.Errorf("failed to create musig2 session: %w", err)
+	}
+	ourNonce, err := musigSession.GenerateNonce()
+	if err != nil {
+		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
-		lockupTx.TxOut[prevOut.Index].PkScript,
-		lockupTx.TxOut[prevOut.Index].Value,
-	)
+	boltzNonce, err := ParsePubNonce(claimDetails.PubNonce)
+	if err != nil {
+		return fmt.Errorf("failed to parse boltz nonce: %w", err)
+	}
 
-	return prevOutputFetcher, nil
+	sigHash, err := hex.DecodeString(claimDetails.TransactionHash)
+	if err != nil {
+		return fmt.Errorf("failed to decode claim tx sighash: %w", err)
+	}
+	var msg [32]byte
+	copy(msg[:], sigHash)
+
+	combinedNonce, err := musigSession.AggregateNonces(boltzNonce)
+	if err != nil {
+		return fmt.Errorf("failed to aggregate nonces: %w", err)
+	}
+
+	ourPartialSig, err := musigSession.PartialSign(combinedNonce, msg, htlcScript.MerkleRoot())
+	if err != nil {
+		return fmt.Errorf("failed to make our partial sig: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := ourPartialSig.Encode(&buf); err != nil {
+		return fmt.Errorf("failed to encode our partial sig: %w", err)
+	}
+
+	if _, err := h.boltzSvc.SubmitChainSwapClaim(swapId, boltz.ChainSwapClaimRequest{
+		Signature: boltz.CrossSignSignature{
+			PubNonce:         SerializePubNonce(ourNonce),
+			PartialSignature: hex.EncodeToString(buf.Bytes()),
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to submit our partial sig to boltz: %w", err)
+	}
+	return nil
+}
+
+// getSwapHtlc rebuilds the BTC HTLC of a Btc -> Arkade chain swap from the persisted ephemeral
+// refund key, server key and locktime, and the swap's preimage hash. The full keys (with their
+// Y parity) are needed: the swap tree only carries x-only keys, which can't reproduce the
+// MuSig2 taproot output.
+func (h *SwapManager) getSwapHtlc(
+	ctx context.Context, swap *swaptypes.Swap,
+) (*htlc.HTLCScript, *btcec.PrivateKey, error) {
+	refundKeyBytes, err := hex.DecodeString(swap.ChainSwap.PrivateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to decode refund key: %w", err)
+	}
+	refundKey, _ := btcec.PrivKeyFromBytes(refundKeyBytes)
+
+	claimKey, err := parsePubkey(swap.ChainSwap.ServerPublicKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid server pubkey: %w", err)
+	}
+
+	preimage, err := h.swapPreimage(ctx, swap)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, preimageHash := preimage.Hash()
+
+	htlcScript, err := htlc.NewHTLCScriptFromOpts(htlc.Opts{
+		ClaimKey:       claimKey,
+		RefundKey:      refundKey.PubKey(),
+		PreimageHash:   preimageHash,
+		RefundLocktime: arklib.AbsoluteLocktime(swap.ChainSwap.RefundLocktime),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to rebuild btc htlc: %w", err)
+	}
+	return htlcScript, refundKey, nil
 }

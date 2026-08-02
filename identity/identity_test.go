@@ -18,7 +18,7 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-var network = chaincfg.RegressionNetParams
+var network = arklib.BitcoinRegTest
 
 const (
 	testPassword = "testpassword"
@@ -532,6 +532,55 @@ func TestNextKeyId(t *testing.T) {
 				require.ErrorContains(t, err, f.wantErrContains)
 			})
 		}
+	})
+}
+
+func TestGetXpub(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		svc := newInitializedIdentity(t)
+		_, err := svc.Unlock(t.Context(), testPassword)
+		require.NoError(t, err)
+
+		xpub, err := svc.GetXpub(t.Context())
+		require.NoError(t, err)
+		require.NotEmpty(t, xpub)
+
+		extKey, err := hdkeychain.NewKeyFromString(xpub)
+		require.NoError(t, err)
+		// The xpub must never carry private key material.
+		require.False(t, extKey.IsPrivate())
+
+		// The children of the xpub must match the wallet keys: this is what allows a third
+		// party (e.g. Boltz swap restore) to derive our keys from the xpub alone.
+		for _, index := range []uint32{0, 1, 42} {
+			child, err := extKey.Derive(index)
+			require.NoError(t, err)
+			childPubKey, err := child.ECPubKey()
+			require.NoError(t, err)
+
+			keyRef, err := svc.GetKey(t.Context(), toDerivationPath(index))
+			require.NoError(t, err)
+			require.Equal(t, keyRef.PubKey.SerializeCompressed(), childPubKey.SerializeCompressed())
+		}
+
+		// The xpub is deterministic.
+		xpubAgain, err := svc.GetXpub(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, xpub, xpubAgain)
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		t.Run("locked", func(t *testing.T) {
+			svc := newInitializedIdentity(t)
+			_, err := svc.GetXpub(t.Context())
+			require.Error(t, err)
+		})
+
+		t.Run("not initialized", func(t *testing.T) {
+			svc := newIdentity(t, identityinmemorystore.NewStore())
+			_, err := svc.GetXpub(t.Context())
+			require.Error(t, err)
+		})
 	})
 }
 

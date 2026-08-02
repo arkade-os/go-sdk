@@ -239,13 +239,17 @@ if [ $? -ne 0 ] || [ -z "$addr" ]; then
     exit "  ❌ failed to get wallet address"
 fi
 
+# Every boltz-fulmine settle (one per swap test) makes arkd front ~1 BTC in a commitment tx
+# that stays locked until the batch is swept ~180 blocks later: with less than ~1 BTC available
+# arkd aborts boltz-fulmine's rounds with "not enough liquidity" and swap tests stall. Fund
+# enough to survive a whole e2e run.
 funded_count=0
 for i in {1..21}; do
-    err=$(nigiri faucet $addr)
+    err=$(nigiri faucet $addr 5)
     if [ $? -ne 0 ]; then
         exit "  ❌ failed to fund (status=$status) (err=$err)"
     fi
-    funded_count=$((funded_count + 1))
+    funded_count=$((funded_count + 5))
     sleep 1
 done
 echo "  ✅ funded onchain with $funded_count BTC"
@@ -424,7 +428,27 @@ else
     echo "  ✅ paid invoices boltz-cln <-> cln"
 fi
 
-run_quiet docker restart boltz
+# Provision the Ark wallet (fulmine) BEFORE restarting boltz. Boltz's Rust sidecar (boltzr)
+# attaches the ARK wallet only if it can connect to fulmine once, at startup; that connection has
+# no retry. If fulmine has no wallet yet when boltzr boots, the ARK currency is left wallet-less
+# and /v2/swap/restore fails forever with "no wallet for ARK". So create+unlock fulmine first,
+# then restart boltz so boltzr re-runs that one-shot connection against a now-ready fulmine.
 provision_boltz_fulmine
+run_quiet docker restart boltz
+
+echo "waiting for Boltz to be ready after restart..."
+boltz_ready=0
+for i in {1..30}; do
+    if curl -sf http://127.0.0.1:9001/v2/version >/dev/null 2>&1; then
+        boltz_ready=1
+        echo "  ✅ Boltz ready"
+        break
+    fi
+    sleep 2
+done
+if [ $boltz_ready -ne 1 ]; then
+    echo "  ❌ Boltz did not become ready after restart"
+    exit 1
+fi
 
 echo "✅ setup complete"

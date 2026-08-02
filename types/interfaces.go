@@ -40,7 +40,13 @@ type VtxoPageResult struct {
 	Next  *Cursor
 }
 
+type StoreConfig struct {
+	StoreType string
+	Args      any
+}
+
 type Store interface {
+	GetConfig() StoreConfig
 	TransactionStore() TransactionStore
 	UtxoStore() UtxoStore
 	VtxoStore() VtxoStore
@@ -116,7 +122,9 @@ type ContractStore interface {
 	GetContractsByScripts(ctx context.Context, scripts []string) ([]Contract, error)
 	GetContractsByState(ctx context.Context, state ContractState) ([]Contract, error)
 	GetActiveContractsByType(ctx context.Context, contractType ContractType) ([]Contract, error)
-	GetLatestActiveContract(ctx context.Context, contractType ContractType) (*Contract, error)
+	GetLatestContract(ctx context.Context, contractType ContractType) (*Contract, error)
 	UpdateContractState(ctx context.Context, script string, state ContractState) error
+	DisableContracts(ctx context.Context, scripts []string) error
+	EnableContracts(ctx context.Context, scripts []string) error
 	Clean(ctx context.Context) error
 }

@@ -12,10 +12,11 @@ import (
 
 func TestTransactionHistory(t *testing.T) {
 	ctx := t.Context()
-	// Make use of a long db refresh interval to avoid that background operation to mess up
+	// Make use of a long db and renewal intervals to avoid background operation from messing up
 	// with this test
 	opts := []arksdk.WalletOption{
-		arksdk.WithoutAutoSettle(), arksdk.WithRefreshDbInterval(5 * time.Minute),
+		arksdk.WithRenewalScheduleInterval(time.Hour),
+		arksdk.WithRefreshDbInterval(5 * time.Minute),
 	}
 	alice := setupClient(t, "", opts...)
 
@@ -109,12 +110,12 @@ func TestTransactionHistory(t *testing.T) {
 	require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
 	require.True(t, utxoEvent.Utxos[0].Spent)
 
-	// alice refresh its vtxo
-	commitmentRefreshTxid, err := alice.Settle(ctx)
+	// alice renews her vtxo
+	renewalCommitmentTxid, err := alice.Settle(ctx)
 	require.NoError(t, err)
-	require.NotEmpty(t, commitmentRefreshTxid)
+	require.NotEmpty(t, renewalCommitmentTxid)
 
-	// check history didn't change, we should not see commitment refresh tx in history
+	// check history didn't change, we should not see the commitment tx of the renewal in history
 	history, err = alice.GetTransactionHistory(ctx)
 	require.NoError(t, err)
 	require.Len(t, history, 1)

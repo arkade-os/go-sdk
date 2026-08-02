@@ -26,7 +26,6 @@ type contractManager struct {
 	network     arklib.Network
 	registry    Registry
 	mu          sync.RWMutex
-	infoCache   *infoCache
 }
 
 func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
@@ -43,18 +42,16 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		}
 	}
 
-	// Wrap the transport client once with a shared GetInfo cache so all
-	// built-in handlers reuse the same cached server params. Custom handlers
-	// supplied via WithHandler are constructed outside the manager and own
-	// their own client wiring.
-	cache := newInfoCache(infoCacheTTL)
-	cachedClient := newCachingClient(args.Client, cache)
+	// The wallet hands the manager a client whose GetInfo is already served from the
+	// wallet-level cache, so all built-in handlers share the same cached server params.
+	// Custom handlers supplied via WithHandler are constructed outside the manager and
+	// own their own client wiring.
 	builtins := map[types.ContractType]handlers.Handler{
-		types.ContractTypeDefault:  defaultHandler.NewHandler(cachedClient, args.Network, false),
-		types.ContractTypeBoarding: defaultHandler.NewHandler(cachedClient, args.Network, true),
-		types.ContractTypeVHTLC:    vhtlcHandler.NewHandler(cachedClient, args.Network),
+		types.ContractTypeDefault:  defaultHandler.NewHandler(args.Client, args.Network, false),
+		types.ContractTypeBoarding: defaultHandler.NewHandler(args.Client, args.Network, true),
+		types.ContractTypeVHTLC:    vhtlcHandler.NewHandler(args.Client, args.Network),
 		types.ContractTypeNonInteractiveVHTLC: vhtlcHandler.NewNonInteractiveHandler(
-			cachedClient,
+			args.Client,
 			args.Network,
 		),
 	}
@@ -70,7 +67,6 @@ func NewManager(args Args, opts ...ManagerOption) (Manager, error) {
 		network:     args.Network,
 		registry:    reg,
 		mu:          sync.RWMutex{},
-		infoCache:   cache,
 	}, nil
 }
 
@@ -134,11 +130,6 @@ func (m *contractManager) NewContract(
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if o.serverParams != nil {
-		// Force a cache update if the caller provided a server params.
-		m.infoCache.set(o.serverParams)
-	}
 
 	var contract *types.Contract
 	switch contractType {
@@ -213,6 +204,13 @@ func (m *contractManager) GetContracts(
 	}
 }
 
+func (m *contractManager) DisableContracts(ctx context.Context, scripts []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.store.DisableContracts(ctx, scripts)
+}
+
 func (m *contractManager) GetHandler(
 	_ context.Context, c types.Contract,
 ) (handlers.Handler, error) {
@@ -251,7 +249,7 @@ func (m *contractManager) scanContracts(
 	ctx context.Context, contractType types.ContractType,
 	gapLimit uint32, handler handlers.Handler, findUsed findUsedFn,
 ) error {
-	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get latest key id for contract type %s: %w", contractType, err,
@@ -357,7 +355,7 @@ scan:
 func (m *contractManager) newDefaultContract(
 	ctx context.Context, contractType types.ContractType, handler handlers.Handler,
 ) (*types.Contract, error) {
-	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +401,7 @@ func (m *contractManager) newVHTLCContract(
 		return nil, fmt.Errorf("invalid contract args: %w", err)
 	}
 
-	contract, err := m.store.GetLatestActiveContract(ctx, contractType)
+	contract, err := m.store.GetLatestContract(ctx, contractType)
 	if err != nil {
 		return nil, err
 	}

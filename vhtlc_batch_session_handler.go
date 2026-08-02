@@ -1,4 +1,4 @@
-package swap
+package arksdk
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -25,6 +25,92 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	log "github.com/sirupsen/logrus"
 )
+
+// musig2BatchSessionHandler implements the Musig2 methods
+type musig2BatchSessionHandler struct {
+	SweepClosure    script.CSVMultisigClosure
+	SignerSession   tree.SignerSession
+	TransportClient client.Client
+}
+
+func (h *musig2BatchSessionHandler) OnTreeSigningStarted(
+	ctx context.Context, event client.TreeSigningStartedEvent, vtxoTree *tree.TxTree,
+) (bool, error) {
+	signerPubKey := h.SignerSession.GetPublicKey()
+	if !slices.Contains(event.CosignersPubkeys, signerPubKey) {
+		return true, nil
+	}
+
+	script, err := h.SweepClosure.Script()
+	if err != nil {
+		return false, fmt.Errorf("failed to get sweep closure script: %w", err)
+	}
+
+	commitmentTx, err := psbt.NewFromRawBytes(strings.NewReader(event.UnsignedCommitmentTx), true)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse commitment tx: %w", err)
+	}
+
+	if len(commitmentTx.UnsignedTx.TxOut) == 0 {
+		// no tree to sign, skip
+		return true, nil
+	}
+
+	batchOutput := commitmentTx.UnsignedTx.TxOut[0]
+	batchOutputAmount := batchOutput.Value
+
+	sweepTapLeaf := txscript.NewBaseTapLeaf(script)
+	sweepTapTree := txscript.AssembleTaprootScriptTree(sweepTapLeaf)
+	root := sweepTapTree.RootNode.TapHash()
+
+	if err := h.SignerSession.Init(root.CloneBytes(), batchOutputAmount, vtxoTree); err != nil {
+		return false, err
+	}
+
+	nonces, err := h.SignerSession.GetNonces()
+	if err != nil {
+		return false, err
+	}
+
+	return false, h.TransportClient.SubmitTreeNonces(
+		ctx,
+		event.Id,
+		h.SignerSession.GetPublicKey(),
+		nonces,
+	)
+}
+
+func (h *musig2BatchSessionHandler) OnTreeNonces(
+	ctx context.Context, event client.TreeNoncesEvent,
+) (bool, error) {
+	hasAllNonces, err := h.SignerSession.AggregateNonces(event.Txid, event.Nonces)
+	if err != nil {
+		return false, err
+	}
+
+	if !hasAllNonces {
+		return false, nil
+	}
+
+	sigs, err := h.SignerSession.Sign()
+	if err != nil {
+		return false, err
+	}
+
+	if err := h.TransportClient.SubmitTreeSignatures(
+		ctx, event.Id, h.SignerSession.GetPublicKey(), sigs,
+	); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (h *musig2BatchSessionHandler) OnTreeNoncesAggregated(
+	ctx context.Context, event client.TreeNoncesAggregatedEvent,
+) (bool, error) {
+	return false, nil
+}
 
 // batchSessionArgs holds the shared state for VHTLC settlement operations.
 // This struct encapsulates all the common setup data needed by both claim and refund paths.
@@ -38,7 +124,7 @@ type batchSessionArgs struct {
 
 type batchSessionHandler struct {
 	musig2BatchSessionHandler
-	arkWallet arksdk.Wallet
+	arkWallet *wallet
 
 	intentId       string
 	vtxos          []clientTypes.VtxoWithTapTree
@@ -51,8 +137,7 @@ type batchSessionHandler struct {
 }
 
 func newBatchSessionHandler(
-	arkClient arksdk.Wallet,
-	transportClient client.Client,
+	arkClient *wallet,
 	intentId string,
 	vtxos []clientTypes.VtxoWithTapTree,
 	receivers []clientTypes.Receiver,
@@ -60,10 +145,7 @@ func newBatchSessionHandler(
 	config clientTypes.Config,
 	signerSession tree.SignerSession,
 ) (*batchSessionHandler, error) {
-	if arkClient == nil {
-		return nil, fmt.Errorf("missing ark client")
-	}
-	if transportClient == nil {
+	if arkClient.Client() == nil {
 		return nil, fmt.Errorf("missing transport client")
 	}
 	if intentId == "" {
@@ -91,7 +173,7 @@ func newBatchSessionHandler(
 	return &batchSessionHandler{
 		musig2BatchSessionHandler: musig2BatchSessionHandler{
 			SignerSession:   signerSession,
-			TransportClient: transportClient,
+			TransportClient: arkClient.Client(),
 		},
 		arkWallet:      arkClient,
 		intentId:       intentId,
@@ -197,17 +279,12 @@ func (h *batchSessionHandler) createAndSignForfeits(
 			)
 		}
 
-		vtxoScript, err := script.ParseVtxoScript(vtxo.Tapscripts)
-		if err != nil {
-			return nil, err
-		}
-
-		_, vtxoTapTree, err := vtxoScript.TapTree()
-		if err != nil {
-			return nil, err
-		}
-
 		vhtlcScript := h.vhtlcScripts[vtxo.Script]
+		_, vtxoTapTree, err := vhtlcScript.TapTree()
+		if err != nil {
+			return nil, err
+		}
+
 		signingClosure := builder.getSigningClosure(vhtlcScript)
 
 		signingScript, err := signingClosure.Script()
@@ -248,46 +325,40 @@ func (h *batchSessionHandler) createAndSignForfeits(
 	return signedForfeitTxs, nil
 }
 
-// claimBatchSessionHandler handles joining a batch session to claim a vhtlc
-type claimBatchSessionHandler struct {
+// settleBatchSessionHandler handles joining a batch session to redeem a vhtlc, either via the
+// claim or the refund path depending on the given forfeit tx builder.
+type settleBatchSessionHandler struct {
 	batchSessionHandler
-	preimage []byte
+	builder forfeitTxBuilder
 }
 
-func newClaimBatchSessionHandler(
-	arkClient arksdk.Wallet,
+func newSettleBatchSessionHandler(
+	arkClient *wallet,
 	intentId string,
 	vtxos []clientTypes.VtxoWithTapTree,
 	receivers []clientTypes.Receiver,
-	preimage []byte,
+	builder forfeitTxBuilder,
 	vhtlcScripts map[string]*vhtlc.VHTLCScript,
 	config clientTypes.Config,
 	signerSession tree.SignerSession,
-) (*claimBatchSessionHandler, error) {
-	if len(preimage) <= 0 {
-		return nil, fmt.Errorf("missing preimage")
+) (*settleBatchSessionHandler, error) {
+	if builder == nil {
+		return nil, fmt.Errorf("missing forfeit tx builder")
 	}
 	handler, err := newBatchSessionHandler(
-		arkClient,
-		arkClient.Client(),
-		intentId,
-		vtxos,
-		receivers,
-		vhtlcScripts,
-		config,
-		signerSession,
+		arkClient, intentId, vtxos, receivers, vhtlcScripts, config, signerSession,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &claimBatchSessionHandler{
+	return &settleBatchSessionHandler{
 		batchSessionHandler: *handler,
-		preimage:            preimage,
+		builder:             builder,
 	}, nil
 }
 
-func (h *claimBatchSessionHandler) OnBatchFinalization(
+func (h *settleBatchSessionHandler) OnBatchFinalization(
 	ctx context.Context, event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
 ) ([]string, error) {
 	if connectorTree == nil {
@@ -298,10 +369,9 @@ func (h *claimBatchSessionHandler) OnBatchFinalization(
 		return nil, nil
 	}
 
-	builder := &claimForfeitTxBuilder{preimage: h.preimage}
-	forfeits, err := h.createAndSignForfeits(ctx, connectorTree.Leaves(), builder)
+	forfeits, err := h.createAndSignForfeits(ctx, connectorTree.Leaves(), h.builder)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create and sign claim forfeits: %w", err)
+		return nil, fmt.Errorf("failed to create and sign forfeits: %w", err)
 	}
 
 	if len(forfeits) > 0 {
@@ -311,179 +381,6 @@ func (h *claimBatchSessionHandler) OnBatchFinalization(
 	}
 
 	return forfeits, nil
-}
-
-// refundBatchSessionHandler handles joining a batch session to refund a vhtlc alone, once the
-// timelock expired
-type refundBatchSessionHandler struct {
-	batchSessionHandler
-	withReceiver bool
-}
-
-func newRefundBatchSessionHandler(
-	arkClient arksdk.Wallet,
-	transportClient client.Client,
-	intentId string,
-	vtxos []clientTypes.VtxoWithTapTree,
-	receivers []clientTypes.Receiver,
-	withReceiver bool,
-	vhtlcScripts map[string]*vhtlc.VHTLCScript,
-	config clientTypes.Config,
-	signerSession tree.SignerSession,
-) (*refundBatchSessionHandler, error) {
-	handler, err := newBatchSessionHandler(
-		arkClient, transportClient, intentId, vtxos, receivers, vhtlcScripts, config, signerSession,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &refundBatchSessionHandler{
-		batchSessionHandler: *handler,
-		withReceiver:        withReceiver,
-	}, nil
-}
-
-func (h *refundBatchSessionHandler) OnBatchFinalization(
-	ctx context.Context, event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
-) ([]string, error) {
-	if connectorTree == nil {
-		if len(h.vtxosToForfeit) > 0 {
-			return nil, fmt.Errorf("connector tree is nil")
-		}
-		// The vhtlc expired, nothing to do
-		return nil, nil
-	}
-
-	builder := &refundForfeitTxBuilder{withReceiver: h.withReceiver}
-	forfeits, err := h.createAndSignForfeits(ctx, connectorTree.Leaves(), builder)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create and sign refund forfeits: %w", err)
-	}
-
-	if len(forfeits) > 0 {
-		if err := h.TransportClient.SubmitSignedForfeitTxs(ctx, forfeits, ""); err != nil {
-			return nil, fmt.Errorf("failed to submit signed forfeits: %w", err)
-		}
-	}
-
-	return forfeits, nil
-}
-
-// collabRefundBatchSessionHandler handles joining a batch session to collaboratively refund a
-// vhtlc using delegates approach
-type collabRefundBatchSessionHandler struct {
-	refundBatchSessionHandler
-	partialForfeitTx string
-}
-
-func newCollabRefundBatchSessionHandler(
-	arkClient arksdk.Wallet,
-	transportClient client.Client,
-	intentId string,
-	vtxos []clientTypes.VtxoWithTapTree,
-	receivers []clientTypes.Receiver,
-	withReceiver bool,
-	vhtlcScripts map[string]*vhtlc.VHTLCScript,
-	config clientTypes.Config,
-	signerSession tree.SignerSession,
-	partialForfeitTx string,
-) (*collabRefundBatchSessionHandler, error) {
-	handler, err := newBatchSessionHandler(
-		arkClient, transportClient, intentId, vtxos, receivers, vhtlcScripts, config, signerSession,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(handler.vtxosToForfeit) > 0 && partialForfeitTx == "" {
-		return nil, fmt.Errorf("missing partial forfeit tx")
-	}
-	return &collabRefundBatchSessionHandler{
-		refundBatchSessionHandler: refundBatchSessionHandler{
-			batchSessionHandler: *handler,
-			withReceiver:        withReceiver,
-		},
-		partialForfeitTx: partialForfeitTx,
-	}, nil
-}
-
-func (h *collabRefundBatchSessionHandler) OnBatchFinalization(
-	ctx context.Context, event client.BatchFinalizationEvent, vtxoTree, connectorTree *tree.TxTree,
-) ([]string, error) {
-	if connectorTree == nil {
-		if len(h.vtxosToForfeit) > 0 {
-			return nil, fmt.Errorf("connector tree is nil")
-		}
-		// The vhtlc expired, nothing to do
-		return nil, nil
-	}
-
-	forfeitPtx, err := psbt.NewFromRawBytes(strings.NewReader(h.partialForfeitTx), true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode partial forfeit tx: %w", err)
-	}
-
-	updater, err := psbt.NewUpdater(forfeitPtx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PSBT updater: %w", err)
-	}
-
-	connectors := connectorTree.Leaves()
-	if len(connectors) == 0 {
-		return nil, fmt.Errorf("no connectors in tree")
-	}
-	connector := connectors[0]
-
-	var connectorOut *wire.TxOut
-	var connectorIndex uint32
-	for outIndex, output := range connector.UnsignedTx.TxOut {
-		if bytes.Equal(txutils.ANCHOR_PKSCRIPT, output.PkScript) {
-			continue
-		}
-		connectorOut = output
-		connectorIndex = uint32(outIndex)
-		break
-	}
-
-	if connectorOut == nil {
-		return nil, fmt.Errorf("connector output not found")
-	}
-
-	updater.Upsbt.UnsignedTx.TxIn = append(updater.Upsbt.UnsignedTx.TxIn, &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  connector.UnsignedTx.TxHash(),
-			Index: connectorIndex,
-		},
-		Sequence: wire.MaxTxInSequenceNum,
-	})
-	updater.Upsbt.Inputs = append(updater.Upsbt.Inputs, psbt.PInput{
-		WitnessUtxo: &wire.TxOut{
-			Value:    connectorOut.Value,
-			PkScript: connectorOut.PkScript,
-		},
-	})
-
-	if err := updater.AddInSighashType(txscript.SigHashDefault, 1); err != nil {
-		return nil, fmt.Errorf("failed to set sighash for connector: %w", err)
-	}
-
-	encodedForfeitTx, err := updater.Upsbt.B64Encode()
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode forfeit tx: %w", err)
-	}
-
-	signedForfeitTx, err := h.arkWallet.SignTransaction(ctx, encodedForfeitTx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign forfeit: %w", err)
-	}
-
-	if err := h.TransportClient.SubmitSignedForfeitTxs(
-		ctx, []string{signedForfeitTx}, "",
-	); err != nil {
-		return nil, fmt.Errorf("failed to submit signed forfeit: %w", err)
-	}
-
-	return []string{signedForfeitTx}, nil
 }
 
 type forfeitTxBuilder interface {

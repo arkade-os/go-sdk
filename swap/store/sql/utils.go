@@ -2,13 +2,15 @@ package sqlstore
 
 import (
 	"database/sql"
-	"fmt"
-
-	swapdomain "github.com/arkade-os/go-sdk/swap/store/domain"
+	"encoding/hex"
+	"time"
 )
 
 func nullableString(value string) sql.NullString {
-	return sql.NullString{String: value, Valid: value != ""}
+	if len(value) <= 0 {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value, Valid: true}
 }
 
 func stringValue(value sql.NullString) string {
@@ -18,8 +20,25 @@ func stringValue(value sql.NullString) string {
 	return value.String
 }
 
+func nullableUnixTime(value time.Time) sql.NullInt64 {
+	if value.IsZero() {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: value.Unix(), Valid: true}
+}
+
+func unixTimeValue(value sql.NullInt64) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return time.Unix(value.Int64, 0)
+}
+
 func nullableInt64(value int64) sql.NullInt64 {
-	return sql.NullInt64{Int64: value, Valid: value != 0}
+	if value == 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: value, Valid: true}
 }
 
 func int64Value(value sql.NullInt64) int64 {
@@ -29,9 +48,9 @@ func int64Value(value sql.NullInt64) int64 {
 	return value.Int64
 }
 
-func requireAffected(count int64, format, id string) error {
-	if count == 0 {
-		return fmt.Errorf("%w: "+format, swapdomain.ErrNotFound, id)
+func decodeNullableHex(value sql.NullString) ([]byte, error) {
+	if !value.Valid {
+		return nil, nil
 	}
-	return nil
+	return hex.DecodeString(value.String)
 }

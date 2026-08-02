@@ -42,6 +42,10 @@ type Manager interface {
 	// All filters are mutually exclusive, i.e. only one filter can be set at a time.
 	// Pass no options to return all contracts.
 	GetContracts(ctx context.Context, opts ...FilterOption) ([]types.Contract, error)
+	// DisableContracts marks the given contracts as inactive. This is a transactional operation,
+	// therefore if any of the contracts cannot be disabled, it returns an error and no changes are
+	// applied to the store.
+	DisableContracts(ctx context.Context, scripts []string) error
 	// GetHandler returns the handler responsible for the given contract's type.
 	// Errors when the contract type is not registered.
 	// Delegates to Registry().GetHandler(contract.Type).

@@ -231,10 +231,16 @@ func (f *fakeContractStore) GetActiveContractsByType(
 ) ([]types.Contract, error) {
 	return nil, nil
 }
-func (f *fakeContractStore) GetLatestActiveContract(
+func (f *fakeContractStore) GetLatestContract(
 	context.Context, types.ContractType,
 ) (*types.Contract, error) {
 	return nil, nil
+}
+func (f *fakeContractStore) DisableContracts(context.Context, []string) error {
+	return nil
+}
+func (f *fakeContractStore) EnableContracts(context.Context, []string) error {
+	return nil
 }
 func (f *fakeContractStore) Clean(context.Context) error { return nil }
 
@@ -243,6 +249,7 @@ type fakeStore struct {
 	contractStore types.ContractStore
 }
 
+func (s *fakeStore) GetConfig() types.StoreConfig             { return types.StoreConfig{} }
 func (s *fakeStore) ContractStore() types.ContractStore       { return s.contractStore }
 func (s *fakeStore) TransactionStore() types.TransactionStore { return nil }
 func (s *fakeStore) UtxoStore() types.UtxoStore               { return nil }

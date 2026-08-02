@@ -31,8 +31,8 @@ type SwapStatusResponse struct {
 }
 
 type SwapUpdate struct {
-	SwapStatusResponse `       mapstructure:",squash"`
-	Id                 string `                       json:"id"`
+	SwapStatusResponse `mapstructure:",squash"`
+	Id                 string `json:"id"`
 }
 
 type Websocket struct {
@@ -160,6 +160,14 @@ func (boltz *Websocket) Connect() error {
 				}
 			}
 		}
+
+		// The read loop only breaks on a connection error that wasn't an explicit Close (a drop
+		// or a pong-timeout). Release that connection's socket before reconnecting: on a timeout
+		// the underlying TCP is still alive, and if reconnection never succeeds this goroutine
+		// loops forever below, so we can't rely on a deferred close to release it.
+		// nolint
+		conn.Close()
+
 		for {
 			pingTicker.Stop()
 			if boltz.reconnect {

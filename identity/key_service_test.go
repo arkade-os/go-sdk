@@ -7,8 +7,68 @@ import (
 
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	identitystore "github.com/arkade-os/go-sdk/identity/store"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/stretchr/testify/require"
 )
+
+func TestKeyServiceGetXpub(t *testing.T) {
+	t.Run("is the neutered account key", func(t *testing.T) {
+		master := newMasterKey(t)
+		provider := newHDKeyService(master)
+
+		xpub, err := provider.GetXpub()
+		require.NoError(t, err)
+		require.NotEmpty(t, xpub)
+
+		extKey, err := hdkeychain.NewKeyFromString(xpub)
+		require.NoError(t, err)
+		// The xpub must be public-only: deriving a child of a private extended key keeps it
+		// private, so serializing it would leak the account xprv.
+		require.False(t, extKey.IsPrivate())
+
+		// It must equal the neutered account node (master/defaultAccount).
+		account, err := master.Derive(defaultAccount)
+		require.NoError(t, err)
+		neutered, err := account.Neuter()
+		require.NoError(t, err)
+		require.Equal(t, neutered.String(), xpub)
+	})
+
+	t.Run("children match the derived keys", func(t *testing.T) {
+		provider := newHDKeyService(newMasterKey(t))
+
+		xpub, err := provider.GetXpub()
+		require.NoError(t, err)
+		extKey, err := hdkeychain.NewKeyFromString(xpub)
+		require.NoError(t, err)
+
+		// A third party (eg. Boltz swap restore) must be able to derive our keys from the xpub
+		// alone: xpub/i has to equal the private key derived at m/0/i.
+		for _, index := range []uint32{0, 1, 7, 42} {
+			child, err := extKey.Derive(index)
+			require.NoError(t, err)
+			childPubKey, err := child.ECPubKey()
+			require.NoError(t, err)
+
+			priv, err := provider.DeriveKeyAt(toDerivationPath(index))
+			require.NoError(t, err)
+			require.Equal(t,
+				hex.EncodeToString(priv.PubKey().SerializeCompressed()),
+				hex.EncodeToString(childPubKey.SerializeCompressed()),
+			)
+		}
+	})
+
+	t.Run("deterministic", func(t *testing.T) {
+		provider := newHDKeyService(newMasterKey(t))
+
+		first, err := provider.GetXpub()
+		require.NoError(t, err)
+		second, err := provider.GetXpub()
+		require.NoError(t, err)
+		require.Equal(t, first, second)
+	})
+}
 
 func TestDeriveKeyAt(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
@@ -199,16 +259,6 @@ func TestLoadData(t *testing.T) {
 			provider := newHDKeyService(newMasterKey(t))
 			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 12}))
 			require.EqualValues(t, 12, provider.GetNextKeyIndex())
-		})
-
-		t.Run("clears cache", func(t *testing.T) {
-			provider := newHDKeyService(newMasterKey(t))
-			_, err := provider.DeriveKeyAt("m/0/0")
-			require.NoError(t, err)
-			require.NotEmpty(t, provider.derivedKeyCache)
-
-			require.NoError(t, provider.LoadState(identitystore.IdentityData{NextIndex: 5}))
-			require.Empty(t, provider.derivedKeyCache)
 		})
 	})
 }

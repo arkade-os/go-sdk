@@ -3,318 +3,202 @@ package htlc
 import (
 	"encoding/hex"
 	"fmt"
-	"math"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 )
 
 const (
-	Hash160Len = 20
+	hash160Len = 20
 )
 
-// Opts are the raw parameters needed to build Bitcoin HTLC leaf scripts.
-//
-// ClaimKey and RefundKey are the script-path keys.
-type Opts struct {
+// HTLCScript represents a Bitcoin Hash Time-Locked Contract as a tapscript tree.
+// It contains 2 spending paths: claim with preimage reveal, and refund after the
+// locktime expires.
+type HTLCScript struct {
 	ClaimKey       *btcec.PublicKey
 	RefundKey      *btcec.PublicKey
 	PreimageHash   []byte
 	RefundLocktime arklib.AbsoluteLocktime
+
+	claimLeafScript  []byte
+	refundLeafScript []byte
 }
 
-func (o Opts) validate() error {
-	if o.ClaimKey == nil && o.RefundKey == nil {
-		return fmt.Errorf("missing claim or refund key")
-	}
-	if len(o.PreimageHash) != Hash160Len {
-		return fmt.Errorf(
-			"preimage hash must be %d bytes, got %d", Hash160Len, len(o.PreimageHash),
-		)
-	}
-	if o.RefundLocktime == 0 {
-		return fmt.Errorf("refund locktime must be greater than 0")
-	}
-	return nil
-}
-
-// NewHTLCLeafScriptsFromOpts builds the claim and refund leaves from complete
-// HTLC opts without applying wallet ownership semantics.
-func NewHTLCLeafScriptsFromOpts(opts Opts) ([]byte, []byte, error) {
+// NewHTLCScriptFromOpts creates a Bitcoin HTLC script from the given options.
+func NewHTLCScriptFromOpts(opts Opts) (*HTLCScript, error) {
 	if err := opts.validate(); err != nil {
-		return nil, nil, err
-	}
-	if opts.ClaimKey == nil {
-		return nil, nil, fmt.Errorf("missing claim key")
-	}
-	if opts.RefundKey == nil {
-		return nil, nil, fmt.Errorf("missing refund key")
-	}
-
-	claimScript, err := claimLeafScript(opts.PreimageHash, opts.ClaimKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create claim leaf script: %w", err)
-	}
-	refundScript, err := refundLeafScript(opts.RefundKey, opts.RefundLocktime)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create refund leaf script: %w", err)
-	}
-
-	return claimScript, refundScript, nil
-}
-
-func claimLeafScript(preimageHash []byte, claimKey *btcec.PublicKey) ([]byte, error) {
-	return txscript.NewScriptBuilder().
-		AddOp(txscript.OP_SIZE).
-		AddData([]byte{0x20}).
-		AddOp(txscript.OP_EQUALVERIFY).
-		AddOp(txscript.OP_HASH160).
-		AddData(preimageHash).
-		AddOp(txscript.OP_EQUALVERIFY).
-		AddData(schnorr.SerializePubKey(claimKey)).
-		AddOp(txscript.OP_CHECKSIG).
-		Script()
-}
-
-func refundLeafScript(
-	refundKey *btcec.PublicKey,
-	refundLocktime arklib.AbsoluteLocktime,
-) ([]byte, error) {
-	return txscript.NewScriptBuilder().
-		AddData(schnorr.SerializePubKey(refundKey)).
-		AddOp(txscript.OP_CHECKSIGVERIFY).
-		AddInt64(int64(refundLocktime)).
-		AddOp(txscript.OP_CHECKLOCKTIMEVERIFY).
-		Script()
-}
-
-// ClaimLeafComponents contains the parsed components from a Bitcoin HTLC claim
-// leaf script.
-type ClaimLeafComponents struct {
-	PreimageHash [Hash160Len]byte
-	ClaimPubKey  [schnorr.PubKeyBytesLen]byte
-}
-
-// RefundLeafComponents contains the parsed components from a Bitcoin HTLC
-// refund leaf script.
-type RefundLeafComponents struct {
-	RefundPubKey [schnorr.PubKeyBytesLen]byte
-	Timeout      uint32
-}
-
-// ParseClaimLeafScriptHex parses a hex-encoded Bitcoin HTLC claim leaf.
-func ParseClaimLeafScriptHex(outputHex string) (*ClaimLeafComponents, error) {
-	scriptBytes, err := hex.DecodeString(outputHex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode claim leaf output hex: %w", err)
-	}
-	return ParseClaimLeafScript(scriptBytes)
-}
-
-// ParseClaimLeafScript parses a Bitcoin HTLC claim leaf with the shape:
-//
-//	OP_SIZE 32 OP_EQUALVERIFY
-//	OP_HASH160 <preimageHash> OP_EQUALVERIFY
-//	<claimPubKey> OP_CHECKSIG
-func ParseClaimLeafScript(leafScript []byte) (*ClaimLeafComponents, error) {
-	tokenizer := txscript.MakeScriptTokenizer(0, leafScript)
-
-	if err := expectOpcode(&tokenizer, txscript.OP_SIZE, "OP_SIZE"); err != nil {
 		return nil, err
 	}
 
-	preimageSize, err := expectData(&tokenizer, 1, "preimage size")
+	claimScript, err := opts.claimLeafScript()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create claim leaf script: %w", err)
 	}
-	const preimageLen = 32
-	if preimageSize[0] != preimageLen {
-		return nil, fmt.Errorf(
-			"expected preimage size 0x%x (%d bytes), got 0x%x",
-			preimageLen, preimageLen, preimageSize[0],
-		)
+	refundScript, err := opts.refundLeafScript()
+	if err != nil {
+		return nil, fmt.Errorf("create refund leaf script: %w", err)
 	}
 
-	if err := expectOpcode(&tokenizer, txscript.OP_EQUALVERIFY, "OP_EQUALVERIFY"); err != nil {
-		return nil, err
+	return &HTLCScript{
+		ClaimKey:         opts.ClaimKey,
+		RefundKey:        opts.RefundKey,
+		PreimageHash:     opts.PreimageHash,
+		RefundLocktime:   opts.RefundLocktime,
+		claimLeafScript:  claimScript,
+		refundLeafScript: refundScript,
+	}, nil
+}
+
+// NewHtlcScript reconstructs an HTLCScript from raw tapscript leaves.
+// This is used to recover the HTLC parameters from a Boltz swap tree.
+func NewHtlcScript(claimLeaf, refundLeaf string) (*HTLCScript, error) {
+	claimScript, err := hex.DecodeString(claimLeaf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode claim leaf hex: %w", err)
 	}
-	if err := expectOpcode(&tokenizer, txscript.OP_HASH160, "OP_HASH160"); err != nil {
-		return nil, err
+	refundScript, err := hex.DecodeString(refundLeaf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode refund leaf hex: %w", err)
 	}
 
-	preimageHashBytes, err := expectData(&tokenizer, Hash160Len, "preimage hash")
+	claimKey, preimageHash, err := parseClaimLeafScript(claimScript)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse claim leaf: %w", err)
+	}
+	refundKey, refundLocktime, err := parseRefundLeafScript(refundScript)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse refund leaf: %w", err)
+	}
+
+	return &HTLCScript{
+		ClaimKey:         claimKey,
+		RefundKey:        refundKey,
+		PreimageHash:     preimageHash,
+		RefundLocktime:   arklib.AbsoluteLocktime(refundLocktime),
+		claimLeafScript:  claimScript,
+		refundLeafScript: refundScript,
+	}, nil
+}
+
+// GetRevealedTapscripts returns all available scripts as hex-encoded strings.
+func (h *HTLCScript) GetRevealedTapscripts() []string {
+	return []string{
+		hex.EncodeToString(h.claimLeafScript),
+		hex.EncodeToString(h.refundLeafScript),
+	}
+}
+
+// TapTree returns the taproot script tree composed of the claim and refund leaves.
+func (h *HTLCScript) TapTree() *txscript.IndexedTapScriptTree {
+	return txscript.AssembleTaprootScriptTree(
+		txscript.NewBaseTapLeaf(h.claimLeafScript),
+		txscript.NewBaseTapLeaf(h.refundLeafScript),
+	)
+}
+
+// MerkleRoot returns the merkle root of the HTLC taptree, used as taproot tweak
+// and as message for MuSig2 cooperative signing.
+func (h *HTLCScript) MerkleRoot() []byte {
+	root := h.TapTree().RootNode.TapHash()
+	return root[:]
+}
+
+// Address encodes the HTLC as a taproot address. senderFirst tells whether the sender
+// (refund) key comes first in the MuSig2 aggregation of the internal key.
+func (h *HTLCScript) Address(net *chaincfg.Params, senderFirst bool) (string, error) {
+	tapKey, err := h.taprootOutputKey(senderFirst)
+	if err != nil {
+		return "", err
+	}
+
+	addr, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(tapKey), net)
+	if err != nil {
+		return "", err
+	}
+	return addr.EncodeAddress(), nil
+}
+
+// PkScript returns the taproot output script locking the HTLC. senderFirst tells whether
+// the sender (refund) key comes first in the MuSig2 aggregation of the internal key.
+func (h *HTLCScript) PkScript(senderFirst bool) ([]byte, error) {
+	tapKey, err := h.taprootOutputKey(senderFirst)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := expectOpcode(
-		&tokenizer,
-		txscript.OP_EQUALVERIFY,
-		"second OP_EQUALVERIFY",
-	); err != nil {
-		return nil, err
-	}
-
-	claimPubKeyBytes, err := expectData(&tokenizer, schnorr.PubKeyBytesLen, "claim pubkey")
-	if err != nil {
-		return nil, err
-	}
-
-	if err := expectOpcode(&tokenizer, txscript.OP_CHECKSIG, "OP_CHECKSIG"); err != nil {
-		return nil, err
-	}
-	if err := expectDone(&tokenizer); err != nil {
-		return nil, err
-	}
-
-	var components ClaimLeafComponents
-	copy(components.PreimageHash[:], preimageHashBytes)
-	copy(components.ClaimPubKey[:], claimPubKeyBytes)
-	return &components, nil
+	return txscript.PayToTaprootScript(tapKey)
 }
 
-// ParseRefundLeafScriptHex parses a hex-encoded Bitcoin HTLC refund leaf.
-func ParseRefundLeafScriptHex(outputHex string) (*RefundLeafComponents, error) {
-	scriptBytes, err := hex.DecodeString(outputHex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode refund leaf output hex: %w", err)
-	}
-	return ParseRefundLeafScript(scriptBytes)
+// ClaimTapscript computes the necessary script and control block to spend the claim leaf.
+// senderFirst tells whether the sender (refund) key comes first in the MuSig2 aggregation
+// of the internal key.
+func (h *HTLCScript) ClaimTapscript(senderFirst bool) (*waddrmgr.Tapscript, error) {
+	return h.tapscript(h.claimLeafScript, senderFirst)
 }
 
-// ParseRefundLeafScript parses a Bitcoin HTLC refund leaf with the shape:
-//
-//	<refundPubKey> OP_CHECKSIGVERIFY
-//	<absoluteLocktime> OP_CHECKLOCKTIMEVERIFY
-func ParseRefundLeafScript(leafScript []byte) (*RefundLeafComponents, error) {
-	tokenizer := txscript.MakeScriptTokenizer(0, leafScript)
+// RefundTapscript computes the necessary script and control block to spend the refund leaf.
+// senderFirst tells whether the sender (refund) key comes first in the MuSig2 aggregation
+// of the internal key.
+func (h *HTLCScript) RefundTapscript(senderFirst bool) (*waddrmgr.Tapscript, error) {
+	return h.tapscript(h.refundLeafScript, senderFirst)
+}
 
-	refundPubKeyBytes, err := expectData(&tokenizer, schnorr.PubKeyBytesLen, "refund pubkey")
+// Opts returns the options that were used to build this script.
+func (h *HTLCScript) Opts() Opts {
+	return Opts{
+		ClaimKey:       h.ClaimKey,
+		RefundKey:      h.RefundKey,
+		PreimageHash:   h.PreimageHash,
+		RefundLocktime: h.RefundLocktime,
+	}
+}
+
+// internalKey returns the taproot internal key of the HTLC, ie. the MuSig2 aggregate of the
+// sender (refund) and receiver (claim) keys enabling the cooperative key-spend path.
+// The aggregation is not commutative, senderFirst must reflect the order used by the
+// counterparty when building the HTLC.
+func (h *HTLCScript) internalKey(senderFirst bool) (*btcec.PublicKey, error) {
+	keys := []*btcec.PublicKey{h.ClaimKey, h.RefundKey}
+	if senderFirst {
+		keys = []*btcec.PublicKey{h.RefundKey, h.ClaimKey}
+	}
+	aggKey, _, _, err := musig2.AggregateKeys(keys, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate keys: %w", err)
+	}
+	return aggKey.FinalKey, nil
+}
+
+func (h *HTLCScript) taprootOutputKey(senderFirst bool) (*btcec.PublicKey, error) {
+	internalKey, err := h.internalKey(senderFirst)
 	if err != nil {
 		return nil, err
 	}
+	return txscript.ComputeTaprootOutputKey(internalKey, h.MerkleRoot()), nil
+}
 
-	if err := expectOpcode(
-		&tokenizer, txscript.OP_CHECKSIGVERIFY, "OP_CHECKSIGVERIFY",
-	); err != nil {
-		return nil, err
-	}
-
-	locktime, err := expectUint32(&tokenizer, "timeout")
+func (h *HTLCScript) tapscript(leafScript []byte, senderFirst bool) (*waddrmgr.Tapscript, error) {
+	internalKey, err := h.internalKey(senderFirst)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := expectOpcode(
-		&tokenizer, txscript.OP_CHECKLOCKTIMEVERIFY, "OP_CHECKLOCKTIMEVERIFY",
-	); err != nil {
-		return nil, err
-	}
-	if err := expectDone(&tokenizer); err != nil {
-		return nil, err
-	}
+	tapTree := h.TapTree()
 
-	var components RefundLeafComponents
-	copy(components.RefundPubKey[:], refundPubKeyBytes)
-	components.Timeout = locktime
-	return &components, nil
-}
+	idx, ok := tapTree.LeafProofIndex[txscript.NewBaseTapLeaf(leafScript).TapHash()]
+	if !ok {
+		return nil, fmt.Errorf("leaf not found in taptree")
+	}
+	ctrlBlock := tapTree.LeafMerkleProofs[idx].ToControlBlock(internalKey)
 
-func expectOpcode(
-	tokenizer *txscript.ScriptTokenizer, expected byte, name string,
-) error {
-	opcode, data, err := nextToken(tokenizer, name)
-	if err != nil {
-		return err
-	}
-	if opcode != expected {
-		return fmt.Errorf("expected %s (0x%x), got 0x%x", name, expected, opcode)
-	}
-	if len(data) != 0 {
-		return fmt.Errorf("expected %s without data, got %d bytes", name, len(data))
-	}
-	return nil
-}
-
-func expectData(
-	tokenizer *txscript.ScriptTokenizer, expectedLen int, name string,
-) ([]byte, error) {
-	opcode, data, err := nextToken(tokenizer, name)
-	if err != nil {
-		return nil, err
-	}
-	if opcode > txscript.OP_PUSHDATA4 {
-		return nil, fmt.Errorf("expected data push for %s, got opcode 0x%x", name, opcode)
-	}
-	if len(data) != expectedLen {
-		return nil, fmt.Errorf("expected %d bytes for %s, got %d", expectedLen, name, len(data))
-	}
-	return data, nil
-}
-
-func expectUint32(tokenizer *txscript.ScriptTokenizer, name string) (uint32, error) {
-	opcode, data, err := nextToken(tokenizer, name)
-	if err != nil {
-		return 0, err
-	}
-
-	switch {
-	case opcode == txscript.OP_0:
-		return 0, nil
-	case opcode >= txscript.OP_1 && opcode <= txscript.OP_16:
-		return uint32(txscript.AsSmallInt(opcode)), nil
-	case opcode <= txscript.OP_PUSHDATA4:
-		return decodePositiveScriptNum(data, name)
-	default:
-		return 0, fmt.Errorf("expected numeric push for %s, got opcode 0x%x", name, opcode)
-	}
-}
-
-func decodePositiveScriptNum(data []byte, name string) (uint32, error) {
-	if len(data) == 0 {
-		return 0, fmt.Errorf("missing %s bytes", name)
-	}
-	if len(data) > 5 {
-		return 0, fmt.Errorf("expected %s to be at most 5 bytes, got %d", name, len(data))
-	}
-
-	last := data[len(data)-1]
-	if last&0x80 != 0 {
-		return 0, fmt.Errorf("%s must be positive", name)
-	}
-
-	var value uint64
-	for i, b := range data {
-		value |= uint64(b) << (8 * i)
-	}
-	if value > math.MaxUint32 {
-		return 0, fmt.Errorf("%s exceeds uint32: %d", name, value)
-	}
-	return uint32(value), nil
-}
-
-func nextToken(tokenizer *txscript.ScriptTokenizer, name string) (byte, []byte, error) {
-	if !tokenizer.Next() {
-		if err := tokenizer.Err(); err != nil {
-			return 0, nil, fmt.Errorf("failed to read %s: %w", name, err)
-		}
-		return 0, nil, fmt.Errorf("missing %s", name)
-	}
-	return tokenizer.Opcode(), tokenizer.Data(), nil
-}
-
-func expectDone(tokenizer *txscript.ScriptTokenizer) error {
-	if tokenizer.Next() {
-		return fmt.Errorf(
-			"unexpected extra bytes at end of script: opcode 0x%x at byte %d",
-			tokenizer.Opcode(),
-			tokenizer.ByteIndex(),
-		)
-	}
-	if err := tokenizer.Err(); err != nil {
-		return fmt.Errorf("failed to parse script: %w", err)
-	}
-	return nil
+	return &waddrmgr.Tapscript{
+		RevealedScript: leafScript,
+		ControlBlock:   &ctrlBlock,
+	}, nil
 }

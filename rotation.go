@@ -33,8 +33,8 @@ func (w *wallet) detectAndHandleSignerRotation(ctx context.Context) {
 	}
 
 	log.Debugf(
-		"detected deprecation of signer %s, migrating all funds to new contract(s) with "+
-			"signer %s...", serverParams.DeprecatedSignerPubKeys[0].PubKey, serverParams.SignerPubKey,
+		"detected signer rotation, migrating all funds to new contract(s) with signer %s...",
+		serverParams.SignerPubKey,
 	)
 
 	if err := w.updateConfig(ctx, serverParams); err != nil {
@@ -52,20 +52,20 @@ func (w *wallet) detectAndHandleSignerRotation(ctx context.Context) {
 
 // needsMigration returns whether a migration is needed for the fetched signer set:
 // - if w.lastSignerSet is set and doesn't match the fetched one, a migration is needed.
-// - if w.lastSignerSet is unset, but the latest active contract (default or boarding) makes use of
+// - if w.lastSignerSet is unset, but the latest contract (default or boarding) makes use of
 // a different signer pubkey, a migration is needed.
 func (w *wallet) needsMigration(ctx context.Context, signerSet, signer string) bool {
 	if len(w.lastSignerSet) > 0 {
 		return w.lastSignerSet != signerSet
 	}
 
-	contract, err := w.store.ContractStore().GetLatestActiveContract(ctx, types.ContractTypeDefault)
+	contract, err := w.store.ContractStore().GetLatestContract(ctx, types.ContractTypeDefault)
 	if err != nil {
 		log.WithError(err).Warn("failed to get latest default contract")
 		return false
 	}
 	if contract == nil {
-		contract, err = w.store.ContractStore().GetLatestActiveContract(
+		contract, err = w.store.ContractStore().GetLatestContract(
 			ctx, types.ContractTypeBoarding,
 		)
 		if err != nil {
@@ -146,7 +146,7 @@ func (w *wallet) migrateAllFunds(ctx context.Context, serverParams *client.Info)
 // After a successful chunk migraation, all "old" contracts are marked inactive. Failed chunks stay
 // active for retry.
 // Recoverable, subdust, and cutoff-expired funds are excluded and expected to be handled by the
-// next settlement if auto-settle is active or by a manual Settle/CollaborativeExit.
+// next renewal or by a manual Settle/CollaborativeExit.
 func (w *wallet) migrateAllFundsInChunks(ctx context.Context, serverParams *client.Info) error {
 	currentHex, deprecated := deprecatedSignerSet(serverParams)
 
@@ -236,7 +236,7 @@ func (w *wallet) migrateFunds(
 	ctx context.Context, vtxos []clienttypes.VtxoWithTapTree, serverParams *client.Info,
 ) (string, error) {
 	migrate := func() (any, error) {
-		destAddr, err := w.newOffchainAddress(ctx, contract.WithServerParams(serverParams))
+		destAddr, err := w.newOffchainAddress(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -524,7 +524,7 @@ func classifyVtxos(
 		switch si.state {
 		case signerActive:
 		case signerToMigrate:
-			// Skip recoverable or subdust vtxos, they will be handled by the auto-settle or via
+			// Skip recoverable or subdust vtxos, they will be handled by the auto-renewal or via
 			// the next manual Settle/CollaborativeExit.
 			if v.IsRecoverable() || (dustAmount > 0 && v.Amount < dustAmount) {
 				continue

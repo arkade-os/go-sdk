@@ -179,10 +179,6 @@ func (w *wallet) getSpendableVtxos(
 			continue
 		}
 		if contract.Type != types.ContractTypeDefault {
-			log.Debugf(
-				"skipping vtxo %s: contract type %s is not spendable by generic wallet operations",
-				v.Script, contract.Type,
-			)
 			continue
 		}
 

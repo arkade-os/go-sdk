@@ -3,9 +3,9 @@ package arksdk_test
 import (
 	"context"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
-	"github.com/btcsuite/btcd/chaincfg"
 )
 
 type mockIdentity struct{}
@@ -13,7 +13,7 @@ type mockIdentity struct{}
 func (m *mockIdentity) GetType() string {
 	return "mock"
 }
-func (m *mockIdentity) Create(_ context.Context, _ chaincfg.Params, _, _ string) (string, error) {
+func (m *mockIdentity) Create(_ context.Context, _ arklib.Network, _, _ string) (string, error) {
 	return "", nil
 }
 func (m *mockIdentity) Lock(_ context.Context) error {
@@ -24,6 +24,9 @@ func (m *mockIdentity) Unlock(_ context.Context, _ string) (bool, error) {
 }
 func (m *mockIdentity) IsLocked() bool {
 	return false
+}
+func (m *mockIdentity) GetXpub(_ context.Context) (string, error) {
+	return "", nil
 }
 func (m *mockIdentity) NextKeyId(_ context.Context, _ string) (string, error) {
 	return "", nil

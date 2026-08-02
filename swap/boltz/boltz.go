@@ -122,15 +122,22 @@ func (boltz *Api) RevealPreimage(swapId string, preimage string) (*RevealPreimag
 	return resp, nil
 }
 
-func (boltz *Api) GetSwapHistory(pubkey string) ([]Swap, error) {
-	url := "/swap/restore"
+// GetSwapStatus returns the latest status of the swap with the given id. Boltz serves the same
+// payload the websocket pushes on subscription.
+func (boltz *Api) GetSwapStatus(swapId string) (*SwapStatusResponse, error) {
+	url := fmt.Sprintf("/swap/%s", swapId)
+	return sendGetRequest[SwapStatusResponse](boltz, url)
+}
 
-	request := struct {
-		PublicKey string `json:"publicKey"`
-	}{
-		PublicKey: pubkey,
-	}
-	resp, err := sendPostRequest[[]Swap](boltz, url, request)
+// RestoreSwaps returns the full details of the swaps associated with the keys identified by
+// the given request, needed to resume, claim or refund them when all local data was lost.
+func (boltz *Api) RestoreSwaps(request RestoreSwapsRequest) ([]Swap, error) {
+	ctx, cancel := withTimeoutCtx()
+	defer cancel()
+
+	// TODO: revert when moving to arkade-regtest testing env
+	url := strings.Replace(boltz.URL, ":9001", ":9005", 1) + "/v2/swap/restore"
+	resp, err := callApi[[]Swap](ctx, &boltz.Client, http.MethodPost, url, request)
 	if err != nil {
 		return nil, err
 	}

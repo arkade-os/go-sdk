@@ -121,12 +121,27 @@ type Tree struct {
 	UnilateralRefundWithoutReceiver Leaf `json:"unilateralRefundWithoutBoltzLeaf"`
 }
 
+// RestoreSwapsRequest identifies the swaps to restore by the keys used in them: either an xpub
+// Boltz derives child keys from (with the given derivation path relative to the xpub and gap
+// limit), or explicit public key(s).
+type RestoreSwapsRequest struct {
+	Xpub           string `json:"xpub,omitempty"`
+	DerivationPath string `json:"derivationPath,omitempty"`
+	GapLimit       uint32 `json:"gapLimit,omitempty"`
+	PublicKey      string `json:"publicKey,omitempty"`
+}
+
+// SwapDetails describes one side of a restored swap. KeyIndex is the derivation index of our
+// key in the swap, meaningful when the restore request carried an xpub.
 type SwapDetails struct {
 	Tree               Tree           `json:"tree"`
 	Amount             uint64         `json:"amount"`
+	KeyIndex           uint32         `json:"keyIndex"`
 	Transaction        TransactionRef `json:"transaction,omitempty"`
 	LockupAddress      string         `json:"lockupAddress"`
+	ServerPublicKey    string         `json:"serverPublicKey"`
 	TimeoutBlockHeight uint32         `json:"timeoutBlockHeight"`
+	PreimageHash       string         `json:"preimageHash,omitempty"`
 }
 
 type Swap struct {
@@ -137,6 +152,7 @@ type Swap struct {
 	To            Currency     `json:"to"`
 	CreatedAt     uint32       `json:"createdAt"`
 	PreimageHash  string       `json:"preimageHash"`
+	Invoice       string       `json:"invoice,omitempty"`
 	ClaimDetails  *SwapDetails `json:"claimDetails,omitempty"`
 	RefundDetails *SwapDetails `json:"refundDetails,omitempty"`
 }

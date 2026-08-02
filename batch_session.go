@@ -3,6 +3,7 @@ package arksdk
 import (
 	"context"
 	"fmt"
+	"time"
 
 	client "github.com/arkade-os/arkd/pkg/client-lib"
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
@@ -37,6 +38,26 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 			return "", fmt.Errorf("invalid options: %v", (err))
 		}
 
+		// Bound the settle by the server's session duration so a stalled batch can't block
+		// indefinitely (on the inline renewal path that would wedge scheduleMu). A caller may
+		// request retries, each a fresh session attempt, so scale the deadline by the retry
+		// count; the default is a single session.
+		info, err := w.Client().GetInfo(ctx)
+		if err != nil {
+			return "", err
+		}
+		retries := batchSessionOpts.retryNum
+		if retries <= 0 {
+			retries = 1
+		}
+		if info.SessionDuration > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(
+				ctx, time.Duration(info.SessionDuration*int64(retries))*time.Second,
+			)
+			defer cancel()
+		}
+
 		signingKeyRefs, err := w.getSigningKeyRefs(ctx, vtxos, utxos)
 		if err != nil {
 			return "", err
@@ -66,9 +87,9 @@ func (w *wallet) Settle(ctx context.Context, opts ...BatchSessionOption) (string
 			return "", err
 		}
 
-		// Persist within the critical section so the next queued operation
-		// sees the refreshed VTXOs before it runs. A deduping settle returns
-		// this same result without re-running, so it won't save twice.
+		// Persist within the critical section so the next queued operation sees the renewed VTXOs
+		// before it runs. A deduping settle returns this same result without re-running,
+		// so it won't save twice.
 		if err := w.saveBatchTransaction(ctx, *res); err != nil {
 			return "", err
 		}

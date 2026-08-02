@@ -12,6 +12,7 @@ import (
 	clienttypes "github.com/arkade-os/arkd/pkg/client-lib/types"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/arkade-os/go-sdk/vhtlc"
 )
 
 // modulePath identifies the SDK to the build-info reader. Must match
@@ -88,6 +89,15 @@ type Wallet interface {
 	OnboardAgainAllExpiredBoardings(ctx context.Context) (string, error)
 	WithdrawFromAllExpiredBoardings(ctx context.Context, to string) (string, error)
 
+	CreateVHTLC(ctx context.Context, args contract.VHTLCContractArgs) (*vhtlc.VHTLCScript, error)
+	ListVHTLCs(ctx context.Context, opts ...VHTLCOption) ([]vhtlc.VHTLCScript, error)
+	ClaimVHTLC(
+		ctx context.Context, script string, preimage vhtlc.Preimage, opts ...VHTLCOption,
+	) (string, error)
+	RefundVHTLC(ctx context.Context, script string, opts ...VHTLCOption) (string, string, error)
+	UnilateralRefundVHTLC(ctx context.Context, script string, opts ...VHTLCOption) (string, error)
+	DeleteVHTLCs(ctx context.Context, scripts []string) error
+
 	// ListVtxos returns one page of wallet VTXOs plus an opaque cursor for the
 	// next page. The cursor is empty when there are no more results; callers
 	// should pass a non-empty cursor back with WithCursor without parsing it.
@@ -104,8 +114,7 @@ type Wallet interface {
 	FinalizePendingTxs(ctx context.Context, createdAfter *time.Time) ([]string, error)
 	Reset(ctx context.Context)
 	Stop()
-	// WhenNextSettlement returns the time at which the next automatic settlement
-	// is scheduled to fire. Returns the zero time.Time when auto-settle is
-	// disabled or no settlement is currently scheduled.
-	WhenNextSettlement() time.Time
+	// WhenNextRenewal returns the time at which the next automatic renewal of vtxos is scheduled
+	// to fire.
+	WhenNextRenewal() time.Time
 }
