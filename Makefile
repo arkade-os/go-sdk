@@ -56,7 +56,7 @@ regtestdown:
 	@docker compose -f test/docker/docker-compose.yml down
 
 integrationtest:
-	@go test -v -count=1 -race -timeout 40m ./test/e2e
+	@ARK_ELECTRUM_URL=$${ARK_ELECTRUM_URL:-tcp://127.0.0.1:50000} ARK_ESPLORA_URL=$${ARK_ESPLORA_URL:-http://localhost:3000} go test -v -count=1 -race -timeout 40m ./test/e2e
 
 ## smokehd: runs the HD wallet restore smoke test. Optional:
 ## SMOKE_TIER=N (1-999) | Nk (thousands) | Nm (millions), defaults to 1k.

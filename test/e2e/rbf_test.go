@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,7 @@ import (
 func TestSettleAfterRBFBumpFee(t *testing.T) {
 	t.Skip("creates extra wallet on shared Bitcoin Core node, breaking Boltz chain swaps")
 	ctx := t.Context()
-	client := setupClient(t, "")
+	client := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 	// Get the boarding address.
 	boardingAddr, err := client.NewBoardingAddress(ctx)

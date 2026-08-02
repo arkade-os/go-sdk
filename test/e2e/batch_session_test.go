@@ -32,8 +32,8 @@ func TestBatchSession(t *testing.T) {
 		faucetOnchain(t, bobBoardingAddr, 0.00021)
 
 		// next event received by bob and alice utxo channel should be the added events related to boarding inputs
-		bobUtxoEvent := <-bobUtxoCh
-		aliceUtxoEvent := <-aliceUtxoCh
+		bobUtxoEvent := recvUtxoEvent(t, bobUtxoCh)
+		aliceUtxoEvent := recvUtxoEvent(t, aliceUtxoCh)
 		require.Equal(t, types.UtxosAdded, bobUtxoEvent.Type)
 		require.Equal(t, types.UtxosAdded, aliceUtxoEvent.Type)
 		require.Len(t, bobUtxoEvent.Utxos, 1)
@@ -85,8 +85,8 @@ func TestBatchSession(t *testing.T) {
 
 		// next event received by alice and bob vtxo channel should be the added events
 		// related to new vtxos created by the batch
-		aliceVtxoEvent := <-aliceVtxoCh
-		bobVtxoEvent := <-bobVtxoCh
+		aliceVtxoEvent := recvVtxoEvent(t, aliceVtxoCh)
+		bobVtxoEvent := recvVtxoEvent(t, bobVtxoCh)
 		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
@@ -108,8 +108,8 @@ func TestBatchSession(t *testing.T) {
 
 		// next event received by bob and alice utxo channel should be the spent events
 		// related to boarding inputs
-		bobUtxoEvent = <-bobUtxoCh
-		aliceUtxoEvent = <-aliceUtxoCh
+		bobUtxoEvent = recvUtxoEvent(t, bobUtxoCh)
+		aliceUtxoEvent = recvUtxoEvent(t, aliceUtxoCh)
 		require.Equal(t, types.UtxosSpent, bobUtxoEvent.Type)
 		require.Equal(t, types.UtxosSpent, aliceUtxoEvent.Type)
 		require.Len(t, bobUtxoEvent.Utxos, 1)
@@ -136,8 +136,8 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, aliceCommitmentTx, bobCommitmentTx)
 
 		// the event channel should he notified about the new vtxos
-		aliceVtxoEvent = <-aliceVtxoCh
-		bobVtxoEvent = <-bobVtxoCh
+		aliceVtxoEvent = recvVtxoEvent(t, aliceVtxoCh)
+		bobVtxoEvent = recvVtxoEvent(t, bobVtxoCh)
 		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 		require.Equal(t, types.VtxosAdded, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
@@ -148,8 +148,8 @@ func TestBatchSession(t *testing.T) {
 		require.Equal(t, 21000, int(bobRefreshVtxo.Amount))
 
 		// the event channel should he notified about the spent vtxos
-		aliceVtxoEvent = <-aliceVtxoCh
-		bobVtxoEvent = <-bobVtxoCh
+		aliceVtxoEvent = recvVtxoEvent(t, aliceVtxoCh)
+		bobVtxoEvent = recvVtxoEvent(t, bobVtxoCh)
 		require.Equal(t, types.VtxoSettled, aliceVtxoEvent.Type)
 		require.Equal(t, types.VtxoSettled, bobVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
@@ -199,7 +199,7 @@ func TestBatchSession(t *testing.T) {
 
 		// next event received by alice vtxo channel should be the added event
 		// related to new vtxo created by the redemption
-		aliceVtxoEvent := <-aliceVtxoCh
+		aliceVtxoEvent := recvVtxoEvent(t, aliceVtxoCh)
 		require.Equal(t, types.VtxosAdded, aliceVtxoEvent.Type)
 		require.Len(t, aliceVtxoEvent.Vtxos, 1)
 		aliceVtxo := aliceVtxoEvent.Vtxos[0]
@@ -236,7 +236,7 @@ func TestBatchSession(t *testing.T) {
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 		faucetOffchain(t, alice, 0.00005)
 
-		vtxoEvent := <-vtxoCh
+		vtxoEvent := recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 1)
 		require.Equal(t, 5000, int(vtxoEvent.Vtxos[0].Amount))
@@ -264,10 +264,19 @@ func TestBatchSession(t *testing.T) {
 			}
 		}
 
+		// Allow electrs to finish indexing all block notifications before proceeding.
+		time.Sleep(10 * time.Second)
+
+		res, err = alice.Indexer().GetVtxos(t.Context(), opts)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		require.Len(t, res.Vtxos, 1)
+		require.True(t, res.Vtxos[0].Swept)
+
 		// Repeat the operation to have many funds that are going to be swept and renewed
 		faucetOffchain(t, alice, 0.00003)
 
-		vtxoEvent = <-vtxoCh
+		vtxoEvent = recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 1)
 		require.Equal(t, 3000, int(vtxoEvent.Vtxos[0].Amount))
@@ -276,7 +285,7 @@ func TestBatchSession(t *testing.T) {
 
 		faucetOnchain(t, boardingAddr, 0.00021)
 
-		utxoEvent := <-utxoCh
+		utxoEvent := recvUtxoEvent(t, utxoCh)
 		require.Equal(t, types.UtxosAdded, utxoEvent.Type)
 		require.Len(t, utxoEvent.Utxos, 1)
 		require.Equal(t, 21000, int(utxoEvent.Utxos[0].Amount))
@@ -288,7 +297,7 @@ func TestBatchSession(t *testing.T) {
 
 		// next event received by alice vtxo channel should be the added events about new vtxos
 		// created in the batch
-		vtxoEvent = <-vtxoCh
+		vtxoEvent = recvVtxoEvent(t, vtxoCh)
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 1)
 		vtxo := vtxoEvent.Vtxos[0]

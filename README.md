@@ -83,6 +83,22 @@ if err := wallet.Init(
 ); err != nil {
     return fmt.Errorf("failed to initialize wallet: %s", err)
 }
+
+// Use a self-hosted ElectrumX server (plaintext TCP or TLS).
+if err := wallet.Init(
+    ctx, "localhost:7070", "your_seed", "your_password",
+    arksdk.WithElectrumExplorer("ssl://electrum.example.com:50002"),
+); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
+}
+
+// ElectrumX over local plaintext TCP (useful for regtest).
+if err := wallet.Init(
+    ctx, "localhost:7070", "your_seed", "your_password",
+    arksdk.WithElectrumExplorer("tcp://127.0.0.1:50000"),
+); err != nil {
+    return fmt.Errorf("failed to initialize wallet: %s", err)
+}
 ```
 
 After `Init` + `Unlock`, wait for sync to complete before using balances or
@@ -117,10 +133,24 @@ Init(ctx context.Context, serverUrl, seed, password string, opts ...InitOption) 
 - `seed` — BIP39 mnemonic. Pass `""` to have the SDK generate a fresh one (recoverable via `Dump`).
 - `password` — used to encrypt and protect the identity material at rest.
 - `opts` — optional functional options:
-  - `WithExplorerURL(url string)` — override the default mempool explorer URL for the network.
+  - `WithExplorerURL(url string)` — override the default explorer URL for the network.
+  - `WithElectrumExplorer(serverURL string)` — use an ElectrumX server instead of mempool.space. The URL must start with `tcp://` (plaintext) or `ssl://` (TLS). Mutually exclusive with `WithExplorerURL`.
+  - `WithElectrumPackageBroadcastURL(url string)` — set an esplora-compatible REST URL for broadcasting transaction packages (required for zero-fee v3 / P2A anchor transactions). Only valid when using `WithElectrumExplorer`.
 
 To plug in a non-HD identity (hardware wallet, KMS, remote signer, …), inject
 it at construction time via `arksdk.WithIdentity(svc)` — see §1.
+
+**Default explorer URLs per network:**
+
+| Network  | Default explorer |
+|----------|-----------------|
+| mainnet  | `https://mempool.space/api` (mempool.space) |
+| testnet  | `https://mempool.space/testnet/api` (mempool.space) |
+| signet   | `https://mempool.space/signet/api` (mempool.space) |
+| mutinynet | `https://mutinynet.com/api` (mempool.space) |
+| regtest  | `tcp://127.0.0.1:50000` (ElectrumX) |
+
+> **Regtest migration note:** the regtest default changed from `http://127.0.0.1:3000` (esplora) to `tcp://127.0.0.1:50000` (ElectrumX). If your regtest setup uses an esplora server instead, pass `WithExplorerURL("http://127.0.0.1:3000")` (or your actual URL) to `Init` to restore the previous behaviour.
 
 Note: Always keep your seed and password secure. Never share them or store them in plaintext.
 

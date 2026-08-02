@@ -91,7 +91,21 @@ func (w *wallet) NewOnchainAddress(ctx context.Context) (string, error) {
 	}
 
 	onchainAddr, _, _, err := w.client.Receive(ctx)
-	return onchainAddr, err
+	if err != nil {
+		return "", err
+	}
+
+	// listenForOnchainTxs only subscribes to boarding and offchain-translated
+	// addresses at startup; plain onchain addresses from Receive() aren't
+	// in either set, so faucet deposits to them wouldn't surface as UTXO
+	// events. Subscribe here so the wallet's onchain pipeline tracks them too.
+	go func() {
+		if err := w.Explorer().SubscribeForAddresses([]string{onchainAddr}); err != nil {
+			log.WithError(err).Warn("failed to subscribe for onchain address")
+		}
+	}()
+
+	return onchainAddr, nil
 }
 
 func (w *wallet) Balance(ctx context.Context) (*types.Balance, error) {

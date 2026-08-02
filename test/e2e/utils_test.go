@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -32,6 +33,15 @@ const (
 	settleTimeout     = 90 * time.Second
 )
 
+var electrumUrl = func() string {
+	if u := os.Getenv("ARK_ELECTRUM_URL"); u != "" {
+		return u
+	}
+	return "tcp://127.0.0.1:50000"
+}()
+
+var esploraUrl = os.Getenv("ARK_ESPLORA_URL")
+
 func setupClient(t *testing.T, seed string, opts ...sdk.WalletOption) sdk.Wallet {
 	t.Helper()
 
@@ -50,7 +60,17 @@ func setupClientWithDatadir(
 	arkClient, err := sdk.NewWallet(datadir, opts...)
 	require.NoError(t, err)
 
-	err = arkClient.Init(t.Context(), serverUrl, seed, password)
+	initOpts := []sdk.InitOption{sdk.WithElectrumExplorer(electrumUrl)}
+	if esploraUrl != "" {
+		initOpts = append(initOpts, sdk.WithElectrumPackageBroadcastURL(esploraUrl))
+	}
+	err = arkClient.Init(
+		t.Context(),
+		serverUrl,
+		seed,
+		password,
+		initOpts...,
+	)
 	require.NoError(t, err)
 
 	err = arkClient.Unlock(t.Context(), password)
@@ -258,6 +278,39 @@ func newCommand(name string, arg ...string) *exec.Cmd {
 func generateBlocks(t *testing.T, n int) {
 	_, err := runCommand("nigiri", "rpc", "--generate", fmt.Sprintf("%d", n))
 	require.NoError(t, err)
+}
+
+func recvUtxoEvent(t *testing.T, ch <-chan types.UtxoEvent) types.UtxoEvent {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for utxo event")
+		return types.UtxoEvent{}
+	}
+}
+
+func recvVtxoEvent(t *testing.T, ch <-chan types.VtxoEvent) types.VtxoEvent {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for vtxo event")
+		return types.VtxoEvent{}
+	}
+}
+
+func recvTxEvent(t *testing.T, ch <-chan types.TransactionEvent) types.TransactionEvent {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for tx event")
+		return types.TransactionEvent{}
+	}
 }
 
 // --- LND helpers (for Lightning swap tests) ---

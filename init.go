@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
-	mempoolexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
+	clientexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	mempool_explorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/go-sdk/contract"
+	electrum_explorer "github.com/arkade-os/go-sdk/explorer/electrum"
 	"github.com/arkade-os/go-sdk/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -23,7 +26,7 @@ const HeaderVersion = "go-sdk/0.10.1"
 var (
 	defaultExplorerUrl = map[string]string{
 		arklib.Bitcoin.Name:          "https://mempool.space/api",
-		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
+		arklib.BitcoinRegTest.Name:   "tcp://127.0.0.1:50000",
 		arklib.BitcoinTestNet.Name:   "https://mempool.space/testnet/api",
 		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
 		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
@@ -54,15 +57,26 @@ func (w *wallet) Init(
 	}
 
 	explorerUrl := initOpts.explorerUrl
-	if initOpts.explorerUrl == "" {
+	if explorerUrl == "" {
 		explorerUrl = defaultExplorerUrl[info.Network]
 	}
-	explorerOpts := []mempoolexplorer.Option{mempoolexplorer.WithTracker(true)}
-	if info.Network == arklib.BitcoinRegTest.Name {
-		explorerOpts = append(explorerOpts, mempoolexplorer.WithPollInterval(2*time.Second))
+	if initOpts.electrumEsploraURL != "" &&
+		!strings.HasPrefix(explorerUrl, "tcp://") &&
+		!strings.HasPrefix(explorerUrl, "ssl://") {
+		return fmt.Errorf(
+			"WithElectrumPackageBroadcastURL requires the main explorer to be an electrum node (set explorer URL to tcp:// or ssl://)",
+		)
 	}
-	explorer, err := mempoolexplorer.NewExplorer(
-		explorerUrl, network, explorerOpts...,
+	var pollInterval time.Duration
+	if info.Network == arklib.BitcoinRegTest.Name {
+		pollInterval = 2 * time.Second
+	}
+	explorerSvc, err := newExplorer(
+		explorerUrl,
+		networkFromString(info.Network),
+		true,
+		pollInterval,
+		initOpts.electrumEsploraURL,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to init explorer: %v", err)
@@ -72,7 +86,7 @@ func (w *wallet) Init(
 		ServerUrl: serverUrl,
 		Seed:      seed,
 		Password:  password,
-		Explorer:  explorer,
+		Explorer:  explorerSvc,
 	}); err != nil {
 		return err
 	}
@@ -194,6 +208,10 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		}
 
 		err := w.refreshDb(ctx)
+		// Register the explorer listener before signaling IsSynced so events
+		// fired immediately after (e.g. from NewBoardingAddress) are not
+		// dropped before listenForOnchainTxs can start consuming.
+		explorerCh := w.Explorer().GetAddressesEvents()
 		if err == nil {
 			w.scheduleNextSettlement()
 			w.detectAndHandleSignerRotation(ctx)
@@ -202,7 +220,7 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		close(w.syncCh)
 
 		w.bgWg.Go(func() { w.listenForArkTxs(ctx) })
-		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network) })
+		w.bgWg.Go(func() { w.listenForOnchainTxs(ctx, w.network, explorerCh) })
 		w.bgWg.Go(func() { w.listenDbEvents(ctx) })
 		w.bgWg.Go(func() { w.periodicRefreshDb(ctx) })
 	})
@@ -215,11 +233,6 @@ func (w *wallet) Lock(ctx context.Context) error {
 		return err
 	}
 
-	w.Explorer().Stop()
-	if w.scheduler != nil {
-		w.scheduler.Stop()
-	}
-
 	// Abort any queued tx operations before tearing down shared state, so a
 	// waiter can't resume and run against a nil contractManager / stopCtx.
 	if w.txHandler != nil {
@@ -228,6 +241,10 @@ func (w *wallet) Lock(ctx context.Context) error {
 
 	if w.stopFn != nil {
 		w.stopFn()
+	}
+	w.Explorer().Stop()
+	if w.scheduler != nil {
+		w.scheduler.Stop()
 	}
 	w.stopCtx = nil
 
@@ -245,6 +262,30 @@ func (w *wallet) Lock(ctx context.Context) error {
 		w.syncListeners.clear()
 	}
 	return nil
+}
+
+// newExplorer creates either an ElectrumX or mempool.space Explorer depending
+// on the URL scheme. URLs starting with "tcp://" or "ssl://" use ElectrumX;
+// all others use the mempool.space REST/WebSocket implementation.
+func newExplorer(
+	url string, net arklib.Network, tracker bool, pollInterval time.Duration,
+	esploraURL string,
+) (clientexplorer.Explorer, error) {
+	if strings.HasPrefix(url, "tcp://") || strings.HasPrefix(url, "ssl://") {
+		opts := []electrum_explorer.Option{electrum_explorer.WithTracker(tracker)}
+		if pollInterval > 0 {
+			opts = append(opts, electrum_explorer.WithPollInterval(pollInterval))
+		}
+		if esploraURL != "" {
+			opts = append(opts, electrum_explorer.WithEsploraURL(esploraURL))
+		}
+		return electrum_explorer.NewExplorer(url, net, opts...)
+	}
+	opts := []mempool_explorer.Option{mempool_explorer.WithTracker(tracker)}
+	if pollInterval > 0 {
+		opts = append(opts, mempool_explorer.WithPollInterval(pollInterval))
+	}
+	return mempool_explorer.NewExplorer(url, net, opts...)
 }
 
 func (w *wallet) IsLocked(_ context.Context) bool {
