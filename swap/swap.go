@@ -39,7 +39,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var ErrorNoVtxosFound = fmt.Errorf("no vtxos found for the given vhtlc opts")
+// ErrorNoVtxosFound is a sentinel, compared with errors.Is by the claim retry
+// paths. errors.New rather than fmt.Errorf to say so: a formatted construction
+// invites someone to add a %v of it later, which would produce a value that no
+// longer matches and would silently turn a retry into a failure.
+var ErrorNoVtxosFound = errors.New("no vtxos found for the given vhtlc opts")
 
 const boltzReconnectBackoff = time.Second
 
