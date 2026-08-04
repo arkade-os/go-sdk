@@ -122,13 +122,30 @@ func (b *btcToArkHandler) handleBtcToArkServerLocked(
 	serverLockupTxID := update.Transaction.Id
 	b.chainSwapState.Swap.ServerLock(serverLockupTxID)
 
+	// Claim the vtxo that boltz's lockup tx created, rather than whichever one
+	// sorts first by age at this address.
+	//
+	// This fires on the mempool event, so the vtxo may not be indexed yet and
+	// resolution can report ErrorNoVtxosFound. There is no retry here and the
+	// swap fails, which is the behaviour that was already in place: claiming
+	// with a nil outpoint reached the same error from selectClaimableVTXO when
+	// nothing was at the address. If that timing window turns out to be real in
+	// practice, the fix is a bounded retry around both calls, not a silent
+	// fallback to picking some other vtxo.
+	outpoint, err := b.swapHandler.outpointForFundingTx(
+		ctx, b.chainSwapState.Swap.VhtlcOpts, serverLockupTxID,
+	)
+	if err != nil {
+		b.chainSwapState.Swap.Fail(fmt.Sprintf("claim failed: %v", err))
+		return fmt.Errorf("failed to resolve Ark VTXO for lockup tx %s: %w", serverLockupTxID, err)
+	}
+
 	// Claim Ark VTXOs lockup
-	//TODO check if we should pass outpoint similarly as in swap
 	claimTxid, err := b.swapHandler.ClaimVHTLC(
 		ctx,
 		b.preimage,
 		b.chainSwapState.Swap.VhtlcOpts,
-		nil,
+		outpoint,
 	)
 	if err != nil {
 		// ChainSwap.Fail() emits FailEvent automatically
