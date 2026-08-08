@@ -21,7 +21,7 @@ type batchEntry struct {
 	done    chan struct{} // closed when it has completed
 }
 
-// txHandler serializes spend operations (send/issue/reissue/burn) and batch
+// TxHandler serializes spend operations (send/issue/reissue/burn) and batch
 // operations (settle/collab-exit) so they never overlap and double-spend the
 // same VTXOs. Only one operation runs at a time. Ordering is a priority queue:
 // a pending batch tx always runs before any waiting spend tx (because settles
@@ -31,7 +31,7 @@ type batchEntry struct {
 // At most one batch tx is ever active or pending: a second settle deduplicates
 // against it (returns its result), and a collab-exit is rejected with
 // ErrSettleInProgress.
-type txHandler struct {
+type TxHandler struct {
 	mu     sync.Mutex
 	busy   bool            // an operation's fn() is currently running
 	lead   *batchEntry     // the active-or-pending batch tx, nil if none
@@ -40,15 +40,15 @@ type txHandler struct {
 	done   chan struct{}   // closed by stop() to wake queued waiters
 }
 
-func newTxHandler() *txHandler {
-	return &txHandler{done: make(chan struct{})}
+func newTxHandler() *TxHandler {
+	return &TxHandler{done: make(chan struct{})}
 }
 
 // stop aborts every queued and future operation. Lock() and Stop() must call it
 // before tearing down wallet state (contractManager, stopCtx, the store) so a
 // queued waiter doesn't resume and run against a torn-down wallet. Operations
 // woken by stop return ErrIsLocked rather than executing their closure.
-func (h *txHandler) stop() {
+func (h *TxHandler) stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.closed {
@@ -59,7 +59,7 @@ func (h *txHandler) stop() {
 
 // dispatch hands the free slot to the next operation: a pending batch tx takes
 // precedence, otherwise the oldest waiting spend tx runs. Caller must hold h.mu.
-func (h *txHandler) dispatch() {
+func (h *TxHandler) dispatch() {
 	if h.busy {
 		return
 	}
@@ -81,7 +81,7 @@ func (h *txHandler) dispatch() {
 // waiting spend txs and without overlapping any in-flight operation. If a batch
 // tx is already active or pending, a settle deduplicates against it (waits for
 // it and returns its result) and a collab-exit is rejected.
-func (h *txHandler) handleBatchTx(
+func (h *TxHandler) handleBatchTx(
 	txType int, fn func() (string, error),
 ) (string, error) {
 	h.mu.Lock()
@@ -145,7 +145,7 @@ func (h *txHandler) handleBatchTx(
 // handleTx runs a spend tx (send/issue/reissue/burn). It waits its turn behind
 // any in-flight operation and any pending batch tx, preserving FIFO order among
 // spend txs, then runs without overlapping anything else.
-func (h *txHandler) handleTx(fn func() (any, error)) (any, error) {
+func (h *TxHandler) HandleTx(fn func() (any, error)) (any, error) {
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
