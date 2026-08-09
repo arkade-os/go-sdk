@@ -111,6 +111,7 @@ type ContractType string
 const (
 	ContractTypeDefault             ContractType = "default"
 	ContractTypeBoarding            ContractType = "boarding"
+	ContractTypeDelegate            ContractType = "delegate"
 	ContractTypeVHTLC               ContractType = "vhtlc"
 	ContractTypeNonInteractiveVHTLC ContractType = "noninteractivevhtlc"
 )

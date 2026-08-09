@@ -15,6 +15,7 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	"github.com/arkade-os/go-sdk/contract"
 	"github.com/arkade-os/go-sdk/types"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -779,6 +780,7 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 			expectedTypes := []types.ContractType{
 				types.ContractTypeBoarding,
 				types.ContractTypeDefault,
+				types.ContractTypeDelegate,
 				types.ContractTypeNonInteractiveVHTLC,
 				types.ContractTypeVHTLC,
 			}
@@ -794,6 +796,7 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 				types.ContractTypeBoarding,
 				types.ContractType("custom"),
 				types.ContractTypeDefault,
+				types.ContractTypeDelegate,
 				types.ContractTypeNonInteractiveVHTLC,
 				types.ContractTypeVHTLC,
 			}
@@ -870,6 +873,77 @@ func TestManagerWithCustomHandlers(t *testing.T) {
 		require.NoError(t, err)
 		require.Same(t, direct, viaManager)
 	})
+}
+
+// TestManagerWithDelegate exercises the delegate as a registry-path handler:
+// registered via WithDelegate, derived through the standard NewContract path,
+// and dispatched by GetHandler like any other contract type.
+func TestManagerWithDelegate(t *testing.T) {
+	delegatePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	srv, _ := newDelegateKeyServer(t, delegatePriv.PubKey())
+
+	mgr, err := contract.NewManager(newValidTestArgs(t), contract.WithDelegate(srv.URL))
+	require.NoError(t, err)
+	t.Cleanup(mgr.Close)
+
+	require.Contains(t, mgr.Registry().SupportedTypes(), types.ContractTypeDelegate)
+
+	c, err := mgr.NewContract(t.Context(), types.ContractTypeDelegate)
+	require.NoError(t, err)
+	require.Equal(t, types.ContractTypeDelegate, c.Type)
+	require.NotEmpty(t, c.Script)
+	require.NotEmpty(t, c.Address)
+	require.Equal(t,
+		hex.EncodeToString(delegatePriv.PubKey().SerializeCompressed()),
+		c.Params[contract.ParamDelegateKey],
+	)
+
+	handler, err := mgr.GetHandler(t.Context(), *c)
+	require.NoError(t, err)
+	require.NotNil(t, handler)
+}
+
+// TestManagerDelegateWithoutURL verifies the delegate handler is always
+// registered so stored delegate contracts stay resolvable and readable without
+// a configured URL, while deriving new ones and scanning are gated on it.
+func TestManagerDelegateWithoutURL(t *testing.T) {
+	noURL := newTestManagerWithHandlers(t)
+
+	// Always registered, even with no URL.
+	require.Contains(t, noURL.Registry().SupportedTypes(), types.ContractTypeDelegate)
+
+	// Deriving a new delegate contract needs the URL.
+	_, err := noURL.NewContract(t.Context(), types.ContractTypeDelegate)
+	require.ErrorContains(t, err, "url not configured")
+
+	// Scanning skips delegate (no URL) without aborting the rest of the scan.
+	require.NoError(t, noURL.ScanContracts(t.Context(), 5))
+
+	// An existing delegate contract (created elsewhere with a URL) is still
+	// resolvable and readable through a manager that has no URL: the handler's
+	// read-only methods need no URL.
+	delegatePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	srv, _ := newDelegateKeyServer(t, delegatePriv.PubKey())
+	urlMgr := newTestManagerWithHandlers(t, contract.WithDelegate(srv.URL))
+	c, err := urlMgr.NewContract(t.Context(), types.ContractTypeDelegate)
+	require.NoError(t, err)
+
+	handler, err := noURL.GetHandler(t.Context(), *c)
+	require.NoError(t, err)
+	require.NotNil(t, handler)
+	_, err = handler.GetKeyRef(*c)
+	require.NoError(t, err)
+}
+
+// TestManagerScanContractsDelegateURLDown locks in that, with the delegate
+// fully integrated into scanning, a delegate-key fetch failure aborts the scan
+// the same way an indexer or explorer failure does for the other types.
+func TestManagerScanContractsDelegateURLDown(t *testing.T) {
+	srv := newUnavailableDelegateServer(t)
+	mgr := newTestManagerWithHandlers(t, contract.WithDelegate(srv.URL))
+	require.Error(t, mgr.ScanContracts(t.Context(), 5))
 }
 
 // newTestVHTLCContractArgs returns manager-level VHTLC args with an external
