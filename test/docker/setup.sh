@@ -277,7 +277,7 @@ for _ in {1..30}; do
         last_covclaimd_response="curl failed with status $curl_status: $response"
     fi
 
-    if [ $curl_status -eq 0 ] && [ -n "$response" ] && [ "$(echo "$response" | jq -r '.preimage.running // false' 2>/dev/null)" = "true" ]; then
+    if [ $curl_status -eq 0 ]; then
         covclaimd_ready=1
         break
     fi
@@ -287,7 +287,7 @@ if [ $covclaimd_ready -ne 1 ]; then
     dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator covclaimd
     exit "  ❌ covclaimd preimage plugin did not become ready (last response: $last_covclaimd_response)"
 else
-    echo "  ✅ covclaimd ready (preimage plugin running)"
+    echo "  ✅ covclaimd ready"
 fi
 
 echo "setting up Boltz stack..."

@@ -123,7 +123,7 @@ services:
       - "7074:7071"
     environment:
       - COVCLAIMD_LOG_LEVEL=6
-      - COVCLAIMD_EMULATOR_URL=http://emulator:7073
+      - COVCLAIMD_EMULATOR_URL=emulator:7073
       - COVCLAIMD_ARK_URL=http://arkd:7070
       - COVCLAIMD_ENCRYPTED_ENABLED=true
       - COVCLAIMD_SECRET_KEY=f40f6e7a5cf262f4093d4605b8f40cbaf9da9e59bf32f24bb27a4ffc74f71eab
