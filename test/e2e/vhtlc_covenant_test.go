@@ -106,7 +106,7 @@ func TestNonInteractiveClaim(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build extension packet: ciphertext + plaintext arkade script
-	claimPkt := buildClaimPacket(t, ciphertext, arkadeScript)
+	claimPkt := buildClaimPacket(t, covclaimdPub, ciphertext, arkadeScript)
 
 	// Build taptree for the PSBT output so covclaimd can decode the VHTLC
 	tapKey, _, err := vhtlcScript.TapTree()
@@ -216,14 +216,16 @@ func pollForVtxoAtScript(
 	}{}
 }
 
-// --- Inlined ECIES + packet helpers (from bancod/pkg/preimage, avoids import) ---
+// --- Inlined ECIES + packet helpers (from covclaimd/pkg/preimage; importing it
+// would be circular: covclaimd depends on go-sdk) ---
 
 const (
 	eciesNonceLen   = 12
 	eciesHkdfInfo   = "covclaimd/preimage/v1"
-	claimPktType    = 0x04
-	tlvCiphertext   = 0x01
-	tlvArkadeScript = 0x02
+	claimPktType       = 0x04
+	tlvCiphertext      = 0x01
+	tlvArkadeScript    = 0x02
+	tlvCovclaimdPubKey = 0x03
 )
 
 func eciesEncrypt(recipient *btcec.PublicKey, plaintext []byte) ([]byte, error) {
@@ -268,8 +270,11 @@ func eciesDeriveKey(priv *btcec.PrivateKey, peer *btcec.PublicKey, salt []byte) 
 	return out
 }
 
-func buildClaimPacket(t *testing.T, ciphertext, arkadeScript []byte) extension.Packet {
+func buildClaimPacket(
+	t *testing.T, covclaimdPub *btcec.PublicKey, ciphertext, arkadeScript []byte,
+) extension.Packet {
 	t.Helper()
+	// Same TLV order as covclaimd's ClaimPacket.Serialize: 0x01, 0x02, 0x03.
 	var buf []byte
 	// TLV: ciphertext
 	buf = append(buf, tlvCiphertext)
@@ -279,5 +284,11 @@ func buildClaimPacket(t *testing.T, ciphertext, arkadeScript []byte) extension.P
 	buf = append(buf, tlvArkadeScript)
 	buf = binary.BigEndian.AppendUint16(buf, uint16(len(arkadeScript)))
 	buf = append(buf, arkadeScript...)
+	// TLV: covclaimd pubkey — covclaimd's Filter selects on this TLV; a packet
+	// without it is invisible once arkdsource stops discarding the filter.
+	pub := covclaimdPub.SerializeCompressed()
+	buf = append(buf, tlvCovclaimdPubKey)
+	buf = binary.BigEndian.AppendUint16(buf, uint16(len(pub)))
+	buf = append(buf, pub...)
 	return extension.UnknownPacket{PacketType: claimPktType, Data: buf}
 }
