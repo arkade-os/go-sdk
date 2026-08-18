@@ -114,7 +114,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				leave := tracker.enter()
 				defer leave()
 				close(sendStarted)
@@ -211,7 +211,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				leave := tracker.enter()
 				defer leave()
 				close(sendStarted)
@@ -263,7 +263,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				leave := tracker.enter()
 				defer leave()
 				close(sendStarted)
@@ -278,7 +278,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				leave := tracker.enter()
 				defer leave()
 				issueRan.Store(true)
@@ -330,7 +330,7 @@ func TestTxHandler(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_, _ = h.handleTx(func() (any, error) {
+					_, _ = h.HandleTx(func() (any, error) {
 						leave := tracker.enter()
 						defer leave()
 						ran[i].Store(true)
@@ -365,7 +365,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				close(sendStarted)
 				<-sendRelease
 				return "send", nil
@@ -422,7 +422,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				leave := tracker.enter()
 				defer leave()
 				rec.mark("running")
@@ -439,7 +439,7 @@ func TestTxHandler(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, _ = h.handleTx(func() (any, error) {
+				_, _ = h.HandleTx(func() (any, error) {
 					leave := tracker.enter()
 					defer leave()
 					rec.mark(name)
@@ -483,7 +483,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				rec.mark("running")
 				close(started)
 				<-release
@@ -496,7 +496,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				rec.mark("spend")
 				return nil, nil
 			})
@@ -531,7 +531,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = h.handleTx(func() (any, error) {
+			_, _ = h.HandleTx(func() (any, error) {
 				close(started)
 				<-release
 				return nil, nil
@@ -545,7 +545,7 @@ func TestTxHandler(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, queuedErr = h.handleTx(func() (any, error) {
+			_, queuedErr = h.HandleTx(func() (any, error) {
 				queuedRan.Store(true)
 				return nil, nil
 			})
@@ -601,7 +601,7 @@ func TestTxHandler(t *testing.T) {
 		h := newTestTxHandler(t)
 		h.stop()
 
-		_, err := h.handleTx(func() (any, error) {
+		_, err := h.HandleTx(func() (any, error) {
 			t.Error("handleTx fn must not run after stop")
 			return nil, nil
 		})
@@ -616,7 +616,7 @@ func TestTxHandler(t *testing.T) {
 	})
 }
 
-func newTestTxHandler(t *testing.T) *txHandler {
+func newTestTxHandler(t *testing.T) *TxHandler {
 	t.Helper()
 	return newTxHandler()
 }

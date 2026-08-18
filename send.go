@@ -95,7 +95,7 @@ func (w *wallet) SendOffChain(
 		return res.Txid, nil
 	}
 
-	rr, err := w.txHandler.handleTx(send)
+	rr, err := w.txHandler.HandleTx(send)
 	if err != nil {
 		return "", err
 	}
