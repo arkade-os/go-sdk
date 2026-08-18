@@ -10,12 +10,13 @@ import (
 	"strconv"
 	"strings"
 
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func getBIP86RootPath(network chaincfg.Params) []uint32 {
+func getBIP86RootPath(network *chaincfg.Params) []uint32 {
 	coinType := uint32(0)
 	if network.Name != chaincfg.MainNetParams.Name {
 		coinType = uint32(1)
@@ -29,6 +30,12 @@ func getBIP86RootPath(network chaincfg.Params) []uint32 {
 	}
 }
 
+// parseDerivationIndex normalizes a key id to the {account, index} pair the key service
+// derives at. Only the terminal index identifies a key: every key lives under the single
+// unhardened account m/0, so any leading segments ("m/", an account number) are deliberately
+// ignored and "5", "0/5", "m/5" and "m/0/5" all resolve to the same key. Key ids are produced
+// internally by toDerivationPath and persisted in contract params — this normalization keeps
+// them stable across the historical formats, it is not meant to validate user input.
 func parseDerivationIndex(keyId string) ([]uint32, error) {
 	if keyId == "" {
 		return nil, fmt.Errorf("key id is required")
@@ -97,7 +104,11 @@ func decryptAES256(encrypted, password []byte) ([]byte, error) {
 	if len(password) == 0 {
 		return nil, fmt.Errorf("missing password")
 	}
-	if len(encrypted) < 32 {
+	// Layout: gcm nonce (12) || ciphertext || gcm tag (16) || pbkdf2 salt (32). Reject
+	// anything that can't possibly decrypt before the key derivation below: it's
+	// deliberately expensive (600k PBKDF2 rounds) and must not run on garbage input.
+	const minEncryptedLen = 12 + 16 + 32
+	if len(encrypted) < minEncryptedLen {
 		return nil, fmt.Errorf("encrypted data too short")
 	}
 
@@ -150,5 +161,24 @@ func deriveEncryptionKey(password, salt []byte) ([]byte, []byte, error) {
 func zeroBytes(b []byte) {
 	for i := range b {
 		b[i] = 0
+	}
+}
+
+func toBitcoinNetwork(net arklib.Network) *chaincfg.Params {
+	switch net.Name {
+	case arklib.Bitcoin.Name:
+		return &chaincfg.MainNetParams
+	case arklib.BitcoinTestNet.Name:
+		return &chaincfg.TestNet3Params
+	//case arklib.BitcoinTestNet4.Name: //TODO uncomment once supported
+	//	return chaincfg.TestNet4Params
+	case arklib.BitcoinSigNet.Name:
+		return &chaincfg.SigNetParams
+	case arklib.BitcoinMutinyNet.Name:
+		return &arklib.MutinyNetSigNetParams
+	case arklib.BitcoinRegTest.Name:
+		return &chaincfg.RegressionNetParams
+	default:
+		return &chaincfg.MainNetParams
 	}
 }

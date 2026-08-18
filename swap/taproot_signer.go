@@ -45,7 +45,19 @@ func (s *localMuSig2Session) Keys() []*btcec.PublicKey {
 }
 
 func (s *localMuSig2Session) GenerateNonce() ([66]byte, error) {
-	nonces, err := musig2.GenNonces(musig2.WithPublicKey(s.key.PubKey()))
+	// Hedge the nonce randomness with the secret key and the aggregate key as BIP327
+	// recommends: a weak RNG alone then can't yield a nonce that is predictable or reusable
+	// against a different key set. The message can't be bound too: it isn't known yet at
+	// this point of the protocol (the sighash depends on the counterparty's nonce).
+	combined, _, _, err := musig2.AggregateKeys(s.Keys(), false)
+	if err != nil {
+		return [66]byte{}, fmt.Errorf("musig2.AggregateKeys: %w", err)
+	}
+	nonces, err := musig2.GenNonces(
+		musig2.WithPublicKey(s.key.PubKey()),
+		musig2.WithNonceSecretKeyAux(s.key),
+		musig2.WithNonceCombinedKeyAux(combined.FinalKey),
+	)
 	if err != nil {
 		return [66]byte{}, fmt.Errorf("musig2.GenNonces: %w", err)
 	}
@@ -89,6 +101,11 @@ func (s *localMuSig2Session) PartialSign(
 		musig2.WithTaprootSignTweak(merkleRoot),
 		musig2.WithFastSign(),
 	)
+	// Signing a second message with the same secret nonce leaks the private key: zero it and
+	// drop the session nonce whatever the outcome, so another PartialSign on this session
+	// fails with "nonce not generated" instead of reusing it.
+	s.ourNonces.SecNonce = [musig2.SecNonceSize]byte{}
+	s.ourNonces = nil
 	if err != nil {
 		return nil, fmt.Errorf("musig2.Sign: %w", err)
 	}

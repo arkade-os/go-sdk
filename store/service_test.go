@@ -212,17 +212,17 @@ func TestNewStore(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
 		fixtures := []struct {
 			name            string
-			config          store.Config
+			config          types.StoreConfig
 			wantErrContains string
 		}{
 			{
 				name:            "unknown store type",
-				config:          store.Config{StoreType: "unknown"},
+				config:          types.StoreConfig{StoreType: "unknown"},
 				wantErrContains: "unknown store type",
 			},
 			{
 				name:   "SQL store with non-creatable path",
-				config: store.Config{StoreType: types.SQLStore, Args: "/dev/null/subdir"},
+				config: types.StoreConfig{StoreType: types.SQLStore, Args: "/dev/null/subdir"},
 			},
 		}
 
@@ -244,11 +244,11 @@ func TestService(t *testing.T) {
 		dbDir := t.TempDir()
 		tests := []struct {
 			name   string
-			config store.Config
+			config types.StoreConfig
 		}{
 			{
 				name: "sql",
-				config: store.Config{
+				config: types.StoreConfig{
 					StoreType: types.SQLStore,
 					Args:      dbDir,
 				},

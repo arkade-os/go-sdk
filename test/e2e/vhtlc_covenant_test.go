@@ -43,7 +43,7 @@ func TestNonInteractiveClaim(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	sender, _ := setupSwapClient(t)
+	sender := setupClient(t, "")
 
 	cfg, err := sender.GetConfigData(ctx)
 	require.NoError(t, err)
@@ -100,7 +100,6 @@ func TestNonInteractiveClaim(t *testing.T) {
 
 	vhtlcAddr, err := vhtlcScript.Address(cfg.Network.Addr)
 	require.NoError(t, err)
-	t.Logf("VHTLC address: %s", vhtlcAddr)
 
 	// Encrypt just the raw 32-byte preimage (new format)
 	ciphertext, err := eciesEncrypt(solverPub, preimg)
@@ -133,12 +132,10 @@ func TestNonInteractiveClaim(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, txid)
-	t.Logf("Funding tx: %s", txid)
 
 	// Wait for solver (bancod) to auto-claim
 	v := pollForVtxoAtScript(t, ctx, receiverPkScript, 60*time.Second)
-	require.Equal(t, amount, v.Amount, "solver should pay the full input value to the receiver")
-	t.Logf("Claimed: %s:%d amount=%d", v.Txid, v.VOut, v.Amount)
+	require.Equal(t, int(amount), int(v.Amount))
 }
 
 func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {

@@ -140,9 +140,9 @@ func forEachVtxoBackend(t *testing.T, fn func(t *testing.T, s types.VtxoStore)) 
 
 	backends := []struct {
 		name   string
-		config store.Config
+		config types.StoreConfig
 	}{
-		{name: "sql", config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()}},
+		{name: "sql", config: types.StoreConfig{StoreType: types.SQLStore, Args: t.TempDir()}},
 	}
 
 	for _, b := range backends {

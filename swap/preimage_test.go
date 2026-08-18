@@ -1,176 +1,83 @@
-package swap
+package swap_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
-	arkidentity "github.com/arkade-os/arkd/pkg/client-lib/identity"
-	sdkidentity "github.com/arkade-os/go-sdk/identity"
+	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/identity"
+	hdidentity "github.com/arkade-os/go-sdk/identity"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
-	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/lightningnetwork/lnd/input"
+	"github.com/arkade-os/go-sdk/swap"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildPreimageMessage(t *testing.T) {
-	privKey, _ := btcec.PrivKeyFromBytes([]byte{
-		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	})
-
-	payload, err := buildPreimageMessagePayload(privKey.PubKey(), 1)
-	require.NoError(t, err)
-
-	expectedPayload := make([]byte, 0, len(preimageTagV1)+32+4)
-	expectedPayload = append(expectedPayload, []byte(preimageTagV1)...)
-	expectedPayload = append(expectedPayload, schnorr.SerializePubKey(privKey.PubKey())...)
-	var index [4]byte
-	binary.LittleEndian.PutUint32(index[:], 1)
-	expectedPayload = append(expectedPayload, index[:]...)
-
-	require.Equal(t, expectedPayload, payload)
-
-	msg, err := buildPreimageMessage(privKey.PubKey(), 1)
-	require.NoError(t, err)
-
-	expected := sha256.Sum256(expectedPayload)
-	require.Equal(t, expected, msg)
-}
-
-func TestGenPreimageInfo(t *testing.T) {
-	privKey, _ := btcec.PrivKeyFromBytes([]byte{
-		2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-		2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-	})
-	keyRef := arkidentity.KeyRef{
-		Id:     "m/0/7",
-		PubKey: privKey.PubKey(),
+var (
+	networks = map[string]arklib.Network{
+		arklib.Bitcoin.Name:        arklib.Bitcoin,
+		arklib.BitcoinRegTest.Name: arklib.BitcoinRegTest,
 	}
-	signer := preimageTestSigner{privKey: privKey}
+)
 
-	preimage, err := genPreimage(t.Context(), signer, keyRef, 7)
-	require.NoError(t, err)
+func TestDerivePreimage(t *testing.T) {
+	ctx := t.Context()
+	fixture := loadFixtures(t)
 
-	shaHash, hash160 := preimageHashes(preimage)
-
-	preimageAgain, err := genPreimage(t.Context(), signer, keyRef, 7)
-	require.NoError(t, err)
-
-	shaHashAgain, hash160Again := preimageHashes(preimageAgain)
-
-	require.Len(t, preimage, 32)
-	require.Equal(t, preimage, preimageAgain)
-	require.Equal(t, shaHash, shaHashAgain)
-	require.Equal(t, hash160, hash160Again)
-
-	expectedSHA := sha256.Sum256(preimage)
-	require.Equal(t, expectedSHA[:], shaHash)
-	require.Equal(t, input.Ripemd160H(expectedSHA[:]), hash160)
-}
-
-func TestGenPreimageMatchesDotnetVectors(t *testing.T) {
-	fixture := loadPreimageVectorFixture(t)
-	networks := map[string]chaincfg.Params{
-		"mainnet": chaincfg.MainNetParams,
-		"regtest": chaincfg.RegressionNetParams,
-	}
-
-	for networkName, networkVectors := range fixture.Vectors {
-		params, ok := networks[networkName]
-		require.Truef(t, ok, "unsupported fixture network %q", networkName)
+	for networkName, vectors := range fixture.Vectors {
+		network, ok := networks[networkName]
+		require.True(t, ok)
 
 		t.Run(networkName, func(t *testing.T) {
-			ctx := context.Background()
-			wallet, signer := newPreimageVectorIdentity(t, ctx, params, fixture.Seed)
+			identitySvc := newTestIdentity(t, ctx, network, fixture.Seed)
+			signer, ok := identitySvc.(swap.PreimageSigner)
+			require.True(t, ok)
 
-			for keyIndex, vectors := range networkVectors.KeyIndexed {
-				keyIndex := keyIndex
-				vectors := vectors
-				t.Run("key"+keyIndex, func(t *testing.T) {
-					_, err := strconv.ParseUint(keyIndex, 10, 32)
+			for _, vector := range vectors {
+				v := vector
+				t.Run(fmt.Sprintf("keyIndex%d", v.DerivationIndex), func(t *testing.T) {
+					keyPath := fmt.Sprintf("m/0/%d", v.DerivationIndex)
+					keyRef, err := identitySvc.GetKey(ctx, keyPath)
 					require.NoError(t, err)
 
-					keyRef, err := wallet.GetKey(ctx, fmt.Sprintf("m/0/%s", keyIndex))
+					payload, err := swap.BuildPreimageMessage(keyRef.PubKey, 0)
 					require.NoError(t, err)
+					require.Equal(
+						t, v.ExpectedPreimageMessage, hex.EncodeToString(payload),
+					)
 
-					for _, vector := range vectors {
-						vector := vector
-						t.Run(
-							fmt.Sprintf("derivation%d", vector.DerivationIndex),
-							func(t *testing.T) {
-								payload, err := buildPreimageMessagePayload(
-									keyRef.PubKey, vector.DerivationIndex,
-								)
-								require.NoError(t, err)
-								require.Equal(
-									t,
-									vector.ExpectedPreimageMessage,
-									hex.EncodeToString(payload),
-								)
-
-								preimage, err := genPreimage(
-									ctx, signer, *keyRef, vector.DerivationIndex,
-								)
-								require.NoError(t, err)
-								require.Equal(
-									t,
-									vector.ExpectedPreimage,
-									hex.EncodeToString(preimage),
-								)
-							},
-						)
-					}
-				})
+					preimage, err := swap.DerivePreimage(ctx, signer, *keyRef)
+					require.NoError(t, err)
+					require.Equal(t, v.ExpectedPreimage, hex.EncodeToString(preimage))
+				},
+				)
 			}
 		})
 	}
 }
 
-type preimageTestSigner struct {
-	privKey *btcec.PrivateKey
+type fixtures struct {
+	Seed    string                   `json:"seed"`
+	Vectors map[string][]testVectors `json:"vectors"`
 }
 
-func (s preimageTestSigner) SignSchnorrBIP340(
-	_ context.Context,
-	_ string,
-	msg [32]byte,
-) (*schnorr.Signature, error) {
-	var auxRand [32]byte
-	return schnorr.Sign(s.privKey, msg[:], schnorr.CustomNonce(auxRand))
-}
-
-type preimageVectorFixture struct {
-	Seed    string                           `json:"seed"`
-	Vectors map[string]preimageNetworkVector `json:"vectors"`
-}
-
-type preimageNetworkVector struct {
-	KeyIndexed map[string][]preimageVector `json:"keyIndexed"`
-}
-
-type preimageVector struct {
+type testVectors struct {
 	DerivationIndex         uint32 `json:"derivationIndex"`
 	ExpectedPreimageMessage string `json:"expectedPreimageMessage"`
 	ExpectedPreimage        string `json:"expectedPreimage"`
 }
 
-func loadPreimageVectorFixture(t *testing.T) preimageVectorFixture {
+func loadFixtures(t *testing.T) fixtures {
 	t.Helper()
 
 	data, err := os.ReadFile(filepath.Join("testdata", "preimage_vectors.json"))
 	require.NoError(t, err)
 
-	var fixture preimageVectorFixture
+	var fixture fixtures
 	require.NoError(t, json.Unmarshal(data, &fixture))
 	require.NotEmpty(t, fixture.Seed)
 	require.NotEmpty(t, fixture.Vectors)
@@ -178,25 +85,19 @@ func loadPreimageVectorFixture(t *testing.T) preimageVectorFixture {
 	return fixture
 }
 
-func newPreimageVectorIdentity(
-	t *testing.T,
-	ctx context.Context,
-	network chaincfg.Params,
-	seed string,
-) (arkidentity.Identity, sdkidentity.KeyedPreimageSigner) {
+func newTestIdentity(
+	t *testing.T, ctx context.Context, network arklib.Network, seed string,
+) identity.Identity {
 	t.Helper()
 
-	wallet, err := sdkidentity.NewIdentity(identityinmemorystore.NewStore())
+	identitySvc, err := hdidentity.NewIdentity(identityinmemorystore.NewStore())
 	require.NoError(t, err)
 
-	_, err = wallet.Create(ctx, network, "password", seed)
+	_, err = identitySvc.Create(ctx, network, "password", seed)
 	require.NoError(t, err)
 
-	_, err = wallet.Unlock(ctx, "password")
+	_, err = identitySvc.Unlock(ctx, "password")
 	require.NoError(t, err)
 
-	signer, ok := wallet.(sdkidentity.KeyedPreimageSigner)
-	require.True(t, ok)
-
-	return wallet, signer
+	return identitySvc
 }

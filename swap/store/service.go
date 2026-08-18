@@ -1,4 +1,4 @@
-package swapstore
+package store
 
 import (
 	"database/sql"
@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	swapdomain "github.com/arkade-os/go-sdk/swap/store/domain"
 	sqlstore "github.com/arkade-os/go-sdk/swap/store/sql"
+	"github.com/arkade-os/go-sdk/swap/types"
 	"github.com/golang-migrate/migrate/v4"
 	sqlitemigrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -21,22 +21,15 @@ var migrations embed.FS
 
 const (
 	driverName   = "sqlite"
-	sqliteDbFile = "swap.sqlite.db"
+	sqliteDbFile = "swap.db"
 )
 
-type Service interface {
-	Swaps() swapdomain.SwapRepository
-	ChainSwaps() swapdomain.ChainSwapRepository
-	Close() error
-}
-
 type service struct {
-	db         *sql.DB
-	swaps      swapdomain.SwapRepository
-	chainSwaps swapdomain.ChainSwapRepository
+	db    *sql.DB
+	swaps types.SwapStore
 }
 
-func NewService(dir string) (Service, error) {
+func NewService(dir string) (types.Store, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("missing swap sqlite datadir")
 	}
@@ -71,20 +64,16 @@ func NewService(dir string) (Service, error) {
 		return nil, err
 	}
 
-	swapRepo := sqlstore.NewSwapRepository(db)
-	chainSwapRepo := sqlstore.NewChainSwapRepository(db)
+	swapRepo := sqlstore.NewSwapStore(db)
 
 	succeeded = true
 	return &service{
-		db:         db,
-		swaps:      swapRepo,
-		chainSwaps: chainSwapRepo,
+		db:    db,
+		swaps: swapRepo,
 	}, nil
 }
 
-func (s *service) Swaps() swapdomain.SwapRepository { return s.swaps }
-
-func (s *service) ChainSwaps() swapdomain.ChainSwapRepository { return s.chainSwaps }
+func (s *service) Swaps() types.SwapStore { return s.swaps }
 
 func (s *service) Close() error {
 	if s.db == nil {

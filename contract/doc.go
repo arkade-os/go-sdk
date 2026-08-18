@@ -25,11 +25,9 @@
 //     which the manager uses to find the next free derivation index
 //     without scanning the entire row set.
 //
-//   - infoCache (see info_cache.go) memoizes client.Client.GetInfo
-//     responses. NewManager wraps args.Client once with a cachingClient
-//     and hands the wrapped client to the built-in handlers that need
-//     server info (default, boarding, vhtlc) so they share a single
-//     GetInfo cache. The htlc built-in does not need server info.
+//   - args.Client is handed to the built-in handlers that need server
+//     info (default, boarding, vhtlc) as-is: the wallet already serves
+//     its GetInfo from a wallet-level cache, so they all share it.
 //     Handlers added by callers via [WithHandler] are constructed outside
 //     the manager and own their own client wiring — see the Extending
 //     section below.
@@ -83,7 +81,7 @@
 // The manager guards store and key-provider access with an
 // [sync.RWMutex]: mutations (NewContract, ScanContracts, Clean, Close)
 // hold the write lock; reads (GetContracts) hold the read lock. The
-// store and the info cache have their own internal locking on top.
+// store has its own internal locking on top.
 //
 // # Extending with new contract types
 //
@@ -101,11 +99,11 @@
 //     correct findUsedFn. By default ScanContracts uses the indexer
 //     (offchain) path for any non-boarding type.
 //
-// User-registered handlers are responsible for their own client caching.
-// The manager wraps args.Client with a shared GetInfo cache and hands
-// the wrapped client to the built-in handlers only — handlers
-// constructed by callers were built before the manager existed and need
-// not depend on client.Client at all.
+// User-registered handlers are responsible for their own client wiring.
+// The manager hands args.Client to the built-in handlers as-is — the
+// wallet already serves its GetInfo from a wallet-level cache — while
+// handlers constructed by callers were built before the manager existed
+// and need not depend on client.Client at all.
 //
 // At the wallet layer, callers use [arksdk.WithContractHandler] to
 // register handlers at NewWallet time; the wallet translates them to

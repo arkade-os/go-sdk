@@ -70,6 +70,38 @@ var (
 		},
 	}
 
+	// Active vhtlc, key index 5.
+	testContractVHTLC = types.Contract{
+		Type:      types.ContractTypeVHTLC,
+		Label:     "vhtlc",
+		Script:    "0000000000000000000000000000000000000000000000000000000000000005",
+		Address:   "ark1qvhtlc",
+		State:     types.ContractStateActive,
+		CreatedAt: testContractCreatedAt,
+		Params: map[string]string{
+			ownerKeyIdParam: "m/0/5",
+			ownerKeyParam:   "191a1b",
+			signerKeyParam:  "1c1d1e",
+		},
+	}
+
+	// Active non-interactive vhtlc, key index 6: stored under the vhtlc type, the
+	// non-interactive param is what resolves its exact type back on read.
+	testContractNonInteractiveVHTLC = types.Contract{
+		Type:      types.ContractTypeNonInteractiveVHTLC,
+		Label:     "noninteractive",
+		Script:    "0000000000000000000000000000000000000000000000000000000000000006",
+		Address:   "ark1qnivhtlc",
+		State:     types.ContractStateActive,
+		CreatedAt: testContractCreatedAt,
+		Params: map[string]string{
+			ownerKeyIdParam:          "m/0/6",
+			ownerKeyParam:            "1f2021",
+			signerKeyParam:           "222324",
+			"nonInteractiveReceiver": "51201f2021",
+		},
+	}
+
 	// Fully populated fixture (extra params + metadata) for round-trip checks.
 	testContractFull = types.Contract{
 		Type:      types.ContractTypeDefault,
@@ -275,10 +307,10 @@ func TestContractStoreGetActiveContractsByType(t *testing.T) {
 	})
 }
 
-func TestContractStoreGetLatestActiveContract(t *testing.T) {
+func TestContractStoreGetLatestContract(t *testing.T) {
 	t.Run("empty store returns nil", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
-			got, err := s.GetLatestActiveContract(t.Context(), types.ContractTypeDefault)
+			got, err := s.GetLatestContract(t.Context(), types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.Nil(t, got)
 		})
@@ -292,7 +324,7 @@ func TestContractStoreGetLatestActiveContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractB)
 
-			got, err := s.GetLatestActiveContract(ctx, types.ContractTypeBoarding)
+			got, err := s.GetLatestContract(ctx, types.ContractTypeBoarding)
 			require.NoError(t, err)
 			require.Nil(t, got)
 		})
@@ -303,7 +335,7 @@ func TestContractStoreGetLatestActiveContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA)
 
-			got, err := s.GetLatestActiveContract(ctx, types.ContractTypeDefault)
+			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, testContractA.Script, got.Script)
@@ -321,7 +353,7 @@ func TestContractStoreGetLatestActiveContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractFull, testContractB)
 
-			got, err := s.GetLatestActiveContract(ctx, types.ContractTypeDefault)
+			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, testContractFull.Script, got.Script)
@@ -337,14 +369,52 @@ func TestContractStoreGetLatestActiveContract(t *testing.T) {
 			ctx := t.Context()
 			seedContracts(t, s, testContractA, testContractB, testContractC)
 
-			latestDefault, err := s.GetLatestActiveContract(ctx, types.ContractTypeDefault)
+			latestDefault, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
 			require.NoError(t, err)
 			require.NotNil(t, latestDefault)
 			require.Equal(t, testContractB.Script, latestDefault.Script)
 
-			latestBoarding, err := s.GetLatestActiveContract(ctx, types.ContractTypeBoarding)
+			latestBoarding, err := s.GetLatestContract(ctx, types.ContractTypeBoarding)
 			require.NoError(t, err)
-			require.Nil(t, latestBoarding)
+			require.NotNil(t, latestBoarding)
+			require.Equal(t, testContractC.Script, latestBoarding.Script)
+		})
+	})
+
+	t.Run("ignores the contract state", func(t *testing.T) {
+		// The latest contract must be returned no matter its state: it drives the
+		// key-index counter, and skipping a disabled contract would rewind the
+		// counter and reuse its key (and the preimage derived from it).
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			seedContracts(t, s, testContractA, testContractFull)
+			require.NoError(t, s.DisableContracts(ctx, []string{testContractFull.Script}))
+
+			got, err := s.GetLatestContract(ctx, types.ContractTypeDefault)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, testContractFull.Script, got.Script)
+		})
+	})
+
+	t.Run("computed across the vhtlc flavors", func(t *testing.T) {
+		// Normal and non-interactive vhtlcs derive their keys from the same keyspace,
+		// so they are stored under the same type: asking for either flavor returns the
+		// same contract, the one holding the latest key, preventing the next key index
+		// from colliding with the other flavor's.
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			seedContracts(t, s, testContractVHTLC, testContractNonInteractiveVHTLC)
+
+			for _, contractType := range []types.ContractType{
+				types.ContractTypeVHTLC, types.ContractTypeNonInteractiveVHTLC,
+			} {
+				got, err := s.GetLatestContract(ctx, contractType)
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				require.Equal(t, testContractNonInteractiveVHTLC.Script, got.Script)
+				require.Equal(t, types.ContractTypeNonInteractiveVHTLC, got.Type)
+			}
 		})
 	})
 }
@@ -435,6 +505,94 @@ func TestContractStoreUpdateContractState(t *testing.T) {
 	})
 }
 
+func TestContractStoreEnableDisableContracts(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+			ctx := t.Context()
+			// A and B are seeded active, C inactive.
+			seedContracts(t, s, testContractA, testContractB, testContractC)
+
+			t.Run("disable a single contract", func(t *testing.T) {
+				require.NoError(t, s.DisableContracts(ctx, []string{testContractA.Script}))
+				require.Equal(
+					t, types.ContractStateInactive, contractState(t, s, testContractA.Script),
+				)
+				// Contracts not in the list are untouched.
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractB.Script),
+				)
+			})
+
+			t.Run("enable a single contract", func(t *testing.T) {
+				require.NoError(t, s.EnableContracts(ctx, []string{testContractC.Script}))
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractC.Script),
+				)
+			})
+
+			t.Run("disable multiple contracts", func(t *testing.T) {
+				require.NoError(t, s.DisableContracts(
+					ctx, []string{testContractA.Script, testContractB.Script},
+				))
+				require.Equal(
+					t, types.ContractStateInactive, contractState(t, s, testContractA.Script),
+				)
+				require.Equal(
+					t, types.ContractStateInactive, contractState(t, s, testContractB.Script),
+				)
+			})
+
+			t.Run("enable multiple contracts", func(t *testing.T) {
+				require.NoError(t, s.EnableContracts(
+					ctx, []string{testContractA.Script, testContractB.Script},
+				))
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractA.Script),
+				)
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractB.Script),
+				)
+			})
+			t.Run("empty scripts is a no-op", func(t *testing.T) {
+				ctx := t.Context()
+				require.NoError(t, s.EnableContracts(ctx, nil))
+				require.NoError(t, s.DisableContracts(ctx, []string{}))
+			})
+		})
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		const missingScript = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+		t.Run("single unknown script", func(t *testing.T) {
+			forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+				err := s.DisableContracts(t.Context(), []string{missingScript})
+				require.ErrorContains(t, err, "not found")
+			})
+		})
+
+		// The whole point of running a multi-script update in a transaction: if any script is
+		// missing the entire batch rolls back, so a valid script listed before a missing one must
+		// keep its original state rather than being left half-applied.
+		t.Run("multi-script batch rolls back when one script is missing", func(t *testing.T) {
+			forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
+				ctx := t.Context()
+				seedContracts(t, s, testContractA)
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractA.Script),
+				)
+
+				err := s.DisableContracts(ctx, []string{testContractA.Script, missingScript})
+				require.ErrorContains(t, err, "not found")
+				require.Equal(
+					t, types.ContractStateActive, contractState(t, s, testContractA.Script),
+					"the batch must roll back, leaving the valid contract untouched",
+				)
+			})
+		})
+	})
+}
+
 func TestContractStoreClean(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		forEachContractBackend(t, func(t *testing.T, s types.ContractStore) {
@@ -489,9 +647,9 @@ func forEachContractBackend(t *testing.T, fn func(t *testing.T, s types.Contract
 
 	backends := []struct {
 		name   string
-		config store.Config
+		config types.StoreConfig
 	}{
-		{name: "sql", config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()}},
+		{name: "sql", config: types.StoreConfig{StoreType: types.SQLStore, Args: t.TempDir()}},
 	}
 
 	for _, b := range backends {
@@ -520,4 +678,12 @@ func seedContracts(t *testing.T, s types.ContractStore, contracts ...types.Contr
 		index := getIndex(c.Params[ownerKeyIdParam])
 		require.NoError(t, s.AddContract(t.Context(), c, index))
 	}
+}
+
+func contractState(t *testing.T, s types.ContractStore, script string) types.ContractState {
+	t.Helper()
+	got, err := s.GetContractsByScripts(t.Context(), []string{script})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	return got[0].State
 }

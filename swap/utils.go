@@ -3,172 +3,115 @@ package swap
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
-	"github.com/arkade-os/arkd/pkg/ark-lib/intent"
-	"github.com/arkade-os/arkd/pkg/ark-lib/script"
-	"github.com/arkade-os/arkd/pkg/ark-lib/tree"
-	"github.com/arkade-os/arkd/pkg/ark-lib/txutils"
-	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
-	"github.com/arkade-os/go-sdk/vhtlc"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
 
-func checkpointExitScript(cfg clientTypes.Config) []byte {
-	buf, _ := hex.DecodeString(cfg.CheckpointTapscript)
-	return buf
+func parseLocktime(locktime uint32) arklib.RelativeLocktime {
+	if locktime >= 512 {
+		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: locktime}
+	}
+
+	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: locktime}
 }
 
-type pendingTxIntentInput struct {
-	Vtxo             clientTypes.VtxoWithTapTree
-	Closure          script.Closure
-	Sequence         uint32
-	ConditionWitness wire.TxWitness
+// stripTxSignatures returns a copy of the given tx without any tapscript signature.
+func stripTxSignatures(tx *psbt.Packet) (*psbt.Packet, string, error) {
+	unsignedTx := &psbt.Packet{}
+	*unsignedTx = *tx
+
+	// Clone the inputs so that dropping the signatures doesn't mutate the given tx.
+	unsignedTx.Inputs = make([]psbt.PInput, len(tx.Inputs))
+	copy(unsignedTx.Inputs, tx.Inputs)
+
+	for i := range unsignedTx.Inputs {
+		unsignedTx.Inputs[i].TaprootScriptSpendSig = nil
+	}
+
+	base64, err := unsignedTx.B64Encode()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode psbt: %w", err)
+	}
+	return unsignedTx, base64, nil
 }
 
-func getPendingTxIntent(
-	inputsData []pendingTxIntentInput,
-	locktime uint32,
-) (string, string, error) {
-	if len(inputsData) == 0 {
-		return "", "", fmt.Errorf("missing pending vtxos")
+// combineTxSignatures returns the fully signed tx combining the signatures of the given tx copies.
+func combineTxSignatures(txs ...*psbt.Packet) (*psbt.Packet, string, error) {
+	if len(txs) < 2 {
+		return nil, "", fmt.Errorf("missing signed tx to combine")
 	}
 
-	inputs := make([]intent.Input, 0, len(inputsData))
-	leafProofs := make([]*arklib.TaprootMerkleProof, 0, len(inputsData))
-	arkFields := make([][]*psbt.Unknown, 0, len(inputsData))
+	fullySignedTx := &psbt.Packet{}
+	*fullySignedTx = *txs[0]
 
-	for _, inputData := range inputsData {
-		hash, err := chainhash.NewHashFromStr(inputData.Vtxo.Txid)
-		if err != nil {
-			return "", "", err
+	// Clone the inputs so that adding the signatures doesn't mutate the given tx.
+	fullySignedTx.Inputs = make([]psbt.PInput, len(txs[0].Inputs))
+	copy(fullySignedTx.Inputs, txs[0].Inputs)
+
+	txid := fullySignedTx.UnsignedTx.TxID()
+	for _, tx := range txs[1:] {
+		if tx.UnsignedTx.TxID() != txid {
+			return nil, "", fmt.Errorf(
+				"cannot combine signature for txs with different txids: expected %s, got %s",
+				txid, tx.UnsignedTx.TxID(),
+			)
 		}
-
-		pkScript, leafProof, err := extractTaprootLeaf(inputData.Vtxo.Tapscripts, inputData.Closure)
-		if err != nil {
-			return "", "", err
-		}
-
-		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(inputData.Vtxo.Tapscripts)
-		if err != nil {
-			return "", "", err
-		}
-
-		inputs = append(inputs, intent.Input{
-			OutPoint: wire.NewOutPoint(hash, inputData.Vtxo.VOut),
-			Sequence: inputData.Sequence,
-			WitnessUtxo: &wire.TxOut{
-				Value:    int64(inputData.Vtxo.Amount),
-				PkScript: pkScript,
-			},
-		})
-		leafProofs = append(leafProofs, leafProof)
-		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
 	}
 
-	message, err := intent.GetPendingTxMessage{
-		BaseMessage: intent.BaseMessage{
-			Type: intent.IntentMessageTypeGetPendingTx,
-		},
-		ExpireAt: time.Now().Add(10 * time.Minute).Unix(),
-	}.Encode()
+	for i, in := range fullySignedTx.Inputs {
+		sigsMap := make(map[string]*psbt.TaprootScriptSpendSig)
+		for _, sig := range in.TaprootScriptSpendSig {
+			pubkey := hex.EncodeToString(sig.XOnlyPubKey)
+			sigsMap[pubkey] = sig
+		}
+		for _, tx := range txs[1:] {
+			in := tx.Inputs[i]
+			for _, sig := range in.TaprootScriptSpendSig {
+				pubkey := hex.EncodeToString(sig.XOnlyPubKey)
+				if _, ok := sigsMap[pubkey]; !ok {
+					sigsMap[pubkey] = sig
+				}
+			}
+		}
+		sigs := make([]*psbt.TaprootScriptSpendSig, 0, len(sigsMap))
+		for _, sig := range sigsMap {
+			sigs = append(sigs, sig)
+		}
+		fullySignedTx.Inputs[i].TaprootScriptSpendSig = sigs
+	}
+
+	base64, err := fullySignedTx.B64Encode()
 	if err != nil {
-		return "", "", err
+		return nil, "", fmt.Errorf("failed to encode combined tx: %w", err)
 	}
-
-	proof, err := intent.New(message, inputs, nil)
-	if err != nil {
-		return "", "", err
-	}
-
-	proof.UnsignedTx.LockTime = locktime
-
-	for i, input := range proof.Inputs {
-		var leafProof *arklib.TaprootMerkleProof
-		if i == 0 {
-			leafProof = leafProofs[0]
-		} else {
-			leafProof = leafProofs[i-1]
-			input.Unknowns = arkFields[i-1]
-		}
-
-		input.TaprootLeafScript = []*psbt.TaprootTapLeafScript{{
-			ControlBlock: leafProof.ControlBlock,
-			Script:       leafProof.Script,
-			LeafVersion:  txscript.BaseLeafVersion,
-		}}
-		proof.Inputs[i] = input
-	}
-
-	for i, inputData := range inputsData {
-		if len(inputData.ConditionWitness) == 0 {
-			continue
-		}
-
-		if err := txutils.SetArkPsbtField(
-			&proof.Packet, i+1, txutils.ConditionWitnessField, inputData.ConditionWitness,
-		); err != nil {
-			return "", "", err
-		}
-	}
-
-	encodedProof, err := proof.B64Encode()
-	if err != nil {
-		return "", "", err
-	}
-
-	return encodedProof, message, nil
+	return fullySignedTx, base64, nil
 }
 
-func extractTaprootLeaf(
-	tapscripts []string, closure script.Closure,
-) ([]byte, *arklib.TaprootMerkleProof, error) {
-	vtxoScript, err := script.ParseVtxoScript(tapscripts)
-	if err != nil {
-		return nil, nil, err
+func verifyTxSignatures(
+	tx *psbt.Packet, pubkeys []*btcec.PublicKey, expectedTapLeaves map[int]txscript.TapLeaf,
+) error {
+	for _, signer := range pubkeys {
+		if err := verifyTxInputSignatures(tx, signer, expectedTapLeaves); err != nil {
+			return err
+		}
 	}
-
-	leafScript, err := closure.Script()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	taprootKey, taprootTree, err := vtxoScript.TapTree()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	tapLeaf := txscript.NewBaseTapLeaf(leafScript)
-	leafProof, err := taprootTree.GetTaprootMerkleProof(tapLeaf.TapHash())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get taproot merkle proof: %w", err)
-	}
-
-	pkScript, err := script.P2TRScript(taprootKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return pkScript, leafProof, nil
+	return nil
 }
 
-// verifyInputSignatures checks that all inputs have a signature for the given pubkey
+// verifyTxInputSignatures checks that all inputs have a signature for the given pubkey
 // and the signature is correct for the given tapscript leaf
-func verifyInputSignatures(
+func verifyTxInputSignatures(
 	tx *psbt.Packet, pubkey *btcec.PublicKey, tapLeaves map[int]txscript.TapLeaf,
 ) error {
 	xOnlyPubkey := schnorr.SerializePubKey(pubkey)
@@ -252,128 +195,6 @@ func getInputTapLeaves(tx *psbt.Packet) map[int]txscript.TapLeaf {
 	return tapLeaves
 }
 
-func verifyAndSignCheckpoints(
-	signedCheckpoints []string, myCheckpoints []*psbt.Packet,
-	arkSigner *btcec.PublicKey, sign func(tx *psbt.Packet) (string, error),
-) ([]string, error) {
-	finalCheckpoints := make([]string, 0, len(signedCheckpoints))
-	for _, checkpoint := range signedCheckpoints {
-		signedCheckpointPtx, err := psbt.NewFromRawBytes(strings.NewReader(checkpoint), true)
-		if err != nil {
-			return nil, err
-		}
-
-		// search for the checkpoint tx we initially created
-		var myCheckpointTx *psbt.Packet
-		for _, chk := range myCheckpoints {
-			if chk.UnsignedTx.TxID() == signedCheckpointPtx.UnsignedTx.TxID() {
-				myCheckpointTx = chk
-				break
-			}
-		}
-		if myCheckpointTx == nil {
-			return nil, fmt.Errorf("checkpoint tx not found")
-		}
-
-		// verify the server has signed the checkpoint tx
-		if err := verifyInputSignatures(
-			signedCheckpointPtx, arkSigner, getInputTapLeaves(myCheckpointTx),
-		); err != nil {
-			return nil, err
-		}
-
-		finalCheckpoint, err := sign(signedCheckpointPtx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to sign checkpoint transaction: %w", err)
-		}
-
-		finalCheckpoints = append(finalCheckpoints, finalCheckpoint)
-	}
-
-	return finalCheckpoints, nil
-}
-
-func verifyFinalArkTx(
-	finalArkTx string, arkSigner *btcec.PublicKey, expectedTapLeaves map[int]txscript.TapLeaf,
-) error {
-	finalArkPtx, err := psbt.NewFromRawBytes(strings.NewReader(finalArkTx), true)
-	if err != nil {
-		return err
-	}
-
-	// verify that the ark signer has signed the ark tx
-	return verifyInputSignatures(finalArkPtx, arkSigner, expectedTapLeaves)
-}
-
-func offchainAddressPkScript(addr string) (string, error) {
-	decodedAddress, err := arklib.DecodeAddressV0(addr)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode address %s: %w", addr, err)
-	}
-
-	p2trScript, err := txscript.PayToTaprootScript(decodedAddress.VtxoTapKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse address to p2tr script: %w", err)
-	}
-	return hex.EncodeToString(p2trScript), nil
-}
-
-func parseLocktime(locktime uint32) arklib.RelativeLocktime {
-	if locktime >= 512 {
-		return arklib.RelativeLocktime{Type: arklib.LocktimeTypeSecond, Value: locktime}
-	}
-
-	return arklib.RelativeLocktime{Type: arklib.LocktimeTypeBlock, Value: locktime}
-}
-
-func combineTapscripts(signedPackets []*psbt.Packet) (*psbt.Packet, error) {
-	if len(signedPackets) <= 0 {
-		return nil, errors.New("missing txs to combine")
-	}
-	if len(signedPackets) == 1 {
-		return signedPackets[0], nil
-	}
-
-	finalCheckpoint := signedPackets[0]
-	for i := range finalCheckpoint.Inputs {
-		scriptSigs := make([]*psbt.TaprootScriptSpendSig, len(signedPackets))
-		for j, signedCheckpointPsbt := range signedPackets {
-			if i >= len(signedCheckpointPsbt.Inputs) {
-				return nil, fmt.Errorf("missing input %d for packet %d", i, j)
-			}
-
-			boltzIn := signedCheckpointPsbt.Inputs[i]
-			if len(boltzIn.TaprootScriptSpendSig) == 0 {
-				return nil, fmt.Errorf(
-					"missing tapscript signature for packet %d input %d",
-					j,
-					i,
-				)
-			}
-			scriptSigs[j] = boltzIn.TaprootScriptSpendSig[0]
-		}
-		finalCheckpoint.Inputs[i].TaprootScriptSpendSig = scriptSigs
-	}
-	return finalCheckpoint, nil
-}
-
-func verifySignatures(
-	signedCheckpointTxs []*psbt.Packet, pubkeys []*btcec.PublicKey,
-	expectedTapLeaves map[int]txscript.TapLeaf,
-) error {
-	for _, signedCheckpointTx := range signedCheckpointTxs {
-		for _, signer := range pubkeys {
-			// verify that the ark signer has signed the ark tx
-			if err := verifyInputSignatures(
-				signedCheckpointTx, signer, expectedTapLeaves,
-			); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func decodeInvoice(invoice string) (uint64, []byte, int, error) {
 	bolt11, err := decodepay.Decodepay(invoice)
 	if err != nil {
@@ -416,354 +237,32 @@ func parsePubkey(pubkey string) (*btcec.PublicKey, error) {
 	return pk, nil
 }
 
+// retry runs fn at the given interval until it reports done, then returns its error, if any.
+// An error with done=false is transient: fn is retried, and the last transient error is
+// returned if the context expires before fn is done.
 func retry(
 	ctx context.Context, interval time.Duration, fn func(ctx context.Context) (bool, error),
 ) error {
+	var lastErr error
 	for {
 		select {
 		case <-ctx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("timed out, last error: %w", lastErr)
+			}
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return fmt.Errorf("timed out")
 			}
 			return ctx.Err()
 		default:
 			done, err := fn(ctx)
-			if err != nil {
+			if done {
 				return err
 			}
-			if done {
-				return nil
+			if err != nil {
+				lastErr = err
 			}
 			<-time.After(interval)
 		}
 	}
-}
-
-func validatePreimage(preimage, expectedHash []byte) error {
-	if len(preimage) != 32 {
-		return fmt.Errorf("preimage must be 32 bytes, got %d", len(preimage))
-	}
-
-	buf := sha256.Sum256(preimage)
-	preimageHash := input.Ripemd160H(buf[:])
-	if !bytes.Equal(preimageHash, expectedHash) {
-		return fmt.Errorf(
-			"preimage hash mismatch: expected %x, got %x", expectedHash, preimageHash,
-		)
-	}
-
-	return nil
-}
-
-func getEventTopics(vtxos []clientTypes.VtxoWithTapTree, signerPubkey string) []string {
-	topics := make([]string, 0, len(vtxos)+1)
-	for _, vtxo := range vtxos {
-		topics = append(topics, vtxo.Outpoint.String())
-	}
-	topics = append(topics, signerPubkey)
-	return topics
-}
-
-func getClaimIntent(
-	session *batchSessionArgs, preimage []byte,
-) (string, string, error) {
-	vtxoScript, err := script.ParseVtxoScript(session.vhtlcScript.GetRevealedTapscripts())
-	if err != nil {
-		return "", "", fmt.Errorf("failed to parse vtxo script: %w", err)
-	}
-
-	forfeitClosures := vtxoScript.ForfeitClosures()
-	if len(forfeitClosures) <= 0 {
-		return "", "", fmt.Errorf("no forfeit closures found")
-	}
-
-	forfeitClosure, err := getClaimClosure(forfeitClosures)
-	if err != nil {
-		return "", "", err
-	}
-
-	vtxoLocktime, inputSequence := extractLocktimeAndSequence(forfeitClosure)
-
-	claimTapscript, err := session.vhtlcScript.ClaimTapscript()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get claim tapscript for intent: %w", err)
-	}
-
-	inputs, tapLeaves, arkFields, err := getIntentInputs(
-		session.vtxos, session.vhtlcScript, claimTapscript, inputSequence,
-	)
-	if err != nil {
-		return "", "", err
-	}
-
-	receivers := []clientTypes.Receiver{{To: session.destinationAddr, Amount: session.totalAmount}}
-
-	intentMessage, err := getIntentMessage(session.signerSession)
-	if err != nil {
-		return "", "", err
-	}
-
-	outputs, err := getIntentOutputs(receivers)
-	if err != nil {
-		return "", "", err
-	}
-
-	proof, err := intent.New(intentMessage, inputs, outputs)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to build intent proof: %w", err)
-	}
-	proof.UnsignedTx.LockTime = uint32(vtxoLocktime)
-
-	if err := addForfeitLeafProof(proof, session.vhtlcScript, forfeitClosure); err != nil {
-		return "", "", err
-	}
-
-	for i := range inputs {
-		proof.Inputs[i+1].Unknowns = arkFields[i]
-		if tapLeaves[i] != nil {
-			proof.Inputs[i+1].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-				{
-					ControlBlock: tapLeaves[i].ControlBlock,
-					Script:       tapLeaves[i].Script,
-					LeafVersion:  txscript.BaseLeafVersion,
-				},
-			}
-		}
-	}
-
-	if err := txutils.SetArkPsbtField(
-		&proof.Packet, 1, txutils.ConditionWitnessField, wire.TxWitness{preimage},
-	); err != nil {
-		return "", "", fmt.Errorf("failed to inject preimage into intent proof: %w", err)
-	}
-
-	encodedProof, err := proof.B64Encode()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to encode proof for signing: %w", err)
-	}
-
-	return encodedProof, intentMessage, nil
-}
-
-func getRefundIntent(session *batchSessionArgs) (string, string, error) {
-	vtxoScript, err := script.ParseVtxoScript(session.vhtlcScript.GetRevealedTapscripts())
-	if err != nil {
-		return "", "", fmt.Errorf("failed to parse vtxo script: %w", err)
-	}
-
-	forfeitClosures := vtxoScript.ForfeitClosures()
-	if len(forfeitClosures) <= 0 {
-		return "", "", fmt.Errorf("no forfeit closures found")
-	}
-
-	forfeitClosure, err := getRefundClosure(forfeitClosures)
-	if err != nil {
-		return "", "", err
-	}
-
-	vtxoLocktime, inputSequence := extractLocktimeAndSequence(forfeitClosure)
-
-	refundTapscript, err := session.vhtlcScript.RefundTapscript(false)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get refund tapscript for intent: %w", err)
-	}
-
-	inputs, tapLeaves, arkFields, err := getIntentInputs(
-		session.vtxos, session.vhtlcScript, refundTapscript, inputSequence,
-	)
-	if err != nil {
-		return "", "", err
-	}
-
-	receivers := []clientTypes.Receiver{{To: session.destinationAddr, Amount: session.totalAmount}}
-
-	intentMessage, err := getIntentMessage(session.signerSession)
-	if err != nil {
-		return "", "", err
-	}
-
-	outputs, err := getIntentOutputs(receivers)
-	if err != nil {
-		return "", "", err
-	}
-
-	proof, err := intent.New(intentMessage, inputs, outputs)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to build intent proof: %w", err)
-	}
-	proof.UnsignedTx.LockTime = uint32(vtxoLocktime)
-
-	if err := addForfeitLeafProof(proof, session.vhtlcScript, forfeitClosure); err != nil {
-		return "", "", err
-	}
-
-	for i := range inputs {
-		proof.Inputs[i+1].Unknowns = arkFields[i]
-		if tapLeaves[i] != nil {
-			proof.Inputs[i+1].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-				{
-					ControlBlock: tapLeaves[i].ControlBlock,
-					Script:       tapLeaves[i].Script,
-					LeafVersion:  txscript.BaseLeafVersion,
-				},
-			}
-		}
-	}
-
-	encodedProof, err := proof.B64Encode()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to encode proof for signing: %w", err)
-	}
-
-	return encodedProof, intentMessage, nil
-}
-
-func extractLocktimeAndSequence(closure script.Closure) (arklib.AbsoluteLocktime, uint32) {
-	if cltv, ok := closure.(*script.CLTVMultisigClosure); ok {
-		return cltv.Locktime, wire.MaxTxInSequenceNum - 1
-	}
-	return arklib.AbsoluteLocktime(0), wire.MaxTxInSequenceNum
-}
-
-// getClaimClosure returns the ConditionMultisigClosure from the list of closures
-func getClaimClosure(forfeitClosures []script.Closure) (script.Closure, error) {
-	for _, fc := range forfeitClosures {
-		if _, ok := fc.(*script.ConditionMultisigClosure); ok {
-			return fc, nil
-		}
-	}
-	return nil, fmt.Errorf("ConditionMultisigClosure not found for claim path")
-}
-
-func getRefundClosure(forfeitClosures []script.Closure) (script.Closure, error) {
-	// Refund path: find CLTVMultisigClosure (sweep closure)
-	for _, fc := range forfeitClosures {
-		if _, ok := fc.(*script.CLTVMultisigClosure); ok {
-			return fc, nil
-		}
-	}
-	return nil, fmt.Errorf("CLTVMultisigClosure not found for refund path")
-}
-
-func getIntentInputs(
-	vtxos []clientTypes.VtxoWithTapTree, vhtlcScript *vhtlc.VHTLCScript,
-	settlementTapscript *waddrmgr.Tapscript, inputSequence uint32,
-) ([]intent.Input, []*arklib.TaprootMerkleProof, [][]*psbt.Unknown, error) {
-	vhtlcTapKey, vhtlcTapTree, err := vhtlcScript.TapTree()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to get VHTLC tap tree: %w", err)
-	}
-
-	inputs := make([]intent.Input, 0, len(vtxos))
-	tapLeaves := make([]*arklib.TaprootMerkleProof, 0, len(vtxos))
-	arkFields := make([][]*psbt.Unknown, 0, len(vtxos))
-
-	for _, vtxo := range vtxos {
-		vtxoTxHash, err := chainhash.NewHashFromStr(vtxo.Txid)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("invalid vtxo txid %s: %w", vtxo.Txid, err)
-		}
-
-		settlementTapscriptLeaf := txscript.NewBaseTapLeaf(settlementTapscript.RevealedScript)
-		merkleProof, err := vhtlcTapTree.GetTaprootMerkleProof(settlementTapscriptLeaf.TapHash())
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get taproot merkle proof: %w", err)
-		}
-
-		pkScript, err := script.P2TRScript(vhtlcTapKey)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create P2TR script: %w", err)
-		}
-
-		inputs = append(inputs, intent.Input{
-			OutPoint: &wire.OutPoint{
-				Hash:  *vtxoTxHash,
-				Index: vtxo.VOut,
-			},
-			Sequence: inputSequence,
-			WitnessUtxo: &wire.TxOut{
-				Value:    int64(vtxo.Amount),
-				PkScript: pkScript,
-			},
-		})
-
-		tapLeaves = append(tapLeaves, merkleProof)
-		vhtlcTapscripts := vhtlcScript.GetRevealedTapscripts()
-		taptreeField, err := txutils.VtxoTaprootTreeField.Encode(vhtlcTapscripts)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to encode tapscripts: %w", err)
-		}
-		arkFields = append(arkFields, []*psbt.Unknown{taptreeField})
-	}
-
-	return inputs, tapLeaves, arkFields, nil
-}
-
-func getIntentOutputs(receivers []clientTypes.Receiver) ([]*wire.TxOut, error) {
-	outputs := make([]*wire.TxOut, 0, len(receivers))
-	for _, receiver := range receivers {
-		decodedAddr, err := arklib.DecodeAddressV0(receiver.To)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode receiver address: %w", err)
-		}
-
-		pkScript, err := script.P2TRScript(decodedAddr.VtxoTapKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create receiver pkScript: %w", err)
-		}
-
-		outputs = append(outputs, &wire.TxOut{
-			Value:    int64(receiver.Amount),
-			PkScript: pkScript,
-		})
-	}
-	return outputs, nil
-}
-
-func getIntentMessage(signerSession tree.SignerSession) (string, error) {
-	validAt := time.Now()
-	intentMessage, err := intent.RegisterMessage{
-		BaseMessage: intent.BaseMessage{
-			Type: intent.IntentMessageTypeRegister,
-		},
-		ExpireAt:            validAt.Add(5 * time.Minute).Unix(),
-		ValidAt:             validAt.Unix(),
-		CosignersPublicKeys: []string{signerSession.GetPublicKey()},
-	}.Encode()
-	if err != nil {
-		return "", fmt.Errorf("failed to encode intent message: %w", err)
-	}
-	return intentMessage, nil
-}
-
-func addForfeitLeafProof(
-	proof *intent.Proof, vhtlcScript *vhtlc.VHTLCScript, forfeitClosure script.Closure,
-) error {
-	_, vhtlcTapTree, err := vhtlcScript.TapTree()
-	if err != nil {
-		return fmt.Errorf("failed to get VHTLC tap tree: %w", err)
-	}
-
-	forfeitScript, err := forfeitClosure.Script()
-	if err != nil {
-		return fmt.Errorf("failed to get forfeit script: %w", err)
-	}
-
-	forfeitLeaf := txscript.NewBaseTapLeaf(forfeitScript)
-	leafProof, err := vhtlcTapTree.GetTaprootMerkleProof(forfeitLeaf.TapHash())
-	if err != nil {
-		return fmt.Errorf("failed to get forfeit merkle proof: %w", err)
-	}
-
-	if leafProof != nil {
-		proof.Packet.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-			{
-				ControlBlock: leafProof.ControlBlock,
-				Script:       leafProof.Script,
-				LeafVersion:  txscript.BaseLeafVersion,
-			},
-		}
-	}
-
-	return nil
 }

@@ -1,4 +1,4 @@
-package contract
+package arksdk
 
 import (
 	"context"

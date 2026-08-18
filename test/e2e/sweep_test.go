@@ -28,7 +28,7 @@ import (
 
 func TestCheckpointSweep(t *testing.T) {
 	ctx := t.Context()
-	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+	alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 	// create a VTXO spent by a checkpoint tx
 	rootVtxo := faucetOffchain(t, alice, 0.00021)

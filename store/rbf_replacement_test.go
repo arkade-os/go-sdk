@@ -18,11 +18,11 @@ import (
 func TestRbfReplacementWithReorderedOutputs(t *testing.T) {
 	tests := []struct {
 		name   string
-		config store.Config
+		config types.StoreConfig
 	}{
 		{
 			name:   "sql",
-			config: store.Config{StoreType: types.SQLStore, Args: t.TempDir()},
+			config: types.StoreConfig{StoreType: types.SQLStore, Args: t.TempDir()},
 		},
 	}
 

@@ -14,14 +14,12 @@ const (
 	defaultAccount = uint32(0)
 )
 
-// keyService handles BIP32 key derivation and caching for HD identity.
+// keyService handles BIP32 key derivation for HD identity. Keys are derived on demand:
+// BIP32 child derivation is cheap enough that no cache is kept.
 type keyService struct {
 	// masterKey is the BIP32 root key restored from the user's mnemonic or xpriv.
 	masterKey *hdkeychain.ExtendedKey
 
-	// derivedKeyCache stores already derived keys by child index so we can reuse
-	// them across address generation, signing, and discovery without deriving again.
-	derivedKeyCache map[uint32]struct{}
 	// nextKeyIndex is the next child index to allocate from keyBasePath.
 	nextKeyIndex uint32
 	mu           sync.RWMutex
@@ -29,10 +27,22 @@ type keyService struct {
 
 // newHDKeyService creates a new key provider from a BIP32 master extended key.
 func newHDKeyService(masterKey *hdkeychain.ExtendedKey) *keyService {
-	return &keyService{
-		masterKey:       masterKey,
-		derivedKeyCache: make(map[uint32]struct{}),
+	return &keyService{masterKey: masterKey}
+}
+
+func (s *keyService) GetXpub() (string, error) {
+	account, err := s.masterKey.Derive(defaultAccount)
+	if err != nil {
+		return "", err
 	}
+
+	// Neuter the extended key to strip the private key material: deriving a child of a private
+	// extended key yields another private one, and serializing it would leak the xprv.
+	xpub, err := account.Neuter()
+	if err != nil {
+		return "", err
+	}
+	return xpub.String(), nil
 }
 
 // GetNextKey derives and caches the next key pair based on the internal derivation index.
@@ -45,28 +55,21 @@ func (s *keyService) GetNextKey() (*btcec.PrivateKey, *btcec.PublicKey, string, 
 	if err != nil {
 		return nil, nil, "", err
 	}
-	s.derivedKeyCache[idx] = struct{}{}
 	s.nextKeyIndex = idx + 1
 	return privKey, privKey.PubKey(), toDerivationPath(idx), nil
 }
 
 // DeriveKeyAt derives the key pair with the given key id.
 func (s *keyService) DeriveKeyAt(keyId string) (*btcec.PrivateKey, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	path, err := parseDerivationIndex(keyId)
 	if err != nil {
 		return nil, err
 	}
-	index := path[1]
 
-	privKey, err := s.deriveKeyAtIndex(index)
-	if err != nil {
-		return nil, err
-	}
-	s.derivedKeyCache[index] = struct{}{}
-	return privKey, nil
+	return s.deriveKeyAtIndex(path[1])
 }
 
 // GetNextKeyIndex returns the internal derivation index for the next key pair.
@@ -102,14 +105,11 @@ func (s *keyService) LoadState(state identitystore.IdentityData) error {
 	defer s.mu.Unlock()
 
 	s.nextKeyIndex = state.NextIndex
-	s.derivedKeyCache = make(map[uint32]struct{})
 	return nil
 }
 
-// deriveKeyAtIndex is pure: it derives the private key at the given index but
-// does NOT mutate derivedKeyCache. Callers that want the index tracked must
-// add it to the cache themselves while holding the write lock — otherwise
-// concurrent read-locked callers (e.g. GetAllKeyRefs) would race on the map.
+// deriveKeyAtIndex derives the private key at the given index. It's pure — no state is
+// mutated — so it's safe under either lock mode.
 func (s *keyService) deriveKeyAtIndex(index uint32) (*btcec.PrivateKey, error) {
 	child, err := s.deriveChildKey(index)
 	if err != nil {

@@ -22,7 +22,7 @@ type vtxoPaginationFixture struct {
 	assetID string
 }
 
-func TestE2EVtxoPagination(t *testing.T) {
+func TestListVtxoPagination(t *testing.T) {
 	f := setupVtxoPaginationFixture(t)
 
 	t.Run("paginated walk equals single-call result", func(t *testing.T) {
@@ -379,8 +379,8 @@ func TestE2EVtxoPagination(t *testing.T) {
 }
 
 // setupVtxoPaginationFixture builds Alice's pagination dataset:
-//   - 2 VTXOs are received first, then settled, leaving them spent.
-//   - the settlement creates 1 spendable VTXO.
+//   - 2 VTXOs are received first, then renewed, leaving them spent.
+//   - the renewal creates 1 spendable VTXO.
 //   - 2 spendable VTXOs with assets are received next.
 //   - 7 more spendable VTXOs are received last.
 //
@@ -391,8 +391,8 @@ func setupVtxoPaginationFixture(t *testing.T) vtxoPaginationFixture {
 	t.Helper()
 
 	ctx := t.Context()
-	alice := setupClient(t, "", arksdk.WithoutAutoSettle())
-	bob := setupClient(t, "", arksdk.WithoutAutoSettle())
+	alice := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
+	bob := setupClient(t, "", arksdk.WithRenewalScheduleInterval(time.Hour))
 
 	faucetOffchain(t, bob, 0.02)
 

@@ -644,13 +644,13 @@ func (q *Queries) SelectContractsByState(ctx context.Context, state string) ([]C
 	return items, nil
 }
 
-const selectLatestActiveContractByType = `-- name: SelectLatestActiveContractByType :one
+const selectLatestContractByType = `-- name: SelectLatestContractByType :one
 SELECT script, type, label, address, state, created_at, params, key_index, metadata FROM contract
-WHERE type = ?1 AND state = 'active' ORDER BY key_index DESC LIMIT 1
+WHERE type = ?1 ORDER BY key_index DESC LIMIT 1
 `
 
-func (q *Queries) SelectLatestActiveContractByType(ctx context.Context, contractType string) (Contract, error) {
-	row := q.db.QueryRowContext(ctx, selectLatestActiveContractByType, contractType)
+func (q *Queries) SelectLatestContractByType(ctx context.Context, contractType string) (Contract, error) {
+	row := q.db.QueryRowContext(ctx, selectLatestContractByType, contractType)
 	var i Contract
 	err := row.Scan(
 		&i.Script,

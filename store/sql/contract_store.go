@@ -14,6 +14,13 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
+// nonInteractiveReceiverParam is the contract param persisted only for non-interactive
+// vhtlcs (it must match the param name used by the vhtlc contract handler). Its presence
+// is what distinguishes the two vhtlc flavors: they are stored under the same vhtlc type,
+// so that they share the key-index counter of their common keyspace, and the exact type
+// is resolved back from the params on read.
+const nonInteractiveReceiverParam = "nonInteractiveReceiver"
+
 type contractStore struct {
 	db      *sql.DB
 	querier *queries.Queries
@@ -47,7 +54,7 @@ func (v *contractStore) AddContract(
 	metadata := string(metadataBytes)
 	if err := v.querier.InsertContract(ctx, queries.InsertContractParams{
 		Script:    contract.Script,
-		Type:      string(contract.Type),
+		Type:      string(storageContractType(contract.Type)),
 		Label:     sql.NullString{String: contract.Label, Valid: len(contract.Label) > 0},
 		Address:   contract.Address,
 		State:     string(contract.State),
@@ -107,21 +114,32 @@ func (v *contractStore) GetContractsByState(
 func (v *contractStore) GetActiveContractsByType(
 	ctx context.Context, contractType types.ContractType,
 ) ([]types.Contract, error) {
-	rows, err := v.querier.SelectActiveContractsByType(ctx, string(contractType))
+	rows, err := v.querier.SelectActiveContractsByType(
+		ctx, string(storageContractType(contractType)),
+	)
 	if err != nil {
 		return nil, err
 	}
 	contracts := make([]types.Contract, 0, len(rows))
 	for _, row := range rows {
-		contracts = append(contracts, toContract(row))
+		// The two vhtlc flavors share the stored type: keep only the requested one.
+		if contract := toContract(row); contract.Type == contractType {
+			contracts = append(contracts, contract)
+		}
 	}
 	return contracts, nil
 }
 
-func (v *contractStore) GetLatestActiveContract(
+// GetLatestContract returns the contract with the highest key index of the given type, no
+// matter its state or, for the vhtlc flavors, its exact type: it drives the key-index
+// counter, and skipping a contract of the shared vhtlc keyspace would rewind the counter
+// and reuse its key.
+func (v *contractStore) GetLatestContract(
 	ctx context.Context, contractType types.ContractType,
 ) (*types.Contract, error) {
-	row, err := v.querier.SelectLatestActiveContractByType(ctx, string(contractType))
+	row, err := v.querier.SelectLatestContractByType(
+		ctx, string(storageContractType(contractType)),
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -148,6 +166,14 @@ func (v *contractStore) UpdateContractState(
 	return nil
 }
 
+func (v *contractStore) EnableContracts(ctx context.Context, scripts []string) error {
+	return v.setContractsState(ctx, scripts, types.ContractStateActive)
+}
+
+func (v *contractStore) DisableContracts(ctx context.Context, scripts []string) error {
+	return v.setContractsState(ctx, scripts, types.ContractStateInactive)
+}
+
 func (v *contractStore) Clean(ctx context.Context) error {
 	v.lock.Lock()
 	defer v.lock.Unlock()
@@ -160,6 +186,37 @@ func (v *contractStore) Clean(ctx context.Context) error {
 	return nil
 }
 
+// setContractsState sets the state of the given contracts. When more than one script is given the
+// updates run in a single transaction, so either all of them are applied or none is.
+func (v *contractStore) setContractsState(
+	ctx context.Context, scripts []string, state types.ContractState,
+) error {
+	if len(scripts) == 0 {
+		return nil
+	}
+
+	update := func(querier *queries.Queries) error {
+		for _, script := range scripts {
+			n, err := querier.UpdateContractState(ctx, queries.UpdateContractStateParams{
+				State:  string(state),
+				Script: script,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to update contract %s: %w", script, err)
+			}
+			if n == 0 {
+				return fmt.Errorf("contract %s not found", script)
+			}
+		}
+		return nil
+	}
+
+	if len(scripts) == 1 {
+		return update(v.querier)
+	}
+	return execTx(ctx, v.db, update)
+}
+
 func toContract(row queries.Contract) types.Contract {
 	params := make(map[string]string)
 	// nolint:errcheck
@@ -170,7 +227,7 @@ func toContract(row queries.Contract) types.Contract {
 		json.Unmarshal([]byte(row.Metadata.String), &metadata)
 	}
 	return types.Contract{
-		Type:      types.ContractType(row.Type),
+		Type:      resolveContractType(types.ContractType(row.Type), params),
 		Label:     row.Label.String,
 		Params:    params,
 		Script:    row.Script,
@@ -179,4 +236,25 @@ func toContract(row queries.Contract) types.Contract {
 		CreatedAt: time.Unix(row.CreatedAt, 0),
 		Metadata:  metadata,
 	}
+}
+
+// storageContractType returns the contract type persisted in the type column: the two
+// vhtlc flavors are stored under the same vhtlc type.
+func storageContractType(t types.ContractType) types.ContractType {
+	if t == types.ContractTypeNonInteractiveVHTLC {
+		return types.ContractTypeVHTLC
+	}
+	return t
+}
+
+// resolveContractType returns the exact type of a stored contract, derived from the
+// persisted type and params: a vhtlc carrying the non-interactive params is a
+// non-interactive vhtlc.
+func resolveContractType(
+	t types.ContractType, params map[string]string,
+) types.ContractType {
+	if t == types.ContractTypeVHTLC && params[nonInteractiveReceiverParam] != "" {
+		return types.ContractTypeNonInteractiveVHTLC
+	}
+	return t
 }

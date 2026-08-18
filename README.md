@@ -25,8 +25,7 @@ Both accept one required parameter plus optional wallet options:
   - `WithVerbose()` — enables verbose logging.
   - `WithGapLimit(n uint32)` — HD discovery gap limit used on unlock to recover externally-funded addresses. Defaults to 20 and must be at least 20.
   - `WithIdentity(svc identity.Identity)` — inject a custom key-management implementation. By default the SDK creates an HD identity (BIP86) backed by the persistent datadir; see the `identity` package for the default implementation.
-  - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-settle. Defaults to a gocron-backed in-process scheduler.
-  - `WithoutAutoSettle()` — disable the background auto-settle loop entirely. By default the wallet schedules a Settle at ~90% of each spendable vtxo's remaining lifetime and re-schedules as fresher vtxos arrive.
+  - `WithScheduler(svc scheduler.SchedulerService)` — inject a custom scheduler implementation for auto-renewal. Defaults to a gocron-backed in-process scheduler.
 
 ```go
 import arksdk (
@@ -463,7 +462,7 @@ These return the underlying services so callers can drive lower-level flows dire
 - `CompleteUnroll(ctx, to string) (string, error)` - finalize an unroll and sweep to an onchain address.
 - `OnboardAgainAllExpiredBoardings(ctx) (string, error)` - onboard again using expired boarding UTXOs.
 - `WithdrawFromAllExpiredBoardings(ctx, to string) (string, error)` - withdraw expired boarding amounts onchain.
-- `WhenNextSettlement() time.Time` - inspect the next auto-settle firing time. Returns the zero value when auto-settle is disabled or nothing is scheduled.
+- `WhenNextRenewal() time.Time` - inspect the next auto-renewal firing time.
 
 > **Concurrency:** spend (`SendOffChain`, `IssueAsset`, `ReissueAsset`, `BurnAsset`) and batch (`Settle`, `CollaborativeExit`) operations on the same wallet are internally serialized, so they can be called concurrently without double-spending VTXOs. A pending `Settle`/`CollaborativeExit` takes precedence over queued spends, and concurrent `Settle` calls de-duplicate into a single settlement. Each call returns only once the server has tracked its result, so a following operation can safely spend the change. `CollaborativeExit` returns `ErrSettleInProgress` if a batch is already in flight.
 

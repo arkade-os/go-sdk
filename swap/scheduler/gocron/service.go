@@ -1,0 +1,135 @@
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/arkade-os/arkd/pkg/client-lib/explorer"
+	"github.com/arkade-os/go-sdk/swap/types"
+	"github.com/go-co-op/gocron"
+)
+
+type heightTask struct {
+	target uint32
+	fn     func()
+}
+
+type service struct {
+	scheduler            *gocron.Scheduler
+	explorer             explorer.Explorer
+	mu                   *sync.Mutex
+	blockCancel          context.CancelFunc
+	tasks                []*heightTask
+	explorerPollInterval time.Duration
+}
+
+func NewScheduler(
+	explorerSvc explorer.Explorer, pollInterval time.Duration,
+) types.Scheduler {
+	svc := gocron.NewScheduler(time.UTC)
+	return &service{
+		scheduler:            svc,
+		explorer:             explorerSvc,
+		mu:                   &sync.Mutex{},
+		explorerPollInterval: pollInterval,
+	}
+}
+
+func (s *service) Start() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Nothing to do if already started
+	if s.blockCancel != nil {
+		return
+	}
+
+	s.scheduler.StartAsync()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.blockCancel = cancel
+
+	go func() {
+		t := time.NewTicker(s.explorerPollInterval)
+		defer t.Stop()
+		for {
+			h, err := s.explorer.GetBlockHeight()
+			if err == nil {
+				s.mu.Lock()
+				keep := s.tasks[:0]
+				for _, tsk := range s.tasks {
+					if uint32(h) >= tsk.target {
+						go tsk.fn()
+						continue
+					}
+					keep = append(keep, tsk)
+				}
+				s.tasks = keep
+				s.mu.Unlock()
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+}
+
+func (s *service) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.scheduler != nil {
+		s.scheduler.Stop()
+		s.scheduler.Clear()
+
+		s.tasks = make([]*heightTask, 0)
+	}
+
+	if s.blockCancel != nil {
+		s.blockCancel()
+		s.blockCancel = nil
+	}
+}
+
+func (s *service) ScheduleTaskAtHeight(target uint32, task func()) error {
+	if target == 0 {
+		return fmt.Errorf("invalid height: %d", target)
+	}
+
+	currentHeight, err := s.explorer.GetBlockHeight()
+	if err != nil {
+		return fmt.Errorf("failed to get current block height: %w", err)
+	}
+	if uint32(currentHeight) >= target {
+		go task()
+		return nil
+	}
+	tsk := &heightTask{target: target, fn: task}
+	s.mu.Lock()
+	s.tasks = append(s.tasks, tsk)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *service) ScheduleTaskAtTime(at time.Time, task func()) error {
+	if at.IsZero() {
+		return fmt.Errorf("invalid schedule time")
+	}
+
+	delay := time.Until(at)
+	if delay <= 0 {
+		go task()
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.scheduler.Every(delay).WaitForSchedule().LimitRunsTo(1).Do(task)
+	return err
+}

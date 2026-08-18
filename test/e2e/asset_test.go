@@ -34,8 +34,8 @@ func TestAssetTransferAndRenew(t *testing.T) {
 	const transferAmount = 1_200
 
 	ctx := t.Context()
-	alice := setupClient(t, "", sdk.WithoutAutoSettle())
-	bob := setupClient(t, "", sdk.WithoutAutoSettle())
+	alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
+	bob := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 	aliceTxStream := alice.GetTransactionEventChannel(ctx)
 	bobTxStream := bob.GetTransactionEventChannel(ctx)
 
@@ -140,8 +140,8 @@ func TestProveDustAmountAddedByDefault(t *testing.T) {
 	isolateAssetCommitmentChain(t)
 
 	ctx := t.Context()
-	alice := setupClient(t, "", sdk.WithoutAutoSettle())
-	bob := setupClient(t, "", sdk.WithoutAutoSettle())
+	alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
+	bob := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 
 	faucetOffchain(t, alice, 0.002)
 
@@ -180,7 +180,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("without control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", sdk.WithoutAutoSettle())
+		alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -207,7 +207,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with new control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", sdk.WithoutAutoSettle())
+		alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -241,7 +241,7 @@ func TestAssetIssuance(t *testing.T) {
 
 	t.Run("with existing control asset", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "", sdk.WithoutAutoSettle())
+		alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 
 		faucetOffchain(t, alice, 0.01)
 
@@ -297,7 +297,7 @@ func TestAssetReissuance(t *testing.T) {
 	isolateAssetCommitmentChain(t)
 
 	ctx := t.Context()
-	alice := setupClient(t, "", sdk.WithoutAutoSettle())
+	alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 
 	faucetOffchain(t, alice, 0.01)
 
@@ -366,7 +366,7 @@ func TestAssetBurn(t *testing.T) {
 	isolateAssetCommitmentChain(t)
 
 	ctx := t.Context()
-	alice := setupClient(t, "", sdk.WithoutAutoSettle())
+	alice := setupClient(t, "", sdk.WithRenewalScheduleInterval(time.Hour))
 
 	faucetOffchain(t, alice, 0.01)
 

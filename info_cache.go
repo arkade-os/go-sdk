@@ -1,4 +1,4 @@
-package contract
+package arksdk
 
 import (
 	"context"
@@ -8,14 +8,16 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/client"
 )
 
-// infoCacheTTL is how long a cached client.Info response is reused before
-// the next GetInfo call hits the transport.
-const infoCacheTTL = 5 * time.Minute
+const (
+	// defaultInfoCacheTTL is how long a cached client.Info response is reused before the
+	// next GetInfo call hits the transport, unless customized with WithInfoCacheTTL.
+	defaultInfoCacheTTL = 5 * time.Minute
+	minInfoCacheTTL     = time.Minute
+)
 
-// infoCache memoizes the response of client.TransportClient.GetInfo so
-// every handler attached to the same manager shares one cache instead of
-// each owning its own (which would multiply redundant GetInfo calls as
-// new handler kinds — vhtlc, delegate — are added).
+// infoCache memoizes the response of client.TransportClient.GetInfo so every consumer of the
+// wallet's client — contract handlers, batch sessions, rotation detection — shares one cache
+// instead of each hammering the endpoint with redundant GetInfo calls.
 type infoCache struct {
 	mu                   sync.Mutex
 	resp                 *client.Info
