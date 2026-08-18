@@ -220,8 +220,8 @@ func pollForVtxoAtScript(
 // would be circular: covclaimd depends on go-sdk) ---
 
 const (
-	eciesNonceLen   = 12
-	eciesHkdfInfo   = "covclaimd/preimage/v1"
+	eciesNonceLen      = 12
+	eciesHkdfInfo      = "covclaimd/preimage/v1"
 	claimPktType       = 0x04
 	tlvCiphertext      = 0x01
 	tlvArkadeScript    = 0x02
