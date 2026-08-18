@@ -13,15 +13,15 @@ const p2trPkScriptLen = 34
 
 // NonInteractiveClaimOpts enables the non-interactive claim covenant closure
 // on a VHTLC. When set, NewVHTLCScriptFromOpts appends a ConditionMultisigClosure
-// that lets a solver bot claim the VHTLC on the receiver's behalf
-// by revealing the preimage. The solver does not need any signature from the
+// that lets a covclaimd bot claim the VHTLC on the receiver's behalf
+// by revealing the preimage. The covclaimd does not need any signature from the
 // receiver — it satisfies the emulator-tweaked multisig via the
 // EnforcePayTo arkade script.
 // Thus, the receiver knows that the output script of the claim is going to its wallet
 type NonInteractiveClaimOpts struct {
 	// ReceiverPkScript is the 34-byte P2TR pkScript of the VHTLC receiver.
 	ReceiverPkScript []byte
-	// EmulatorPubKey is the solver's emulator signing key (compressed).
+	// EmulatorPubKey is the covclaimd's emulator signing key (compressed).
 	// it will be tweaked with the non interactive claim arkade script.
 	EmulatorPubKey *btcec.PublicKey
 }
@@ -77,7 +77,7 @@ func emulatorTweakedKey(
 }
 
 // nonInteractiveClaimClosure builds the ConditionMultisigClosure used by the
-// solver to claim the VHTLC unilaterally with the preimage.
+// covclaimd to claim the VHTLC unilaterally with the preimage.
 func nonInteractiveClaimClosure(
 	preimageCondition []byte,
 	opts NonInteractiveClaimOpts,
