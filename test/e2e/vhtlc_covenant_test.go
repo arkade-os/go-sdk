@@ -34,11 +34,11 @@ import (
 
 const (
 	covclaimdHTTPAddr = "http://localhost:7074"
-	arkdGRPCAddr   = "localhost:7070"
+	arkdGRPCAddr      = "localhost:7070"
 )
 
 // TestNonInteractiveClaim creates a VHTLC with the non-interactive claim option
-// and lets bancod solver claim the VHTLC instead of the recipient.
+// and lets covclaimd claim the VHTLC instead of the recipient.
 func TestNonInteractiveClaim(t *testing.T) {
 	ctx := t.Context()
 
@@ -53,8 +53,8 @@ func TestNonInteractiveClaim(t *testing.T) {
 	receiverPkScript, err := txscript.PayToTaprootScript(receiverPriv.PubKey())
 	require.NoError(t, err)
 
-	// Fetch solver + emulator pubkeys from bancod
-	solverPub, introPub := fetchSolverPubKeysHTTP(t)
+	// Fetch covclaimd + emulator pubkeys from bancod
+	covclaimdPub, introPub := fetchCovclaimdPubKeysHTTP(t)
 
 	// Generate preimage
 	preimg := make([]byte, 32)
@@ -102,13 +102,13 @@ func TestNonInteractiveClaim(t *testing.T) {
 	t.Logf("VHTLC address: %s", vhtlcAddr)
 
 	// Encrypt just the raw 32-byte preimage (new format)
-	ciphertext, err := eciesEncrypt(solverPub, preimg)
+	ciphertext, err := eciesEncrypt(covclaimdPub, preimg)
 	require.NoError(t, err)
 
 	// Build extension packet: ciphertext + plaintext arkade script
 	claimPkt := buildClaimPacket(t, ciphertext, arkadeScript)
 
-	// Build taptree for the PSBT output so solver can decode the VHTLC
+	// Build taptree for the PSBT output so covclaimd can decode the VHTLC
 	tapKey, _, err := vhtlcScript.TapTree()
 	require.NoError(t, err)
 	pkScript, err := txscript.PayToTaprootScript(tapKey)
@@ -134,13 +134,13 @@ func TestNonInteractiveClaim(t *testing.T) {
 	require.NotEmpty(t, txid)
 	t.Logf("Funding tx: %s", txid)
 
-	// Wait for solver to auto-claim
+	// Wait for covclaimd to auto-claim
 	v := pollForVtxoAtScript(t, ctx, receiverPkScript, 60*time.Second)
-	require.Equal(t, amount, v.Amount, "solver should pay the full input value to the receiver")
+	require.Equal(t, amount, v.Amount, "covclaimd should pay the full input value to the receiver")
 	t.Logf("Claimed: %s:%d amount=%d", v.Txid, v.VOut, v.Amount)
 }
 
-func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
+func fetchCovclaimdPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	t.Helper()
 	resp, err := http.Get(fmt.Sprintf("%s/v1/preimage/covclaimd-pubkey", covclaimdHTTPAddr))
 	require.NoError(t, err)
@@ -148,19 +148,19 @@ func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	var result struct {
-		CovclaimdPubKey   string `json:"covclaimd_pub_key"`
-		EmulatorPubKey string `json:"emulator_pub_key"`
+		CovclaimdPubKey string `json:"covclaimd_pub_key"`
+		EmulatorPubKey  string `json:"emulator_pub_key"`
 	}
 	require.NoError(t, json.Unmarshal(body, &result))
 	covclaimdRaw, err := hex.DecodeString(result.CovclaimdPubKey)
 	require.NoError(t, err)
-	solver, err := btcec.ParsePubKey(covclaimdRaw)
+	covclaimd, err := btcec.ParsePubKey(covclaimdRaw)
 	require.NoError(t, err)
-	introRaw, err := hex.DecodeString(result.EmulatorPubKey)
+	emulatorRaw, err := hex.DecodeString(result.EmulatorPubKey)
 	require.NoError(t, err)
-	intro, err := btcec.ParsePubKey(introRaw)
+	emulator, err := btcec.ParsePubKey(emulatorRaw)
 	require.NoError(t, err)
-	return solver, intro
+	return covclaimd, emulator
 }
 
 func enforcePayTo(t *testing.T, receiverPkScript []byte) ([]byte, error) {

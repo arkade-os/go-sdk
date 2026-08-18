@@ -257,37 +257,37 @@ else
     echo "  ✅ wallet synced"
 fi
 
-echo "setting up Solver stack..."
-if ! run_quiet $compose up -d --no-recreate emulator solver; then
-    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator solver
+echo "setting up covclaimd stack..."
+if ! run_quiet $compose up -d --no-recreate emulator covclaimd; then
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator covclaimd
     exit "  ❌ failed to start stack (status=$status) (err=$err)"
 else
     echo "  ✅ stack started"
 fi
 
-# Wait for solver's HTTP listener and the preimage plugin to be running.
-solver_ready=0
-last_solver_response=""
+# Wait for covlcaimd's HTTP listener and the preimage plugin to be running.
+covclaimd_ready=0
+last_covclaimd_response=""
 for _ in {1..30}; do
-    response=$(curl -sS --max-time 2 http://127.0.0.1:7271/v1/plugins 2>&1)
+    response=$(curl -sS --max-time 2 http://127.0.0.1:7074/v1/preimage/covclaimd-pubkey 2>&1)
     curl_status=$?
     if [ $curl_status -eq 0 ]; then
-        last_solver_response="$response"
+        last_covclaimd_response="$response"
     else
-        last_solver_response="curl failed with status $curl_status: $response"
+        last_covclaimd_response="curl failed with status $curl_status: $response"
     fi
 
     if [ $curl_status -eq 0 ] && [ -n "$response" ] && [ "$(echo "$response" | jq -r '.preimage.running // false' 2>/dev/null)" = "true" ]; then
-        solver_ready=1
+        covclaimd_ready=1
         break
     fi
     sleep 2
 done
-if [ $solver_ready -ne 1 ]; then
-    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator solver
-    exit "  ❌ solver preimage plugin did not become ready (last response: $last_solver_response)"
+if [ $covclaimd_ready -ne 1 ]; then
+    dump_compose_diagnostics pgnbxplorer nbxplorer arkd-wallet arkd emulator covclaimd
+    exit "  ❌ covclaimd preimage plugin did not become ready (last response: $last_covclaimd_response)"
 else
-    echo "  ✅ solver ready (preimage plugin running)"
+    echo "  ✅ covclaimd ready (preimage plugin running)"
 fi
 
 echo "setting up Boltz stack..."
