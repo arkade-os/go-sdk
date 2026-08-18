@@ -1,4 +1,4 @@
-FROM golang:1.26.3 AS builder
+FROM golang:1.26.5 AS builder
 
 # Keep this pinned while TestNonInteractiveClaim depends on the solver
 # preimage plugin and /v1/plugins readiness endpoint.
