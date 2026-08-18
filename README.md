@@ -495,6 +495,115 @@ For lower-level control over transaction batching you can use the `client.Client
 
 See the [pkg.go.dev documentation](https://pkg.go.dev/github.com/arkade-os/go-sdk) for detailed API information.
 
+### 7. Lightning Swaps
+
+The `swap` package moves funds between an Arkade balance and Lightning through
+[Boltz](https://boltz.exchange). It is a swap client, not a Lightning node
+integration: the SDK never opens a channel and never talks to LND or CLN.
+
+Each swap is settled by a **virtual HTLC**, a contract that pays the receiver
+against a preimage and refunds the sender after a timeout. The `vhtlc` package
+builds it, and `SwapHandler` drives it.
+
+#### Setting Up
+
+```go
+import (
+    "github.com/arkade-os/go-sdk/swap"
+    "github.com/arkade-os/go-sdk/swap/boltz"
+)
+
+boltzSvc := &boltz.Api{URL: boltzURL, WSURL: boltzWSURL}
+
+handler, err := swap.NewSwapHandler(wallet, boltzSvc, esploraURL, timeout, datadir)
+if err != nil {
+    return err
+}
+defer handler.Close()
+```
+
+`timeout` is in seconds and bounds how long the handler waits on a swap.
+`datadir` is where swap records are persisted, so an interrupted swap can be
+resolved after a restart. Always `Close()` the handler — it owns that store.
+
+#### Paying a Lightning Invoice
+
+A **submarine swap** spends an Arkade balance to settle a BOLT11 invoice. The
+handler locks funds in a virtual HTLC, Boltz pays the invoice, then claims the
+lockup with the preimage it learned by paying.
+
+```go
+unilateralRefund := func(s swap.Swap) error {
+    // Called when the swap could not complete and the lockup must be
+    // reclaimed on your own. Boltz is not involved at this point.
+    log.Warnf("refunding swap %s", s.Id)
+    return nil
+}
+
+result, err := handler.PayInvoice(ctx, invoice, unilateralRefund)
+if err != nil {
+    return err
+}
+
+if result.Status != swap.SwapSuccess {
+    return fmt.Errorf("swap %s ended with status %d", result.Id, result.Status)
+}
+```
+
+`Status` is one of `SwapPending`, `SwapFailed`, or `SwapSuccess`. **Check it —
+a returned `Swap` with a nil error is not by itself a settled payment.**
+
+`PayOffer` does the same for a BOLT12 offer. It fetches an invoice for the
+offer's amount first, then runs the identical submarine swap:
+
+```go
+result, err := handler.PayOffer(ctx, offer, lightningURL, unilateralRefund)
+```
+
+Pass `""` for `lightningURL` to use the configured Boltz endpoint.
+
+#### Receiving From Lightning
+
+A **reverse swap** produces an invoice for someone else to pay. Boltz funds a
+virtual HTLC once the payment is held, and the handler claims it, which reveals
+the preimage and lets Boltz settle the Lightning side.
+
+```go
+postProcess := func(s swap.Swap) error {
+    // Runs after the lockup is claimed.
+    return nil
+}
+
+result, err := handler.GetInvoice(ctx, amountSats, postProcess)
+if err != nil {
+    return err
+}
+
+// Hand result.Invoice to the payer. The swap completes when you claim.
+fmt.Println(result.Invoice)
+```
+
+#### Working With the Contract Directly
+
+For recovery, or to drive the contract yourself, the handler exposes the
+virtual HTLC:
+
+- `GetVHTLCFunds(ctx, opts)` — the virtual outputs sitting at one or more
+  contracts.
+- `GetVHTLCSpendingTx(ctx, opts, outpoint)` — the transaction that spent an
+  output, and whether it was found.
+- `ClaimVHTLC(ctx, preimage, opts, outpoint)` — claim with the preimage.
+- `RefundSwap(ctx, swapType, swapId, withReceiver, opts, outpoint)` — reclaim a
+  lockup. With `withReceiver` set, Boltz cosigns and the refund is immediate;
+  without it, the refund waits for the timeout.
+
+`vhtlc.Opts` identifies a contract. Rebuild the script from it with
+`vhtlc.NewVHTLCScriptFromOpts(opts)`.
+
+> **A swap interrupted mid-flight is not lost.** Records persist in `datadir`,
+> and the funds stay at the contract until they are claimed or refunded. Resolve
+> them with `GetVHTLCFunds` and then `ClaimVHTLC` or `RefundSwap`.
+
 ### Testing
 
 Run integration tests ([start nigiri](https://github.com/arkade-os/arkd/blob/e33bee6196586b5f4d6ed57abe071458f49ed7ed/README.md?plain=1#L263) if needed first):
