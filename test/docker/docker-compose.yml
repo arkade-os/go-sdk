@@ -112,32 +112,21 @@ services:
       - type: tmpfs
         target: /app/data
 
-  solver:
-    container_name: solver
+  covclaimd:
+    image: ghcr.io/arkade-os/covclaimd:v0.0.1-rc.5
+    container_name: covclaimd
     restart: unless-stopped
     depends_on:
       - arkd
       - emulator
-    build:
-      context: .
-      dockerfile: solver.Dockerfile
-    environment:
-      - SOLVER_ARK_URL=arkd:7070
-      - SOLVER_EMULATOR_URL=emulator:7073
-      - SOLVER_WALLET_SEED=ed1f6ad1c0aa1bbdcc14a4dc26ff5d31cca6df11617f2bbb24a4e0e6f72f7a5d
-      - SOLVER_WALLET_PASSWORD=password
-      - SOLVER_GRPC_PORT=7070
-      - SOLVER_HTTP_PORT=7071
-      - SOLVER_LOG_LEVEL=5
-      - SOLVER_BANCO_ENABLED=false
-      - SOLVER_PREIMAGE_ENABLED=true
     ports:
-      - "7270:7070"
-      - "7271:7071"
-    volumes:
-      - type: tmpfs
-        target: /app/data
-
+      - "7074:7071"
+    environment:
+      - COVCLAIMD_LOG_LEVEL=6
+      - COVCLAIMD_EMULATOR_URL=http://emulator:7073
+      - COVCLAIMD_ARK_URL=http://arkd:7070
+      - COVCLAIMD_ENCRYPTED_ENABLED=true
+      - COVCLAIMD_SECRET_KEY=f40f6e7a5cf262f4093d4605b8f40cbaf9da9e59bf32f24bb27a4ffc74f71eab
   boltz-cln:
     build:
       context: .

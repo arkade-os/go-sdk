@@ -33,14 +33,13 @@ import (
 )
 
 const (
-	solverHTTPAddr = "http://localhost:7271"
+	covclaimdHTTPAddr = "http://localhost:7074"
 	arkdGRPCAddr   = "localhost:7070"
 )
 
 // TestNonInteractiveClaim creates a VHTLC with the non-interactive claim option
 // and lets bancod solver claim the VHTLC instead of the recipient.
 func TestNonInteractiveClaim(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 
 	sender, _ := setupSwapClient(t)
@@ -135,7 +134,7 @@ func TestNonInteractiveClaim(t *testing.T) {
 	require.NotEmpty(t, txid)
 	t.Logf("Funding tx: %s", txid)
 
-	// Wait for solver (bancod) to auto-claim
+	// Wait for solver to auto-claim
 	v := pollForVtxoAtScript(t, ctx, receiverPkScript, 60*time.Second)
 	require.Equal(t, amount, v.Amount, "solver should pay the full input value to the receiver")
 	t.Logf("Claimed: %s:%d amount=%d", v.Txid, v.VOut, v.Amount)
@@ -143,19 +142,19 @@ func TestNonInteractiveClaim(t *testing.T) {
 
 func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	t.Helper()
-	resp, err := http.Get(fmt.Sprintf("%s/v1/preimage/solver-pubkey", solverHTTPAddr))
+	resp, err := http.Get(fmt.Sprintf("%s/v1/preimage/covclaimd-pubkey", covclaimdHTTPAddr))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	var result struct {
-		SolverPubKey   string `json:"solver_pub_key"`
+		CovclaimdPubKey   string `json:"covclaimd_pub_key"`
 		EmulatorPubKey string `json:"emulator_pub_key"`
 	}
 	require.NoError(t, json.Unmarshal(body, &result))
-	solverRaw, err := hex.DecodeString(result.SolverPubKey)
+	covclaimdRaw, err := hex.DecodeString(result.CovclaimdPubKey)
 	require.NoError(t, err)
-	solver, err := btcec.ParsePubKey(solverRaw)
+	solver, err := btcec.ParsePubKey(covclaimdRaw)
 	require.NoError(t, err)
 	introRaw, err := hex.DecodeString(result.EmulatorPubKey)
 	require.NoError(t, err)
@@ -221,7 +220,7 @@ func pollForVtxoAtScript(
 
 const (
 	eciesNonceLen   = 12
-	eciesHkdfInfo   = "solverd/preimage/v1"
+	eciesHkdfInfo   = "covclaimd/preimage/v1"
 	claimPktType    = 0x04
 	tlvCiphertext   = 0x01
 	tlvArkadeScript = 0x02
