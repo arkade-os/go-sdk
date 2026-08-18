@@ -143,6 +143,9 @@ func parseUnilateralRefundWithoutReceiverClosure(leaf string) (*script.CSVMultis
 
 func makePreimageConditionScript(preimageHash []byte) ([]byte, error) {
 	return txscript.NewScriptBuilder().
+		AddOp(txscript.OP_SIZE).
+		AddInt64(32).
+		AddOp(txscript.OP_EQUALVERIFY).
 		AddOp(txscript.OP_HASH160).
 		AddData(preimageHash).
 		AddOp(txscript.OP_EQUAL).
