@@ -1355,6 +1355,14 @@ func (w *wallet) periodicRefreshDb(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			finalizedTxids, err := w.finalizePendingTxs(ctx, nil)
+			if err != nil {
+				log.WithError(err).Warn("failed to finalize pending txs")
+			}
+			if len(finalizedTxids) > 0 {
+				log.Debugf("finalized %d pending tx(s): %v", len(finalizedTxids), finalizedTxids)
+			}
+
 			log.Debugf("refreshing db (last update %s)...", w.lastUpdate.Format(time.RFC3339))
 			if err := w.refreshDb(ctx); err != nil {
 				log.WithError(err).Error("failed to refresh db")
