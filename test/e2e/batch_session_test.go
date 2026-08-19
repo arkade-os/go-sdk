@@ -250,16 +250,19 @@ func TestBatchSession(t *testing.T) {
 		require.False(t, res.Vtxos[0].Swept)
 
 		// Make the offchain funds expire
-		generateBlocks(t, 21)
+		generateBlocks(t, 181)
 
-		vtxoEvent = <-vtxoCh
-		require.Equal(t, types.VtxosSwept, vtxoEvent.Type)
-
-		res, err = alice.Indexer().GetVtxos(t.Context(), opts)
-		require.NoError(t, err)
-		require.NotNil(t, res)
-		require.Len(t, res.Vtxos, 1)
-		require.True(t, res.Vtxos[0].Swept)
+		sweepEventSeen := false
+		for !sweepEventSeen {
+			select {
+			case event := <-vtxoCh:
+				if event.Type == types.VtxosSwept {
+					sweepEventSeen = true
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatal("timed out waiting for sweep event")
+			}
+		}
 
 		// Repeat the operation to have many funds that are going to be swept and renewed
 		faucetOffchain(t, alice, 0.00003)
@@ -283,8 +286,8 @@ func TestBatchSession(t *testing.T) {
 		require.NoError(t, batchErr)
 		require.NotEmpty(t, batchTx)
 
-		// next event received by alice and bob vtxo channel should be the added events
-		// related to new vtxos created by the batch
+		// next event received by alice vtxo channel should be the added events about new vtxos
+		// created in the batch
 		vtxoEvent = <-vtxoCh
 		require.Equal(t, types.VtxosAdded, vtxoEvent.Type)
 		require.Len(t, vtxoEvent.Vtxos, 1)

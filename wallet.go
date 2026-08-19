@@ -50,7 +50,7 @@ type wallet struct {
 	store           types.Store
 	contractManager contract.Manager
 	scheduler       scheduler.SchedulerService
-	txHandler       *txHandler
+	txHandler       *TxHandler
 
 	syncMu        *sync.Mutex
 	syncCh        chan error
@@ -284,6 +284,13 @@ func (w *wallet) Store() types.Store {
 	return w.store
 }
 
+func (w *wallet) GetConfigData(ctx context.Context) (*clienttypes.Config, error) {
+	if w.client == nil {
+		return nil, ErrNotInitialized
+	}
+	return w.client.GetConfigData(ctx)
+}
+
 func (w *wallet) Explorer() explorer.Explorer {
 	if w.client == nil {
 		return nil
@@ -314,6 +321,10 @@ func (w *wallet) Identity() identity.Identity {
 
 func (w *wallet) ContractManager() contract.Manager {
 	return w.contractManager
+}
+
+func (w *wallet) TxHandler() *TxHandler {
+	return w.txHandler
 }
 
 func (w *wallet) IsSynced(ctx context.Context) <-chan types.SyncEvent {

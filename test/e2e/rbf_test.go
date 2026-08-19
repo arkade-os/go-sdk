@@ -18,6 +18,7 @@ import (
 // ensures the SDK correctly tracks the boarding output even when its
 // vout index changes in the replacement transaction.
 func TestSettleAfterRBFBumpFee(t *testing.T) {
+	t.Skip("creates extra wallet on shared Bitcoin Core node, breaking Boltz chain swaps")
 	ctx := t.Context()
 	client := setupClient(t, "")
 

@@ -95,7 +95,7 @@ func (w *wallet) SendOffChain(
 		return res.Txid, nil
 	}
 
-	rr, err := w.txHandler.handleTx(send)
+	rr, err := w.txHandler.HandleTx(send)
 	if err != nil {
 		return "", err
 	}
@@ -176,6 +176,13 @@ func (w *wallet) getSpendableVtxos(
 		contract, ok := contractsByScript[v.Script]
 		if !ok {
 			log.Warnf("skipping vtxo %s: no matching contract", v.Script)
+			continue
+		}
+		if contract.Type != types.ContractTypeDefault {
+			log.Debugf(
+				"skipping vtxo %s: contract type %s is not spendable by generic wallet operations",
+				v.Script, contract.Type,
+			)
 			continue
 		}
 

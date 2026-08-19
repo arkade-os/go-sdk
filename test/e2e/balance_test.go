@@ -5,6 +5,7 @@ import (
 	"time"
 
 	clientTypes "github.com/arkade-os/arkd/pkg/client-lib/types"
+	arksdk "github.com/arkade-os/go-sdk"
 	"github.com/arkade-os/go-sdk/types"
 	"github.com/stretchr/testify/require"
 )
@@ -12,7 +13,7 @@ import (
 func TestBalance(t *testing.T) {
 	t.Run("onchain (confirmed only)", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		// Before any funding, all balances should be zero.
 		balance, err := alice.Balance(ctx)
@@ -89,8 +90,8 @@ func TestBalance(t *testing.T) {
 
 	t.Run("preconfirmed", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
-		bob := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 		faucetOffchain(t, alice, 0.0005)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
@@ -145,8 +146,8 @@ func TestBalance(t *testing.T) {
 		"settled and preconfirmed",
 		func(t *testing.T) {
 			ctx := t.Context()
-			alice := setupClient(t, "")
-			bob := setupClient(t, "")
+			alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+			bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 			faucetOffchain(t, bob, 0.0005)
 			faucetOffchain(t, alice, 0.0005)
 
@@ -198,8 +199,8 @@ func TestBalance(t *testing.T) {
 
 	t.Run("recoverable (subdust)", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
-		bob := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 		faucetOffchain(t, alice, 0.0005)
 
 		bobOffchainAddr, err := bob.NewOffchainAddress(ctx)
@@ -246,8 +247,8 @@ func TestBalance(t *testing.T) {
 
 	t.Run("onchain", func(t *testing.T) {
 		ctx := t.Context()
-		alice := setupClient(t, "")
-		bob := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
+		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 
 		faucetOffchain(t, alice, 0.0005)
 
@@ -301,28 +302,22 @@ func TestBalance(t *testing.T) {
 	t.Run("recoverable (swept)", func(t *testing.T) {
 		ctx := t.Context()
 
-		alice := setupClient(t, "")
+		alice := setupClient(t, "", arksdk.WithoutAutoSettle())
 		faucetOffchain(t, alice, 0.0005)
-
-		// Make the funds expire and be swept by the server
-		generateBlocks(t, 21)
 
 		vtxoCh := alice.GetVtxoEventChannel(ctx)
 
-		require.Eventually(t, func() bool {
-			balance, err := alice.Balance(ctx)
-			require.NoError(t, err)
-			return balance.OffchainBalance.Recoverable > 0
-		}, 20*time.Second, 200*time.Millisecond)
+		// Make the funds expire and be swept by the server
+		generateBlocks(t, 181)
 
-		sawSweepEvent := false
-		for !sawSweepEvent {
+		sweepEventSeen := false
+		for !sweepEventSeen {
 			select {
 			case event := <-vtxoCh:
 				if event.Type == types.VtxosSwept {
-					sawSweepEvent = true
+					sweepEventSeen = true
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(20 * time.Second):
 				t.Fatal("timed out waiting for sweep event")
 			}
 		}

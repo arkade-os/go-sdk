@@ -2,6 +2,7 @@ package arksdk
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -9,6 +10,7 @@ import (
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
 	clientwallet "github.com/arkade-os/arkd/pkg/client-lib"
+	"github.com/arkade-os/arkd/pkg/client-lib/client"
 	grpcclient "github.com/arkade-os/arkd/pkg/client-lib/client/grpc"
 	mempoolexplorer "github.com/arkade-os/arkd/pkg/client-lib/explorer/mempool"
 	"github.com/arkade-os/go-sdk/contract"
@@ -20,11 +22,11 @@ const HeaderVersion = "go-sdk/0.10.1"
 
 var (
 	defaultExplorerUrl = map[string]string{
-		arklib.Bitcoin.Name:          "https://mempool.space/api",
+		arklib.Bitcoin.Name:          "https://mempool.arkade.sh/api",
 		arklib.BitcoinRegTest.Name:   "http://127.0.0.1:3000",
 		arklib.BitcoinTestNet.Name:   "https://mempool.space/testnet/api",
-		arklib.BitcoinSigNet.Name:    "https://mempool.space/signet/api",
-		arklib.BitcoinMutinyNet.Name: "https://mutinynet.com/api",
+		arklib.BitcoinSigNet.Name:    "https://mempool.signet.arkade.sh/api",
+		arklib.BitcoinMutinyNet.Name: "https://mempool.mutinynet.arkade.sh/api",
 	}
 )
 
@@ -96,6 +98,11 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		return err
 	}
 
+	cfgData, err := w.client.GetConfigData(ctx)
+	if err != nil {
+		return err
+	}
+
 	w.logMu.Lock()
 	log.SetLevel(log.DebugLevel)
 	if !w.verbose {
@@ -124,6 +131,25 @@ func (w *wallet) Unlock(ctx context.Context, password string) error {
 		return fmt.Errorf("failed to init contract manager: %w", err)
 	}
 
+	deprecatedSigners := make([]client.DeprecatedSigner, 0, len(cfgData.DeprecatedSigners))
+	for _, signer := range cfgData.DeprecatedSigners {
+		var cutoff int64
+		if !signer.CutoffDate.IsZero() {
+			cutoff = signer.CutoffDate.Unix()
+		}
+		deprecatedSigners = append(deprecatedSigners, client.DeprecatedSigner{
+			PubKey:     hex.EncodeToString(signer.PubKey.SerializeCompressed()),
+			CutoffDate: cutoff,
+		})
+	}
+	serverParams := &client.Info{
+		SignerPubKey:            hex.EncodeToString(cfgData.SignerPubKey.SerializeCompressed()),
+		DeprecatedSignerPubKeys: deprecatedSigners,
+	}
+
+	w.dustAmount = cfgData.Dust
+	w.network = cfgData.Network
+	w.lastSignerSet = signerSet(serverParams)
 	w.contractManager = mgr
 	w.resetSyncStateForUnlock()
 	w.utxoBroadcaster = newBroadcaster[types.UtxoEvent]()

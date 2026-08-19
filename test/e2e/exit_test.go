@@ -199,11 +199,14 @@ func TestUnilateralExit(t *testing.T) {
 		require.Equal(t, vtxoToUnroll.Outpoint, spent[0].Outpoint)
 		require.True(t, spent[0].Unrolled)
 
-		generateBlocks(t, 10)
+		// Mine 5 blocks to make the exit delay expire and send the unrolled funds to bob's
+		// boarding address to easily detect the funds being spent on a side and received on the
+		// other.
+		generateBlocks(t, 5)
 
+		// Give time to arkd and explorer to detect onchain activity.
 		time.Sleep(25 * time.Second)
 
-		// Use a separate HD wallet to observe the onchain receive after CompleteUnroll.
 		bob := setupClient(t, "", arksdk.WithoutAutoSettle())
 		bobUtxoCh := bob.GetUtxoEventChannel(ctx)
 
