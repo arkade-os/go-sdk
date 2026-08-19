@@ -29,11 +29,12 @@ Both accept one required parameter plus optional wallet options:
   - `WithoutAutoSettle()` — disable the background auto-settle loop entirely. By default the wallet schedules a Settle at ~90% of each spendable vtxo's remaining lifetime and re-schedules as fresher vtxos arrive.
 
 ```go
-import arksdk (
+import (
     "errors"
     "log"
+    "time"
 
-    "github.com/arkade-os/go-sdk"
+    arksdk "github.com/arkade-os/go-sdk"
 )
 
 // In-memory storage
@@ -57,7 +58,7 @@ if err != nil {
 
 // Wallet with periodic DB refresh every 5 minutes and verbose logs
 wallet, err := arksdk.NewWallet(
-    "/path/to/data/dir", arksdk.WithRefreshDbInterval(5 * time.Minute), arksdk.WithVerbose(),
+    "/path/to/data/dir", arksdk.WithRefreshDbInterval(5*time.Minute), arksdk.WithVerbose(),
 )
 ```
 
@@ -100,10 +101,6 @@ if syncEvent.Err != nil {
     return syncEvent.Err
 }
 ```
-
-Each call to `NewOnchainAddress`, `NewBoardingAddress`, and `NewOffchainAddress`
-allocates a fresh derived key, so `GetAddresses()` returns the full discovered
-address set rather than a single stable address per family.
 
 ### 2. Init Options
 
@@ -211,9 +208,17 @@ log.Infof("Asset transfer completed: %s", txid)
 `SendOffChain` is useful for simple send operations. But complex contract or collaborative transactions require more flexibility. In this case, you can use the `Client.SubmitTx` and `Client.FinalizeTx` APIs (the transport client, exposed via `wallet.Client()` or built standalone with `grpcclient.NewClient`).
 
 ```go
+import (
+	"github.com/arkade-os/arkd/pkg/ark-lib/offchain"
+	"github.com/arkade-os/arkd/pkg/client-lib/grpcclient"
+	"github.com/btcsuite/btcd/wire"
+)
+
 // Create a new transport client
 transportClient, err := grpcclient.NewClient("localhost:7070")
-require.NoError(t, err)
+if err != nil {
+	return err
+}
 
 // Use ark-lib/tree util function to build ark and checkpoint transactions.
 arkTx, checkpointTxs, err := offchain.BuildTxs(
@@ -225,29 +230,32 @@ arkTx, checkpointTxs, err := offchain.BuildTxs(
 	},
 	batchOutputSweepClosure,
 )
+if err != nil {
+	return err
+}
 
 signedArkTx, err := wallet.SignTransaction(ctx, arkTx)
 if err != nil {
-	return "", err
+	return err
 }
 
-arkTxid, _, signedCheckpointTxs, err := grpcclient.SubmitTx(ctx, signedArkTx, checkpointTxs)
+arkTxid, _, signedCheckpointTxs, err := transportClient.SubmitTx(ctx, signedArkTx, checkpointTxs)
 if err != nil {
-	return "", err
+	return err
 }
 
-// Counter-sign and checkpoint txs and send them back to the server to complete the process.
+// Counter-sign checkpoint txs and send them back to the server to complete the process.
 finalCheckpointTxs := make([]string, 0, len(signedCheckpointTxs))
 for _, checkpointTx := range signedCheckpointTxs {
-	finalCheckpointTx, err := a.SignTransaction(ctx, checkpointTx)
+	finalCheckpointTx, err := wallet.SignTransaction(ctx, checkpointTx)
 	if err != nil {
-		return "", nil
+		return err
 	}
 	finalCheckpointTxs = append(finalCheckpointTxs, finalCheckpointTx)
 }
 
-if err = a.client.FinalizeTx(ctx, arkTxid, finalCheckpointTxs); err != nil {
-	return "", err
+if err = transportClient.FinalizeTx(ctx, arkTxid, finalCheckpointTxs); err != nil {
+	return err
 }
 ```
 
@@ -387,7 +395,7 @@ log.Infof("Redeemed with tx: %s", txid)
 
 The contract manager ships with built-in handlers for the default (offchain) and boarding contract types. You can teach it additional contract types by registering your own `handlers.Handler` at wallet construction.
 
-⚠️ Custom handlers must produce scripts/signing data that your wallet identity can actually sign.
+**Warning:** Custom handlers must produce scripts/signing data that your wallet identity can actually sign.
 Registering an invalid handler can lead to contracts that are not spendable.
 
 ```go
@@ -440,6 +448,7 @@ These return the underlying services so callers can drive lower-level flows dire
 - `Indexer() indexer.Indexer` - the arkd indexer client.
 - `Client() client.Client` - the transport client. See §6.
 - `ContractManager() contract.Manager` - the contract manager. See the [`contract`](./contract/doc.go) package for its surface.
+- `TxHandler() *TxHandler` - the transaction handler that serializes spend and batch operations to prevent double-spending.
 
 #### Balances and addresses
 
@@ -469,7 +478,7 @@ These return the underlying services so callers can drive lower-level flows dire
 
 #### State, signing, and notifications
 
-- `ListVtxos(ctx) (spendable, spent []clientTypes.Vtxo, err error)` - list virtual UTXOs. Each `Vtxo` includes an `Assets []types.Asset` field listing any assets it carries.
+- `ListVtxos(ctx, opts ...ListVtxosOption) ([]clientTypes.Vtxo, string, error)` - list virtual UTXOs with pagination support. Accepts options: `WithSpendableOnly()`, `WithSpentOnly()`, `WithAssetID(id)`, `WithScript(script)`, `WithLimit(n)`, `WithCursor(c)`. Each `Vtxo` includes an `Assets []types.Asset` field listing any assets it carries.
 - `ListSpendableVtxos(ctx)` - list only spendable virtual UTXOs.
 - `Dump(ctx) (seed string, error)` - export the identity's seed (BIP39 mnemonic for the default HD identity).
 - `GetTransactionHistory(ctx)` - fetch past transactions.
@@ -580,3 +589,7 @@ func main() {
 ## Support
 
 If you encounter any issues or have questions, please file an issue on our [GitHub repository](https://github.com/arkade-os/go-sdk/issues).
+
+## Security
+
+For security vulnerabilities or concerns, please see our [SECURITY.md](SECURITY.md) document.
