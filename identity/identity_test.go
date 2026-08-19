@@ -10,12 +10,12 @@ import (
 	"github.com/arkade-os/arkd/pkg/client-lib/identity"
 	identitystore "github.com/arkade-os/go-sdk/identity/store"
 	identityinmemorystore "github.com/arkade-os/go-sdk/identity/store/inmemory"
+	"github.com/base/go-bip39"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/require"
-	"github.com/tyler-smith/go-bip39"
 )
 
 var network = chaincfg.RegressionNetParams
