@@ -10,7 +10,7 @@ import (
 
 // Opts contains all parameters needed to construct a VHTLC tapscript tree.
 // When NonInteractiveClaim is non-nil, a 7th covenant leaf is added that
-// allows a solver bot to claim on the receiver's behalf.
+// allows a covclaimd bot to claim on the receiver's behalf.
 type Opts struct {
 	Sender                               *btcec.PublicKey
 	Receiver                             *btcec.PublicKey
@@ -22,7 +22,7 @@ type Opts struct {
 	UnilateralRefundWithoutReceiverDelay arklib.RelativeLocktime
 
 	// NonInteractiveClaim, when non-nil, enables a covenant claim closure
-	// that a solver bot can satisfy unilaterally with the preimage.
+	// that a covclaimd bot can satisfy unilaterally with the preimage.
 	NonInteractiveClaim *NonInteractiveClaimOpts
 }
 

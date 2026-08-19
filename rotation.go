@@ -245,7 +245,7 @@ func (w *wallet) migrateFunds(
 		return w.sendMigrationOffchainTx(ctx, vtxos, receiver)
 	}
 
-	rr, err := w.txHandler.handleTx(migrate)
+	rr, err := w.txHandler.HandleTx(migrate)
 	if err != nil {
 		return "", err
 	}

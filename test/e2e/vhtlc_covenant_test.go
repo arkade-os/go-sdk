@@ -33,14 +33,13 @@ import (
 )
 
 const (
-	solverHTTPAddr = "http://localhost:7271"
-	arkdGRPCAddr   = "localhost:7070"
+	covclaimdHTTPAddr = "http://localhost:7074"
+	arkdGRPCAddr      = "localhost:7070"
 )
 
 // TestNonInteractiveClaim creates a VHTLC with the non-interactive claim option
-// and lets bancod solver claim the VHTLC instead of the recipient.
+// and lets covclaimd claim the VHTLC instead of the recipient.
 func TestNonInteractiveClaim(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 
 	sender, _ := setupSwapClient(t)
@@ -54,8 +53,8 @@ func TestNonInteractiveClaim(t *testing.T) {
 	receiverPkScript, err := txscript.PayToTaprootScript(receiverPriv.PubKey())
 	require.NoError(t, err)
 
-	// Fetch solver + emulator pubkeys from bancod
-	solverPub, introPub := fetchSolverPubKeysHTTP(t)
+	// Fetch covclaimd + emulator pubkeys from bancod
+	covclaimdPub, introPub := fetchCovclaimdPubKeysHTTP(t)
 
 	// Generate preimage
 	preimg := make([]byte, 32)
@@ -103,13 +102,13 @@ func TestNonInteractiveClaim(t *testing.T) {
 	t.Logf("VHTLC address: %s", vhtlcAddr)
 
 	// Encrypt just the raw 32-byte preimage (new format)
-	ciphertext, err := eciesEncrypt(solverPub, preimg)
+	ciphertext, err := eciesEncrypt(covclaimdPub, preimg)
 	require.NoError(t, err)
 
 	// Build extension packet: ciphertext + plaintext arkade script
-	claimPkt := buildClaimPacket(t, ciphertext, arkadeScript)
+	claimPkt := buildClaimPacket(t, covclaimdPub, ciphertext, arkadeScript)
 
-	// Build taptree for the PSBT output so solver can decode the VHTLC
+	// Build taptree for the PSBT output so covclaimd can decode the VHTLC
 	tapKey, _, err := vhtlcScript.TapTree()
 	require.NoError(t, err)
 	pkScript, err := txscript.PayToTaprootScript(tapKey)
@@ -135,33 +134,33 @@ func TestNonInteractiveClaim(t *testing.T) {
 	require.NotEmpty(t, txid)
 	t.Logf("Funding tx: %s", txid)
 
-	// Wait for solver (bancod) to auto-claim
+	// Wait for covclaimd to auto-claim
 	v := pollForVtxoAtScript(t, ctx, receiverPkScript, 60*time.Second)
-	require.Equal(t, amount, v.Amount, "solver should pay the full input value to the receiver")
+	require.Equal(t, amount, v.Amount, "covclaimd should pay the full input value to the receiver")
 	t.Logf("Claimed: %s:%d amount=%d", v.Txid, v.VOut, v.Amount)
 }
 
-func fetchSolverPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
+func fetchCovclaimdPubKeysHTTP(t *testing.T) (*btcec.PublicKey, *btcec.PublicKey) {
 	t.Helper()
-	resp, err := http.Get(fmt.Sprintf("%s/v1/preimage/solver-pubkey", solverHTTPAddr))
+	resp, err := http.Get(fmt.Sprintf("%s/v1/preimage/covclaimd-pubkey", covclaimdHTTPAddr))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	var result struct {
-		SolverPubKey   string `json:"solver_pub_key"`
-		EmulatorPubKey string `json:"emulator_pub_key"`
+		CovclaimdPubKey string `json:"covclaimd_pub_key"`
+		EmulatorPubKey  string `json:"emulator_pub_key"`
 	}
 	require.NoError(t, json.Unmarshal(body, &result))
-	solverRaw, err := hex.DecodeString(result.SolverPubKey)
+	covclaimdRaw, err := hex.DecodeString(result.CovclaimdPubKey)
 	require.NoError(t, err)
-	solver, err := btcec.ParsePubKey(solverRaw)
+	covclaimd, err := btcec.ParsePubKey(covclaimdRaw)
 	require.NoError(t, err)
-	introRaw, err := hex.DecodeString(result.EmulatorPubKey)
+	emulatorRaw, err := hex.DecodeString(result.EmulatorPubKey)
 	require.NoError(t, err)
-	intro, err := btcec.ParsePubKey(introRaw)
+	emulator, err := btcec.ParsePubKey(emulatorRaw)
 	require.NoError(t, err)
-	return solver, intro
+	return covclaimd, emulator
 }
 
 func enforcePayTo(t *testing.T, receiverPkScript []byte) ([]byte, error) {
@@ -217,14 +216,16 @@ func pollForVtxoAtScript(
 	}{}
 }
 
-// --- Inlined ECIES + packet helpers (from bancod/pkg/preimage, avoids import) ---
+// --- Inlined ECIES + packet helpers (from covclaimd/pkg/preimage; importing it
+// would be circular: covclaimd depends on go-sdk) ---
 
 const (
-	eciesNonceLen   = 12
-	eciesHkdfInfo   = "solverd/preimage/v1"
-	claimPktType    = 0x04
-	tlvCiphertext   = 0x01
-	tlvArkadeScript = 0x02
+	eciesNonceLen      = 12
+	eciesHkdfInfo      = "covclaimd/preimage/v1"
+	claimPktType       = 0x04
+	tlvCiphertext      = 0x01
+	tlvArkadeScript    = 0x02
+	tlvCovclaimdPubKey = 0x03
 )
 
 func eciesEncrypt(recipient *btcec.PublicKey, plaintext []byte) ([]byte, error) {
@@ -269,8 +270,11 @@ func eciesDeriveKey(priv *btcec.PrivateKey, peer *btcec.PublicKey, salt []byte) 
 	return out
 }
 
-func buildClaimPacket(t *testing.T, ciphertext, arkadeScript []byte) extension.Packet {
+func buildClaimPacket(
+	t *testing.T, covclaimdPub *btcec.PublicKey, ciphertext, arkadeScript []byte,
+) extension.Packet {
 	t.Helper()
+	// Same TLV order as covclaimd's ClaimPacket.Serialize: 0x01, 0x02, 0x03.
 	var buf []byte
 	// TLV: ciphertext
 	buf = append(buf, tlvCiphertext)
@@ -280,5 +284,11 @@ func buildClaimPacket(t *testing.T, ciphertext, arkadeScript []byte) extension.P
 	buf = append(buf, tlvArkadeScript)
 	buf = binary.BigEndian.AppendUint16(buf, uint16(len(arkadeScript)))
 	buf = append(buf, arkadeScript...)
+	// TLV: covclaimd pubkey — covclaimd's Filter selects on this TLV; a packet
+	// without it is invisible once arkdsource stops discarding the filter.
+	pub := covclaimdPub.SerializeCompressed()
+	buf = append(buf, tlvCovclaimdPubKey)
+	buf = binary.BigEndian.AppendUint16(buf, uint16(len(pub)))
+	buf = append(buf, pub...)
 	return extension.UnknownPacket{PacketType: claimPktType, Data: buf}
 }
