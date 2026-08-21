@@ -938,7 +938,12 @@ func (w *wallet) listenForArkTxs(ctx context.Context) {
 			return
 		case event, ok := <-eventChan:
 			if !ok {
-				continue
+				// The transport retries with backoff on its own and closes the
+				// channel only on context cancelation or a terminal error, so
+				// there is nothing left to receive. Looping here would spin on
+				// a closed channel and peg a CPU core.
+				log.Warn("ark tx stream closed, stopping ark tx listener")
+				return
 			}
 			if errors.Is(event.Err, io.EOF) {
 				closeFunc()
@@ -1287,6 +1292,13 @@ func (w *wallet) listenForOnchainTxs(ctx context.Context, network arklib.Network
 }
 
 func (w *wallet) listenDbEvents(ctx context.Context) {
+	// Held in locals so a closed channel can be dropped from the select below.
+	// Receiving from a closed channel returns immediately and forever, so an
+	// arm that is not removed would spin the loop and peg a CPU core.
+	utxoCh := w.store.UtxoStore().GetEventChannel()
+	vtxoCh := w.store.VtxoStore().GetEventChannel()
+	txCh := w.store.TransactionStore().GetEventChannel()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1301,8 +1313,10 @@ func (w *wallet) listenDbEvents(ctx context.Context) {
 				w.txBroadcaster.close()
 			}
 			return
-		case event, ok := <-w.store.UtxoStore().GetEventChannel():
+		case event, ok := <-utxoCh:
 			if !ok {
+				// A nil channel blocks forever, removing this arm.
+				utxoCh = nil
 				continue
 			}
 			go func() {
@@ -1314,8 +1328,9 @@ func (w *wallet) listenDbEvents(ctx context.Context) {
 					)
 				}
 			}()
-		case event, ok := <-w.store.VtxoStore().GetEventChannel():
+		case event, ok := <-vtxoCh:
 			if !ok {
+				vtxoCh = nil
 				continue
 			}
 			go func() {
@@ -1327,8 +1342,9 @@ func (w *wallet) listenDbEvents(ctx context.Context) {
 					)
 				}
 			}()
-		case event, ok := <-w.store.TransactionStore().GetEventChannel():
+		case event, ok := <-txCh:
 			if !ok {
+				txCh = nil
 				continue
 			}
 			go func() {
