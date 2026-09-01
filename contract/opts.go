@@ -9,8 +9,8 @@ import (
 	"github.com/arkade-os/go-sdk/types"
 )
 
-// ManagerOption configures NewManager. The only currently defined option
-// is WithHandler.
+// ManagerOption configures NewManager. The currently defined options are
+// WithHandler and WithDelegate.
 type ManagerOption func(*managerOptions) error
 
 // WithHandler registers a custom handler for a non-built-in contract type.
@@ -36,8 +36,21 @@ func WithHandler(t types.ContractType, h handlers.Handler) ManagerOption {
 	}
 }
 
+// WithDelegate registers the built-in delegate handler, resolving the delegate
+// public key from the given URL. Errors if url is empty.
+func WithDelegate(url string) ManagerOption {
+	return func(o *managerOptions) error {
+		if url == "" {
+			return fmt.Errorf("missing delegate url")
+		}
+		o.delegateURL = url
+		return nil
+	}
+}
+
 type managerOptions struct {
 	customHandlers map[types.ContractType]handlers.Handler
+	delegateURL    string
 }
 
 func newDefaultManagerOption() *managerOptions {
