@@ -453,6 +453,27 @@ func (s *service) safeCheck() error {
 	return nil
 }
 
+// allowedSighashTypes are the only sighash types the Arkade stack produces.
+// Signing whatever the PSBT declares would let a counterparty ask for a
+// SIGHASH_NONE/SIGHASH_SINGLE signature that commits to none of the outputs
+// and replay it on a transaction of its choosing.
+var allowedSighashTypes = map[txscript.SigHashType]struct{}{
+	txscript.SigHashDefault:                            {},
+	txscript.SigHashAll:                                {},
+	txscript.SigHashAll | txscript.SigHashAnyOneCanPay: {},
+}
+
+func checkSighashType(sighashType txscript.SigHashType, inputIndex int) error {
+	if _, ok := allowedSighashTypes[sighashType]; !ok {
+		return fmt.Errorf(
+			"input %d: refusing to sign with sighash type 0x%02x, only SIGHASH_DEFAULT, "+
+				"SIGHASH_ALL and SIGHASH_ALL|SIGHASH_ANYONECANPAY are allowed",
+			inputIndex, uint32(sighashType),
+		)
+	}
+	return nil
+}
+
 func (s *service) signTapscriptSpend(
 	updater *psbt.Updater,
 	input psbt.PInput,
@@ -461,6 +482,10 @@ func (s *service) signTapscriptSpend(
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
 	keyId string,
 ) error {
+	if err := checkSighashType(input.SighashType, inputIndex); err != nil {
+		return err
+	}
+
 	prvkey, err := s.keyProvider.DeriveKeyAt(keyId)
 	if err != nil {
 		return err
@@ -561,6 +586,10 @@ func (s *service) signTaprootKeySpend(
 	prevoutFetcher *txscript.MultiPrevOutFetcher,
 	keyId string,
 ) error {
+	if err := checkSighashType(input.SighashType, inputIndex); err != nil {
+		return err
+	}
+
 	// Already signed, skip
 	if len(input.TaprootKeySpendSig) > 0 {
 		return nil
@@ -601,7 +630,14 @@ func (s *service) signTaprootKeySpend(
 		return fmt.Errorf("failed to sign taproot key spend: %w", err)
 	}
 
-	updater.Upsbt.Inputs[inputIndex].TaprootKeySpendSig = sig.Serialize()
+	// BIP-341 reads a bare 64 byte signature as SIGHASH_DEFAULT, so any other
+	// type has to carry its byte or it verifies against the wrong sighash.
+	serialized := sig.Serialize()
+	if input.SighashType != txscript.SigHashDefault {
+		serialized = append(serialized, byte(input.SighashType))
+	}
+
+	updater.Upsbt.Inputs[inputIndex].TaprootKeySpendSig = serialized
 	return nil
 }
 
