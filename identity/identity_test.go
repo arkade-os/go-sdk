@@ -2,6 +2,7 @@ package identity
 
 import (
 	"encoding/hex"
+	"strings"
 	"sync"
 	"testing"
 
@@ -14,7 +15,11 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -747,6 +752,91 @@ func TestSignMessage(t *testing.T) {
 	})
 }
 
+func TestSignTransactionSighashPolicy(t *testing.T) {
+	allowed := []struct {
+		name        string
+		sighashType txscript.SigHashType
+		declared    bool
+	}{
+		{"unset", 0, false},
+		{"default", txscript.SigHashDefault, true},
+		{"all", txscript.SigHashAll, true},
+		{"all|anyonecanpay", txscript.SigHashAll | txscript.SigHashAnyOneCanPay, true},
+	}
+
+	rejected := []struct {
+		name        string
+		sighashType txscript.SigHashType
+	}{
+		{"none", txscript.SigHashNone},
+		{"single", txscript.SigHashSingle},
+		{"none|anyonecanpay", txscript.SigHashNone | txscript.SigHashAnyOneCanPay},
+		{"single|anyonecanpay", txscript.SigHashSingle | txscript.SigHashAnyOneCanPay},
+	}
+
+	t.Run("script path", func(t *testing.T) {
+		t.Run("valid", func(t *testing.T) {
+			for _, f := range allowed {
+				t.Run(f.name, func(t *testing.T) {
+					svc, key := newUnlockedIdentity(t)
+					tx, pkScript := newTapscriptSpendPsbt(t, key.PubKey, f.sighashType, f.declared)
+
+					signed, err := svc.SignTransaction(
+						t.Context(), tx, map[string]string{pkScript: key.Id},
+					)
+					require.NoError(t, err)
+					require.Len(t, parsePsbt(t, signed).Inputs[0].TaprootScriptSpendSig, 1)
+				})
+			}
+		})
+
+		t.Run("invalid", func(t *testing.T) {
+			for _, f := range rejected {
+				t.Run(f.name, func(t *testing.T) {
+					svc, key := newUnlockedIdentity(t)
+					tx, pkScript := newTapscriptSpendPsbt(t, key.PubKey, f.sighashType, true)
+
+					_, err := svc.SignTransaction(
+						t.Context(), tx, map[string]string{pkScript: key.Id},
+					)
+					require.ErrorContains(t, err, "input 0: refusing to sign with sighash type")
+				})
+			}
+		})
+	})
+
+	t.Run("key path", func(t *testing.T) {
+		t.Run("valid", func(t *testing.T) {
+			for _, f := range allowed {
+				t.Run(f.name, func(t *testing.T) {
+					svc, key := newUnlockedIdentity(t)
+					tx, pkScript := newKeySpendPsbt(t, key.PubKey, f.sighashType, f.declared)
+
+					signed, err := svc.SignTransaction(
+						t.Context(), tx, map[string]string{pkScript: key.Id},
+					)
+					require.NoError(t, err)
+					require.NotEmpty(t, parsePsbt(t, signed).Inputs[0].TaprootKeySpendSig)
+				})
+			}
+		})
+
+		t.Run("invalid", func(t *testing.T) {
+			for _, f := range rejected {
+				t.Run(f.name, func(t *testing.T) {
+					svc, key := newUnlockedIdentity(t)
+					tx, pkScript := newKeySpendPsbt(t, key.PubKey, f.sighashType, true)
+
+					_, err := svc.SignTransaction(
+						t.Context(), tx, map[string]string{pkScript: key.Id},
+					)
+					require.ErrorContains(t, err, "input 0: refusing to sign with sighash type")
+				})
+			}
+		})
+	})
+}
+
 func TestGetType(t *testing.T) {
 	svc := newIdentity(t, identityinmemorystore.NewStore())
 	require.Equal(t, Type, svc.GetType())
@@ -840,6 +930,101 @@ func newIdentity(t *testing.T, store identitystore.IdentityStore) identity.Ident
 	svc, err := NewIdentity(store)
 	require.NoError(t, err)
 	return svc
+}
+
+func newUnlockedIdentity(t *testing.T) (identity.Identity, *identity.KeyRef) {
+	t.Helper()
+	svc := newInitializedIdentity(t)
+	_, err := svc.Unlock(t.Context(), testPassword)
+	require.NoError(t, err)
+	key, err := svc.NewKey(t.Context())
+	require.NoError(t, err)
+	return svc, key
+}
+
+// newTapscriptSpendPsbt returns a base64 PSBT spending a single-key multisig
+// leaf, along with the hex-encoded prevout script it spends.
+func newTapscriptSpendPsbt(
+	t *testing.T, pubKey *btcec.PublicKey, sighashType txscript.SigHashType, declared bool,
+) (string, string) {
+	t.Helper()
+
+	closure := &script.MultisigClosure{
+		PubKeys: []*btcec.PublicKey{pubKey},
+		Type:    script.MultisigTypeChecksig,
+	}
+	leafScript, err := closure.Script()
+	require.NoError(t, err)
+
+	scriptTree := txscript.AssembleTaprootScriptTree(txscript.NewBaseTapLeaf(leafScript))
+	rootHash := scriptTree.RootNode.TapHash()
+	pkScript, err := txscript.PayToTaprootScript(
+		txscript.ComputeTaprootOutputKey(pubKey, rootHash[:]),
+	)
+	require.NoError(t, err)
+
+	controlBlock := scriptTree.LeafMerkleProofs[0].ToControlBlock(pubKey)
+	controlBlockBytes, err := controlBlock.ToBytes()
+	require.NoError(t, err)
+
+	ptx := newSpendPsbt(t, pkScript, sighashType, declared)
+	ptx.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+		{
+			ControlBlock: controlBlockBytes,
+			Script:       leafScript,
+			LeafVersion:  txscript.BaseLeafVersion,
+		},
+	}
+
+	tx, err := ptx.B64Encode()
+	require.NoError(t, err)
+	return tx, hex.EncodeToString(pkScript)
+}
+
+// newKeySpendPsbt returns a base64 PSBT spending a key-path only output, along
+// with the hex-encoded prevout script it spends.
+func newKeySpendPsbt(
+	t *testing.T, pubKey *btcec.PublicKey, sighashType txscript.SigHashType, declared bool,
+) (string, string) {
+	t.Helper()
+
+	pkScript, err := txscript.PayToTaprootScript(txscript.ComputeTaprootKeyNoScript(pubKey))
+	require.NoError(t, err)
+
+	ptx := newSpendPsbt(t, pkScript, sighashType, declared)
+	ptx.Inputs[0].TaprootInternalKey = schnorr.SerializePubKey(pubKey)
+
+	tx, err := ptx.B64Encode()
+	require.NoError(t, err)
+	return tx, hex.EncodeToString(pkScript)
+}
+
+func newSpendPsbt(
+	t *testing.T, pkScript []byte, sighashType txscript.SigHashType, declared bool,
+) *psbt.Packet {
+	t.Helper()
+
+	ptx, err := psbt.New(
+		[]*wire.OutPoint{{Hash: chainhash.Hash{0x01}, Index: 0}},
+		[]*wire.TxOut{{Value: 900, PkScript: pkScript}},
+		3, 0, []uint32{wire.MaxTxInSequenceNum},
+	)
+	require.NoError(t, err)
+
+	updater, err := psbt.NewUpdater(ptx)
+	require.NoError(t, err)
+	require.NoError(t, updater.AddInWitnessUtxo(&wire.TxOut{Value: 1000, PkScript: pkScript}, 0))
+	if declared {
+		require.NoError(t, updater.AddInSighashType(sighashType, 0))
+	}
+	return ptx
+}
+
+func parsePsbt(t *testing.T, tx string) *psbt.Packet {
+	t.Helper()
+	ptx, err := psbt.NewFromRawBytes(strings.NewReader(tx), true)
+	require.NoError(t, err)
+	return ptx
 }
 
 func newInitializedIdentity(t *testing.T) identity.Identity {
