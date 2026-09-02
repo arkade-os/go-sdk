@@ -630,7 +630,14 @@ func (s *service) signTaprootKeySpend(
 		return fmt.Errorf("failed to sign taproot key spend: %w", err)
 	}
 
-	updater.Upsbt.Inputs[inputIndex].TaprootKeySpendSig = sig.Serialize()
+	// BIP-341 reads a bare 64 byte signature as SIGHASH_DEFAULT, so any other
+	// type has to carry its byte or it verifies against the wrong sighash.
+	serialized := sig.Serialize()
+	if input.SighashType != txscript.SigHashDefault {
+		serialized = append(serialized, byte(input.SighashType))
+	}
+
+	updater.Upsbt.Inputs[inputIndex].TaprootKeySpendSig = serialized
 	return nil
 }
 

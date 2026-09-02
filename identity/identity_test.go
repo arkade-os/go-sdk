@@ -816,7 +816,15 @@ func TestSignTransactionSighashPolicy(t *testing.T) {
 						t.Context(), tx, map[string]string{pkScript: key.Id},
 					)
 					require.NoError(t, err)
-					require.NotEmpty(t, parsePsbt(t, signed).Inputs[0].TaprootKeySpendSig)
+					// BIP-341: a bare 64 byte signature means SIGHASH_DEFAULT, so any
+					// other type must carry its byte.
+					keySpendSig := parsePsbt(t, signed).Inputs[0].TaprootKeySpendSig
+					if f.sighashType == txscript.SigHashDefault {
+						require.Len(t, keySpendSig, 64)
+					} else {
+						require.Len(t, keySpendSig, 65)
+						require.Equal(t, byte(f.sighashType), keySpendSig[64])
+					}
 				})
 			}
 		})
