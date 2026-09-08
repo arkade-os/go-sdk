@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	arklib "github.com/arkade-os/arkd/pkg/ark-lib"
@@ -19,6 +20,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // readSDKVersion resolves the SDK version from the current binary's
@@ -71,6 +74,13 @@ func newHDIdentityStore(datadir string) (identitystore.IdentityStore, error) {
 		return identityfilestore.NewStore(datadir)
 	}
 	return identityinmemorystore.NewStore(), nil
+}
+
+// isRateLimited tells whether we're being throttled: gRPC signals it with
+// ResourceExhausted, a proxy sitting in front of arkd with a plain HTTP 429
+// that the transport surfaces as an opaque error message.
+func isRateLimited(err error) bool {
+	return status.Code(err) == codes.ResourceExhausted || strings.Contains(err.Error(), "429")
 }
 
 func getOffchainBalanceDetails(amountByExpiration map[int64]uint64) (int64, []types.VtxoDetails) {

@@ -2188,3 +2188,28 @@ func (w *wallet) saveBatchTransaction(
 
 	return nil
 }
+
+// serverParams carries the subset of the server configuration needed by the
+// wallet operations, no matter where it was sourced from.
+type serverParams struct {
+	Dust          uint64
+	VtxoMinAmount int64
+}
+
+// getServerParams fetches the server params from arkd, falling back to the
+// config stored at init time if arkd is rate limiting us.
+func (w *wallet) getServerParams(ctx context.Context) (*serverParams, error) {
+	info, err := w.client.Client().GetInfo(ctx)
+	if err == nil {
+		return &serverParams{Dust: info.Dust, VtxoMinAmount: info.VtxoMinAmount}, nil
+	}
+	if !isRateLimited(err) {
+		return nil, err
+	}
+
+	cfg, err := w.client.GetConfigData(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &serverParams{Dust: cfg.Dust, VtxoMinAmount: cfg.VtxoMinAmount}, nil
+}

@@ -19,6 +19,11 @@ func (w *wallet) IssueAsset(
 
 	// Synchronize with other operations to avoid overlapping.
 	issuance := func() (any, error) {
+		serverParams, err := w.getServerParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
 			return nil, err
@@ -34,10 +39,16 @@ func (w *wallet) IssueAsset(
 			return nil, err
 		}
 
+		minChangeAmount := serverParams.Dust
+		if serverParams.VtxoMinAmount >= 0 {
+			minChangeAmount = uint64(serverParams.VtxoMinAmount)
+		}
+
 		opts := []client.SendOption{
 			client.WithVtxos(vtxos),
 			client.WithReceiver(offchainAddr),
 			client.WithKeys(signingKeyRefs),
+			client.WithMinChangeAmount(minChangeAmount),
 		}
 
 		// Subscribe to the receiver address before submitting so we don't miss
@@ -85,6 +96,11 @@ func (w *wallet) ReissueAsset(
 
 	// Synchronize with other operations to avoid overlapping.
 	reissuance := func() (any, error) {
+		serverParams, err := w.getServerParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
 			return nil, err
@@ -100,10 +116,16 @@ func (w *wallet) ReissueAsset(
 			return nil, err
 		}
 
+		minChangeAmount := serverParams.Dust
+		if serverParams.VtxoMinAmount >= 0 {
+			minChangeAmount = uint64(serverParams.VtxoMinAmount)
+		}
+
 		opts := []client.SendOption{
 			client.WithVtxos(vtxos),
 			client.WithReceiver(offchainAddr),
 			client.WithKeys(signingKeyRefs),
+			client.WithMinChangeAmount(minChangeAmount),
 		}
 
 		// Subscribe to the receiver address before submitting so we don't miss
@@ -151,6 +173,11 @@ func (w *wallet) BurnAsset(
 
 	// Synchronize with other operations to avoid overlapping.
 	burn := func() (any, error) {
+		serverParams, err := w.getServerParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
 			return nil, err
@@ -166,10 +193,16 @@ func (w *wallet) BurnAsset(
 			return nil, err
 		}
 
+		minChangeAmount := serverParams.Dust
+		if serverParams.VtxoMinAmount >= 0 {
+			minChangeAmount = uint64(serverParams.VtxoMinAmount)
+		}
+
 		opts := []client.SendOption{
 			client.WithVtxos(vtxos),
 			client.WithReceiver(offchainAddr),
 			client.WithKeys(signingKeyRefs),
+			client.WithMinChangeAmount(minChangeAmount),
 		}
 
 		// Subscribe to the receiver address before submitting so we don't miss

@@ -23,6 +23,12 @@ func (w *wallet) SendOffChain(
 	// Synchronize: wait for any in-flight spend to finish, then proceed
 	// with fresh VTXOs.
 	send := func() (any, error) {
+		// TODO: make use of info cache when hardened
+		serverParams, err := w.getServerParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+
 		vtxos, err := w.getSpendableVtxos(ctx, false)
 		if err != nil {
 			return nil, err
@@ -42,9 +48,15 @@ func (w *wallet) SendOffChain(
 			}
 		}
 
+		minChangeAmount := serverParams.Dust
+		if serverParams.VtxoMinAmount >= 0 {
+			minChangeAmount = uint64(serverParams.VtxoMinAmount)
+		}
+
 		opts := []clientwallet.SendOption{
 			clientwallet.WithVtxos(vtxos),
 			clientwallet.WithKeys(signingKeyRefs),
+			clientwallet.WithMinChangeAmount(minChangeAmount),
 		}
 
 		outAmount := uint64(0)

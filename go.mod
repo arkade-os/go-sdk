@@ -6,7 +6,7 @@ replace github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v
 
 require (
 	github.com/arkade-os/arkd/pkg/ark-lib v0.8.1-0.20260707112601-db93f3d63dab
-	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260707112601-db93f3d63dab
+	github.com/arkade-os/arkd/pkg/client-lib v0.0.0-20260908223304-c65f66971d11
 	github.com/arkade-os/emulator/pkg/arkade v0.0.0-20260616144513-96f9b06a5380
 	github.com/base/go-bip39 v1.1.0
 	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
@@ -26,6 +26,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.52.0
+	google.golang.org/grpc v1.79.3
 	modernc.org/sqlite v1.33.1
 )
 
@@ -111,7 +112,6 @@ require (
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/gc/v3 v3.0.0-20240801135723-a856999a2e4a // indirect
