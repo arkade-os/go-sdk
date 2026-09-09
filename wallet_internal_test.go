@@ -89,6 +89,33 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 		require.Equal(t, newDigest, w.lastSignerSet)
 	})
 
+	// A server may publish a new signer without listing the previous one as
+	// deprecated. needsMigration only compares signer sets, so it reports true
+	// while DeprecatedSignerPubKeys is empty.
+	t.Run("signer set changed with no deprecated signers", func(t *testing.T) {
+		reconcileCalls := 0
+		info := &client.Info{SignerPubKey: validSignerKeyHex}
+		w := &wallet{
+			lastSignerSet: oldDigest,
+			client:        &mockWallet{cfg: &clienttypes.Config{}},
+			clientStore:   &mockClientStore{configStore: &mockConfigStore{}},
+			fetchSignerSetFn: func(context.Context) (*client.Info, string, error) {
+				return info, newDigest, nil
+			},
+			migrateFundsAfterSignerRotationFn: func(_ context.Context, _ *client.Info) error {
+				reconcileCalls++
+				return nil
+			},
+		}
+
+		require.NotPanics(t, func() {
+			w.detectAndHandleSignerRotation(t.Context())
+		}, "an empty deprecated signer list must not panic")
+		require.Equal(t, newDigest, w.lastSignerSet,
+			"digest must still advance so the new signer set is recorded")
+		require.Equal(t, 1, reconcileCalls)
+	})
+
 	t.Run("reconcile receives signer info response", func(t *testing.T) {
 		info := &client.Info{SignerPubKey: "abcd"}
 		w := &wallet{

@@ -32,10 +32,21 @@ func (w *wallet) detectAndHandleSignerRotation(ctx context.Context) {
 		return
 	}
 
-	log.Debugf(
-		"detected deprecation of signer %s, migrating all funds to new contract(s) with "+
-			"signer %s...", serverParams.DeprecatedSignerPubKeys[0].PubKey, serverParams.SignerPubKey,
-	)
+	// needsMigration only compares signer sets, so the server may well report a
+	// new signer without deprecating any previous one. There is nothing to
+	// migrate from in that case: adopt the new set and let migrateAllFunds
+	// no-op on the empty deprecated set.
+	if deprecated := serverParams.DeprecatedSignerPubKeys; len(deprecated) > 0 {
+		log.Debugf(
+			"detected deprecation of signer %s, migrating all funds to new contract(s) with "+
+				"signer %s...", deprecated[0].PubKey, serverParams.SignerPubKey,
+		)
+	} else {
+		log.Debugf(
+			"detected signer %s with no deprecated signers, adopting it without migration...",
+			serverParams.SignerPubKey,
+		)
+	}
 
 	if err := w.updateConfig(ctx, serverParams); err != nil {
 		log.WithError(err).Warn("rotation detection: failed to update config")
@@ -241,8 +252,13 @@ func (w *wallet) migrateFunds(
 			return nil, err
 		}
 
+		minChangeAmount := serverParams.Dust
+		if serverParams.VtxoMinAmount >= 0 {
+			minChangeAmount = uint64(serverParams.VtxoMinAmount)
+		}
+
 		receiver := buildReceiverForMigration(vtxos, destAddr, w.dustAmount)
-		return w.sendMigrationOffchainTx(ctx, vtxos, receiver)
+		return w.sendMigrationOffchainTx(ctx, vtxos, receiver, minChangeAmount)
 	}
 
 	rr, err := w.txHandler.HandleTx(migrate)
@@ -263,6 +279,7 @@ func (w *wallet) sendMigrationOffchainTx(
 	ctx context.Context,
 	vtxos []clienttypes.VtxoWithTapTree,
 	receiver clienttypes.Receiver,
+	minChangeAmount uint64,
 ) (string, error) {
 	if len(vtxos) == 0 {
 		return "", nil
@@ -282,6 +299,7 @@ func (w *wallet) sendMigrationOffchainTx(
 		[]clienttypes.Receiver{receiver},
 		clientwallet.WithVtxos(vtxos),
 		clientwallet.WithKeys(signingKeyRefs),
+		clientwallet.WithMinChangeAmount(minChangeAmount),
 	)
 	if err != nil {
 		return "", err

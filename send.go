@@ -39,18 +39,21 @@ func (w *wallet) SendOffChain(
 			return nil, err
 		}
 
-		// Ensure asset-carrying receivers have at least dust sats as a carrier
-		clone := make([]clienttypes.Receiver, len(receivers))
-		copy(clone, receivers)
-		for i, receiver := range clone {
-			if len(receiver.Assets) > 0 && receiver.Amount < w.dustAmount {
-				clone[i].Amount = w.dustAmount
-			}
-		}
-
 		minChangeAmount := serverParams.Dust
 		if serverParams.VtxoMinAmount >= 0 {
 			minChangeAmount = uint64(serverParams.VtxoMinAmount)
+		}
+
+		// Ensure asset-carrying receivers have at least dust sats as a carrier.
+		// The server enforces its min vtxo amount on every output, not just the
+		// change, so the carrier must clear that floor too.
+		minCarrierAmount := max(w.dustAmount, minChangeAmount)
+		clone := make([]clienttypes.Receiver, len(receivers))
+		copy(clone, receivers)
+		for i, receiver := range clone {
+			if len(receiver.Assets) > 0 && receiver.Amount < minCarrierAmount {
+				clone[i].Amount = minCarrierAmount
+			}
 		}
 
 		opts := []clientwallet.SendOption{
