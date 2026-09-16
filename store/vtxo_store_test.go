@@ -205,6 +205,34 @@ func TestVtxoStoreAddVtxos(t *testing.T) {
 				require.Zero(t, n)
 			})
 
+			t.Run("reinsert with new vtxo adds only the new one", func(t *testing.T) {
+				newVtxo := clientTypes.Vtxo{
+					Outpoint: clientTypes.Outpoint{
+						Txid: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+						VOut: 0,
+					},
+					Script: "0000000000000000000000000000000000000000000000000000000000000001",
+					Amount: 4000,
+					CommitmentTxids: []string{
+						"0000000000000000000000000000000000000000000000000000000000000000",
+					},
+					ExpiresAt: time.Unix(1748143068, 0),
+					CreatedAt: time.Unix(1746143068, 0),
+				}
+
+				// An already stored vtxo placed before a new one must not
+				// prevent the new one from being inserted.
+				n, err := s.AddVtxos(ctx, []clientTypes.Vtxo{testVtxos[0], newVtxo})
+				require.NoError(t, err)
+				require.Equal(t, 1, n)
+
+				got, err := s.GetVtxosByOutpoints(
+					ctx, []clientTypes.Outpoint{newVtxo.Outpoint},
+				)
+				require.NoError(t, err)
+				requireVtxosListEqual(t, []clientTypes.Vtxo{newVtxo}, got)
+			})
+
 			t.Run("multi-asset vtxo round-trips correctly", func(t *testing.T) {
 				got, err := s.GetVtxosByOutpoints(ctx, testVtxoKeys)
 				require.NoError(t, err)
@@ -988,6 +1016,32 @@ func TestVtxoStoreGetEventChannel(t *testing.T) {
 
 				ev := drainEvent(t, types.VtxosAdded)
 				require.Len(t, ev.Vtxos, len(testVtxos))
+			})
+
+			t.Run("AddVtxos skips a duplicate and emits only the new vtxo", func(t *testing.T) {
+				newVtxo := clientTypes.Vtxo{
+					Outpoint: clientTypes.Outpoint{
+						Txid: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+						VOut: 0,
+					},
+					Script: "0000000000000000000000000000000000000000000000000000000000000001",
+					Amount: 5000,
+					CommitmentTxids: []string{
+						"0000000000000000000000000000000000000000000000000000000000000000",
+					},
+					ExpiresAt: time.Unix(1748143068, 0),
+					CreatedAt: time.Unix(1746143068, 0),
+				}
+
+				// The event must carry only the vtxo that was actually stored,
+				// never the duplicate that was skipped.
+				n, err := s.AddVtxos(ctx, []clientTypes.Vtxo{testVtxos[0], newVtxo})
+				require.NoError(t, err)
+				require.Equal(t, 1, n)
+
+				ev := drainEvent(t, types.VtxosAdded)
+				require.Len(t, ev.Vtxos, 1)
+				require.Equal(t, newVtxo.Outpoint, ev.Vtxos[0].Outpoint)
 			})
 
 			t.Run("SpendVtxos emits VtxosSpent", func(t *testing.T) {

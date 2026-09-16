@@ -64,7 +64,7 @@ func (v *vtxoRepository) AddVtxos(ctx context.Context, vtxos []clienttypes.Vtxo)
 				},
 			); err != nil {
 				if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-					return nil
+					continue
 				}
 				return err
 			}
