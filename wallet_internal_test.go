@@ -103,6 +103,32 @@ func TestDetectRotationDigestAdvance(t *testing.T) {
 	})
 }
 
+func TestDetectRotationWithEmptyDeprecatedSignerList(t *testing.T) {
+	const oldDigest = "old"
+	const newDigest = "new"
+
+	info := &client.Info{SignerPubKey: validSignerKeyHex}
+	migrated := false
+	w := &wallet{
+		lastSignerSet: oldDigest,
+		client:        &mockWallet{cfg: &clienttypes.Config{}},
+		clientStore:   &mockClientStore{configStore: &mockConfigStore{}},
+		fetchSignerSetFn: func(context.Context) (*client.Info, string, error) {
+			return info, newDigest, nil
+		},
+		migrateFundsAfterSignerRotationFn: func(_ context.Context, got *client.Info) error {
+			require.Same(t, info, got)
+			migrated = true
+			return nil
+		},
+	}
+
+	w.detectAndHandleSignerRotation(context.Background())
+
+	require.True(t, migrated, "rotation should still reconcile when no deprecated keys are listed")
+	require.Equal(t, newDigest, w.lastSignerSet)
+}
+
 func TestGroupSpentVtxosByTx(t *testing.T) {
 	t.Parallel()
 
